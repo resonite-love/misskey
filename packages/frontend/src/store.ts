@@ -74,6 +74,10 @@ export const defaultStore = markRaw(new Storage('base', {
 		where: 'account',
 		default: null,
 	},
+	memo2: {
+		where: 'account',
+		default: null,
+	},
 	reactions: {
 		where: 'account',
 		default: ['👍', '❤️', '😆', '🤔', '😮', '🎉', '💢', '😥', '😇', '🍮'],
