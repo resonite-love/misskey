@@ -4,6 +4,7 @@ export default function(app: App) {
 	app.component('WidgetProfile', defineAsyncComponent(() => import('./WidgetProfile.vue')));
 	app.component('WidgetInstanceInfo', defineAsyncComponent(() => import('./WidgetInstanceInfo.vue')));
 	app.component('WidgetMemo', defineAsyncComponent(() => import('./WidgetMemo.vue')));
+	app.component('WidgetMemo2', defineAsyncComponent(() => import('./WidgetMemo2.vue')));
 	app.component('WidgetNotifications', defineAsyncComponent(() => import('./WidgetNotifications.vue')));
 	app.component('WidgetTimeline', defineAsyncComponent(() => import('./WidgetTimeline.vue')));
 	app.component('WidgetCalendar', defineAsyncComponent(() => import('./WidgetCalendar.vue')));
@@ -34,6 +35,7 @@ export const widgets = [
 	'profile',
 	'instanceInfo',
 	'memo',
+	'memo2',
 	'notifications',
 	'timeline',
 	'calendar',

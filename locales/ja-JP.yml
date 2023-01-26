@@ -1649,6 +1649,7 @@ _widgets:
   profile: "プロフィール"
   instanceInfo: "インスタンス情報"
   memo: "付箋"
+  memo2: "付箋2"
   notifications: "通知"
   timeline: "タイムライン"
   calendar: "カレンダー"
