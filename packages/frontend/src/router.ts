@@ -493,6 +493,10 @@ export const routes = [{
 	component: page(() => import('./pages/clicker.vue')),
 	loginRequired: true,
 }, {
+	path: '/neos/directupload',
+	component: page(() => import('./pages/neos/direct-upload.vue')),
+	loginRequired: true,
+}, {
 	name: 'index',
 	path: '/',
 	component: $i ? page(() => import('./pages/timeline.vue')) : page(() => import('./pages/welcome.vue')),
