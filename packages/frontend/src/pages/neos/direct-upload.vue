@@ -79,6 +79,7 @@ const post = async (id = null) => {
 		nextTick(() => {
 			console.log("Next Tick");
 			text.value = "投稿完了！このタブを閉じても大丈夫です。";
+			window.close()
 		});
 	}).catch(err => {
 		text.value = "エラー発生。管理者に問い合わせてください。";
