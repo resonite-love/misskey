@@ -2,6 +2,7 @@ import { App, defineAsyncComponent } from 'vue';
 
 export default function(app: App) {
 	app.component('WidgetProfile', defineAsyncComponent(() => import('./WidgetProfile.vue')));
+	app.component('WidgetNeosUserCount', defineAsyncComponent(() => import('./WidgetNeosUserCount.vue')));
 	app.component('WidgetInstanceInfo', defineAsyncComponent(() => import('./WidgetInstanceInfo.vue')));
 	app.component('WidgetMemo', defineAsyncComponent(() => import('./WidgetMemo.vue')));
 	app.component('WidgetMemo2', defineAsyncComponent(() => import('./WidgetMemo2.vue')));
@@ -33,6 +34,7 @@ export default function(app: App) {
 
 export const widgets = [
 	'profile',
+	'neosUserCount',
 	'instanceInfo',
 	'memo',
 	'memo2',

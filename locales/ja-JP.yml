@@ -1648,6 +1648,7 @@ _weekday:
 _widgets:
   profile: "プロフィール"
   instanceInfo: "インスタンス情報"
+  neosUserCount: "Neosのユーザ数"
   memo: "付箋"
   memo2: "付箋2"
   notifications: "通知"
