@@ -79,7 +79,7 @@ export class ApiServerService {
 						reply.send();
 						return;
 					}
-		
+
 					this.apiCallService.handleMultipartRequest(ep, request, reply);
 				});
 			} else {
@@ -87,13 +87,13 @@ export class ApiServerService {
 					Params: { endpoint: string; },
 					Body: Record<string, unknown>,
 					Querystring: Record<string, unknown>,
-				}>('/' + endpoint.name, { bodyLimit: 1024 * 1024 }, (request, reply) => {
+				}>('/' + endpoint.name, { bodyLimit: 1024 * 32 }, (request, reply) => {
 					if (request.method === 'GET' && !endpoint.meta.allowGet) {
 						reply.code(405);
 						reply.send();
 						return;
 					}
-		
+
 					this.apiCallService.handleRequest(ep, request, reply);
 				});
 			}
