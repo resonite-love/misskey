@@ -1,45 +1,50 @@
 <template>
-	<div v-else-if="neosSessionId" :class="$style.twitter">
-		<div :class="[$style.link, { [$style.compact]: compact }]" rel="nofollow noopener" >
-			<article :class="$style.body">
-				<header :class="$style.header">
-					<h1 :class="$style.title">{{neosSessionData.name}}</h1>
-					<h1 :class="$style.text">{{neosSessionData.hostUserId}}</h1>
-				</header>
-				<div :class="$style.action">
-					<MkButton @click="copySessionUrl">{{neosButtonCopyText}}</MkButton>
-					<MkButton @click="openNeosLink">セッション参加</MkButton>
-				</div>
-			</article>
-		</div>
-	</div>
-	<div v-else-if="neosWorldRecordId" :class="$style.twitter">
-		<div :class="[$style.link, { [$style.compact]: compact }]" rel="nofollow noopener" >
-			<div v-if="neosWorldData.thumbnail" :class="$style.thumbnail" :style="`background-image: url('${neosWorldData.thumbnail}')`">
+	<div>
+		<div v-if="props.neosSessionId" :class="$style.twitter">
+			<div :class="[$style.link, { [$style.compact]: compact }]" rel="nofollow noopener">
+				<article :class="$style.body">
+					<header :class="$style.header">
+						<h1 :class="$style.title">{{ neosSessionData.name }}</h1>
+						<h1 :class="$style.text">{{ neosSessionData.hostUserId }}</h1>
+					</header>
+					<div :class="$style.action">
+						<MkButton @click="copySessionUrl">{{ neosButtonCopyText }}</MkButton>
+						<MkButton @click="openNeosLink">セッション参加</MkButton>
+					</div>
+				</article>
 			</div>
-			<article :class="$style.body">
-				<header :class="$style.header">
-					<h1 :class="$style.title">{{neosWorldData.name}}</h1>
-					<h1 :class="$style.text">{{neosWorldData.ownerName}}</h1>
-				</header>
-				<div :class="$style.action">
-					<MkButton @click="copyWorldLink">{{neosWorldButtonCopyText}}</MkButton>
-					<MkButton @click="openWorldLink">ワールドを開く</MkButton>
+		</div>
+		<div v-else-if="neosWorldRecordId" :class="$style.twitter">
+			<div :class="[$style.link, { [$style.compact]: compact }]" rel="nofollow noopener">
+				<div v-if="neosWorldData.thumbnail" :class="$style.thumbnail"
+						 :style="`background-image: url('${neosWorldData.thumbnail}')`">
 				</div>
-			</article>
+				<article :class="$style.body">
+					<header :class="$style.header">
+						<h1 :class="$style.title">{{ neosWorldData.name }}</h1>
+						<h1 :class="$style.text">{{ neosWorldData.ownerName }}</h1>
+					</header>
+					<div :class="$style.action">
+						<MkButton @click="copyWorldLink">{{ neosWorldButtonCopyText }}</MkButton>
+						<MkButton @click="openWorldLink">ワールドを開く</MkButton>
+					</div>
+				</article>
+			</div>
 		</div>
 	</div>
 </template>
 
 <script lang="ts" setup>
 import copyToClipboard from "@/scripts/copy-to-clipboard";
+import MkButton from '@/components/MkButton.vue';
 
 const props = withDefaults(defineProps<{
 	neosSessionId: string;
 	neosWorldRecordId?: string;
+	compact?: boolean;
 }>(), {
+	compact: false
 });
-
 
 type neosSessionData = {
 	name: string | null,
@@ -83,7 +88,7 @@ const openWorldLink = () => {
 
 const copySessionUrl = () => {
 	const result = copyToClipboard("https://util.kokoa.dev/v1/neos/join.json?url=neos-session:///" + props.neosSessionId)
-	if(result) {
+	if (result) {
 		neosButtonCopyText = "OK! Neosに貼り付けてね"
 		setTimeout(() => {
 			neosButtonCopyText = "参加コードをコピー"
@@ -93,7 +98,7 @@ const copySessionUrl = () => {
 
 const copyWorldLink = () => {
 	const result = copyToClipboard("neosrec:///" + props.neosWorldRecordId);
-	if(result) {
+	if (result) {
 		neosWorldButtonCopyText = "OK! Neosに貼り付けてね"
 		setTimeout(() => {
 			neosWorldButtonCopyText = "ワールドURLをコピー"
@@ -102,11 +107,10 @@ const copyWorldLink = () => {
 }
 
 
-
-if(props.neosSessionId) {
+if (props.neosSessionId) {
 	const data = await fetch("https://neos-proxy.kokoa.live/api/sessions/" + props.neosSessionId, {})
 	const json = await data.json()
-	if(data.status == 200) {
+	if (data.status == 200) {
 		neosSessionData = {
 			name: json.name,
 			hostUserId: json.hostUserId,
@@ -117,20 +121,20 @@ if(props.neosSessionId) {
 	}
 }
 
-if(props.neosWorldRecordId) {
+if (props.neosWorldRecordId) {
 	const record = props.neosWorldRecordId.split("/")
 	let d: any = null
-	if(props.neosWorldRecordId.startsWith("G")) {
+	if (props.neosWorldRecordId.startsWith("G")) {
 		d = await fetch(`https://neos-proxy.kokoa.live/api/groups/${record[0]}/records/${record[1]}`)
 	} else {
 		d = await fetch(`https://neos-proxy.kokoa.live/api/users/${record[0]}/records/${record[1]}`)
 	}
 	const json = await d.json()
-	if(d.status == 200) {
+	if (d.status == 200) {
 		neosWorldData = {
 			name: json.name,
 			ownerName: json.ownerName,
-			thumbnail: json.thumbnailUri.split(".")[0].replace("neosdb:///","https://assets.neos.com/assets/")
+			thumbnail: json.thumbnailUri.split(".")[0].replace("neosdb:///", "https://assets.neos.com/assets/")
 		}
 	}
 }

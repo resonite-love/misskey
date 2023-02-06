@@ -8,7 +8,7 @@
 	<iframe ref="tweet" scrolling="no" frameborder="no" :style="{ position: 'relative', width: '100%', height: `${tweetHeight}px` }" :src="`https://platform.twitter.com/embed/index.html?embedId=${embedId}&amp;hideCard=false&amp;hideThread=false&amp;lang=en&amp;theme=${$store.state.darkMode ? 'dark' : 'light'}&amp;id=${tweetId}`"></iframe>
 </div>
 <suspense v-else-if="neosWorldRecordId || neosSessionId">
-	<NeosUrlPreview :neos-session-id="neosSessionId" :neos-world-record-id="neosWorldRecordId"></NeosUrlPreview>
+	<NeosUrlPreview :compact="compact" :neos-session-id="neosSessionId" :neos-world-record-id="neosWorldRecordId" />
 </suspense>
 <div v-else :class="$style.urlPreview">
 	<component :is="self ? 'MkA' : 'a'" :class="[$style.link, { [$style.compact]: compact }]" :[attr]="self ? url.substr(local.length) : url" rel="nofollow noopener" :target="target" :title="url">
@@ -55,8 +55,6 @@ import * as os from '@/os';
 import { deviceKind } from '@/scripts/device-kind';
 import MkButton from '@/components/MkButton.vue';
 import { versatileLang } from '@/scripts/intl-const';
-import MkMediaImage from "@/components/MkMediaImage.vue";
-import copyToClipboard from "@/scripts/copy-to-clipboard";
 import NeosUrlPreview from "@/components/custom/NeosUrlPreview.vue";
 
 const props = withDefaults(defineProps<{
@@ -105,6 +103,7 @@ if (requestUrl.hostname === 'twitter.com' || requestUrl.hostname === 'mobile.twi
 	const m = requestUrl.pathname.match(/^\/.+\/status(?:es)?\/(\d+)/);
 	if (m) tweetId = m[1];
 }
+
 // detect neos session url
 if (requestUrl.hostname === 'cloudx.azurewebsites.net') {
 	const m = requestUrl.pathname.match(/^\/.+\/session\/(.+)/);
