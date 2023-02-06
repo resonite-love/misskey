@@ -152,7 +152,7 @@ if (requestUrl.hostname === 'cloudx.azurewebsites.net') {
 	if (w) neosWorldRecordId = w[1]
 
 	if(m) {
-		const data = await fetch("https://api.neos.com/api/sessions/" + m[1], {})
+		const data = await fetch("https://neos-proxy.kokoa.live/api/sessions/" + m[1], {})
 		const json = await data.json()
 		if(data.status == 200) {
 			neosSessionData = {
