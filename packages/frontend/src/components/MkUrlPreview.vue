@@ -7,37 +7,9 @@
 <div v-else-if="tweetId && tweetExpanded" ref="twitter" :class="$style.twitter">
 	<iframe ref="tweet" scrolling="no" frameborder="no" :style="{ position: 'relative', width: '100%', height: `${tweetHeight}px` }" :src="`https://platform.twitter.com/embed/index.html?embedId=${embedId}&amp;hideCard=false&amp;hideThread=false&amp;lang=en&amp;theme=${$store.state.darkMode ? 'dark' : 'light'}&amp;id=${tweetId}`"></iframe>
 </div>
-	<div v-else-if="neosSessionId" :class="$style.twitter">
-		<div :class="[$style.link, { [$style.compact]: compact }]" rel="nofollow noopener" >
-			<article :class="$style.body">
-				<header :class="$style.header">
-					<h1 :class="$style.title">{{neosSessionData.name}}</h1>
-					<h1 :class="$style.text">{{neosSessionData.hostUserId}}</h1>
-				</header>
-				<div :class="$style.action">
-					<MkButton @click="copySessionUrl">{{neosButtonCopyText}}</MkButton>
-					<MkButton @click="openNeosLink">セッション参加</MkButton>
-				</div>
-			</article>
-		</div>
-	</div>
-
-	<div v-else-if="neosWorldRecordId" :class="$style.twitter">
-		<div :class="[$style.link, { [$style.compact]: compact }]" rel="nofollow noopener" >
-			<div v-if="neosWorldData.thumbnail" :class="$style.thumbnail" :style="`background-image: url('${neosWorldData.thumbnail}')`">
-			</div>
-			<article :class="$style.body">
-				<header :class="$style.header">
-					<h1 :class="$style.title">{{neosWorldData.name}}</h1>
-					<h1 :class="$style.text">{{neosWorldData.ownerName}}</h1>
-				</header>
-				<div :class="$style.action">
-					<MkButton @click="copyWorldLink">{{neosWorldButtonCopyText}}</MkButton>
-					<MkButton @click="openWorldLink">ワールドを開く</MkButton>
-				</div>
-			</article>
-		</div>
-	</div>
+<suspense v-else-if="neosWorldRecordId || neosSessionId">
+	<NeosUrlPreview :neos-session-id="neosSessionId" :neos-world-record-id="neosWorldRecordId"></NeosUrlPreview>
+</suspense>
 <div v-else :class="$style.urlPreview">
 	<component :is="self ? 'MkA' : 'a'" :class="[$style.link, { [$style.compact]: compact }]" :[attr]="self ? url.substr(local.length) : url" rel="nofollow noopener" :target="target" :title="url">
 		<div v-if="thumbnail" :class="$style.thumbnail" :style="`background-image: url('${thumbnail}')`">
@@ -85,6 +57,7 @@ import MkButton from '@/components/MkButton.vue';
 import { versatileLang } from '@/scripts/intl-const';
 import MkMediaImage from "@/components/MkMediaImage.vue";
 import copyToClipboard from "@/scripts/copy-to-clipboard";
+import NeosUrlPreview from "@/components/custom/NeosUrlPreview.vue";
 
 const props = withDefaults(defineProps<{
 	url: string;
@@ -95,30 +68,6 @@ const props = withDefaults(defineProps<{
 	compact: false,
 });
 
-type neosSessionData = {
-	name: string | null,
-	hostUserId: string | null,
-	thumbnail: string | null
-}
-type neosWorldData = {
-	name: string | null,
-	ownerName: string | null,
-	thumbnail: string | null
-}
-const defaultNeosSessionData = () => {
-	return {
-		name: null,
-		hostUserId: null,
-		thumbnail: null
-	}
-}
-const defaultNeosWorldData = () => {
-	return {
-		name: null,
-		ownerName: null,
-		thumbnail: null
-	}
-}
 
 const MOBILE_THRESHOLD = 500;
 const isMobile = $ref(deviceKind === 'smartphone' || window.innerWidth <= MOBILE_THRESHOLD);
@@ -140,15 +89,12 @@ let player = $ref({
 let playerEnabled = $ref(false);
 let tweetId = $ref<string | null>(null);
 let neosSessionId = $ref<string | null>(null);
-let neosButtonCopyText = $ref<string>("参加コードをコピー");
-let neosWorldButtonCopyText = $ref<string>("ワールドURLをコピー");
-let neosSessionData = $ref<neosSessionData>(defaultNeosSessionData())
-let neosWorldData = $ref<neosWorldData>(defaultNeosWorldData())
 let neosWorldRecordId = $ref<string | null>(null);
 let tweetExpanded = $ref(props.detail);
 const embedId = `embed${Math.random().toString().replace(/\D/, '')}`;
 let tweetHeight = $ref(150);
 let unknownUrl = $ref(false);
+
 
 
 
@@ -159,74 +105,12 @@ if (requestUrl.hostname === 'twitter.com' || requestUrl.hostname === 'mobile.twi
 	const m = requestUrl.pathname.match(/^\/.+\/status(?:es)?\/(\d+)/);
 	if (m) tweetId = m[1];
 }
-
-// neos customize
-const openNeosLink = () => {
-	window.open("http://cloudx.azurewebsites.net/open/session/" + neosSessionId, '_blank');
-}
-
-const openWorldLink = () => {
-	window.open("http://cloudx.azurewebsites.net/open/world/" + neosWorldRecordId, '_blank');
-}
-
-const copySessionUrl = () => {
-	const result = copyToClipboard("https://util.kokoa.dev/v1/neos/join.json?url=neos-session:///" + neosSessionId)
-	if(result) {
-		neosButtonCopyText = "OK! Neosに貼り付けてね"
-		setTimeout(() => {
-			neosButtonCopyText = "参加コードをコピー"
-		}, 2000)
-	}
-}
-
-const copyWorldLink = () => {
-	const result = copyToClipboard("neosrec:///" + neosWorldRecordId);
-	if(result) {
-		neosWorldButtonCopyText = "OK! Neosに貼り付けてね"
-		setTimeout(() => {
-			neosWorldButtonCopyText = "ワールドURLをコピー"
-		}, 2000)
-	}
-}
-
 // detect neos session url
 if (requestUrl.hostname === 'cloudx.azurewebsites.net') {
 	const m = requestUrl.pathname.match(/^\/.+\/session\/(.+)/);
 	const w = requestUrl.pathname.match(/^\/.+\/world\/(.+)/);
 	if (m) neosSessionId = m[1];
 	if (w) neosWorldRecordId = w[1]
-
-	if(m) {
-		const data = await fetch("https://neos-proxy.kokoa.live/api/sessions/" + m[1], {})
-		const json = await data.json()
-		if(data.status == 200) {
-			neosSessionData = {
-				name: json.name,
-				hostUserId: json.hostUserId,
-				thumbnail: json.thumbnail
-			}
-		} else {
-			neosSessionData.name = "(たぶん)プライベートセッション"
-		}
-	}
-
-	if(w) {
-		const record = w[1].split("/")
-		let d: any = null
-		if(w[1].startsWith("G")) {
-			d = await fetch(`https://neos-proxy.kokoa.live/api/groups/${record[0]}/records/${record[1]}`)
-		} else {
-			d = await fetch(`https://neos-proxy.kokoa.live/api/users/${record[0]}/records/${record[1]}`)
-		}
-		const json = await d.json()
-		if(d.status == 200) {
-			neosWorldData = {
-				name: json.name,
-				ownerName: json.ownerName,
-				thumbnail: json.thumbnailUri.split(".")[0].replace("neosdb:///","https://assets.neos.com/assets/")
-			}
-		}
-	}
 }
 
 if (requestUrl.hostname === 'music.youtube.com' && requestUrl.pathname.match('^/(?:watch|channel)')) {
