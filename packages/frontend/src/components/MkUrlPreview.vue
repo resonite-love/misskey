@@ -8,18 +8,18 @@
 	<iframe ref="tweet" scrolling="no" frameborder="no" :style="{ position: 'relative', width: '100%', height: `${tweetHeight}px` }" :src="`https://platform.twitter.com/embed/index.html?embedId=${embedId}&amp;hideCard=false&amp;hideThread=false&amp;lang=en&amp;theme=${$store.state.darkMode ? 'dark' : 'light'}&amp;id=${tweetId}`"></iframe>
 </div>
 	<div v-else-if="neosSessionId" :class="$style.twitter">
-		<component :class="[$style.link, { [$style.compact]: compact }]" rel="nofollow noopener" >
+		<div :class="[$style.link, { [$style.compact]: compact }]" rel="nofollow noopener" >
 			<article :class="$style.body">
 				<header :class="$style.header">
 					<h1 :class="$style.title">{{neosSessionData.name}}</h1>
 					<h1 :class="$style.text">{{neosSessionData.hostUserId}}</h1>
 				</header>
 				<div :class="$style.action">
-					<MkButton @click="copySessionUrl">Session URLをコピー</MkButton>
+					<MkButton @click="copySessionUrl">{{neosButtonCopyText}}</MkButton>
 					<MkButton @click="openNeosLink">セッション参加</MkButton>
 				</div>
 			</article>
-		</component>
+		</div>
 	</div>
 <div v-else :class="$style.urlPreview">
 	<component :is="self ? 'MkA' : 'a'" :class="[$style.link, { [$style.compact]: compact }]" :[attr]="self ? url.substr(local.length) : url" rel="nofollow noopener" :target="target" :title="url">
@@ -111,6 +111,7 @@ let player = $ref({
 let playerEnabled = $ref(false);
 let tweetId = $ref<string | null>(null);
 let neosSessionId = $ref<string | null>(null);
+let neosButtonCopyText = $ref<string>("参加コードをコピー");
 let neosSessionData = $ref<neosSessionData>(defaultNeosSessionData())
 let neosWorldRecordId = $ref<string | null>(null);
 let tweetExpanded = $ref(props.detail);
@@ -134,7 +135,13 @@ const openNeosLink = () => {
 }
 
 const copySessionUrl = () => {
-	copyToClipboard("neos-session:///" + neosSessionId)
+	const result = copyToClipboard("https://util.kokoa.dev/v1/neos/join.json?url=neos-session:///" + neosSessionId)
+	if(result) {
+		neosButtonCopyText = "OK! Neosに貼り付けてね"
+		setTimeout(() => {
+			neosButtonCopyText = "参加コードをコピー"
+		}, 2000)
+	}
 }
 
 // detect neos session url
@@ -145,16 +152,16 @@ if (requestUrl.hostname === 'cloudx.azurewebsites.net') {
 	if (w) neosWorldRecordId = w[1]
 
 	if(m) {
-		try {
-			const data = await fetch("https://api.neos.com/api/sessions/" + m[1])
-			const json = await data.json()
+		const data = await fetch("https://api.neos.com/api/sessions/" + m[1], {})
+		const json = await data.json()
+		if(data.status == 200) {
 			neosSessionData = {
 				name: json.name,
 				hostUserId: json.hostUserId,
 				thumbnail: json.thumbnail
 			}
-		} catch {
-			// do nothing
+		} else {
+			neosSessionData.name = "(たぶん)プライベートセッション"
 		}
 	}
 }
