@@ -21,6 +21,23 @@
 			</article>
 		</div>
 	</div>
+
+	<div v-else-if="neosWorldRecordId" :class="$style.twitter">
+		<div :class="[$style.link, { [$style.compact]: compact }]" rel="nofollow noopener" >
+			<div v-if="neosWorldData.thumbnail" :class="$style.thumbnail" :style="`background-image: url('${neosWorldData.thumbnail}')`">
+			</div>
+			<article :class="$style.body">
+				<header :class="$style.header">
+					<h1 :class="$style.title">{{neosWorldData.name}}</h1>
+					<h1 :class="$style.text">{{neosWorldData.ownerName}}</h1>
+				</header>
+				<div :class="$style.action">
+					<MkButton @click="copyWorldLink">{{neosWorldButtonCopyText}}</MkButton>
+					<MkButton @click="openWorldLink">ワールドを開く</MkButton>
+				</div>
+			</article>
+		</div>
+	</div>
 <div v-else :class="$style.urlPreview">
 	<component :is="self ? 'MkA' : 'a'" :class="[$style.link, { [$style.compact]: compact }]" :[attr]="self ? url.substr(local.length) : url" rel="nofollow noopener" :target="target" :title="url">
 		<div v-if="thumbnail" :class="$style.thumbnail" :style="`background-image: url('${thumbnail}')`">
@@ -83,10 +100,22 @@ type neosSessionData = {
 	hostUserId: string | null,
 	thumbnail: string | null
 }
+type neosWorldData = {
+	name: string | null,
+	ownerName: string | null,
+	thumbnail: string | null
+}
 const defaultNeosSessionData = () => {
 	return {
 		name: null,
 		hostUserId: null,
+		thumbnail: null
+	}
+}
+const defaultNeosWorldData = () => {
+	return {
+		name: null,
+		ownerName: null,
 		thumbnail: null
 	}
 }
@@ -112,7 +141,9 @@ let playerEnabled = $ref(false);
 let tweetId = $ref<string | null>(null);
 let neosSessionId = $ref<string | null>(null);
 let neosButtonCopyText = $ref<string>("参加コードをコピー");
+let neosWorldButtonCopyText = $ref<string>("ワールドURLをコピー");
 let neosSessionData = $ref<neosSessionData>(defaultNeosSessionData())
+let neosWorldData = $ref<neosWorldData>(defaultNeosWorldData())
 let neosWorldRecordId = $ref<string | null>(null);
 let tweetExpanded = $ref(props.detail);
 const embedId = `embed${Math.random().toString().replace(/\D/, '')}`;
@@ -134,12 +165,26 @@ const openNeosLink = () => {
 	window.open("http://cloudx.azurewebsites.net/open/session/" + neosSessionId, '_blank');
 }
 
+const openWorldLink = () => {
+	window.open("http://cloudx.azurewebsites.net/open/world/" + neosWorldRecordId, '_blank');
+}
+
 const copySessionUrl = () => {
 	const result = copyToClipboard("https://util.kokoa.dev/v1/neos/join.json?url=neos-session:///" + neosSessionId)
 	if(result) {
 		neosButtonCopyText = "OK! Neosに貼り付けてね"
 		setTimeout(() => {
 			neosButtonCopyText = "参加コードをコピー"
+		}, 2000)
+	}
+}
+
+const copyWorldLink = () => {
+	const result = copyToClipboard("neosrec:///" + neosWorldRecordId);
+	if(result) {
+		neosWorldButtonCopyText = "OK! Neosに貼り付けてね"
+		setTimeout(() => {
+			neosWorldButtonCopyText = "ワールドURLをコピー"
 		}, 2000)
 	}
 }
@@ -162,6 +207,24 @@ if (requestUrl.hostname === 'cloudx.azurewebsites.net') {
 			}
 		} else {
 			neosSessionData.name = "(たぶん)プライベートセッション"
+		}
+	}
+
+	if(w) {
+		const record = w[1].split("/")
+		let d: any = null
+		if(w[1].startsWith("G")) {
+			d = await fetch(`https://neos-proxy.kokoa.live/api/groups/${record[0]}/records/${record[1]}`)
+		} else {
+			d = await fetch(`https://neos-proxy.kokoa.live/api/users/${record[0]}/records/${record[1]}`)
+		}
+		const json = await d.json()
+		if(d.status == 200) {
+			neosWorldData = {
+				name: json.name,
+				ownerName: json.ownerName,
+				thumbnail: json.thumbnailUri.split(".")[0].replace("neosdb:///","https://assets.neos.com/assets/")
+			}
 		}
 	}
 }
