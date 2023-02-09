@@ -2,6 +2,9 @@
 	<div>
 		<div v-if="props.neosSessionId" :class="$style.twitter">
 			<div :class="[$style.link, { [$style.compact]: compact }]" rel="nofollow noopener">
+				<div v-if="neosSessionData.thumbnail" :class="$style.thumbnail"
+						 :style="`background-image: url('${neosSessionData.thumbnail}')`">
+				</div>
 				<article :class="$style.body">
 					<header :class="$style.header">
 						<h1 :class="$style.title">{{ neosSessionData.name }}</h1>
