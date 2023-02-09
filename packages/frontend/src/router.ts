@@ -485,6 +485,9 @@ export const routes = [{
 	component: page(() => import('./pages/clicker.vue')),
 	loginRequired: true,
 }, {
+	path: '/timeline',
+	component: page(() => import('./pages/timeline.vue')),
+}, {
 	path: '/neos/directupload',
 	component: page(() => import('./pages/neos/direct-upload.vue')),
 	loginRequired: true,
