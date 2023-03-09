@@ -77,7 +77,7 @@ const post = async (id = null) => {
 	// };
 
 	let postData = {
-		text: noteText ?? undefined,
+		text: noteText || undefined,
 		fileIds: id ? [id] : undefined,
 	};
 
