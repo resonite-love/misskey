@@ -1,36 +1,37 @@
 <template>
-	<div>
-		{{ text }}
-	</div>
+<div>
+	{{ text }}
+</div>
 </template>
 
 <script lang="ts" setup>
-import { stream } from "@/stream";
-import * as os from "@/os";
-import { defaultStore } from "@/store";
-import { nextTick, ref } from "vue";
-import { getAccounts, incNotesCount, notesCount } from "@/account";
-import * as misskey from "misskey-js";
+import { nextTick, ref } from 'vue';
+import * as misskey from 'misskey-js';
+import { Channel, DriveFile, Note, User } from 'misskey-js/built/entities';
+import { stream } from '@/stream';
+import * as os from '@/os';
+import { defaultStore } from '@/store';
+import { getAccounts, incNotesCount, notesCount } from '@/account';
 
 const marker = Math.random().toString();
 const connection = stream.useChannel('main');
 
-const text = ref<string>("direct-upload!!");
+const text = ref<string>('direct-upload!!');
 
 let queryString = window.location.search;
 let urlParams = new URLSearchParams(queryString);
 
 let imageUrl = decodeURIComponent(urlParams.get('imageUrl'));
 let noteText = decodeURIComponent(urlParams.get('noteText'));
-let localOnly = urlParams.get('localOnly') === "true";
-let visibility = urlParams.get('visibility') ?? "public";
+let localOnly = urlParams.get('localOnly') === 'true';
+let visibility = urlParams.get('visibility') ?? 'public';
 
-console.log(imageUrl, noteText, localOnly, visibility)
+console.log(imageUrl, noteText, localOnly, visibility);
 
-type v = "public" | "home" | "followers"
+type v = 'public' | 'home' | 'followers'
 
 connection.on('urlUploadFinished', async urlResponse => {
-	console.log("urlUploadFinished");
+	console.log('urlUploadFinished');
 	if (urlResponse.marker === marker) {
 		console.log(urlResponse.file);
 		connection.dispose();
@@ -39,9 +40,9 @@ connection.on('urlUploadFinished', async urlResponse => {
 });
 
 setTimeout(async () => {
-	console.log("timeout")
-	if (imageUrl == "null") {
-		console.log("textonly post")
+	console.log('timeout');
+	if (imageUrl == 'null') {
+		console.log('textonly post');
 		await post();
 		return;
 	}
@@ -62,28 +63,34 @@ const post = async (id = null) => {
 		token = storedAccounts.find(x => x.id === postAccount.id)?.token;
 	}
 
+	// let postData = {
+	// 	text: noteText,
+	// 	fileIds: id ? [id] : undefined,
+	// 	replyId: undefined,
+	// 	renoteId: undefined,
+	// 	channelId: undefined,
+	// 	poll: null,
+	// 	cw: undefined,
+	// 	localOnly: localOnly,
+	// 	visibility: 'public',
+	// 	visibleUserIds: undefined,
+	// };
+
 	let postData = {
 		text: noteText,
 		fileIds: id ? [id] : undefined,
-		replyId: undefined,
-		renoteId: undefined,
-		channelId: undefined,
-		poll: null,
-		cw: undefined,
-		localOnly: localOnly,
-		visibility: visibility,
-		visibleUserIds: undefined,
 	};
+
 	os.api('notes/create', postData, token).then(() => {
-		console.log("POST OK");
+		console.log('POST OK');
 		nextTick(() => {
-			console.log("Next Tick");
-			text.value = "投稿完了！このタブを閉じても大丈夫です。";
-			window.close()
+			console.log('Next Tick');
+			text.value = '投稿完了！このタブを閉じても大丈夫です。';
+			window.close();
 		});
 	}).catch(err => {
-		text.value = "エラー発生。管理者に問い合わせてください。";
-		console.log("post error");
+		text.value = 'エラー発生。管理者に問い合わせてください。';
+		console.log('post error');
 	});
 };
 
