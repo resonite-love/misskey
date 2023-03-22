@@ -14,16 +14,9 @@ jobs:
       - name: checkout
         uses: actions/checkout@v2
 
-      - name: Check tagged branch
-        run: |
-          BRANCHS=$(git branch --contains ${{ github.ref_name }})
-          set -- $BRANCHS
-          for BRANCH in $BRANCHS ; do
-            if [[ "$BRANCH" == "neos-love-master" ]]; then
-              exit 0
-            fi
-          done
-          exit 1
+      - name: Exit if not on master branch
+        if: endsWith(github.ref, 'neos-love-master') == false
+        run: exit -1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
