@@ -3,7 +3,7 @@ name: Build and Publish Docker
 on:
   push:
     tags:
-      - '*'
+      - '*neos-love.*'
 
 jobs:
   build_and_push:
@@ -13,10 +13,6 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v2
-
-      - name: Exit if not on master branch
-        if: endsWith(github.ref, 'master') == false
-        run: exit -1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
