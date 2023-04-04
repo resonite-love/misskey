@@ -1648,6 +1648,7 @@ _widgets:
   profile: "プロフィール"
   instanceInfo: "サーバー情報"
   neosUserCount: "Neosのユーザ数"
+  neosEvent: "イベントカレンダー"
   memo: "付箋"
   memo2: "付箋2"
   notifications: "通知"
