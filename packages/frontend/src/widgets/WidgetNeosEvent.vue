@@ -2,7 +2,7 @@
 	<MkContainer :show-header="widgetProps.showHeader">
 		<template #header>{{ i18n.ts._widgets.neosEvent }}</template>
 		<div :class="$style.root">
-			<div :class="$style.event" v-for="(event, i) in eventData" :key="i" :title="`${removeHtmlTag(event.detail)}&#13;&#10;${removeHtmlTag(event.place)}にJOIN`">
+			<div :class="$style.event" v-for="(event, i) in eventData" :key="i" :title="`${removeHtmlTag(event.detail)}&#13;&#10;${removeHtmlTag(event.place)}`">
 				<div :class="$style.event_date">
 					<div :class="[isDoyoubi(event.startTime) ? $style.text_blue : null, isNitiyoubi(event.startTime) ? $style.text_red : null]">
 						{{formatDate(event.startTime)}}<span :class="$style.event_day">({{getDay(event.startTime)}})</span>
