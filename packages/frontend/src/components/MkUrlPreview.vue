@@ -23,7 +23,7 @@
 </template>
 <template v-else-if="tweetId && tweetExpanded">
 	<div ref="twitter" :class="$style.twitter">
-		<iframe ref="tweet" scrolling="no" frameborder="no" :style="{ position: 'relative', width: '100%', height: `${tweetHeight}px` }" :src="`https://platform.twitter.com/embed/index.html?embedId=${embedId}&amp;hideCard=false&amp;hideThread=false&amp;lang=en&amp;theme=${$store.state.darkMode ? 'dark' : 'light'}&amp;id=${tweetId}`"></iframe>
+		<iframe ref="tweet" scrolling="no" frameborder="no" :style="{ position: 'relative', width: '100%', height: `${tweetHeight}px` }" :src="`https://platform.twitter.com/embed/index.html?embedId=${embedId}&amp;hideCard=false&amp;hideThread=false&amp;lang=en&amp;theme=${defaultStore.state.darkMode ? 'dark' : 'light'}&amp;id=${tweetId}`"></iframe>
 	</div>
 	<div :class="$style.action">
 		<MkButton :small="true" inline @click="tweetExpanded = false">
@@ -80,6 +80,7 @@ import * as os from '@/os';
 import { deviceKind } from '@/scripts/device-kind';
 import MkButton from '@/components/MkButton.vue';
 import { versatileLang } from '@/scripts/intl-const';
+import { defaultStore } from '@/store';
 import NeosUrlPreview from "@/components/custom/NeosUrlPreview.vue";
 
 type SummalyResult = Awaited<ReturnType<typeof summaly>>;
@@ -145,17 +146,22 @@ if (requestUrl.hostname === 'music.youtube.com' && requestUrl.pathname.match('^/
 
 requestUrl.hash = '';
 
-window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`).then(res => {
-	res.json().then((info: SummalyResult) => {
-		title = info.title;
-		description = info.description;
-		thumbnail = info.thumbnail;
-		icon = info.icon;
-		sitename = info.sitename;
+if(!(neosSessionId || neosWorldRecordId)) {
+	window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`).then(res => {
+		res.json().then((info: SummalyResult) => {
+			title = info.title;
+			description = info.description;
+			thumbnail = info.thumbnail;
+			icon = info.icon;
+			sitename = info.sitename;
+			fetching = false;
+			player = info.player;
+		});
+	}).catch(() => {
+		// unknownUrl = true;
 		fetching = false;
-		player = info.player;
 	});
-});
+}
 
 function adjustTweetHeight(message: any) {
 	if (message.origin !== 'https://platform.twitter.com') return;
@@ -167,7 +173,7 @@ function adjustTweetHeight(message: any) {
 }
 
 const openPlayer = (): void => {
-	os.popup(defineAsyncComponent(() => import('@/components/MkYoutubePlayer.vue')), {
+	os.popup(defineAsyncComponent(() => import('@/components/MkYouTubePlayer.vue')), {
 		url: requestUrl.href,
 	});
 };
