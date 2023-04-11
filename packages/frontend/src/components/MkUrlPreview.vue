@@ -146,17 +146,22 @@ if (requestUrl.hostname === 'music.youtube.com' && requestUrl.pathname.match('^/
 
 requestUrl.hash = '';
 
-window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`).then(res => {
-	res.json().then((info: SummalyResult) => {
-		title = info.title;
-		description = info.description;
-		thumbnail = info.thumbnail;
-		icon = info.icon;
-		sitename = info.sitename;
+if(!(neosSessionId || neosWorldRecordId)) {
+	window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`).then(res => {
+		res.json().then((info: SummalyResult) => {
+			title = info.title;
+			description = info.description;
+			thumbnail = info.thumbnail;
+			icon = info.icon;
+			sitename = info.sitename;
+			fetching = false;
+			player = info.player;
+		});
+	}).catch(() => {
+		// unknownUrl = true;
 		fetching = false;
-		player = info.player;
 	});
-});
+}
 
 function adjustTweetHeight(message: any) {
 	if (message.origin !== 'https://platform.twitter.com') return;
