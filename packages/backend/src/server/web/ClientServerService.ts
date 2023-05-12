@@ -1,6 +1,7 @@
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Inject, Injectable } from '@nestjs/common';
+import { v4 as uuid } from 'uuid';
 import { createBullBoard } from '@bull-board/api';
 import { BullAdapter } from '@bull-board/api/bullAdapter.js';
 import { FastifyAdapter } from '@bull-board/fastify';
@@ -26,6 +27,7 @@ import { GalleryPostEntityService } from '@/core/entities/GalleryPostEntityServi
 import { ClipEntityService } from '@/core/entities/ClipEntityService.js';
 import { ChannelEntityService } from '@/core/entities/ChannelEntityService.js';
 import type { ChannelsRepository, ClipsRepository, FlashsRepository, GalleryPostsRepository, NotesRepository, PagesRepository, UserProfilesRepository, UsersRepository } from '@/models/index.js';
+import type Logger from '@/logger.js';
 import { deepClone } from '@/misc/clone.js';
 import { bindThis } from '@/decorators.js';
 import { FlashEntityService } from '@/core/entities/FlashEntityService.js';
@@ -33,6 +35,7 @@ import { RoleService } from '@/core/RoleService.js';
 import manifest from './manifest.json' assert { type: 'json' };
 import { FeedService } from './FeedService.js';
 import { UrlPreviewService } from './UrlPreviewService.js';
+import { ClientLoggerService } from './ClientLoggerService.js';
 import type { FastifyInstance, FastifyPluginOptions, FastifyReply } from 'fastify';
 
 const _filename = fileURLToPath(import.meta.url);
@@ -46,6 +49,8 @@ const viteOut = `${_dirname}/../../../../../built/_vite_/`;
 
 @Injectable()
 export class ClientServerService {
+	private logger: Logger;
+
 	constructor(
 		@Inject(DI.config)
 		private config: Config,
@@ -85,6 +90,7 @@ export class ClientServerService {
 		private urlPreviewService: UrlPreviewService,
 		private feedService: FeedService,
 		private roleService: RoleService,
+		private clientLoggerService: ClientLoggerService,
 
 		@Inject('queue:system') public systemQueue: SystemQueue,
 		@Inject('queue:endedPollNotification') public endedPollNotificationQueue: EndedPollNotificationQueue,
@@ -417,6 +423,10 @@ export class ClientServerService {
 					: [];
 
 				reply.header('Cache-Control', 'public, max-age=15');
+				if (profile.preventAiLearning) {
+					reply.header('X-Robots-Tag', 'noimageai');
+					reply.header('X-Robots-Tag', 'noai');
+				}
 				return await reply.view('user', {
 					user, profile, me,
 					avatarUrl: user.avatarUrl ?? this.userEntityService.getIdenticonUrl(user),
@@ -461,6 +471,10 @@ export class ClientServerService {
 				const profile = await this.userProfilesRepository.findOneByOrFail({ userId: note.userId });
 				const meta = await this.metaService.fetch();
 				reply.header('Cache-Control', 'public, max-age=15');
+				if (profile.preventAiLearning) {
+					reply.header('X-Robots-Tag', 'noimageai');
+					reply.header('X-Robots-Tag', 'noai');
+				}
 				return await reply.view('note', {
 					note: _note,
 					profile,
@@ -500,6 +514,10 @@ export class ClientServerService {
 				} else {
 					reply.header('Cache-Control', 'private, max-age=0, must-revalidate');
 				}
+				if (profile.preventAiLearning) {
+					reply.header('X-Robots-Tag', 'noimageai');
+					reply.header('X-Robots-Tag', 'noai');
+				}
 				return await reply.view('page', {
 					page: _page,
 					profile,
@@ -524,6 +542,10 @@ export class ClientServerService {
 				const profile = await this.userProfilesRepository.findOneByOrFail({ userId: flash.userId });
 				const meta = await this.metaService.fetch();
 				reply.header('Cache-Control', 'public, max-age=15');
+				if (profile.preventAiLearning) {
+					reply.header('X-Robots-Tag', 'noimageai');
+					reply.header('X-Robots-Tag', 'noai');
+				}
 				return await reply.view('flash', {
 					flash: _flash,
 					profile,
@@ -548,6 +570,10 @@ export class ClientServerService {
 				const profile = await this.userProfilesRepository.findOneByOrFail({ userId: clip.userId });
 				const meta = await this.metaService.fetch();
 				reply.header('Cache-Control', 'public, max-age=15');
+				if (profile.preventAiLearning) {
+					reply.header('X-Robots-Tag', 'noimageai');
+					reply.header('X-Robots-Tag', 'noai');
+				}
 				return await reply.view('clip', {
 					clip: _clip,
 					profile,
@@ -570,6 +596,10 @@ export class ClientServerService {
 				const profile = await this.userProfilesRepository.findOneByOrFail({ userId: post.userId });
 				const meta = await this.metaService.fetch();
 				reply.header('Cache-Control', 'public, max-age=15');
+				if (profile.preventAiLearning) {
+					reply.header('X-Robots-Tag', 'noimageai');
+					reply.header('X-Robots-Tag', 'noai');
+				}
 				return await reply.view('gallery-post', {
 					post: _post,
 					profile,
@@ -647,6 +677,24 @@ export class ClientServerService {
 		// Render base html for all requests
 		fastify.get('*', async (request, reply) => {
 			return await renderBase(reply);
+		});
+
+		fastify.setErrorHandler(async (error, request, reply) => {
+			const errId = uuid();
+			this.clientLoggerService.logger.error(`Internal error occured in ${request.routerPath}: ${error.message}`, {
+				path: request.routerPath,
+				params: request.params,
+				query: request.query,
+				code: error.name,
+				stack: error.stack,
+				id: errId,
+			});
+			reply.code(500);
+			reply.header('Cache-Control', 'max-age=10, must-revalidate');
+			return await reply.view('error', {
+				code: error.code,
+				id: errId,
+			});
 		});
 
 		done();
