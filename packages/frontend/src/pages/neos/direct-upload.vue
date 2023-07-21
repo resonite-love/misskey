@@ -7,14 +7,13 @@
 <script lang="ts" setup>
 import { nextTick, ref } from 'vue';
 import * as misskey from 'misskey-js';
-import { Channel, DriveFile, Note, User } from 'misskey-js/built/entities';
-import { stream } from '@/stream';
 import * as os from '@/os';
 import { defaultStore } from '@/store';
-import { getAccounts, incNotesCount, notesCount } from '@/account';
+import { getAccounts } from '@/account';
+import { useStream } from "@/stream";
 
 const marker = Math.random().toString();
-const connection = stream.useChannel('main');
+const connection = useStream().useChannel('main');
 
 const text = ref<string>('direct-upload!!');
 

@@ -22,7 +22,7 @@
 	</div>
 </template>
 <template v-else-if="tweetId && tweetExpanded">
-	<div ref="twitter" :class="$style.twitter">
+	<div ref="twitter">
 		<iframe ref="tweet" scrolling="no" frameborder="no" :style="{ position: 'relative', width: '100%', height: `${tweetHeight}px` }" :src="`https://platform.twitter.com/embed/index.html?embedId=${embedId}&amp;hideCard=false&amp;hideThread=false&amp;lang=en&amp;theme=${defaultStore.state.darkMode ? 'dark' : 'light'}&amp;id=${tweetId}`"></iframe>
 	</div>
 	<div :class="$style.action">
@@ -44,43 +44,45 @@
 				<h1 v-else-if="fetching" :class="$style.title"><MkEllipsis/></h1>
 				<h1 v-else :class="$style.title" :title="title ?? undefined">{{ title }}</h1>
 			</header>
-			<p v-if="unknownUrl" :class="$style.text">{{ i18n.ts.cannotLoad }}</p>
+			<p v-if="unknownUrl" :class="$style.text">{{ i18n.ts.failedToPreviewUrl }}</p>
 			<p v-else-if="fetching" :class="$style.text"><MkEllipsis/></p>
 			<p v-else-if="description" :class="$style.text" :title="description">{{ description.length > 85 ? description.slice(0, 85) + '…' : description }}</p>
 			<footer :class="$style.footer">
 				<img v-if="icon" :class="$style.siteIcon" :src="icon"/>
-				<p v-if="unknownUrl" :class="$style.siteName">?</p>
+				<p v-if="unknownUrl" :class="$style.siteName">{{ requestUrl.host }}</p>
 				<p v-else-if="fetching" :class="$style.siteName"><MkEllipsis/></p>
-				<p v-else :class="$style.siteName" :title="sitename ?? undefined">{{ sitename }}</p>
+				<p v-else :class="$style.siteName" :title="sitename ?? requestUrl.host">{{ sitename ?? requestUrl.host }}</p>
 			</footer>
 		</article>
 	</component>
-	<div v-if="tweetId" :class="$style.action">
-		<MkButton :small="true" inline @click="tweetExpanded = true">
-			<i class="ti ti-brand-twitter"></i> {{ i18n.ts.expandTweet }}
-		</MkButton>
-	</div>
-	<div v-if="!playerEnabled && player.url" :class="$style.action">
-		<MkButton :small="true" inline @click="playerEnabled = true">
-			<i class="ti ti-player-play"></i> {{ i18n.ts.enablePlayer }}
-		</MkButton>
-		<MkButton v-if="!isMobile" :small="true" inline @click="openPlayer()">
-			<i class="ti ti-picture-in-picture"></i> {{ i18n.ts.openInWindow }}
-		</MkButton>
-	</div>
+	<template v-if="showActions">
+		<div v-if="tweetId" :class="$style.action">
+			<MkButton :small="true" inline @click="tweetExpanded = true">
+				<i class="ti ti-brand-twitter"></i> {{ i18n.ts.expandTweet }}
+			</MkButton>
+		</div>
+		<div v-if="!playerEnabled && player.url" :class="$style.action">
+			<MkButton :small="true" inline @click="playerEnabled = true">
+				<i class="ti ti-player-play"></i> {{ i18n.ts.enablePlayer }}
+			</MkButton>
+			<MkButton v-if="!isMobile" :small="true" inline @click="openPlayer()">
+				<i class="ti ti-picture-in-picture"></i> {{ i18n.ts.openInWindow }}
+			</MkButton>
+		</div>
+	</template>
 </div>
 </template>
 
 <script lang="ts" setup>
-import { defineAsyncComponent, onUnmounted } from 'vue';
-import type { summaly } from 'summaly';
-import { url as local } from '@/config';
-import { i18n } from '@/i18n';
+import {defineAsyncComponent, onUnmounted} from 'vue';
+import type {summaly} from 'summaly';
+import {url as local} from '@/config';
+import {i18n} from '@/i18n';
 import * as os from '@/os';
-import { deviceKind } from '@/scripts/device-kind';
+import {deviceKind} from '@/scripts/device-kind';
 import MkButton from '@/components/MkButton.vue';
-import { versatileLang } from '@/scripts/intl-const';
-import { defaultStore } from '@/store';
+import {versatileLang} from '@/scripts/intl-const';
+import {defaultStore} from '@/store';
 import NeosUrlPreview from "@/components/custom/NeosUrlPreview.vue";
 
 type SummalyResult = Awaited<ReturnType<typeof summaly>>;
@@ -89,9 +91,11 @@ const props = withDefaults(defineProps<{
 	url: string;
 	detail?: boolean;
 	compact?: boolean;
+	showActions?: boolean;
 }>(), {
 	detail: false,
 	compact: false,
+	showActions: true,
 });
 
 
@@ -122,8 +126,6 @@ let tweetHeight = $ref(150);
 let unknownUrl = $ref(false);
 
 
-
-
 const requestUrl = new URL(props.url);
 if (!['http:', 'https:'].includes(requestUrl.protocol)) throw new Error('invalid url');
 
@@ -146,22 +148,17 @@ if (requestUrl.hostname === 'music.youtube.com' && requestUrl.pathname.match('^/
 
 requestUrl.hash = '';
 
-if(!(neosSessionId || neosWorldRecordId)) {
-	window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`).then(res => {
-		res.json().then((info: SummalyResult) => {
-			title = info.title;
-			description = info.description;
-			thumbnail = info.thumbnail;
-			icon = info.icon;
-			sitename = info.sitename;
-			fetching = false;
-			player = info.player;
-		});
-	}).catch(() => {
-		// unknownUrl = true;
+window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`).then(res => {
+	res.json().then((info: SummalyResult) => {
+		title = info.title;
+		description = info.description;
+		thumbnail = info.thumbnail;
+		icon = info.icon;
+		sitename = info.sitename;
 		fetching = false;
+		player = info.player;
 	});
-}
+});
 
 function adjustTweetHeight(message: any) {
 	if (message.origin !== 'https://platform.twitter.com') return;
@@ -215,13 +212,6 @@ onUnmounted(() => {
 	position: absolute;
 	top: 0;
 	width: 100%;
-}
-
-.twitter {
-
-}
-
-.urlPreview {
 }
 
 .link {
