@@ -1875,7 +1875,10 @@ export interface Locale {
     "_widgets": {
         "profile": string;
         "instanceInfo": string;
+        "neosUserCount": string;
+        "neosEvent": string;
         "memo": string;
+        "memo2": string;
         "notifications": string;
         "timeline": string;
         "calendar": string;

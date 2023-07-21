@@ -31,11 +31,11 @@
 		</MkButton>
 	</div>
 </template>
-<div v-else :class="$style.urlPreview">
-	<component :is="self ? 'MkA' : 'a'" :class="[$style.link, { [$style.compact]: compact }]" :[attr]="self ? url.substr(local.length) : url" rel="nofollow noopener" :target="target" :title="url">
 <suspense v-else-if="neosWorldRecordId || neosSessionId">
 	<NeosUrlPreview :compact="compact" :neos-session-id="neosSessionId" :neos-world-record-id="neosWorldRecordId" />
 </suspense>
+<div v-else :class="$style.urlPreview">
+	<component :is="self ? 'MkA' : 'a'" :class="[$style.link, { [$style.compact]: compact }]" :[attr]="self ? url.substr(local.length) : url" rel="nofollow noopener" :target="target" :title="url">
 		<div v-if="thumbnail" :class="$style.thumbnail" :style="`background-image: url('${thumbnail}')`">
 		</div>
 		<article :class="$style.body">
@@ -74,15 +74,15 @@
 </template>
 
 <script lang="ts" setup>
-import { defineAsyncComponent, onUnmounted } from 'vue';
-import type { summaly } from 'summaly';
-import { url as local } from '@/config';
-import { i18n } from '@/i18n';
+import {defineAsyncComponent, onUnmounted} from 'vue';
+import type {summaly} from 'summaly';
+import {url as local} from '@/config';
+import {i18n} from '@/i18n';
 import * as os from '@/os';
-import { deviceKind } from '@/scripts/device-kind';
+import {deviceKind} from '@/scripts/device-kind';
 import MkButton from '@/components/MkButton.vue';
-import { versatileLang } from '@/scripts/intl-const';
-import { defaultStore } from '@/store';
+import {versatileLang} from '@/scripts/intl-const';
+import {defaultStore} from '@/store';
 import NeosUrlPreview from "@/components/custom/NeosUrlPreview.vue";
 
 type SummalyResult = Awaited<ReturnType<typeof summaly>>;
@@ -124,8 +124,6 @@ let tweetExpanded = $ref(props.detail);
 const embedId = `embed${Math.random().toString().replace(/\D/, '')}`;
 let tweetHeight = $ref(150);
 let unknownUrl = $ref(false);
-
-
 
 
 const requestUrl = new URL(props.url);
