@@ -10,7 +10,7 @@
 		</MkRange>
 		<p>ws: {{ wsState }}</p>
 		<p>state: {{ soundState }}</p>
-		<button @mousedown="onMouseDown" @mouseup="onMouseUp">BEEP</button>
+		<button @pointerdown="onMouseDown" @pointerup="onMouseUp">BEEP</button>
 	</div>
 </MkContainer>
 </template>
@@ -48,17 +48,23 @@ connection.onopen = () => {
 	wsState.value = true;
 };
 
+let processing = ref(false);
+
 connection.onmessage = (evt) => {
 	console.log(evt.data);
 	const [id, freq, command] = evt.data.split(':');
 
 	if (command === 'play') {
-		soundState.value = true;
 		if (toggleValue.value === false) return;
+		if (processing.value || soundState.value) return;
+
+		soundState.value = true;
+		processing.value = true;
 		oscillator = audioContext.createOscillator();
 		oscillator.frequency.value = parseInt(freq);
 		oscillator.connect(audioContext.destination);
 		oscillator.start();
+		processing.value = false;
 		// oscillator.stop(audioContext.currentTime + 0.1);
 	} else if (command === 'stop') {
 		soundState.value = false;
