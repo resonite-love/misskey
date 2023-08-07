@@ -1879,6 +1879,7 @@ export interface Locale {
         "neosEvent": string;
         "memo": string;
         "memo2": string;
+        "morse": string;
         "notifications": string;
         "timeline": string;
         "calendar": string;
