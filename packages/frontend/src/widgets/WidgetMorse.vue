@@ -8,6 +8,9 @@
 		<MkRange v-model="rangeValue" :min="200" :max="2000">
 			<template #label>frequency</template>
 		</MkRange>
+		<MkRange v-model="volume" :min="0" :max="100">
+			<template #label>volume</template>
+		</MkRange>
 		<p>ws: {{ wsState }}</p>
 		<p>state: {{ soundState }}</p>
 		<button @pointerdown="onMouseDown" @pointerup="onMouseUp">BEEP</button>
@@ -37,6 +40,7 @@ const randomName = () => {
 
 const toggleValue = ref(defaultStore.state.morse?.toggle || false);
 const rangeValue = ref(defaultStore.state.morse?.freq || 440);
+const volume = ref(defaultStore.state.morse?.volume || 50);
 const soundState = ref(false);
 const wsState = ref(false);
 
@@ -62,7 +66,15 @@ connection.onmessage = (evt) => {
 		processing.value = true;
 		oscillator = audioContext.createOscillator();
 		oscillator.frequency.value = parseInt(freq);
-		oscillator.connect(audioContext.destination);
+		oscillator.type = 'sine';
+		// volume
+		const gainNode = audioContext.createGain();
+		gainNode.gain.value = volume.value / 100;
+		console.log(volume.value / 100);
+		oscillator.connect(gainNode);
+		gainNode.connect(audioContext.destination);
+
+		// oscillator.connect(audioContext.destination);
 		oscillator.start();
 		processing.value = false;
 		// oscillator.stop(audioContext.currentTime + 0.1);
@@ -92,6 +104,7 @@ const saveSettings = () => {
 	defaultStore.set('morse', {
 		toggle: toggleValue.value,
 		freq: rangeValue.value,
+		volume: volume.value,
 	});
 };
 
@@ -103,9 +116,14 @@ watch(() => rangeValue.value, () => {
 	saveSettings();
 });
 
+watch(() => volume.value, () => {
+	saveSettings();
+});
+
 watch(() => defaultStore.reactiveState.morse, newSettings => {
 	toggleValue.value = newSettings.toggle.value;
 	rangeValue.value = newSettings.freq.value;
+	volume.value = newSettings.volume.value;
 });
 
 const widgetPropsDef = {
