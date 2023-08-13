@@ -3,13 +3,13 @@ name: Build and Publish Docker
 on:
   push:
     tags:
-      - '*neos-love.*'
+      - '*resonite-love.*'
 
 jobs:
   build_and_push:
     runs-on: ubuntu-latest
     env:
-      IMAGE_NAME: neos-love-misskey
+      IMAGE_NAME: resonite-love-misskey
     steps:
       - name: checkout
         uses: actions/checkout@v2
