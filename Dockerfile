@@ -62,9 +62,9 @@ ARG GID="991"
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
-	ffmpeg tini curl \
+	ffmpeg tini curl libjemalloc-dev libjemalloc2 \
 	&& corepack enable \
-	&& groupadd -g "${GID}" misskey libjemalloc-dev libjemalloc2 \
+	&& groupadd -g "${GID}" misskey \
 	&& useradd -l -u "${UID}" -g "${GID}" -m -d /misskey misskey \
 	&& find / -type d -path /proc -prune -o -type f -perm /u+s -ignore_readdir_race -exec chmod u-s {} \; \
 	&& find / -type d -path /proc -prune -o -type f -perm /g+s -ignore_readdir_race -exec chmod g-s {} \; \
