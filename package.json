@@ -1,6 +1,6 @@
 {
 	"name": "misskey",
-	"version": "13.14.1-neos-love.5",
+	"version": "13.14.1-neos-love.6",
 	"codename": "nasubi",
 	"repository": {
 		"type": "git",
