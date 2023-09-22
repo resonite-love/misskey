@@ -87,7 +87,7 @@ type NeosEvent = {
 const eventData = ref<NeosEvent[]>([]);
 
 const loaded = ref<boolean>(false);
-const api = "https://neokun.kokoa.dev/";
+const api = "https://calendar.resonite.love/";
 
 const getNeosEvent = async () => {
 	const result = await (await fetch(api)).json();

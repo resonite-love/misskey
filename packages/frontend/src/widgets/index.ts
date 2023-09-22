@@ -36,7 +36,7 @@ export default function(app: App) {
 
 export const widgets = [
 	'profile',
-	'neosUserCount',
+	// 'neosUserCount',
 	'neosEvent',
 	'instanceInfo',
 	'memo',
