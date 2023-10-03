@@ -1860,7 +1860,7 @@ _weekday:
 _widgets:
   profile: "プロフィール"
   instanceInfo: "サーバー情報"
-  neosUserCount: "Neosのユーザ数"
+  neosUserCount: "Resoniteのユーザ数"
   neosEvent: "イベントカレンダー"
   memo: "付箋"
   memo2: "付箋2"
