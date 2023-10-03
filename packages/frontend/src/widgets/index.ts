@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: syuilo and other misskey contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 import { App, defineAsyncComponent } from 'vue';
 
 export default function(app: App) {
@@ -36,7 +41,7 @@ export default function(app: App) {
 
 export const widgets = [
 	'profile',
-	// 'neosUserCount',
+	'neosUserCount',
 	'neosEvent',
 	'instanceInfo',
 	'memo',
