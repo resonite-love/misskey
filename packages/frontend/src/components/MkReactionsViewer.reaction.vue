@@ -171,7 +171,7 @@ useTooltip(buttonEl, async (showing) => {
 }
 
 .icon {
-	max-width: 150px;
+	// max-width: 150px;
 }
 
 .count {
