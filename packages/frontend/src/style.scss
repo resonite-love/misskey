@@ -29,21 +29,13 @@
 	background-color: var(--accent);
 }
 
-@font-face {
-	font-family: 'NeosEdition';
-	font-style: normal;
-	font-weight: 400;
-	src: url(https://raw.githubusercontent.com/rassi0429/font/main/Neos-BIZUDGothic-Regular.woff) format('woff');
-}
-
-
 html {
 	background-color: var(--bg);
 	color: var(--fg);
 	accent-color: var(--accent);
 	overflow: auto;
 	overflow-wrap: break-word;
-	font-family: "NeosEdition", 'Hiragino Maru Gothic Pro', "BIZ UDGothic", Roboto, HelveticaNeue, Arial, sans-serif;
+	font-family: 'Hiragino Maru Gothic Pro', "BIZ UDGothic", Roboto, HelveticaNeue, Arial, sans-serif;
 	font-size: 14px;
 	line-height: 1.35;
 	text-size-adjust: 100%;
