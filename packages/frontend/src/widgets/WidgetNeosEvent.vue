@@ -96,6 +96,8 @@ const getNeosEvent = async () => {
 };
 getNeosEvent()
 
+setInterval(() => getNeosEvent(), 3 * 60 * 1000);
+
 defineExpose<WidgetComponentExpose>({
 	name,
 	configure,
@@ -117,10 +119,9 @@ defineExpose<WidgetComponentExpose>({
 }
 
 .event_date {
-	width: 70px;
 	padding-left: 5px;
 	text-align: center;
-	font-size: 150%;
+	font-size: 120%;
 }
 
 .event_day {
