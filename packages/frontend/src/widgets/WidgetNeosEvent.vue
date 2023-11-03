@@ -2,14 +2,19 @@
 	<MkContainer :show-header="widgetProps.showHeader">
 		<template #header>{{ i18n.ts._widgets.neosEvent }}</template>
 		<div :class="$style.root">
-			<div :class="$style.event" v-for="(event, i) in eventData" :key="i" :title="`${removeHtmlTag(event.detail)}&#13;&#10;${removeHtmlTag(event.place)}`">
+			<div v-for="(events, i) in eventData" :key="i" :class="$style.event">
 				<div :class="$style.event_date">
-					<div :class="[isDoyoubi(event.startTime) ? $style.text_blue : null, isNitiyoubi(event.startTime) ? $style.text_red : null]">
-						{{formatDate(event.startTime)}}<span :class="$style.event_day">({{getDay(event.startTime)}})</span>
+					<div :class="[isDoyoubi(events[0].startTime) ? $style.text_blue : null, isNitiyoubi(events[0].startTime) ? $style.text_red : null]">
+						{{i}}
+						<span :class="$style.event_day">({{getDay(events[0].startTime)}})</span>
 					</div>
 				</div>
-				<div :class="$style.event_time">{{formatTime(event.startTime)}}<br>{{formatTime(event.endTime)}}</div>
-				<div :class="$style.event_title">{{event.title}}</div>
+		    <div :class="$style.event_inner">
+					<div v-for="(event, i) in events" :key="i" :class="$style.event_box">
+						<div :class="$style.event_time">{{formatTime(event.startTime)}}</div>
+						<div :class="$style.event_title" :title="`${removeHtmlTag(event.detail)}&#13;&#10;${removeHtmlTag(event.place)}`">{{event.title}}</div>
+					</div>
+				</div>
 			</div>
 		</div>
 	</MkContainer>
@@ -77,21 +82,48 @@ const { widgetProps, configure } = useWidgetPropsManager(name,
 	emit,
 );
 
-type NeosEvent = {
+type EventData = {
 	title: string
 	startTime: number
 	endTime: number
 	detail: string
 	place: string
+	color: string
+	teiki_event_flg: boolean
 }
-const eventData = ref<NeosEvent[]>([]);
+
+type EventDataByDate = {
+	[date: string]: EventData[]
+}
+
+const eventData = ref<EventDataByDate>({});
 
 const loaded = ref<boolean>(false);
 const api = "https://calendar.resonite.love/";
 
+function groupEventsByDate(events) {
+	const eventsByDate: EventDataByDate = {};
+
+	events.forEach(event => {
+		// startDateを抽出
+		const date = new Date(event.startTime).getTime()
+		const startDate = `${formatDate(date)}`;
+
+		// startDateごとにイベントをグループ化
+		if (!eventsByDate[startDate]) {
+			eventsByDate[startDate] = [];
+		}
+		eventsByDate[startDate].push(event);
+	});
+
+	return eventsByDate;
+}
+
 const getNeosEvent = async () => {
 	const result = await (await fetch(api)).json();
-	eventData.value = result;
+
+	eventData.value = groupEventsByDate(result)
+	// eventData.value = result;
 	loaded.value = true;
 };
 getNeosEvent()
@@ -128,6 +160,9 @@ defineExpose<WidgetComponentExpose>({
 	font-size: 60%;
 }
 
+.event_inner {
+	flex: 1
+}
 
 .event_time {
 	width: 50px;
@@ -136,6 +171,42 @@ defineExpose<WidgetComponentExpose>({
 
 .event_title {
 	flex: 1;
+}
+.event{
+	align-items: baseline;
+	padding: 5px 0;
+	border-top: solid 1px rgba(222,231,228,1);
+}
+
+.event:first-child{
+	border-top: none;
+}
+
+.event_box{
+	display: flex;
+	align-items: baseline;
+	padding: 5px 0 0 5px;
+	border-bottom: dashed 1px rgba(222,231,228,3);
+}
+
+.event_box:first-child{
+	margin: 0px;
+}
+
+.event_box:last-child{
+	border: none;
+}
+
+.event_date span{
+	display: block;
+}
+
+.event_title{
+	padding: 5px 0 0 5px;
+}
+
+.event_time{
+	font-size: small;
 }
 
 .text_blue {
