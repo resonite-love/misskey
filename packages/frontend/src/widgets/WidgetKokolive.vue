@@ -1,8 +1,14 @@
 <template>
 	<MkContainer :show-header="widgetProps.showHeader">
     <template #header>{{ i18n.ts._widgets.kokolive }}</template>
+
     <div style="position: relative; width: 100%; padding-top: 56.25%">
-      <iframe src="https://kokolive.kokoa.dev/live/kokoa/" height="100%" width="100%"
+      <div v-if="!showIframe" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex">
+        <MkButton :small="true" inline @click="showIframe = true" style="width: 100%; margin: 10px">
+          放送を表示する
+        </MkButton>
+      </div>
+      <iframe v-if="showIframe" src="https://kokolive.kokoa.dev/live/kokoa/" height="100%" width="100%"
         style="position: absolute; top:0; left: 0"></iframe>
     </div>
 
@@ -24,7 +30,7 @@ import * as os from "@/os.js";
 
 const name = 'kokolive';
 
-
+let showIframe = $ref(false);
 const MOBILE_THRESHOLD = 500;
 const isMobile = $ref(deviceKind === 'smartphone' || window.innerWidth <= MOBILE_THRESHOLD);
 
