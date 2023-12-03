@@ -2,7 +2,7 @@
 	<MkContainer :show-header="widgetProps.showHeader">
     <template #header>{{ i18n.ts._widgets.kokolive }}</template>
     <div style="position: relative; width: 100%; padding-top: 56.25%">
-      <iframe src="http://106.185.149.221:8888/live/kokoa" height="100%" width="100%"
+      <iframe src="https://kokolive.kokoa.dev/live/kokoa/" height="100%" width="100%"
         style="position: absolute; top:0; left: 0"></iframe>
     </div>
 

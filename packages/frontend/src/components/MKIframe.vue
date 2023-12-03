@@ -10,7 +10,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</template>
 
 	<div class="poamfof">
-    <iframe src="http://106.185.149.221:8888/live/kokoa" width="100%" height="100%"></iframe>
+    <iframe src="https://kokolive.kokoa.dev/live/kokoa" width="100%" height="100%"></iframe>
 	</div>
 </MkWindow>
 </template>
