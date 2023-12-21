@@ -39,6 +39,7 @@ export default function(app: App) {
 	app.component('WidgetBirthdayFollowings', defineAsyncComponent(() => import('./WidgetBirthdayFollowings.vue')));
 	app.component('WidgetMorse', defineAsyncComponent(() => import('./WidgetMorse.vue')));
 	app.component('WidgetKokolive', defineAsyncComponent(() => import('./WidgetKokolive.vue')));
+	app.component('WidgetZou', defineAsyncComponent(() => import('./WidgetZou.vue')));
 }
 
 export const widgets = [
@@ -75,4 +76,5 @@ export const widgets = [
 	'clicker',
 	'birthdayFollowings',
     "kokolive",
+    "zou",
 ];
