@@ -2063,6 +2063,7 @@ export interface Locale {
         "instanceInfo": string;
         "neosUserCount": string;
         "neosEvent": string;
+        "kokolive": string;
         "memo": string;
         "memo2": string;
         "morse": string;
