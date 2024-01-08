@@ -30,9 +30,9 @@ import * as os from "@/os.js";
 
 const name = 'kokolive';
 
-let showIframe = $ref(false);
+let showIframe = ref(false);
 const MOBILE_THRESHOLD = 500;
-const isMobile = $ref(deviceKind === 'smartphone' || window.innerWidth <= MOBILE_THRESHOLD);
+const isMobile = ref(deviceKind === 'smartphone' || window.innerWidth <= MOBILE_THRESHOLD);
 
 const openPlayer = (): void => {
   os.popup(defineAsyncComponent(() => import('@/components/MKIframe.vue')), {
@@ -130,14 +130,6 @@ function groupEventsByDate(events) {
 	return eventsByDate;
 }
 
-const getNeosEvent = async () => {
-	const result = await (await fetch(api)).json();
-
-	eventData.value = groupEventsByDate(result)
-	// eventData.value = result;
-	loaded.value = true;
-};
-getNeosEvent()
 
 setInterval(() => getNeosEvent(), 3 * 60 * 1000);
 

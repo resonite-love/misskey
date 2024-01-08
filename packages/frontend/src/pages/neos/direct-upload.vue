@@ -54,7 +54,7 @@ setTimeout(async () => {
 }, 1000);
 
 const post = async (id = null) => {
-	let postAccount = $ref<misskey.entities.UserDetailed | null>(null);
+	let postAccount = ref<misskey.entities.UserDetailed | null>(null);
 	let token = undefined;
 
 	if (postAccount) {

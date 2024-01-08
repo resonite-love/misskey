@@ -74,11 +74,11 @@ const defaultNeosWorldData = () => {
 	}
 }
 
-let neosButtonCopyText = $ref<string>("参加コードをコピー");
-let neosWorldButtonCopyText = $ref<string>("ワールドURLをコピー");
+let neosButtonCopyText = ref<string>("参加コードをコピー");
+let neosWorldButtonCopyText = ref<string>("ワールドURLをコピー");
 
-let neosSessionData = $ref<neosSessionData>(defaultNeosSessionData())
-let neosWorldData = $ref<neosWorldData>(defaultNeosWorldData())
+let neosSessionData = ref<neosSessionData>(defaultNeosSessionData())
+let neosWorldData = ref<neosWorldData>(defaultNeosWorldData())
 
 // neos customize
 const openNeosLink = () => {

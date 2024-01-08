@@ -50,7 +50,7 @@
 </template>
 
 <script lang="ts" setup>
-import { onUnmounted, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useWidgetPropsManager, Widget, WidgetComponentEmits, WidgetComponentExpose, WidgetComponentProps } from './widget';
 import { GetFormResultType } from '@/scripts/form';
 import MkContainer from '@/components/MkContainer.vue';
@@ -91,10 +91,10 @@ const api = "https://statistics.kokoa.dev/v1/resonite/usercount";
 
 const r = 0.45;
 
-const allCount = $computed(() => ( userCountData.value.resonite_vr + userCountData.value.resonite_headless + userCountData.value.resonite_screen ) );
-const vrAngle = $computed(() => ( userCountData.value.resonite_vr / allCount ) * (Math.PI * (r * 2)));
-const desktopAngle = $computed(() => ( userCountData.value.resonite_screen / allCount ) * (Math.PI * (r * 2)));
-const headlessAngle = $computed(() => ( userCountData.value.resonite_headless / allCount ) * (Math.PI * (r * 2)));
+const allCount = computed(() => ( userCountData.value.resonite_vr + userCountData.value.resonite_headless + userCountData.value.resonite_screen ) );
+const vrAngle = computed(() => ( userCountData.value.resonite_vr / allCount.value ) * (Math.PI * (r * 2)));
+const desktopAngle = computed(() => ( userCountData.value.resonite_screen / allCount.value ) * (Math.PI * (r * 2)));
+const headlessAngle = computed(() => ( userCountData.value.resonite_headless / allCount.value ) * (Math.PI * (r * 2)));
 const getUserCount = async () => {
 	const result = await (await fetch(api)).json();
 	userCountData.value = result;
