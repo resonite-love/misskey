@@ -31,7 +31,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<iframe
 			ref="tweet"
 			allow="fullscreen;web-share"
-			sandbox="allow-popups allow-scripts allow-same-origin"
+			sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts allow-same-origin"
 			scrolling="no"
 			:style="{ position: 'relative', width: '100%', height: `${tweetHeight}px`, border: 0 }"
 			:src="`https://platform.twitter.com/embed/index.html?embedId=${embedId}&amp;hideCard=false&amp;hideThread=false&amp;lang=en&amp;theme=${defaultStore.state.darkMode ? 'dark' : 'light'}&amp;id=${tweetId}`"
@@ -46,9 +46,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 <suspense v-else-if="neosWorldRecordId || neosSessionId">
 	<NeosUrlPreview :compact="compact" :neos-session-id="neosSessionId" :neos-world-record-id="neosWorldRecordId" />
 </suspense>
-<div v-else :class="$style.urlPreview">
-	<component :is="self ? 'MkA' : 'a'" :class="[$style.link, { [$style.compact]: compact }]" :[attr]="self ? url.substr(local.length) : url" rel="nofollow noopener" :target="target" :title="url">
-		<div v-if="thumbnail" :class="$style.thumbnail" :style="`background-image: url('${thumbnail}')`">
+<div v-else>
+	<component :is="self ? 'MkA' : 'a'" :class="[$style.link, { [$style.compact]: compact }]" :[attr]="self ? url.substring(local.length) : url" rel="nofollow noopener" :target="target" :title="url">
+		<div v-if="thumbnail && !sensitive" :class="$style.thumbnail" :style="defaultStore.state.dataSaver.urlPreview ? '' : `background-image: url('${thumbnail}')`">
 		</div>
 		<article :class="$style.body">
 			<header :class="$style.header">
@@ -86,7 +86,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { defineAsyncComponent, onUnmounted } from 'vue';
+import { defineAsyncComponent, onUnmounted, ref } from 'vue';
 import type { summaly } from 'summaly';
 import { url as local } from '@/config.js';
 import { i18n } from '@/i18n.js';
@@ -112,30 +112,31 @@ const props = withDefaults(defineProps<{
 
 
 const MOBILE_THRESHOLD = 500;
-const isMobile = $ref(deviceKind === 'smartphone' || window.innerWidth <= MOBILE_THRESHOLD);
+const isMobile = ref(deviceKind === 'smartphone' || window.innerWidth <= MOBILE_THRESHOLD);
 
 const self = props.url.startsWith(local);
 const attr = self ? 'to' : 'href';
 const target = self ? null : '_blank';
-let fetching = $ref(true);
-let title = $ref<string | null>(null);
-let description = $ref<string | null>(null);
-let thumbnail = $ref<string | null>(null);
-let icon = $ref<string | null>(null);
-let sitename = $ref<string | null>(null);
-let player = $ref({
+const fetching = ref(true);
+const title = ref<string | null>(null);
+const description = ref<string | null>(null);
+const thumbnail = ref<string | null>(null);
+const icon = ref<string | null>(null);
+const sitename = ref<string | null>(null);
+const sensitive = ref<boolean>(false);
+const player = ref({
 	url: null,
 	width: null,
 	height: null,
 } as SummalyResult['player']);
-let playerEnabled = $ref(false);
-let tweetId = $ref<string | null>(null);
-let neosSessionId = $ref<string | null>(null);
-let neosWorldRecordId = $ref<string | null>(null);
-let tweetExpanded = $ref(props.detail);
+const playerEnabled = ref(false);
+const tweetId = ref<string | null>(null);
+const tweetExpanded = ref(props.detail);
+let neosSessionId = ref<string | null>(null);
+let neosWorldRecordId = ref<string | null>(null);
 const embedId = `embed${Math.random().toString().replace(/\D/, '')}`;
-let tweetHeight = $ref(150);
-let unknownUrl = $ref(false);
+const tweetHeight = ref(150);
+const unknownUrl = ref(false);
 
 
 const requestUrl = new URL(props.url);
@@ -143,7 +144,7 @@ if (!['http:', 'https:'].includes(requestUrl.protocol)) throw new Error('invalid
 
 if (requestUrl.hostname === 'twitter.com' || requestUrl.hostname === 'mobile.twitter.com' || requestUrl.hostname === 'x.com' || requestUrl.hostname === 'mobile.x.com') {
 	const m = requestUrl.pathname.match(/^\/.+\/status(?:es)?\/(\d+)/);
-	if (m) tweetId = m[1];
+	if (m) tweetId.value = m[1];
 }
 
 // detect neos session url
@@ -160,15 +161,33 @@ if (requestUrl.hostname === 'music.youtube.com' && requestUrl.pathname.match('^/
 
 requestUrl.hash = '';
 
-window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`).then(res => {
-	res.json().then((info: SummalyResult) => {
-		title = info.title;
-		description = info.description;
-		thumbnail = info.thumbnail;
-		icon = info.icon;
-		sitename = info.sitename;
-		fetching = false;
-		player = info.player;
+window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`)
+	.then(res => {
+		if (!res.ok) {
+			fetching.value = false;
+			unknownUrl.value = true;
+			return;
+		}
+
+		return res.json();
+	})
+	.then((info: SummalyResult) => {
+		if (info.url == null) {
+			fetching.value = false;
+			unknownUrl.value = true;
+			return;
+		}
+
+		fetching.value = false;
+		unknownUrl.value = false;
+
+		title.value = info.title;
+		description.value = info.description;
+		thumbnail.value = info.thumbnail;
+		icon.value = info.icon;
+		sitename.value = info.sitename;
+		player.value = info.player;
+		sensitive.value = info.sensitive ?? false;
 	});
 });
 
@@ -178,7 +197,7 @@ function adjustTweetHeight(message: any) {
 	if (embed?.method !== 'twttr.private.resize') return;
 	if (embed?.id !== embedId) return;
 	const height = embed?.params[0]?.height;
-	if (height) tweetHeight = height;
+	if (height) tweetHeight.value = height;
 }
 
 const openPlayer = (): void => {
