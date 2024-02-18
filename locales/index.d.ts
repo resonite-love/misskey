@@ -7993,12 +7993,33 @@ export interface Locale extends ILocale {
          * サーバー情報
          */
         "instanceInfo": string;
+        /**
+         * Resoniteのユーザ数
+         */
         "neosUserCount": string;
+        /**
+         * イベントカレンダー
+         */
         "neosEvent": string;
+        /**
+         * 国営放送
+         */
         "kokolive": string;
+        /**
+         * 付箋
+         */
         "memo": string;
+        /**
+         * 付箋2
+         */
         "memo2": string;
+        /**
+         * モールス
+         */
         "morse": string;
+        /**
+         * 通知
+         */
         "notifications": string;
         /**
          * タイムライン
