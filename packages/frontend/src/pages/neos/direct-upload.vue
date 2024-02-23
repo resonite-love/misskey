@@ -7,10 +7,11 @@
 <script lang="ts" setup>
 import { nextTick, ref } from 'vue';
 import * as misskey from 'misskey-js';
-import * as os from '@/os';
-import { defaultStore } from '@/store';
-import { getAccounts } from '@/account';
-import { useStream } from "@/stream";
+import * as os from '@/os.js';
+import { defaultStore } from '@/store.js';
+import { getAccounts } from '@/account.js';
+import { useStream } from "@/stream.js";
+import {misskeyApi} from "@/scripts/misskey-api.js";
 
 const marker = Math.random().toString();
 const connection = useStream().useChannel('main');
@@ -46,7 +47,7 @@ setTimeout(async () => {
 		return;
 	}
 
-	os.api('drive/files/upload-from-url', {
+	misskeyApi('drive/files/upload-from-url', {
 		url: imageUrl,
 		folderId: defaultStore.state.uploadFolder,
 		marker,
@@ -55,11 +56,12 @@ setTimeout(async () => {
 
 const post = async (id = null) => {
 	let postAccount = ref<misskey.entities.UserDetailed | null>(null);
-	let token = undefined;
+
+	let token: string | undefined = undefined;
 
 	if (postAccount) {
 		const storedAccounts = await getAccounts();
-		token = storedAccounts.find(x => x.id === postAccount.id)?.token;
+		token = storedAccounts.find(x => x.id === postAccount.value?.id)?.token;
 	}
 
 	// let postData = {
@@ -80,7 +82,7 @@ const post = async (id = null) => {
 		fileIds: id ? [id] : undefined,
 	};
 
-	os.api('notes/create', postData, token).then(() => {
+	misskeyApi('notes/create', postData, token).then(() => {
 		console.log('POST OK');
 		nextTick(() => {
 			console.log('Next Tick');
