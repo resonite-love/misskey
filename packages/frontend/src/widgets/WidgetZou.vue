@@ -21,6 +21,7 @@
 			<div style="text-align: center">
 				<p>最後の🛀 {{!furoData?.furos?.length ? "まだ" : new Date(furoData?.furos[furoData?.furos?.length - 1].time).toLocaleString()}}</p>
 				<p>いまお風呂に入ると {{furoData?.currentReward}}🐘もらえます</p>
+				<p>お風呂に入るとホームに投稿されます</p>
 			</div>
 		</div>
 		<div v-else>
@@ -57,7 +58,7 @@ const furoData = ref(null);
 onMounted(async () => {
 	console.log('mounted');
 	console.log("id", $i.id);
-	const authUser = await fetch("https://auth.resonite.love/api/user/search?misskeyId=" + $i.id);
+	const authUser = await fetch("https://auth.resonite.love/api/user/search?misskeyId=" + "9rpoap4db7");
 	const authResult = await authUser.json();
 	if(authResult.success) {
 		isUserRegistered.value = true;
@@ -94,14 +95,16 @@ function doFuro() {
 
 		if(furoResult.message === "First time furo") {
 			const postData = {
-				text: `${$i.name ?? $i.username}は初めてお風呂に入りました！！🎉🎉🎉🎉`
+				text: `${$i.name ?? $i.username}は初めてお風呂に入りました！！🎉🎉🎉🎉`,
+				visibility: "home"
 			};
 			await misskeyApi('notes/create', postData)
 		} else {
 
 			const postData = {
 				text: `${$i.name ?? $i.username}は${secondsToHms(furoResult.span)}ぶりにお風呂に入りました🛀
-今回のお風呂で${furoResult.reward}🐘を獲得しました！`
+今回のお風呂で${furoResult.reward}🐘を獲得しました！`,
+				visibility: "home"
 			};
 			//
 			await misskeyApi('notes/create', postData)
