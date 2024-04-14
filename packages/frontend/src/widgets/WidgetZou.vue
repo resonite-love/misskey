@@ -58,7 +58,7 @@ const furoData = ref(null);
 onMounted(async () => {
 	console.log('mounted');
 	console.log("id", $i.id);
-	const authUser = await fetch("https://auth.resonite.love/api/user/search?misskeyId=" + "9rpoap4db7");
+	const authUser = await fetch("https://auth.resonite.love/api/user/search?misskeyId=" + $i.id);
 	const authResult = await authUser.json();
 	if(authResult.success) {
 		isUserRegistered.value = true;
