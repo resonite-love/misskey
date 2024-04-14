@@ -8072,6 +8072,10 @@ export interface Locale extends ILocale {
          */
         "kokolive": string;
         /**
+         * 🐘銀
+         */
+        "zou": string;
+        /**
          * 付箋
          */
         "memo": string;

@@ -1,140 +1,167 @@
 <template>
-  <MkContainer>
-    <template #header>🐘銀</template>
-    <div class="container">
-      <div>
-        <div>
-          <div>残高:</div>
-          <span>{{ 12 }}</span>
-        </div>
-      </div>
-      <div>
-        <img src="https://misskey.resonite.love/twemoji/1f418.svg"/>
-      </div>
-    </div>
-    <MkSpacer/>
-    <div style="margin-left: 20px">えらいボタン</div>
-    <div class="button-box">
-      <MkButton>お風呂に入った</MkButton>
-      <MkButton>ご飯を食べた</MkButton>
-      <MkButton>ちゃんと寝た</MkButton>
-      <MkButton>運動した</MkButton>
-    </div>
-  </MkContainer>
+	<MkContainer>
+		<template #header>🐘銀</template>
+		<div v-if="isUserRegistered">
+			<div class="container">
+				<div id="zandaka">
+					残高:
+				</div>
+				<div id="balance">
+					<span>{{ bankData?.balance ?? "---" }}</span>
+				</div>
+				<div>
+					<img src="https://misskey.resonite.love/twemoji/1f418.svg"/>
+				</div>
+			</div>
+			<MkSpacer/>
+			<div style="margin-left: 20px">えらいボタン</div>
+			<div class="button-box">
+				<MkButton @click="doFuro">お風呂🛀に入った</MkButton>
+			</div>
+			<div style="text-align: center">
+				<p>最後の🛀 {{!furoData?.furos?.length ? "まだ" : new Date(furoData?.furos[furoData?.furos?.length - 1].time).toLocaleString()}}</p>
+				<p>いまお風呂に入ると {{furoData?.currentReward}}🐘もらえます</p>
+			</div>
+		</div>
+		<div v-else>
+			<div class="container2">
+				<div>
+					<p>🐘Resonite.Loveが登録されていないか、Misskeyと連携されていません</p>
+					<a class="_link" href="https://auth.resonite.love/" target="_blank">こちら</a>から登録/連携してください
+				</div>
+			</div>
+		</div>
+	</MkContainer>
 </template>
 
 <script lang="ts" setup>
-import {ref, watch} from 'vue';
+import {nextTick, onMounted, ref, watch} from 'vue';
 import {useWidgetPropsManager, WidgetComponentEmits, WidgetComponentExpose, WidgetComponentProps} from './widget';
 import {GetFormResultType} from '@/scripts/form';
 import MkContainer from '@/components/MkContainer.vue';
-import {defaultStore} from '@/store';
-import number from "@/filters/number.js";
-import MkButton from "@/components/MkButton.vue";
+import MkButton from '@/components/MkButton.vue';
+
+import {$i, getAccounts} from '@/account.js';
+import {misskeyApi} from "@/scripts/misskey-api.js";
+import * as misskey from "misskey-js";
 
 const name = 'zou';
-const randomName = () => {
-  const chars = 'abcdefghijklmnopqrstuvwxyz';
-  let result = '';
-  for (let i = 0; i < 3; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-};
 
-const toggleValue = ref(defaultStore.state.morse?.toggle || false);
-const rangeValue = ref(defaultStore.state.morse?.freq || 440);
-const volume = ref(defaultStore.state.morse?.volume || 50);
-const soundState = ref(false);
-const wsState = ref(false);
+console.log($i);
 
-let connection = new WebSocket('wss://wsecho.kokoa.dev/kokoa/radio/1');
-const audioContext = new AudioContext();
-let oscillator = audioContext.createOscillator();
+const isUserRegistered = ref(false);
+const userData = ref(null);
+const bankData = ref(null);
+const furoData = ref(null);
 
-connection.onopen = () => {
-  wsState.value = true;
-};
+onMounted(async () => {
+	console.log('mounted');
+	console.log("id", $i.id);
+	const authUser = await fetch("https://auth.resonite.love/api/user/search?misskeyId=" + $i.id);
+	const authResult = await authUser.json();
+	if(authResult.success) {
+		isUserRegistered.value = true;
+		console.log(authResult.data);
+		userData.value = authResult.data;
+		const bankUser = await fetch("https://zoubank.resonite.love/api/user/" + authResult.data.resoniteUserId);
+		const bankResult = await bankUser.json();
+		if(bankUser.status === 200) {
+			console.log(bankResult);
+			bankData.value = bankResult;
 
-let processing = ref(false);
-
-connection.onmessage = (evt) => {
-  console.log(evt.data);
-  const [id, freq, command] = evt.data.split(':');
-
-  if (command === 'play') {
-    if (toggleValue.value === false) return;
-    if (processing.value || soundState.value) return;
-
-    soundState.value = true;
-    processing.value = true;
-    oscillator = audioContext.createOscillator();
-    oscillator.frequency.value = parseInt(freq);
-    oscillator.type = 'sine';
-    // volume
-    const gainNode = audioContext.createGain();
-    gainNode.gain.value = volume.value / 100;
-    console.log(volume.value / 100);
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-
-    // oscillator.connect(audioContext.destination);
-    oscillator.start();
-    processing.value = false;
-    // oscillator.stop(audioContext.currentTime + 0.1);
-  } else if (command === 'stop') {
-    soundState.value = false;
-    if (toggleValue.value === false) return;
-    oscillator.stop(audioContext.currentTime);
-    oscillator = null;
-  }
-};
-
-connection.onclose = () => {
-  wsState.value = false;
-  // reconnect
-  connection = new WebSocket('wss://wsecho.kokoa.dev/kokoa/radio/1');
-};
-
-const onMouseDown = () => {
-  connection.send(`${randomName()}:${rangeValue.value}:play`);
-};
-
-const onMouseUp = () => {
-  connection.send(`${randomName()}:${rangeValue.value}:stop`);
-};
-
-const saveSettings = () => {
-  defaultStore.set('morse', {
-    toggle: toggleValue.value,
-    freq: rangeValue.value,
-    volume: volume.value,
-  });
-};
-
-watch(() => toggleValue.value, () => {
-  saveSettings();
+			const furoUser = await fetch("https://qol.kokoa.dev/user/furo/" + authResult.data.resoniteUserId);
+			const furoResult = await furoUser.json();
+			if(furoUser.status === 200) {
+				console.log(furoResult);
+				furoData.value = furoResult;
+			}
+		}
+	}
 });
 
-watch(() => rangeValue.value, () => {
-  saveSettings();
-});
+function doFuro() {
+	fetch("https://qol.kokoa.dev/user/furo/" + userData.value.resoniteUserId, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+	}).then(async res => {
 
-watch(() => volume.value, () => {
-  saveSettings();
-});
+		const furoResult = await res.json();
 
-watch(() => defaultStore.reactiveState.morse, newSettings => {
-  toggleValue.value = newSettings.toggle.value;
-  rangeValue.value = newSettings.freq.value;
-  volume.value = newSettings.volume.value;
-});
+		console.log("i", $i);
+
+
+		if(furoResult.message === "First time furo") {
+			const postData = {
+				text: `${$i.name ?? $i.username}は初めてお風呂に入りました！！🎉🎉🎉🎉`
+			};
+			await misskeyApi('notes/create', postData)
+		} else {
+
+			const postData = {
+				text: `${$i.name ?? $i.username}は${secondsToHms(furoResult.span)}ぶりにお風呂に入りました🛀
+今回のお風呂で${furoResult.reward}🐘を獲得しました！`
+			};
+			//
+			await misskeyApi('notes/create', postData)
+		}
+
+		if (res.status === 200) {
+			console.log(furoResult);
+			const authUser = await fetch("https://auth.resonite.love/api/user/search?misskeyId=" + $i.id);
+			const authResult = await authUser.json();
+			if(authResult.success) {
+				console.log(authResult.data);
+				userData.value = authResult.data;
+				const bankUser = await fetch("https://zoubank.resonite.love/api/user/" + authResult.data.resoniteUserId);
+				const bankResult = await bankUser.json();
+				if(bankUser.status === 200) {
+					console.log(bankResult);
+					bankData.value = bankResult;
+
+					const furoUser = await fetch("https://qol.kokoa.dev/user/furo/" + authResult.data.resoniteUserId);
+					const furoResult = await furoUser.json();
+					if(furoUser.status === 200) {
+						console.log(furoResult);
+						furoData.value = furoResult;
+					}
+				}
+			}
+		}
+	});
+}
+
+// 秒を時分秒に変換(日本語
+const secondsToHms = (d: number) => {
+	d = Number(d) / 1000;
+	const h = Math.floor(d / 3600);
+	const m = Math.floor(d % 3600 / 60);
+	const s = Math.floor(d % 3600 % 60);
+	const hDisplay = h > 0 ? h + (h === 1 ? "時間" : "時間") : "";
+	const mDisplay = m > 0 ? m + (m === 1 ? "分" : "分") : "";
+	const sDisplay = s > 0 ? s + (s === 1 ? "秒" : "秒") : "";
+	return hDisplay + mDisplay + sDisplay;
+};
+
+// const saveSettings = () => {
+// 	defaultStore.set('widgetZou', {
+// 	});
+// };
+// watch(() => toggleValue.value, () => {
+// 	saveSettings();
+// });
+// watch(() => defaultStore.reactiveState.morse, newSettings => {
+// 	toggleValue.value = newSettings.toggle.value;
+// 	rangeValue.value = newSettings.freq.value;
+// 	volume.value = newSettings.volume.value;
+// });
 
 const widgetPropsDef = {
-  sound: {
-    type: 'boolean' as const,
-    default: true,
-  },
+	sound: {
+		type: 'boolean' as const,
+		default: true,
+	},
 };
 
 type WidgetProps = GetFormResultType<typeof widgetPropsDef>;
@@ -143,60 +170,80 @@ const props = defineProps<WidgetComponentProps<WidgetProps>>();
 const emit = defineEmits<WidgetComponentEmits<WidgetProps>>();
 
 const {widgetProps, configure} = useWidgetPropsManager(name,
-    widgetPropsDef,
-    props,
-    emit,
+	widgetPropsDef,
+	props,
+	emit,
 );
 
 defineExpose<WidgetComponentExpose>({
-  name,
-  configure,
-  id: props.widget ? props.widget.id : null,
+	name,
+	configure,
+	id: props.widget ? props.widget.id : null,
 });
 </script>
 
 <style scoped>
 .container {
-  width: 90%;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: row;
+	width: 90%;
+	margin: 0 auto;
+	display: flex;
+	flex-direction: row;
+}
+
+.container2 {
+	width: 90%;
+	margin: 0 auto;
+	display: flex;
+	flex-direction: row;
+}
+
+.container2 > div {
+	padding-bottom: 1em;
 }
 
 .container > div {
-  flex: 1;
-  height: 80px;
+	height: 80px;
+}
+
+.container > #zandaka {
+	height: 80px;
+	display: flex;
+	align-items: end;
+	justify-content: space-evenly;
+	font-weight: bold;
 }
 
 .container > div > img {
-  height: 80px;
+	height: 80px;
 }
 
-.container > div > div {
-  height: 80px;
-  display: flex;
-  align-items: center;
-  justify-content: space-evenly;
+.container > #balance {
+	height: 80px;
+	display: flex;
+	align-items: center;
+	justify-content: end;
+	padding-right: 10px;
+	flex-grow: 1;
 }
 
-.container > div > div > span {
-  margin-top: auto;
-  font-size: 50px;
-  font-weight: bold;
+.container > div > span {
+	margin-top: auto;
+	font-size: 50px;
+	font-weight: bold;
 }
 
 .container > div > div > div {
-  margin-top: auto;
-  margin-bottom: 10px;
+	margin-top: auto;
+	margin-bottom: 10px;
 }
 
 .button-box {
-  display: flex;
-  flex-wrap: wrap;
-  flex-direction: row;
-  justify-content: space-evenly;
-  gap: 10px;
-  margin: 10px;
+	display: flex;
+	flex-wrap: wrap;
+	flex-direction: row;
+	justify-content: space-evenly;
+	gap: 10px;
+	margin: 10px;
 }
 
 </style>
