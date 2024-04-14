@@ -16,7 +16,8 @@
 			<MkSpacer/>
 			<div style="margin-left: 20px">えらいボタン</div>
 			<div class="button-box">
-				<MkButton @click="doFuro">お風呂🛀に入った</MkButton>
+				<MkButton v-if="!cooldown" @click="doFuro">お風呂🛀に入った</MkButton>
+				<MkButton v-else>お風呂クールダウン中</MkButton>
 			</div>
 			<div style="text-align: center">
 				<p>最後の🛀 {{!furoData?.furos?.length ? "まだ" : new Date(furoData?.furos[furoData?.furos?.length - 1].time).toLocaleString()}}</p>
@@ -42,9 +43,8 @@ import {GetFormResultType} from '@/scripts/form';
 import MkContainer from '@/components/MkContainer.vue';
 import MkButton from '@/components/MkButton.vue';
 
-import {$i, getAccounts} from '@/account.js';
+import {$i} from '@/account.js';
 import {misskeyApi} from "@/scripts/misskey-api.js";
-import * as misskey from "misskey-js";
 
 const name = 'zou';
 
@@ -54,6 +54,8 @@ const isUserRegistered = ref(false);
 const userData = ref(null);
 const bankData = ref(null);
 const furoData = ref(null);
+
+const cooldown = ref(false);
 
 onMounted(async () => {
 	console.log('mounted');
@@ -81,6 +83,17 @@ onMounted(async () => {
 });
 
 function doFuro() {
+	if(cooldown.value) {
+		alert("１分おきにお風呂に入れます")
+		return;
+	}
+
+	cooldown.value = true;
+
+	setTimeout(() => {
+		cooldown.value = false;
+	}, 60 * 1000);
+
 	fetch("https://qol.kokoa.dev/user/furo/" + userData.value.resoniteUserId, {
 		method: "POST",
 		headers: {
