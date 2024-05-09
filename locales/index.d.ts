@@ -5315,6 +5315,14 @@ export interface Locale extends ILocale {
          * グローバルタイムラインでは、接続している他のすべてのサーバーからの投稿を見られます。
          */
         "global": string;
+        /**
+         * ぶいみみリレータイムラインでは、バーチャルケモミミリレーサーバーに参加しているサーバーのユーザー全員の投稿を見られます。
+         */
+        "vmimi-relay": string;
+        /**
+         * ぶいみみソーシャルタイムラインには、ホームタイムラインとぶいみみリレータイムラインの投稿が両方表示されます。
+         */
+        "vmimi-relay-social": string;
     };
     "_serverRules": {
         /**
@@ -6438,6 +6446,10 @@ export interface Locale extends ILocale {
              * ローカルタイムラインの閲覧
              */
             "ltlAvailable": string;
+            /**
+             * ぶいみみリレータイムラインの閲覧
+             */
+            "vrtlAvailable": string;
             /**
              * パブリック投稿の許可
              */
@@ -8593,6 +8605,14 @@ export interface Locale extends ILocale {
          * グローバル
          */
         "global": string;
+        /**
+         * ぶいみみリレー
+         */
+        "vmimiRelay": string;
+        /**
+         * ぶいみみソーシャル
+         */
+        "vmimiRelaySocial": string;
     };
     "_play": {
         /**
