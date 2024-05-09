@@ -4,6 +4,7 @@
 
 # Intelij-IDEA
 /.idea
+**/.idea
 
 # Node.js
 node_modules

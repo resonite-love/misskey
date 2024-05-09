@@ -7,8 +7,11 @@ import { App, defineAsyncComponent } from 'vue';
 
 export default function(app: App) {
 	app.component('WidgetProfile', defineAsyncComponent(() => import('./WidgetProfile.vue')));
+	app.component('WidgetNeosUserCount', defineAsyncComponent(() => import('./WidgetNeosUserCount.vue')));
+	app.component('WidgetNeosEvent', defineAsyncComponent(() => import('./WidgetNeosEvent.vue')));
 	app.component('WidgetInstanceInfo', defineAsyncComponent(() => import('./WidgetInstanceInfo.vue')));
 	app.component('WidgetMemo', defineAsyncComponent(() => import('./WidgetMemo.vue')));
+	app.component('WidgetMemo2', defineAsyncComponent(() => import('./WidgetMemo2.vue')));
 	app.component('WidgetNotifications', defineAsyncComponent(() => import('./WidgetNotifications.vue')));
 	app.component('WidgetTimeline', defineAsyncComponent(() => import('./WidgetTimeline.vue')));
 	app.component('WidgetCalendar', defineAsyncComponent(() => import('./WidgetCalendar.vue')));
@@ -34,12 +37,19 @@ export default function(app: App) {
 	app.component('WidgetUserList', defineAsyncComponent(() => import('./WidgetUserList.vue')));
 	app.component('WidgetClicker', defineAsyncComponent(() => import('./WidgetClicker.vue')));
 	app.component('WidgetBirthdayFollowings', defineAsyncComponent(() => import('./WidgetBirthdayFollowings.vue')));
+	app.component('WidgetMorse', defineAsyncComponent(() => import('./WidgetMorse.vue')));
+	app.component('WidgetKokolive', defineAsyncComponent(() => import('./WidgetKokolive.vue')));
+	app.component('WidgetZou', defineAsyncComponent(() => import('./WidgetZou.vue')));
 }
 
 export const widgets = [
 	'profile',
+	'neosUserCount',
+	'neosEvent',
 	'instanceInfo',
 	'memo',
+	'memo2',
+	'morse',
 	'notifications',
 	'timeline',
 	'calendar',
@@ -65,4 +75,6 @@ export const widgets = [
 	'userList',
 	'clicker',
 	'birthdayFollowings',
+    "kokolive",
+    "zou",
 ];

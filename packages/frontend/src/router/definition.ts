@@ -562,6 +562,9 @@ const routes: RouteDef[] = [{
 	path: '/redirect-test',
 	redirect: $i ? `@${$i.username}` : '/',
 	loginRequired: true,
+},{
+	path: "/neos/directupload",
+	component: page(() => import('@/pages/neos/direct-upload.vue')),
 }, {
 	path: '/:(*)',
 	component: page(() => import('@/pages/not-found.vue')),

@@ -119,6 +119,14 @@ export const defaultStore = markRaw(new Storage('base', {
 		where: 'account',
 		default: null,
 	},
+	memo2: {
+		where: 'account',
+		default: null,
+	},
+	morse: {
+		where: 'account',
+		default: null,
+	},
 	reactions: {
 		where: 'account',
 		default: ['👍', '❤️', '😆', '🤔', '😮', '🎉', '💢', '😥', '😇', '🍮'],
@@ -363,7 +371,7 @@ export const defaultStore = markRaw(new Storage('base', {
 	},
 	limitWidthOfReaction: {
 		where: 'device',
-		default: true,
+		default: false,
 	},
 	forceShowAds: {
 		where: 'device',
