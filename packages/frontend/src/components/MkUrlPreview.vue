@@ -150,21 +150,22 @@ if (requestUrl.hostname === 'music.youtube.com' && requestUrl.pathname.match('^/
 requestUrl.hash = '';
 
 window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`)
-    .then(res => {
-      if (!res.ok) {
-        fetching.value = false;
-        unknownUrl.value = true;
-        return;
-      }
+	.then(res => {
+		if (!res.ok) {
+			if (_DEV_) {
+				console.warn(`[HTTP${res.status}] Failed to fetch url preview`);
+			}
+			return null;
+		}
 
-      return res.json();
-    })
-    .then((info: SummalyResult) => {
-      if(info == null) {
-        fetching.value = false;
-        unknownUrl.value = true;
-        return;
-      }
+		return res.json();
+	})
+	.then((info: SummalyResult | null) => {
+		if (!info || info.url == null) {
+			fetching.value = false;
+			unknownUrl.value = true;
+			return;
+		}
 
       if (info.url == null) {
         fetching.value = false;
