@@ -36,8 +36,8 @@ coverage
 !/.config/example.yml
 !/.config/default.yml
 !/.config/docker_example.env
-docker-compose.yml
-!/.devcontainer/docker-compose.yml
+.devcontainer/compose.yml
+!/.devcontainer/compose.yml
 
 # misskey
 /build
@@ -60,6 +60,7 @@ ormconfig.json
 temp
 /packages/frontend/src/**/*.stories.ts
 tsdoc-metadata.json
+misskey-assets
 
 # blender backups
 *.blend1
