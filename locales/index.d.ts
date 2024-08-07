@@ -8832,11 +8832,11 @@ export interface Locale extends ILocale {
         /**
          * ぶいみみリレー
          */
-        "vmimiRelay": string;
+        "vmimi-relay": string;
         /**
          * ぶいみみソーシャル
          */
-        "vmimiRelaySocial": string;
+        "vmimi-relay-social": string;
     };
     "_play": {
         /**
