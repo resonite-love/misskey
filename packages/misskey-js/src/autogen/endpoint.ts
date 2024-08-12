@@ -1,6 +1,8 @@
 import type {
 	EmptyRequest,
 	EmptyResponse,
+	AdminNirilaDeleteUserLogAccessRequest,
+	AdminNirilaDeleteUserLogAccessResponse,
 	AdminMetaResponse,
 	AdminAbuseUserReportsRequest,
 	AdminAbuseUserReportsResponse,
@@ -82,6 +84,7 @@ import type {
 	AdminRelaysRemoveRequest,
 	AdminResetPasswordRequest,
 	AdminResetPasswordResponse,
+	AdminNotePublicToHomeRequest,
 	AdminResolveAbuseUserReportRequest,
 	AdminSendEmailRequest,
 	AdminServerInfoResponse,
@@ -578,6 +581,7 @@ import type {
 } from './entities.js';
 
 export type Endpoints = {
+	'admin/nirila-delete-user-log-access': { req: AdminNirilaDeleteUserLogAccessRequest; res: AdminNirilaDeleteUserLogAccessResponse };
 	'admin/meta': { req: EmptyRequest; res: AdminMetaResponse };
 	'admin/abuse-user-reports': { req: AdminAbuseUserReportsRequest; res: AdminAbuseUserReportsResponse };
 	'admin/abuse-report/notification-recipient/list': { req: AdminAbuseReportNotificationRecipientListRequest; res: AdminAbuseReportNotificationRecipientListResponse };
@@ -639,6 +643,7 @@ export type Endpoints = {
 	'admin/relays/list': { req: EmptyRequest; res: AdminRelaysListResponse };
 	'admin/relays/remove': { req: AdminRelaysRemoveRequest; res: EmptyResponse };
 	'admin/reset-password': { req: AdminResetPasswordRequest; res: AdminResetPasswordResponse };
+	'admin/note-public-to-home': { req: AdminNotePublicToHomeRequest; res: EmptyResponse };
 	'admin/resolve-abuse-user-report': { req: AdminResolveAbuseUserReportRequest; res: EmptyResponse };
 	'admin/send-email': { req: AdminSendEmailRequest; res: EmptyResponse };
 	'admin/server-info': { req: EmptyRequest; res: AdminServerInfoResponse };
@@ -962,6 +967,7 @@ export type Endpoints = {
 }
 
 export const endpointReqTypes: Record<keyof Endpoints, 'application/json' | 'multipart/form-data'> = {
+	'admin/nirila-delete-user-log-access': 'application/json',
 	'admin/meta': 'application/json',
 	'admin/abuse-user-reports': 'application/json',
 	'admin/abuse-report/notification-recipient/list': 'application/json',
@@ -1023,6 +1029,7 @@ export const endpointReqTypes: Record<keyof Endpoints, 'application/json' | 'mul
 	'admin/relays/list': 'application/json',
 	'admin/relays/remove': 'application/json',
 	'admin/reset-password': 'application/json',
+	'admin/note-public-to-home': 'application/json',
 	'admin/resolve-abuse-user-report': 'application/json',
 	'admin/send-email': 'application/json',
 	'admin/server-info': 'application/json',
@@ -1239,6 +1246,8 @@ export const endpointReqTypes: Record<keyof Endpoints, 'application/json' | 'mul
 	'notes/favorites/delete': 'application/json',
 	'notes/featured': 'application/json',
 	'notes/global-timeline': 'application/json',
+	'notes/vmimi-relay-timeline': 'application/json',
+	'notes/vmimi-relay-hybrid-timeline': 'application/json',
 	'notes/hybrid-timeline': 'application/json',
 	'notes/local-timeline': 'application/json',
 	'notes/mentions': 'application/json',
