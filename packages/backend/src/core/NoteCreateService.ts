@@ -57,6 +57,8 @@ import { isReply } from '@/misc/is-reply.js';
 import { trackPromise } from '@/misc/promise-tracker.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
 import { CollapsedQueue } from '@/misc/collapsed-queue.js';
+import { LoggerService } from '@/core/LoggerService.js';
+import type Logger from '@/logger.js';
 
 type NotificationType = 'reply' | 'renote' | 'quote' | 'mention';
 
@@ -147,6 +149,7 @@ type Option = {
 
 @Injectable()
 export class NoteCreateService implements OnApplicationShutdown {
+	private logger: Logger;
 	#shutdownController = new AbortController();
 	private updateNotesCountQueue: CollapsedQueue<MiNote['id'], number>;
 
@@ -219,8 +222,10 @@ export class NoteCreateService implements OnApplicationShutdown {
 		private instanceChart: InstanceChart,
 		private utilityService: UtilityService,
 		private userBlockingService: UserBlockingService,
+		private loggerService: LoggerService,
 	) {
 		this.updateNotesCountQueue = new CollapsedQueue(process.env.NODE_ENV !== 'test' ? 60 * 1000 * 5 : 0, this.collapseNotesCount, this.performUpdateNotesCount);
+		this.logger = this.loggerService.getLogger('note:create');
 	}
 
 	@bindThis
@@ -367,6 +372,34 @@ export class NoteCreateService implements OnApplicationShutdown {
 
 		// if the host is media-silenced, custom emojis are not allowed
 		if (this.utilityService.isMediaSilencedHost(this.meta.mediaSilencedHosts, user.host)) emojis = [];
+
+		const willCauseNotification = mentionedUsers.some(u => u.host === null)
+			|| (data.visibility === 'specified' && data.visibleUsers?.some(u => u.host === null))
+			|| data.reply?.userHost === null || (this.isRenote(data) && this.isQuote(data) && data.renote?.userHost === null) || false;
+
+		const isAllowedToCreateNotification = () => {
+			const targetUserIds: string[] = [
+				...mentionedUsers.filter(x => x.host == null).map(x => x.id),
+				...(data.visibility === 'specified' && data.visibleUsers != null ? data.visibleUsers.filter(x => x.host == null).map(x => x.id) : []),
+				...(data.reply != null && data.reply.userHost == null ? [data.reply.userId] : []),
+				...(this.isRenote(data) && this.isQuote(data) && data.renote.userHost === null ? [data.renote.userId] : []),
+			];
+			const allowedIds = new Set(this.meta.nirilaAllowedUnfamiliarRemoteUserIds);
+			for (const targetUserId of targetUserIds) {
+				if (!allowedIds.has(targetUserId)) {
+					return false;
+				}
+			}
+			return true;
+		};
+
+		if (this.meta.nirilaBlockMentionsFromUnfamiliarRemoteUsers && user.host !== null && willCauseNotification && !isAllowedToCreateNotification()) {
+			const userEntity = await this.usersRepository.findOneBy({ id: user.id });
+			if ((userEntity?.followersCount ?? 0) === 0) {
+				this.logger.error('Request rejected because user has no local followers', { user: user.id, note: data });
+				throw new IdentifiableError('e11b3a16-f543-4885-8eb1-66cad131dbfd', 'Notes including mentions, replies, or renotes from remote users are not allowed until user has at least one local follower.');
+			}
+		}
 
 		tags = tags.filter(tag => Array.from(tag).length <= 128).splice(0, 32);
 
@@ -605,7 +638,8 @@ export class NoteCreateService implements OnApplicationShutdown {
 			this.roleService.addNoteToRoleTimeline(noteObj);
 
 			this.webhookService.getActiveWebhooks().then(webhooks => {
-				webhooks = webhooks.filter(x => x.userId === user.id && x.on.includes('note'));
+				const userNoteEvent = `note@${user.username}` as const;
+				webhooks = webhooks.filter(x => (x.userId === user.id && x.on.includes('note')) || x.on.includes(userNoteEvent));
 				for (const webhook of webhooks) {
 					this.queueService.userWebhookDeliver(webhook, 'note', {
 						note: noteObj,
@@ -734,7 +768,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 	@bindThis
 	private isQuote(note: Option & { renote: MiNote }): note is Option & { renote: MiNote } & (
 		{ text: string } | { cw: string } | { reply: MiNote } | { poll: IPoll } | { files: MiDriveFile[] }
-	) {
+		) {
 		// NOTE: SYNC WITH misc/is-quote.ts
 		return note.text != null ||
 			note.reply != null ||
@@ -752,14 +786,14 @@ export class NoteCreateService implements OnApplicationShutdown {
 			.where('id = :id', { id: renote.id })
 			.execute();
 
-		// 30%の確率、3日以内に投稿されたノートの場合ハイライト用ランキング更新
-		if (Math.random() < 0.3 && (Date.now() - this.idService.parse(renote.id).date.getTime()) < 1000 * 60 * 60 * 24 * 3) {
+		// ~~30%の確率、~~3日以内に投稿されたノートの場合ハイライト用ランキング更新
+		if ((Date.now() - this.idService.parse(renote.id).date.getTime()) < 1000 * 60 * 60 * 24 * 3) {
 			if (renote.channelId != null) {
 				if (renote.replyId == null) {
 					this.featuredService.updateInChannelNotesRanking(renote.channelId, renote.id, 5);
 				}
 			} else {
-				if (renote.visibility === 'public' && renote.userHost == null && renote.replyId == null) {
+				if (this.featuredService.shouldBeIncludedInGlobalOrUserFeatured(renote)) {
 					this.featuredService.updateGlobalNotesRanking(renote.id, 5);
 					this.featuredService.updatePerUserNotesRanking(renote.userId, renote.id, 5);
 				}
@@ -954,8 +988,11 @@ export class NoteCreateService implements OnApplicationShutdown {
 						this.fanoutTimelineService.push(`localTimelineWithReplyTo:${note.replyUserId}`, note.id, 300 / 10, r);
 					}
 				}
-				if (note.visibility === 'public' && this.vmimiRelayTimelineService.isRelayedInstance(note.userHost)) {
-					this.fanoutTimelineService.push('vmimiRelayTimelineWithReplies', note.id, meta.vmimiRelayTimelineCacheMax, r);
+				if (note.visibility === 'public' && this.vmimiRelayTimelineService.isRelayedInstance(note.userHost) && !note.localOnly) {
+					this.fanoutTimelineService.push('vmimiRelayTimelineWithReplies', note.id, this.meta.vmimiRelayTimelineCacheMax, r);
+					if (note.replyUserHost == null) {
+						this.fanoutTimelineService.push(`vmimiRelayTimelineWithReplyTo:${note.replyUserId}`, note.id, this.meta.vmimiRelayTimelineCacheMax / 10, r);
+					}
 				}
 			} else {
 				this.fanoutTimelineService.push(`userTimeline:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax : this.meta.perRemoteUserUserTimelineCacheMax, r);
@@ -969,10 +1006,10 @@ export class NoteCreateService implements OnApplicationShutdown {
 						this.fanoutTimelineService.push('localTimelineWithFiles', note.id, 500, r);
 					}
 				}
-				if (note.visibility === 'public' && this.vmimiRelayTimelineService.isRelayedInstance(note.userHost)) {
-					this.fanoutTimelineService.push('vmimiRelayTimeline', note.id, meta.vmimiRelayTimelineCacheMax, r);
+				if (note.visibility === 'public' && this.vmimiRelayTimelineService.isRelayedInstance(note.userHost) && !note.localOnly) {
+					this.fanoutTimelineService.push('vmimiRelayTimeline', note.id, this.meta.vmimiRelayTimelineCacheMax, r);
 					if (note.fileIds.length > 0) {
-						this.fanoutTimelineService.push('vmimiRelayTimelineWithFiles', note.id, meta.vmimiRelayTimelineCacheMax / 2, r);
+						this.fanoutTimelineService.push('vmimiRelayTimelineWithFiles', note.id, this.meta.vmimiRelayTimelineCacheMax / 2, r);
 					}
 				}
 			}

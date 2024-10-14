@@ -10,7 +10,7 @@ import { bindThis } from '@/decorators.js';
 import { IdService } from '@/core/IdService.js';
 
 export type FanoutTimelineName =
-	// home timeline
+// home timeline
 	| `homeTimeline:${string}`
 	| `homeTimelineWithFiles:${string}` // only notes with files are included
 	// local timeline
@@ -42,6 +42,7 @@ export type FanoutTimelineName =
 	| 'vmimiRelayTimeline' // replies are not included
 	| 'vmimiRelayTimelineWithFiles' // only non-reply notes with files are included
 	| 'vmimiRelayTimelineWithReplies' // only replies are included
+	| `vmimiRelayTimelineWithReplyTo:${string}` // Only replies to specific local user are included. Parameter is reply user id.
 
 @Injectable()
 export class FanoutTimelineService {
@@ -51,6 +52,11 @@ export class FanoutTimelineService {
 
 		private idService: IdService,
 	) {
+	}
+
+	@bindThis
+	public remove(tl: FanoutTimelineName, id: string, pipeline: Redis.ChainableCommander) {
+		pipeline.lrem('list:' + tl, 0, id);
 	}
 
 	@bindThis
