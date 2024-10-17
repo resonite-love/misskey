@@ -19,9 +19,15 @@
 				<MkButton v-if="!cooldown" @click="doFuro">お風呂🛀に入った</MkButton>
 				<MkButton v-else>お風呂クールダウン中</MkButton>
 			</div>
+			<div class="button-box">
+				<MkButton @click="doAnalytics">お風呂統計📈</MkButton>
+			</div>
 			<div style="text-align: center">
-				<p>最後の🛀 {{!furoData?.furos?.length ? "まだ" : new Date(furoData?.furos[furoData?.furos?.length - 1].time).toLocaleString()}}</p>
-				<p>いまお風呂に入ると {{furoData?.currentReward}}🐘もらえます</p>
+				<p>最後の🛀
+					{{
+						!furoData?.furos?.length ? "まだ" : new Date(furoData?.furos[furoData?.furos?.length - 1].time).toLocaleString()
+					}}</p>
+				<p>いまお風呂に入ると {{ furoData?.currentReward }}🐘もらえます</p>
 				<p>お風呂に入るとホームに投稿されます</p>
 			</div>
 		</div>
@@ -45,6 +51,7 @@ import MkButton from '@/components/MkButton.vue';
 
 import {$i} from '@/account.js';
 import {misskeyApi} from "@/scripts/misskey-api.js";
+import * as os from "@/os.js";
 
 const name = 'zou';
 
@@ -60,21 +67,21 @@ const cooldown = ref(false);
 onMounted(async () => {
 	console.log('mounted');
 	console.log("id", $i.id);
-	const authUser = await fetch("https://auth.resonite.love/api/user/search?misskeyId=" + $i.id);
+	const authUser = await fetch("https://auth.resonite.love/api/user/search?misskeyId=" + "9rpoap4db7") //$i.id);
 	const authResult = await authUser.json();
-	if(authResult.success) {
+	if (authResult.success) {
 		isUserRegistered.value = true;
 		console.log(authResult.data);
 		userData.value = authResult.data;
 		const bankUser = await fetch("https://zoubank.resonite.love/api/user/" + authResult.data.resoniteUserId);
 		const bankResult = await bankUser.json();
-		if(bankUser.status === 200) {
+		if (bankUser.status === 200) {
 			console.log(bankResult);
 			bankData.value = bankResult;
 
 			const furoUser = await fetch("https://qol.kokoa.dev/user/furo/" + authResult.data.resoniteUserId);
 			const furoResult = await furoUser.json();
-			if(furoUser.status === 200) {
+			if (furoUser.status === 200) {
 				console.log(furoResult);
 				furoData.value = furoResult;
 			}
@@ -82,8 +89,118 @@ onMounted(async () => {
 	}
 });
 
+function calculateAverageBathTime(data) {
+	let totalTime = 0;
+	let durations = [];
+
+	for (let i = 0; i < data.length - 1; i += 2) {
+		const startTime = new Date(data[i].time);
+		const endTime = new Date(data[i + 1].time);
+
+		// 時間の差をミリ秒で計算し、分単位に変換
+		const duration = (endTime - startTime) / (1000 * 60); // ミリ秒 -> 分に変換
+
+		// 0分は除外
+		if (duration > 10) {
+			durations.push(duration);
+			totalTime += duration;
+		}
+	}
+
+	const average = durations.length > 0 ? totalTime / durations.length : 0;
+	const minTime = durations.length > 0 ? Math.min(...durations) : 0;
+	const maxTime = durations.length > 0 ? Math.max(...durations) : 0;
+
+	return {
+		average,
+		minTime,
+		maxTime
+	};
+}
+
+// 2. 入浴頻度の計算
+function calculateBathFrequency(data) {
+	const frequencyByDay = {};
+
+	data.forEach(entry => {
+		const date = new Date(entry.time);
+
+		// 年・月・日だけを取り出し、フォーマット (YYYY-MM-DD) に整える
+		const year = date.getFullYear();
+		const month = String(date.getMonth() + 1).padStart(2, '0'); // 月は0始まりのため +1
+		const day = String(date.getDate()).padStart(2, '0');
+		const formattedDate = `${year}-${month}-${day}`;
+
+		// 日ごとの頻度をカウント
+		if (!frequencyByDay[formattedDate]) {
+			frequencyByDay[formattedDate] = 0;
+		}
+		frequencyByDay[formattedDate]++;
+	});
+
+	return frequencyByDay;
+}
+
+function calculateBathsPerHour(data) {
+	const bathsPerHour = Array(8).fill(0);  // 3時間ごとの入浴回数を格納する配列
+
+	data.forEach(entry => {
+		const date = new Date(entry.time);
+
+		// タイムスタンプを日本時間に変換
+		const japanTime = new Date(date.getTime() + 9 * 60 * 60 * 1000); // UTCから9時間を加算して日本時間に変換
+
+		const hour = japanTime.getUTCHours(); // 日本時間の時刻を取得 (UTC+9)
+
+		// 3時間ごとの入浴回数をカウント
+		bathsPerHour[Math.floor(hour / 3)]++;
+	});
+
+	return bathsPerHour;
+}
+
+function displayBathsPerHour(bathsPerHour) {
+	for (let i = 0; i < bathsPerHour.length; i++) {
+		console.log(`${i}時: ${bathsPerHour[i]}回`);
+	}
+}
+
+
+async function doAnalytics() {
+	const furoUser = await fetch("https://qol.kokoa.dev/user/furo/" + userData.value.resoniteUserId);
+	const furoResult = await furoUser.json();
+	const data = furoResult.furos;
+
+	// 平均入浴時間と最小・最大時間
+	const averageBathTime = calculateAverageBathTime(data);
+	console.log("平均入浴間隔:", averageBathTime.average, "分");
+	console.log("最短入浴間隔:", averageBathTime.minTime, "分");
+	console.log("最長入浴間隔:", averageBathTime.maxTime, "分");
+
+
+	const bathsPerHour = calculateBathsPerHour(data);
+	displayBathsPerHour(bathsPerHour);
+
+	os.post({
+		initialText: `
+$[x2 🛀入浴統計📈]
+${$i.name ?? $i.username}さんは人生で${data.length}回お風呂に入りました！🛀
+平均入浴間隔: ${Math.floor(averageBathTime.average * 100) / 100}分 (${Math.floor(averageBathTime.average / 6) / 10}時間)
+最短入浴間隔: ${Math.floor(averageBathTime.minTime * 100) / 100}分 (${Math.floor(averageBathTime.minTime / 6) / 10}時間)
+最長入浴間隔: ${Math.floor(averageBathTime.maxTime * 100) / 100}分 (${Math.floor(averageBathTime.maxTime / 6) / 10}時間)
+
+時間ごとの入浴頻度:
+${bathsPerHour.map((count, hour) => `${hour * 3}時～${(hour * 3) + 2}時: ${count}回`).join('\n')}
+		`,
+		initialCw: false,
+		initialVisibility: "public",
+		initialLocalOnly: true,
+		instant: true,
+	});
+}
+
 function doFuro() {
-	if(cooldown.value) {
+	if (cooldown.value) {
 		alert("１分おきにお風呂に入れます")
 		return;
 	}
@@ -106,7 +223,7 @@ function doFuro() {
 		console.log("i", $i);
 
 
-		if(furoResult.message === "First time furo") {
+		if (furoResult.message === "First time furo") {
 			const postData = {
 				text: `${$i.name ?? $i.username}は初めてお風呂に入りました！！🎉🎉🎉🎉`,
 				visibility: "home"
@@ -127,18 +244,18 @@ function doFuro() {
 			console.log(furoResult);
 			const authUser = await fetch("https://auth.resonite.love/api/user/search?misskeyId=" + $i.id);
 			const authResult = await authUser.json();
-			if(authResult.success) {
+			if (authResult.success) {
 				console.log(authResult.data);
 				userData.value = authResult.data;
 				const bankUser = await fetch("https://zoubank.resonite.love/api/user/" + authResult.data.resoniteUserId);
 				const bankResult = await bankUser.json();
-				if(bankUser.status === 200) {
+				if (bankUser.status === 200) {
 					console.log(bankResult);
 					bankData.value = bankResult;
 
 					const furoUser = await fetch("https://qol.kokoa.dev/user/furo/" + authResult.data.resoniteUserId);
 					const furoResult = await furoUser.json();
-					if(furoUser.status === 200) {
+					if (furoUser.status === 200) {
 						console.log(furoResult);
 						furoData.value = furoResult;
 					}
