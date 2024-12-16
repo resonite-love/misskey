@@ -57,8 +57,7 @@ import { isReply } from '@/misc/is-reply.js';
 import { trackPromise } from '@/misc/promise-tracker.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
 import { CollapsedQueue } from '@/misc/collapsed-queue.js';
-import { LoggerService } from '@/core/LoggerService.js';
-import type Logger from '@/logger.js';
+import { CacheService } from '@/core/CacheService.js';
 
 type NotificationType = 'reply' | 'renote' | 'quote' | 'mention';
 
@@ -149,7 +148,7 @@ type Option = {
 
 @Injectable()
 export class NoteCreateService implements OnApplicationShutdown {
-	private logger: Logger;
+	// private logger: Logger;
 	#shutdownController = new AbortController();
 	private updateNotesCountQueue: CollapsedQueue<MiNote['id'], number>;
 
@@ -222,10 +221,10 @@ export class NoteCreateService implements OnApplicationShutdown {
 		private instanceChart: InstanceChart,
 		private utilityService: UtilityService,
 		private userBlockingService: UserBlockingService,
-		private loggerService: LoggerService,
+		private cacheService: CacheService,
 	) {
 		this.updateNotesCountQueue = new CollapsedQueue(process.env.NODE_ENV !== 'test' ? 60 * 1000 * 5 : 0, this.collapseNotesCount, this.performUpdateNotesCount);
-		this.logger = this.loggerService.getLogger('note:create');
+		// this.logger = this.loggerService.getLogger('note:create');
 	}
 
 	@bindThis
@@ -396,7 +395,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 		if (this.meta.nirilaBlockMentionsFromUnfamiliarRemoteUsers && user.host !== null && willCauseNotification && !isAllowedToCreateNotification()) {
 			const userEntity = await this.usersRepository.findOneBy({ id: user.id });
 			if ((userEntity?.followersCount ?? 0) === 0) {
-				this.logger.error('Request rejected because user has no local followers', { user: user.id, note: data });
+				// this.logger.error('Request rejected because user has no local followers', { user: user.id, note: data });
 				throw new IdentifiableError('e11b3a16-f543-4885-8eb1-66cad131dbfd', 'Notes including mentions, replies, or renotes from remote users are not allowed until user has at least one local follower.');
 			}
 		}
@@ -546,13 +545,15 @@ export class NoteCreateService implements OnApplicationShutdown {
 		}
 
 		// Register host
-		if (this.userEntityService.isRemoteUser(user)) {
-			this.federatedInstanceService.fetch(user.host).then(async i => {
-				this.updateNotesCountQueue.enqueue(i.id, 1);
-				if (this.meta.enableChartsForFederatedInstances) {
-					this.instanceChart.updateNote(i.host, note, true);
-				}
-			});
+		if (this.meta.enableStatsForFederatedInstances) {
+			if (this.userEntityService.isRemoteUser(user)) {
+				this.federatedInstanceService.fetchOrRegister(user.host).then(async i => {
+					this.updateNotesCountQueue.enqueue(i.id, 1);
+					if (this.meta.enableChartsForFederatedInstances) {
+						this.instanceChart.updateNote(i.host, note, true);
+					}
+				});
+			}
 		}
 
 		// ハッシュタグ更新
@@ -576,13 +577,21 @@ export class NoteCreateService implements OnApplicationShutdown {
 			this.followingsRepository.findBy({
 				followeeId: user.id,
 				notify: 'normal',
-			}).then(followings => {
+			}).then(async followings => {
 				if (note.visibility !== 'specified') {
+					const isPureRenote = this.isRenote(data) && !this.isQuote(data) ? true : false;
 					for (const following of followings) {
 						// TODO: ワードミュート考慮
-						this.notificationService.createNotification(following.followerId, 'note', {
-							noteId: note.id,
-						}, user.id);
+						let isRenoteMuted = false;
+						if (isPureRenote) {
+							const userIdsWhoMeMutingRenotes = await this.cacheService.renoteMutingsCache.fetch(following.followerId);
+							isRenoteMuted = userIdsWhoMeMutingRenotes.has(user.id);
+						}
+						if (!isRenoteMuted) {
+							this.notificationService.createNotification(following.followerId, 'note', {
+								noteId: note.id,
+							}, user.id);
+						}
 					}
 				}
 			});
