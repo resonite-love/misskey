@@ -17,13 +17,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<div :class="$style.tl">
 					<MkTimeline
 						ref="tlComponent"
-						:key="src + withRenotes + withReplies + onlyFiles + withSensitive"
+						:key="src + withRenotes + withReplies + onlyFiles + withLocalOnly + withSensitive"
 						:src="src.split(':')[0]"
 						:list="src.split(':')[1]"
 						:withRenotes="withRenotes"
 						:withReplies="withReplies"
 						:withSensitive="withSensitive"
 						:onlyFiles="onlyFiles"
+						:withLocalOnly="withLocalOnly"
 						:sound="true"
 						@queue="queueUpdated"
 					/>
@@ -53,17 +54,10 @@ import { deviceKind } from '@/scripts/device-kind.js';
 import { deepMerge } from '@/scripts/merge.js';
 import type { MenuItem } from '@/types/menu.js';
 import { miLocalStorage } from '@/local-storage.js';
-import { availableBasicTimelines, hasWithReplies, isAvailableBasicTimeline, isBasicTimeline, basicTimelineIconClass } from '@/timelines.js';
+import { availableBasicTimelines, hasWithReplies, isAvailableBasicTimeline, isBasicTimeline, basicTimelineIconClass, hasWithLocalOnly } from '@/timelines.js';
 import type { BasicTimelineType } from '@/timelines.js';
 
 provide('shouldOmitHeaderTitle', true);
-
-const isLocalTimelineAvailable = ($i == null && instance.policies.ltlAvailable) || ($i != null && $i.policies.ltlAvailable);
-const isVmimiRelayTimelineAvailable = ($i == null && instance.policies.vrtlAvailable) || ($i != null && $i.policies.vrtlAvailable);
-const isGlobalTimelineAvailable = ($i == null && instance.policies.gtlAvailable) || ($i != null && $i.policies.gtlAvailable);
-const keymap = {
-	't': focus,
-};
 
 const tlComponent = shallowRef<InstanceType<typeof MkTimeline>>();
 const rootEl = shallowRef<HTMLElement>();
@@ -71,7 +65,7 @@ const rootEl = shallowRef<HTMLElement>();
 type TimelinePageSrc = BasicTimelineType | `list:${string}`;
 
 const queue = ref(0);
-const srcWhenNotSignin = ref<'local' | 'global'>(isAvailableBasicTimeline('local') ? 'local' : 'global');
+const srcWhenNotSignin = ref<'local' | 'global' | 'vmimi-relay'>(isAvailableBasicTimeline('local') ? 'local' : 'global');
 const src = computed<TimelinePageSrc>({
 	get: () => ($i ? defaultStore.reactiveState.tl.value.src : srcWhenNotSignin.value),
 	set: (x) => saveSrc(x),
@@ -79,6 +73,10 @@ const src = computed<TimelinePageSrc>({
 const withRenotes = computed<boolean>({
 	get: () => defaultStore.reactiveState.tl.value.filter.withRenotes,
 	set: (x) => saveTlFilter('withRenotes', x),
+});
+const withLocalOnly = computed<boolean>({
+	get: () => defaultStore.reactiveState.tl.value.filter.withLocalOnly,
+	set: (x) => saveTlFilter('withLocalOnly', x),
 });
 
 // computed内での無限ループを防ぐためのフラグ
@@ -210,8 +208,8 @@ function saveSrc(newSrc: TimelinePageSrc): void {
 	}
 
 	defaultStore.set('tl', out);
-	if (['local', 'global'].includes(newSrc)) {
-		srcWhenNotSignin.value = newSrc as 'local' | 'global';
+	if (['local', 'global', 'vmimi-relay'].includes(newSrc)) {
+		srcWhenNotSignin.value = newSrc as 'local' | 'global' | 'vmimi-relay';
 	}
 }
 
@@ -289,6 +287,14 @@ const headerActions = computed(() => {
 					disabled: isBasicTimeline(src.value) && hasWithReplies(src.value) ? withReplies : false,
 				});
 
+				if (isBasicTimeline(src.value) && hasWithLocalOnly(src.value)) {
+					menuItems.push({
+						type: 'switch',
+						text: i18n.ts.showLocalOnlyInTimeline,
+						ref: withLocalOnly,
+					});
+				}
+
 				os.popupMenu(menuItems, ev.currentTarget ?? ev.target);
 			},
 		},
@@ -304,7 +310,6 @@ const headerActions = computed(() => {
 	}
 	return tmp;
 });
-
 
 const headerTabs = computed(() => [...(defaultStore.reactiveState.pinnedUserLists.value.map(l => ({
 	key: 'list:' + l.id,

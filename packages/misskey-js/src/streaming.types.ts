@@ -116,6 +116,7 @@ export type Channels = {
 			withRenotes?: boolean;
 			withFiles?: boolean;
 			withReplies?: boolean;
+			withLocalOnly?: boolean;
 		};
 		events: {
 			note: (payload: Note) => void;
@@ -127,6 +128,7 @@ export type Channels = {
 			withRenotes?: boolean;
 			withReplies?: boolean;
 			withFiles?: boolean;
+			withLocalOnly?: boolean;
 		};
 		events: {
 			note: (payload: Note) => void;
