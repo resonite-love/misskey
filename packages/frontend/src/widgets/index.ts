@@ -42,6 +42,12 @@ export default function(app: App) {
 	app.component('WidgetZou', defineAsyncComponent(() => import('./WidgetZou.vue')));
 }
 
+// 連合関連のウィジェット（連合無効時に隠す）
+export const federationWidgets = [
+	'federation',
+	'instanceCloud',
+];
+
 export const widgets = [
 	'profile',
 	'neosUserCount',
@@ -61,8 +67,6 @@ export const widgets = [
 	'photos',
 	'digitalClock',
 	'unixClock',
-	'federation',
-	'instanceCloud',
 	'postForm',
 	'slideshow',
 	'serverMetric',
@@ -75,6 +79,9 @@ export const widgets = [
 	'userList',
 	'clicker',
 	'birthdayFollowings',
-    "kokolive",
-    "zou",
+
+	...federationWidgets,
+
+  'kokolive',
+  'zou',
 ];
