@@ -647,7 +647,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			this.roleService.addNoteToRoleTimeline(noteObj);
 
 			this.webhookService.enqueueUserWebhook(user.id, 'note', { note: noteObj });
-			this.webhookService.enqueueAdminWebhook(user.id, 'note', { note: noteObj });
+			// this.webhookService.en(user.id, 'note', { note: noteObj });
 
 			const nm = new NotificationManager(this.mutingsRepository, this.notificationService, user, note);
 
