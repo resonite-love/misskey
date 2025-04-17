@@ -1,5 +1,5 @@
 <template>
-<MkContainer :show-header="widgetProps.showHeader" class="mkw-memo data-cy-mkw-memo">
+<MkContainer :showHeader="widgetProps.showHeader" class="mkw-memo data-cy-mkw-memo">
 	<template #icon><i class="ti ti-note"></i></template>
 	<template #header>{{ i18n.ts._widgets.memo2 }}</template>
 
@@ -13,10 +13,10 @@
 <script lang="ts" setup>
 import { onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useWidgetPropsManager, Widget, WidgetComponentEmits, WidgetComponentExpose, WidgetComponentProps } from './widget';
-import { GetFormResultType } from '@/scripts/form';
+import type { GetFormResultType } from '@/utility/form.js';
 import * as os from '@/os';
 import MkContainer from '@/components/MkContainer.vue';
-import { defaultStore } from '@/store';
+import { store } from '@/store.js';
 import { i18n } from '@/i18n';
 
 const name = 'memo2';
@@ -42,12 +42,12 @@ const { widgetProps, configure } = useWidgetPropsManager(name,
 	emit,
 );
 
-const text = ref<string | null>(defaultStore.state.memo2);
+const text = ref<string | null>(store.s.memo2);
 const changed = ref(false);
 let timeoutId;
 
 const saveMemo = () => {
-	defaultStore.set('memo2', text.value);
+	store.set('memo2', text.value);
 	changed.value = false;
 };
 
@@ -57,7 +57,7 @@ const onChange = () => {
 	timeoutId = window.setTimeout(saveMemo, 1000);
 };
 
-watch(() => defaultStore.reactiveState.memo2, newText => {
+watch(() => store.r.memo2, newText => {
 	text.value = newText.value;
 });
 

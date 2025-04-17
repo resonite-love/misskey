@@ -45,12 +45,12 @@
 <script lang="ts" setup>
 import {nextTick, onMounted, ref, watch} from 'vue';
 import {useWidgetPropsManager, WidgetComponentEmits, WidgetComponentExpose, WidgetComponentProps} from './widget';
-import {GetFormResultType} from '@/scripts/form';
+import {GetFormResultType} from '@/utility/form.js';
 import MkContainer from '@/components/MkContainer.vue';
 import MkButton from '@/components/MkButton.vue';
 
-import {$i} from '@/account.js';
-import {misskeyApi} from "@/scripts/misskey-api.js";
+import { $i } from '@/i.js';
+import {misskeyApi} from "@/utility/misskey-api.js";
 import * as os from "@/os.js";
 
 const name = 'zou';

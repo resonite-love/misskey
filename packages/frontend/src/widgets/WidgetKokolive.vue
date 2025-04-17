@@ -21,11 +21,11 @@
 <script lang="ts" setup>
 import {defineAsyncComponent, onUnmounted, ref, watch} from 'vue';
 import { useWidgetPropsManager, Widget, WidgetComponentEmits, WidgetComponentExpose, WidgetComponentProps } from './widget';
-import { GetFormResultType } from '@/scripts/form';
+import { GetFormResultType } from '@/utility/form.js';
 import MkContainer from '@/components/MkContainer.vue';
 import { i18n } from '@/i18n';
 import MkButton from "@/components/MkButton.vue";
-import {deviceKind} from "@/scripts/device-kind.js";
+import {deviceKind} from "@/utility/device-kind.js";
 import * as os from "@/os.js";
 
 const name = 'kokolive';

@@ -23,7 +23,7 @@
 <script lang="ts" setup>
 import { onUnmounted, ref, watch } from 'vue';
 import { useWidgetPropsManager, Widget, WidgetComponentEmits, WidgetComponentExpose, WidgetComponentProps } from './widget';
-import { GetFormResultType } from '@/scripts/form';
+import { GetFormResultType } from '@/utility/form';
 import MkContainer from '@/components/MkContainer.vue';
 import { i18n } from '@/i18n';
 

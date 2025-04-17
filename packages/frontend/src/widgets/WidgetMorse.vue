@@ -21,12 +21,11 @@
 <script lang="ts" setup>
 import { ref, watch } from 'vue';
 import { useWidgetPropsManager, WidgetComponentEmits, WidgetComponentExpose, WidgetComponentProps } from './widget';
-import { GetFormResultType } from '@/scripts/form';
+import { GetFormResultType } from '@/utility/form';
 import MkContainer from '@/components/MkContainer.vue';
 import MkSwitch from '@/components/MkSwitch.vue';
 import MkRange from '@/components/MkRange.vue';
-import { getAccounts } from '@/account';
-import { defaultStore } from '@/store';
+import { store } from '@/store.js';
 
 const name = 'morse';
 const randomName = () => {
@@ -38,9 +37,9 @@ const randomName = () => {
 	return result;
 };
 
-const toggleValue = ref(defaultStore.state.morse?.toggle || false);
-const rangeValue = ref(defaultStore.state.morse?.freq || 440);
-const volume = ref(defaultStore.state.morse?.volume || 50);
+const toggleValue = ref(store.s.morse?.toggle || false);
+const rangeValue = ref(store.s.morse?.freq || 440);
+const volume = ref(store.s.morse?.volume || 50);
 const soundState = ref(false);
 const wsState = ref(false);
 
@@ -101,7 +100,7 @@ const onMouseUp = () => {
 };
 
 const saveSettings = () => {
-	defaultStore.set('morse', {
+	store.set('morse', {
 		toggle: toggleValue.value,
 		freq: rangeValue.value,
 		volume: volume.value,
@@ -120,7 +119,7 @@ watch(() => volume.value, () => {
 	saveSettings();
 });
 
-watch(() => defaultStore.reactiveState.morse, newSettings => {
+watch(() => store.r.morse, newSettings => {
 	toggleValue.value = newSettings.toggle.value;
 	rangeValue.value = newSettings.freq.value;
 	volume.value = newSettings.volume.value;

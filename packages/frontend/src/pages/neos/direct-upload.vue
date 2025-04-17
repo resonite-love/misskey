@@ -8,10 +8,10 @@
 import { nextTick, ref } from 'vue';
 import * as misskey from 'misskey-js';
 import * as os from '@/os.js';
-import { defaultStore } from '@/store.js';
-import { getAccounts } from '@/account.js';
+import { store } from '@/store.js';
+import { getAccounts } from '@/accounts.js';
 import { useStream } from "@/stream.js";
-import {misskeyApi} from "@/scripts/misskey-api.js";
+import {misskeyApi} from "@/utility/misskey-api.js";
 
 const marker = Math.random().toString();
 const connection = useStream().useChannel('main');
@@ -28,7 +28,7 @@ let visibility = urlParams.get('visibility') ?? 'public';
 
 console.log(imageUrl, noteText, localOnly, visibility);
 
-type v = 'public' | 'home' | 'followers'
+type v = 'public' | 'home' | 'followers';
 
 connection.on('urlUploadFinished', async urlResponse => {
 	console.log('urlUploadFinished');
@@ -49,7 +49,7 @@ setTimeout(async () => {
 
 	misskeyApi('drive/files/upload-from-url', {
 		url: imageUrl,
-		folderId: defaultStore.state.uploadFolder,
+		folderId: store.s.uploadFolder,
 		marker,
 	});
 }, 1000);
