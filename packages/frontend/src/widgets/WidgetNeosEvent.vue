@@ -4,15 +4,18 @@
 		<div :class="$style.root">
 			<div v-for="(events, i) in eventData" :key="i" :class="$style.event">
 				<div :class="$style.event_date">
-					<div :class="[isDoyoubi(events[0].startTime) ? $style.text_blue : null, isNitiyoubi(events[0].startTime) ? $style.text_red : null]">
-						{{i}}
-						<span :class="$style.event_day">({{getDay(events[0].startTime)}})</span>
+					<div
+						:class="[isDoyoubi(events[0].startTime) ? $style.text_blue : null, isNitiyoubi(events[0].startTime) ? $style.text_red : null]">
+						{{ i }}
+						<span :class="$style.event_day">({{ getDay(events[0].startTime) }})</span>
 					</div>
 				</div>
-		    <div :class="$style.event_inner">
+				<div :class="$style.event_inner">
 					<div v-for="(event, i) in events" :key="i" :class="$style.event_box">
-						<div :class="$style.event_time">{{formatTime(event.startTime)}}</div>
-						<div :class="$style.event_title" :title="`${removeHtmlTag(event.detail)}&#13;&#10;${removeHtmlTag(event.place)}`">{{event.title}}</div>
+						<div :class="$style.event_time">{{ formatTime(event.startTime) }}</div>
+						<div :class="$style.event_title"
+								 :title="`${removeHtmlTag(event.detail)}&#13;&#10;${removeHtmlTag(event.place)}`">{{ event.title }}
+						</div>
 					</div>
 				</div>
 			</div>
@@ -21,11 +24,12 @@
 </template>
 
 <script lang="ts" setup>
-import { onUnmounted, ref, watch } from 'vue';
-import { useWidgetPropsManager, Widget, WidgetComponentEmits, WidgetComponentExpose, WidgetComponentProps } from './widget';
-import { GetFormResultType } from '@/utility/form';
+import {ref} from 'vue';
+import { useWidgetPropsManager } from './widget.js';
+import type { WidgetComponentEmits, WidgetComponentExpose, WidgetComponentProps } from './widget.js';
+import type { GetFormResultType } from '@/utility/form.js';
 import MkContainer from '@/components/MkContainer.vue';
-import { i18n } from '@/i18n';
+import {i18n} from '@/i18n';
 
 const name = 'neosEvent';
 
@@ -62,7 +66,7 @@ const getDay = (date: number) => {
 }
 const formatDate = (date: string | number) => {
 	const d = new Date(date)
-	return `${d.getMonth()+1}/${d.getDate()}`
+	return `${d.getMonth() + 1}/${d.getDate()}`
 }
 const formatTime = (date: string | number) => {
 	const d = new Date(date)
@@ -73,10 +77,10 @@ const formatTime = (date: string | number) => {
 
 type WidgetProps = GetFormResultType<typeof widgetPropsDef>;
 
-const props = defineProps<{ widget?: Widget<WidgetProps>; }>();
-const emit = defineEmits<{ (ev: 'updateProps', props: WidgetProps); }>();
+const props = defineProps<WidgetComponentProps<WidgetProps>>();
+const emit = defineEmits<WidgetComponentEmits<WidgetProps>>();
 
-const { widgetProps, configure } = useWidgetPropsManager(name,
+const {widgetProps, configure} = useWidgetPropsManager(name,
 	widgetPropsDef,
 	props,
 	emit,
@@ -126,9 +130,10 @@ const getNeosEvent = async () => {
 	// eventData.value = result;
 	loaded.value = true;
 };
-getNeosEvent()
 
-setInterval(() => getNeosEvent(), 3 * 60 * 1000);
+getNeosEvent();
+
+window.setInterval(() => getNeosEvent, 3 * 60 * 1000);
 
 defineExpose<WidgetComponentExpose>({
 	name,
@@ -172,40 +177,41 @@ defineExpose<WidgetComponentExpose>({
 .event_title {
 	flex: 1;
 }
-.event{
+
+.event {
 	align-items: baseline;
 	padding: 5px 0;
-	border-top: solid 1px rgba(222,231,228,1);
+	border-top: solid 1px rgba(222, 231, 228, 1);
 }
 
-.event:first-child{
+.event:first-child {
 	border-top: none;
 }
 
-.event_box{
+.event_box {
 	display: flex;
 	align-items: baseline;
 	padding: 5px 0 0 5px;
-	border-bottom: dashed 1px rgba(222,231,228,3);
+	border-bottom: dashed 1px rgba(222, 231, 228, 3);
 }
 
-.event_box:first-child{
+.event_box:first-child {
 	margin: 0px;
 }
 
-.event_box:last-child{
+.event_box:last-child {
 	border: none;
 }
 
-.event_date span{
+.event_date span {
 	display: block;
 }
 
-.event_title{
+.event_title {
 	padding: 5px 0 0 5px;
 }
 
-.event_time{
+.event_time {
 	font-size: small;
 }
 
