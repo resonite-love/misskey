@@ -68,6 +68,7 @@ const modal = useTemplateRef('modal');
 const picker = useTemplateRef('picker');
 
 function chosen(emoji: string) {
+	console.log("chosen Actions");
 	emit('done', emoji);
 	if (props.choseAndClose) {
 		modal.value?.close();
