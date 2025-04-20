@@ -9,6 +9,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div style="display: flex">
 			<MkButton style="width: 50%" @click="() => {isMakeEmoji = false}">えらぶ</MkButton>
 			<MkButton style="width: 50%" @click="() => {isMakeEmoji = true}">つくる</MkButton>
+			<div id="noteId" style="display: none">{{props.targetNote?.id}}</div>
 		</div>
 		<input
 			v-show="!isMakeEmoji"
@@ -567,7 +568,17 @@ const messageHandler = async (response) => {
 					})
 
 				console.log(result)
-				chosen(`:${emojiName}:`);
+				// chosen(`:${emojiName}:`);
+				console.log(document.getElementById("noteId"))
+				const noteId = document.getElementById("noteId").innerText
+				console.log(noteId)
+
+				const r = await misskeyApi(
+					"notes/reactions/create", {
+						noteId: noteId,
+						reaction: `:${emojiName}:`
+					}
+				)
 			}
 		} catch (e) {
 			// do nothing
