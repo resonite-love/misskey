@@ -67,7 +67,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					>{{ new Date(catalystData.createdAt).toLocaleString() }}</span>
 				</div>
 			</div>
-			<div v-if="catalystData.medias && catalystData.medias.length" :class="$style.catalystImageWrap">
+			<div v-if="catalystData.medias && catalystData.medias.length" :class="$style.catalystImageWrap" ref="catalystImageWrap">
 				<template v-for="(img, i) in catalystData.medias" :key="img.id">
 					<MkCatalystSensitiveImage
 						v-if="img.metadata?.isSensitive"
@@ -83,12 +83,11 @@ SPDX-License-Identifier: AGPL-3.0-only
 						:src="img.url + '/medium'"
 						:alt="img.alt || `Embed Image ${i+1}`"
 						style="cursor:pointer"
-						@click="openLightbox(img.url + '/original', img.alt || `Embed Image ${i+1}`, img.id)"
+						@click="handleImageClick(img, i)"
 					/>
 				</template>
 			</div>
 			<div :class="$style.catalystText">{{ catalystData.body }}</div>
-			<!-- Reactions部分はAPIレスポンスに含まれていないので省略 or 拡張時に追加 -->
 		</template>
 		<div :class="$style.catalystBrand">Catalyst</div>
 	</div>
@@ -295,6 +294,69 @@ window.addEventListener('message', adjustTweetHeight);
 
 onUnmounted(() => {
 	window.removeEventListener('message', adjustTweetHeight);
+});
+// catalystImageWrap: ドラッグで横スクロール
+import { watch } from 'vue';
+const catalystImageWrap = ref<HTMLElement | null>(null);
+
+let isDown = false;
+let startX = 0;
+let startY = 0;
+let scrollLeft = 0;
+let el: HTMLElement | null = null;
+let wasDrag = false;
+
+const DRAG_THRESHOLD = 5;
+
+const onMouseDown = (e: MouseEvent) => {
+	if (e.button !== 0) return; // 左クリックのみ
+	isDown = true;
+	el = catalystImageWrap.value;
+	if (!el) return;
+	startX = e.pageX - el.getBoundingClientRect().left;
+	startY = e.pageY - el.getBoundingClientRect().top;
+	scrollLeft = el.scrollLeft;
+	el.style.cursor = 'grabbing';
+	wasDrag = false;
+	e.preventDefault();
+	document.addEventListener('mousemove', onMouseMove);
+	document.addEventListener('mouseup', onMouseUp);
+};
+const onMouseMove = (e: MouseEvent) => {
+	if (!isDown || !el) return;
+	const x = e.pageX - el.getBoundingClientRect().left;
+	const y = e.pageY - el.getBoundingClientRect().top;
+	const walk = x - startX;
+	const dy = y - startY;
+	if (Math.abs(walk) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+		wasDrag = true;
+	}
+	el.scrollLeft = scrollLeft - walk;
+};
+const onMouseUp = () => {
+	if (!el) return;
+	isDown = false;
+	el.style.cursor = '';
+	document.removeEventListener('mousemove', onMouseMove);
+	document.removeEventListener('mouseup', onMouseUp);
+};
+
+function handleImageClick(img: any, i: number) {
+	if (wasDrag) {
+		wasDrag = false;
+		return;
+	}
+	openLightbox(img.url + '/original', img.alt || `Embed Image ${i+1}`, img.id);
+}
+
+watch(catalystImageWrap, (val, oldVal) => {
+	if (oldVal) oldVal.removeEventListener('mousedown', onMouseDown);
+	if (val) val.addEventListener('mousedown', onMouseDown);
+});
+onUnmounted(() => {
+	if (catalystImageWrap.value) catalystImageWrap.value.removeEventListener('mousedown', onMouseDown);
+	document.removeEventListener('mousemove', onMouseMove);
+	document.removeEventListener('mouseup', onMouseUp);
 });
 </script>
 
