@@ -41,6 +41,7 @@ export default function(app: App) {
 	app.component('WidgetMorse', defineAsyncComponent(() => import('./WidgetMorse.vue')));
 	app.component('WidgetKokolive', defineAsyncComponent(() => import('./WidgetKokolive.vue')));
 	app.component('WidgetZou', defineAsyncComponent(() => import('./WidgetZou.vue')));
+	app.component('WidgetChat', defineAsyncComponent(() => import('./WidgetChat.vue')));
 }
 
 // 連合関連のウィジェット（連合無効時に隠す）
@@ -80,6 +81,7 @@ export const widgets = [
 	'userList',
 	'clicker',
 	'birthdayFollowings',
+	'chat',
 
 	...federationWidgets,
 
