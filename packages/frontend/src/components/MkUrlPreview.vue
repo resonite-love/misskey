@@ -4,97 +4,142 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<template v-if="player.url && playerEnabled">
-	<div
-		:class="$style.player"
-		:style="player.width ? `padding: ${(player.height || 0) / player.width * 100}% 0 0` : `padding: ${(player.height || 0)}px 0 0`"
-	>
-		<iframe
-			v-if="player.url.startsWith('http://') || player.url.startsWith('https://')"
-			sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts allow-storage-access-by-user-activation allow-same-origin"
-			scrolling="no"
-			:allow="player.allow == null ? 'autoplay;encrypted-media;fullscreen' : player.allow.filter(x => ['autoplay', 'clipboard-write', 'fullscreen', 'encrypted-media', 'picture-in-picture', 'web-share'].includes(x)).join(';')"
-			:class="$style.playerIframe"
-			:src="transformPlayerUrl(player.url)"
-			:style="{ border: 0 }"
-		></iframe>
-		<span v-else>invalid url</span>
-	</div>
-	<div :class="$style.action">
-		<MkButton :small="true" inline @click="playerEnabled = false">
-			<i class="ti ti-x"></i> {{ i18n.ts.disablePlayer }}
-		</MkButton>
-	</div>
-</template>
-<template v-else-if="tweetId && tweetExpanded">
-	<div ref="twitter">
-		<iframe
-			ref="tweet"
-			allow="fullscreen;web-share"
-			sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts allow-same-origin"
-			scrolling="no"
-			:style="{ position: 'relative', width: '100%', height: `${tweetHeight}px`, border: 0 }"
-			:src="`https://platform.twitter.com/embed/index.html?embedId=${embedId}&amp;hideCard=false&amp;hideThread=false&amp;lang=en&amp;theme=${store.s.darkMode ? 'dark' : 'light'}&amp;id=${tweetId}`"
-		></iframe>
-	</div>
-	<div :class="$style.action">
-		<MkButton :small="true" inline @click="tweetExpanded = false">
-			<i class="ti ti-x"></i> {{ i18n.ts.close }}
-		</MkButton>
-	</div>
-</template>
-<div v-else>
-	<component :is="self ? 'MkA' : 'a'" :class="[$style.link, { [$style.compact]: compact }]" :[attr]="maybeRelativeUrl" rel="nofollow noopener" :target="target" :title="url">
-		<div v-if="thumbnail && !sensitive" :class="$style.thumbnail" :style="prefer.s.dataSaver.urlPreview ? '' : { backgroundImage: `url('${thumbnail}')` }">
+	<template v-if="player.url && playerEnabled">
+		<div
+			:class="$style.player"
+			:style="player.width ? `padding: ${(player.height || 0) / player.width * 100}% 0 0` : `padding: ${(player.height || 0)}px 0 0`"
+		>
+			<iframe
+				v-if="player.url.startsWith('http://') || player.url.startsWith('https://')"
+				sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts allow-storage-access-by-user-activation allow-same-origin"
+				scrolling="no"
+				:allow="player.allow == null ? 'autoplay;encrypted-media;fullscreen' : player.allow.filter(x => ['autoplay', 'clipboard-write', 'fullscreen', 'encrypted-media', 'picture-in-picture', 'web-share'].includes(x)).join(';')"
+				:class="$style.playerIframe"
+				:src="transformPlayerUrl(player.url)"
+				:style="{ border: 0 }"
+			></iframe>
+			<span v-else>invalid url</span>
 		</div>
-		<article :class="$style.body">
-			<header :class="$style.header">
-				<h1 v-if="unknownUrl" :class="$style.title">{{ url }}</h1>
-				<h1 v-else-if="fetching" :class="$style.title"><MkEllipsis/></h1>
-				<h1 v-else :class="$style.title" :title="title ?? undefined">{{ title }}</h1>
-			</header>
-			<p v-if="unknownUrl" :class="$style.text">{{ i18n.ts.failedToPreviewUrl }}</p>
-			<p v-else-if="fetching" :class="$style.text"><MkEllipsis/></p>
-			<p v-else-if="description" :class="$style.text" :title="description">{{ description.length > 85 ? description.slice(0, 85) + '…' : description }}</p>
-			<footer :class="$style.footer">
-				<img v-if="icon" :class="$style.siteIcon" :src="icon"/>
-				<p v-if="unknownUrl" :class="$style.siteName">{{ requestUrl.host }}</p>
-				<p v-else-if="fetching" :class="$style.siteName"><MkEllipsis/></p>
-				<p v-else :class="$style.siteName" :title="sitename ?? requestUrl.host">{{ sitename ?? requestUrl.host }}</p>
-			</footer>
-		</article>
-	</component>
-	<template v-if="showActions">
-		<div v-if="tweetId" :class="$style.action">
-			<MkButton :small="true" inline @click="tweetExpanded = true">
-				<i class="ti ti-brand-x"></i> {{ i18n.ts.expandTweet }}
-			</MkButton>
-		</div>
-		<div v-if="!playerEnabled && player.url" :class="$style.action">
-			<MkButton :small="true" inline @click="playerEnabled = true">
-				<i class="ti ti-player-play"></i> {{ i18n.ts.enablePlayer }}
-			</MkButton>
-			<MkButton v-if="!isMobile" :small="true" inline @click="openPlayer()">
-				<i class="ti ti-picture-in-picture"></i> {{ i18n.ts.openInWindow }}
+		<div :class="$style.action">
+			<MkButton :small="true" inline @click="playerEnabled = false">
+				<i class="ti ti-x"></i> {{ i18n.ts.disablePlayer }}
 			</MkButton>
 		</div>
 	</template>
-</div>
+	<template v-else-if="tweetId && tweetExpanded">
+		<div ref="twitter">
+			<iframe
+				ref="tweet"
+				allow="fullscreen;web-share"
+				sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts allow-same-origin"
+				scrolling="no"
+				:style="{ position: 'relative', width: '100%', height: `${tweetHeight}px`, border: 0 }"
+				:src="`https://platform.twitter.com/embed/index.html?embedId=${embedId}&amp;hideCard=false&amp;hideThread=false&amp;lang=en&amp;theme=${store.s.darkMode ? 'dark' : 'light'}&amp;id=${tweetId}`"
+			></iframe>
+		</div>
+		<div :class="$style.action">
+			<MkButton :small="true" inline @click="tweetExpanded = false">
+				<i class="ti ti-x"></i> {{ i18n.ts.close }}
+			</MkButton>
+		</div>
+	</template>
+	<template v-else-if="catalystStatusId">
+		<div :class="$style.catalystEmbed">
+			<div :class="$style.catalystHeader">
+				<img :class="$style.catalystAvatar" src="https://catalyst.natsuneko.com/static/avatar.png" alt="User Avatar" />
+				<div :class="$style.catalystUserMeta">
+					<span :class="$style.catalystUsername">kokoa</span>
+					<span :class="$style.catalystUserId">@kokoa</span>
+					<span :class="$style.catalystDot">・</span>
+					<span :class="$style.catalystTime">20 hours ago</span>
+				</div>
+			</div>
+			<div :class="$style.catalystImageWrap">
+				<img
+					v-for="(img, i) in [
+						'https://placehold.jp/900x600.png',
+						'https://placehold.jp/888x600.png',
+						'https://placehold.jp/860x600.png'
+					]"
+					:key="i"
+					:class="$style.catalystImage"
+					:src="img"
+					:alt="`Embed Image ${i+1}`"
+				/>
+			</div>
+			<div :class="$style.catalystText">text text text</div>
+			<div :class="$style.catalystReactions">
+				<div :class="$style.catalystReactionsLabel">1 reactions</div>
+				<div :class="$style.catalystReactionsList">
+					<div :class="$style.catalystReaction">
+						<span class="emoji">🎉</span>
+						<span class="count">1</span>
+					</div>
+				</div>
+			</div>
+		</div>
+	</template>
+	<div v-else>
+		<component :is="self ? 'MkA' : 'a'" :class="[$style.link, { [$style.compact]: compact }]" :[attr]="maybeRelativeUrl"
+							 rel="nofollow noopener" :target="target" :title="url">
+			<div v-if="thumbnail && !sensitive" :class="$style.thumbnail"
+					 :style="prefer.s.dataSaver.urlPreview ? '' : { backgroundImage: `url('${thumbnail}')` }">
+			</div>
+			<article :class="$style.body">
+				<header :class="$style.header">
+					<h1 v-if="unknownUrl" :class="$style.title">{{ url }}</h1>
+					<h1 v-else-if="fetching" :class="$style.title">
+						<MkEllipsis/>
+					</h1>
+					<h1 v-else :class="$style.title" :title="title ?? undefined">{{ title }}</h1>
+				</header>
+				<p v-if="unknownUrl" :class="$style.text">{{ i18n.ts.failedToPreviewUrl }}</p>
+				<p v-else-if="fetching" :class="$style.text">
+					<MkEllipsis/>
+				</p>
+				<p v-else-if="description" :class="$style.text" :title="description">
+					{{ description.length > 85 ? description.slice(0, 85) + '…' : description }}</p>
+				<footer :class="$style.footer">
+					<img v-if="icon" :class="$style.siteIcon" :src="icon"/>
+					<p v-if="unknownUrl" :class="$style.siteName">{{ requestUrl.host }}</p>
+					<p v-else-if="fetching" :class="$style.siteName">
+						<MkEllipsis/>
+					</p>
+					<p v-else :class="$style.siteName" :title="sitename ?? requestUrl.host">{{ sitename ?? requestUrl.host }}</p>
+				</footer>
+			</article>
+		</component>
+		<template v-if="showActions">
+			<div v-if="tweetId" :class="$style.action">
+				<MkButton :small="true" inline @click="tweetExpanded = true">
+					<i class="ti ti-brand-x"></i> {{ i18n.ts.expandTweet }}
+				</MkButton>
+			</div>
+			<div v-if="!playerEnabled && player.url" :class="$style.action">
+				<MkButton :small="true" inline @click="playerEnabled = true">
+					<i class="ti ti-player-play"></i> {{ i18n.ts.enablePlayer }}
+				</MkButton>
+				<MkButton v-if="!isMobile" :small="true" inline @click="openPlayer()">
+					<i class="ti ti-picture-in-picture"></i> {{ i18n.ts.openInWindow }}
+				</MkButton>
+			</div>
+		</template>
+	</div>
 </template>
 
 <script lang="ts" setup>
-import { defineAsyncComponent, onDeactivated, onUnmounted, ref } from 'vue';
-import { url as local } from '@@/js/config.js';
-import { versatileLang } from '@@/js/intl-const.js';
-import type { summaly } from '@misskey-dev/summaly';
-import { i18n } from '@/i18n.js';
+import {defineAsyncComponent, onDeactivated, onUnmounted, ref} from 'vue';
+import {url as local} from '@@/js/config.js';
+import {versatileLang} from '@@/js/intl-const.js';
+import type {summaly} from '@misskey-dev/summaly';
+import {i18n} from '@/i18n.js';
 import * as os from '@/os.js';
-import { deviceKind } from '@/utility/device-kind.js';
+import {deviceKind} from '@/utility/device-kind.js';
 import MkButton from '@/components/MkButton.vue';
-import { transformPlayerUrl } from '@/utility/player-url-transform.js';
-import { store } from '@/store.js';
-import { prefer } from '@/preferences.js';
-import { maybeMakeRelative } from '@@/js/url.js';
+import {transformPlayerUrl} from '@/utility/player-url-transform.js';
+import {store} from '@/store.js';
+import {prefer} from '@/preferences.js';
+import {maybeMakeRelative} from '@@/js/url.js';
 
 type SummalyResult = Awaited<ReturnType<typeof summaly>>;
 
@@ -135,6 +180,8 @@ const embedId = `embed${Math.random().toString().replace(/\D/, '')}`;
 const tweetHeight = ref(150);
 const unknownUrl = ref(false);
 
+const catalystStatusId = ref<string | null>(null);
+
 onDeactivated(() => {
 	playerEnabled.value = false;
 });
@@ -149,6 +196,11 @@ if (requestUrl.hostname === 'twitter.com' || requestUrl.hostname === 'mobile.twi
 
 if (requestUrl.hostname === 'music.youtube.com' && requestUrl.pathname.match('^/(?:watch|channel)')) {
 	requestUrl.hostname = 'www.youtube.com';
+}
+
+if (requestUrl.hostname === 'catalyst.natsuneko.com') {
+	const m = requestUrl.pathname.match(/^\/status\/(\d+)/);
+	if (m) catalystStatusId.value = m[1];
 }
 
 requestUrl.hash = '';
@@ -193,7 +245,7 @@ function adjustTweetHeight(message: MessageEvent) {
 }
 
 function openPlayer(): void {
-	const { dispose } = os.popup(defineAsyncComponent(() => import('@/components/MkYouTubePlayer.vue')), {
+	const {dispose} = os.popup(defineAsyncComponent(() => import('@/components/MkYouTubePlayer.vue')), {
 		url: requestUrl.href,
 	}, {
 		closed: () => {
@@ -396,5 +448,142 @@ onUnmounted(() => {
 		width: 12px;
 		height: 12px;
 	}
+}
+.catalystEmbed {
+	background: #181a20;
+	color: #fff;
+	border-radius: 10px;
+	padding: 12px 12px 6px 12px;
+	margin: 8px 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	box-shadow: 0 0 0 1px #222;
+}
+
+.catalystHeader {
+	display: flex;
+	align-items: center;
+	margin-bottom: 6px;
+}
+
+.catalystAvatar {
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	background: #222;
+	margin-right: 8px;
+}
+
+.catalystUserMeta {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 0.98em;
+}
+
+.catalystUsername {
+	font-weight: bold;
+	color: #fff;
+	font-size: 1em;
+}
+
+.catalystUserId {
+	color: #b0b0b0;
+	font-size: 0.95em;
+}
+
+.catalystDot {
+	color: #b0b0b0;
+	font-size: 1em;
+}
+
+.catalystTime {
+	color: #b0b0b0;
+	font-size: 0.95em;
+}
+
+.catalystImageWrap {
+	width: 100%;
+	margin: 0 0 8px 0;
+	overflow-x: auto;
+	white-space: nowrap;
+	display: flex;
+	gap: 0;
+	padding-bottom: 2px;
+}
+
+.catalystImage {
+	display: inline-block;
+	width: 220px;
+	height: 140px;
+	max-width: 90vw;
+	object-fit: cover;
+	border-radius: 7px;
+	background: #222;
+	margin-right: 8px;
+}
+.catalystImage:last-child {
+	margin-right: 0;
+}
+
+.catalystText {
+	font-size: 1em;
+	margin: 0 0 10px 0;
+	padding-left: 2px;
+}
+
+.catalystReactions {
+	background: #111;
+	border-radius: 0 0 7px 7px;
+	padding: 7px 8px 5px 8px;
+	margin: 0 -12px -6px -12px;
+}
+
+.catalystReactionsLabel {
+	font-size: 0.9em;
+	color: #fff;
+	margin-bottom: 4px;
+}
+
+.catalystReactionsList {
+	display: flex;
+	gap: 7px;
+}
+
+.catalystReaction {
+	display: flex;
+	align-items: center;
+	background: #222;
+	border-radius: 5px;
+	padding: 2px 7px 2px 6px;
+	gap: 4px;
+	font-size: 1em;
+	color: #fff;
+}
+
+.catalystReaction .emoji {
+	font-size: 1.1em;
+}
+
+.catalystReaction .count {
+	font-size: 0.98em;
+	margin-left: 1px;
+}
+
+.catalystReactionAdd {
+	background: none;
+	border: none;
+	color: #fff;
+	cursor: pointer;
+	font-size: 1em;
+	padding: 1px 3px;
+	border-radius: 3px;
+	transition: background 0.2s;
+	margin-left: 1px;
+}
+
+.catalystReactionAdd:hover {
+	background: #333;
 }
 </style>
