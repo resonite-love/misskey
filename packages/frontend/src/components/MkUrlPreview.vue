@@ -25,7 +25,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<i class="ti ti-x"></i> {{ i18n.ts.disablePlayer }}
 			</MkButton>
 		</div>
-	</template>
+</template>
 	<template v-else-if="tweetId && tweetExpanded">
 		<div ref="twitter">
 			<iframe
@@ -45,38 +45,47 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</template>
 	<template v-else-if="catalystStatusId">
 		<div :class="$style.catalystEmbed">
-			<div :class="$style.catalystHeader">
-				<img :class="$style.catalystAvatar" src="https://catalyst.natsuneko.com/static/avatar.png" alt="User Avatar" />
-				<div :class="$style.catalystUserMeta">
-					<span :class="$style.catalystUsername">kokoa</span>
-					<span :class="$style.catalystUserId">@kokoa</span>
-					<span :class="$style.catalystDot">・</span>
-					<span :class="$style.catalystTime">20 hours ago</span>
-				</div>
-			</div>
-			<div :class="$style.catalystImageWrap">
-				<img
-					v-for="(img, i) in [
-						'https://placehold.jp/900x600.png',
-						'https://placehold.jp/888x600.png',
-						'https://placehold.jp/860x600.png'
-					]"
-					:key="i"
-					:class="$style.catalystImage"
-					:src="img"
-					:alt="`Embed Image ${i+1}`"
-				/>
-			</div>
-			<div :class="$style.catalystText">text text text</div>
-			<div :class="$style.catalystReactions">
-				<div :class="$style.catalystReactionsLabel">1 reactions</div>
-				<div :class="$style.catalystReactionsList">
-					<div :class="$style.catalystReaction">
-						<span class="emoji">🎉</span>
-						<span class="count">1</span>
+			<template v-if="!catalystData">
+				<div :class="$style.catalystText">Loading...</div>
+			</template>
+			<template v-else>
+				<div :class="$style.catalystHeader">
+					<img
+						:class="$style.catalystAvatar"
+						:src="catalystData.user?.profile?.iconUrl + `/tiny` || 'https://catalyst.natsuneko.com/static/avatar.png'"
+						alt="User Avatar"
+					/>
+					<div :class="$style.catalystUserMeta">
+						<span :class="$style.catalystUsername">{{ catalystData.user?.displayName || catalystData.user?.screenName }}</span>
+						<span :class="$style.catalystUserId">@{{ catalystData.user?.screenName }}</span>
+						<span :class="$style.catalystDot" v-if="catalystData.createdAt">・</span>
+						<span :class="$style.catalystTime" v-if="catalystData.createdAt">{{ new Date(catalystData.createdAt).toLocaleString() }}</span>
 					</div>
 				</div>
-			</div>
+				<div v-if="catalystData.medias && catalystData.medias.length" :class="$style.catalystImageWrap">
+					<template v-for="(img, i) in catalystData.medias" :key="img.id">
+						<MkCatalystSensitiveImage
+							v-if="img.metadata?.isSensitive"
+							:srcBlur="img.url + '/blur'"
+							:srcMedium="img.url + '/medium'"
+							:alt="img.alt || `Embed Image ${i+1}`"
+							:class="[$style.catalystImage, catalystData.medias.length === 1 ? $style.catalystImageLarge : '']"
+							:onPreviewClick="() => openLightbox(img.url + '/original', img.alt || `Embed Image ${i+1}`, img.id)"
+						/>
+						<img
+							v-else
+							:class="[$style.catalystImage, catalystData.medias.length === 1 ? $style.catalystImageLarge : '']"
+							:src="img.url + '/medium'"
+							:alt="img.alt || `Embed Image ${i+1}`"
+							@click="openLightbox(img.url + '/original', img.alt || `Embed Image ${i+1}`, img.id)"
+							style="cursor:pointer"
+						/>
+					</template>
+				</div>
+				<div :class="$style.catalystText">{{ catalystData.body }}</div>
+				<!-- Reactions部分はAPIレスポンスに含まれていないので省略 or 拡張時に追加 -->
+			</template>
+			<div :class="$style.catalystBrand">Catalyst</div>
 		</div>
 	</template>
 	<div v-else>
@@ -140,6 +149,9 @@ import {transformPlayerUrl} from '@/utility/player-url-transform.js';
 import {store} from '@/store.js';
 import {prefer} from '@/preferences.js';
 import {maybeMakeRelative} from '@@/js/url.js';
+import MkCatalystSensitiveImage from './MkCatalystSensitiveImage.vue';
+import MkImgPreviewDialog from './MkImgPreviewDialog.vue';
+import { openImageLightbox } from './MkImageLightboxController';
 
 type SummalyResult = Awaited<ReturnType<typeof summaly>>;
 
@@ -181,10 +193,15 @@ const tweetHeight = ref(150);
 const unknownUrl = ref(false);
 
 const catalystStatusId = ref<string | null>(null);
+const catalystData = ref<any | null>(null);
 
 onDeactivated(() => {
 	playerEnabled.value = false;
 });
+
+function openLightbox(src: string, alt?: string, id?: string) {
+	openImageLightbox({ src, alt: alt || id || '' });
+}
 
 const requestUrl = new URL(props.url);
 if (!['http:', 'https:'].includes(requestUrl.protocol)) throw new Error('invalid url');
@@ -199,8 +216,18 @@ if (requestUrl.hostname === 'music.youtube.com' && requestUrl.pathname.match('^/
 }
 
 if (requestUrl.hostname === 'catalyst.natsuneko.com') {
-	const m = requestUrl.pathname.match(/^\/status\/(\d+)/);
-	if (m) catalystStatusId.value = m[1];
+	const m = requestUrl.pathname.match(/^\/status\/([^/]+)/);
+	if (m) {
+		catalystStatusId.value = m[1];
+		// Catalyst APIから埋め込みデータ取得
+		fetch(`https://api.natsuneko.com/catalyst/v1/status/${m[1]}`)
+			.then(res => res.ok ? res.json() : null)
+			.then(data => {
+				if (data && data.status) {
+					catalystData.value = data.status;
+				}
+			});
+	}
 }
 
 requestUrl.hash = '';
@@ -399,6 +426,17 @@ onUnmounted(() => {
 	.body {
 		padding: 12px;
 	}
+
+	.catalystUserMeta {
+		gap: 2px;
+		font-size: 0.92em;
+	}
+	.catalystTime {
+		display: block;
+		width: 100%;
+		margin-left: 0;
+		margin-top: 2px;
+	}
 }
 
 @container (max-width: 350px) {
@@ -459,6 +497,7 @@ onUnmounted(() => {
 	flex-direction: column;
 	gap: 0;
 	box-shadow: 0 0 0 1px #222;
+	position: relative;
 }
 
 .catalystHeader {
@@ -505,12 +544,11 @@ onUnmounted(() => {
 
 .catalystImageWrap {
 	width: 100%;
-	margin: 0 0 8px 0;
+	margin: 8px;
 	overflow-x: auto;
 	white-space: nowrap;
 	display: flex;
 	gap: 0;
-	padding-bottom: 2px;
 }
 
 .catalystImage {
@@ -523,14 +561,19 @@ onUnmounted(() => {
 	background: #222;
 	margin-right: 8px;
 }
+.catalystImageLarge {
+	width: 320px;
+	height: 200px;
+}
 .catalystImage:last-child {
 	margin-right: 0;
 }
 
 .catalystText {
 	font-size: 1em;
-	margin: 0 0 10px 0;
+	margin: 0 0 18px 0;
 	padding-left: 2px;
+	min-height: 0.5em;
 }
 
 .catalystReactions {
@@ -585,5 +628,20 @@ onUnmounted(() => {
 
 .catalystReactionAdd:hover {
 	background: #333;
+}
+
+.catalystBrand {
+	position: absolute;
+	right: 12px;
+	bottom: 6px;
+	font-size: 0.85em;
+	color: #fff;
+	background: rgba(0,0,0,0.25);
+	padding: 2px 10px 2px 10px;
+	border-radius: 6px;
+	letter-spacing: 0.05em;
+	font-weight: bold;
+	user-select: none;
+	pointer-events: none;
 }
 </style>
