@@ -89,7 +89,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</div>
 			<div :class="$style.catalystText">{{ catalystData.body }}</div>
 		</template>
-		<div :class="$style.catalystBrand">Catalyst</div>
+		<div :class="$style.catalystBrand">
+			<img src="https://s3.resonite.love/resonite/e6fc6f6d-650a-47e7-a77b-22b80ada4086.png" alt="Catalyst Logo" style="height:2em;vertical-align:middle;margin-right:0.1em;" />
+			Catalyst
+		</div>
 	</div>
 </template>
 <div v-else>
