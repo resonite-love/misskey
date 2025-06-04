@@ -86,12 +86,14 @@ const props = withDefaults(defineProps<{
 	withRenotes?: boolean;
 	withReplies?: boolean;
 	withSensitive?: boolean;
+	withLocalOnly?: boolean;
 	onlyFiles?: boolean;
 }>(), {
 	withRenotes: true,
 	withReplies: false,
 	withSensitive: true,
 	onlyFiles: false,
+	withLocalOnly: true,
 });
 
 provide('inTimeline', true);
@@ -134,6 +136,7 @@ type TimelineQueryType = {
 	withRenotes?: boolean,
 	withReplies?: boolean,
 	withFiles?: boolean,
+	withLocalOnly?: boolean,
 	visibility?: string,
 	listId?: string,
 	channelId?: string,
@@ -229,6 +232,20 @@ function connectChannel() {
 			withRenotes: props.withRenotes,
 			withFiles: props.onlyFiles ? true : undefined,
 		});
+	} else if (props.src === 'vmimi-relay') {
+		connection = stream.useChannel('vmimiRelayTimeline', {
+			withRenotes: props.withRenotes,
+			withFiles: props.onlyFiles ? true : undefined,
+			withReplies: props.withReplies,
+			withLocalOnly: props.withLocalOnly,
+		});
+	} else if (props.src === 'vmimi-relay-social') {
+		connection = stream.useChannel('vmimiRelayHybridTimeline', {
+			withRenotes: props.withRenotes,
+			withFiles: props.onlyFiles ? true : undefined,
+			withReplies: props.withReplies,
+			withLocalOnly: props.withLocalOnly,
+		});
 	} else if (props.src === 'mentions') {
 		connection = stream.useChannel('main');
 		connection.on('mention', prepend);
@@ -300,6 +317,22 @@ function updatePaginationQuery() {
 		query = {
 			withRenotes: props.withRenotes,
 			withFiles: props.onlyFiles ? true : undefined,
+		};
+	} else if (props.src === 'vmimi-relay') {
+		endpoint = 'notes/vmimi-relay-timeline';
+		query = {
+			withRenotes: props.withRenotes,
+			withFiles: props.onlyFiles ? true : undefined,
+			withReplies: props.withReplies,
+			withLocalOnly: props.withLocalOnly,
+		};
+	} else if (props.src === 'vmimi-relay-social') {
+		endpoint = 'notes/vmimi-relay-hybrid-timeline';
+		query = {
+			withRenotes: props.withRenotes,
+			withFiles: props.onlyFiles ? true : undefined,
+			withReplies: props.withReplies,
+			withLocalOnly: props.withLocalOnly,
 		};
 	} else if (props.src === 'mentions') {
 		endpoint = 'notes/mentions';
@@ -449,15 +482,15 @@ defineExpose({
 	-webkit-backdrop-filter: var(--MI-blur, blur(2px));
 	backdrop-filter: var(--MI-blur, blur(2px));
 	mask-image: linear-gradient( /* 疑似Easing Linear Gradients */
-		to top,
-		rgb(0 0 0 / 0%) 0%,
-		rgb(0 0 0 / 4.9%) 7.75%,
-		rgb(0 0 0 / 10.4%) 11.25%,
-		rgb(0 0 0 / 45%) 23.55%,
-		rgb(0 0 0 / 55%) 26.45%,
-		rgb(0 0 0 / 89.6%) 38.75%,
-		rgb(0 0 0 / 95.1%) 42.25%,
-		rgb(0 0 0 / 100%) 50%
+			to top,
+			rgb(0 0 0 / 0%) 0%,
+			rgb(0 0 0 / 4.9%) 7.75%,
+			rgb(0 0 0 / 10.4%) 11.25%,
+			rgb(0 0 0 / 45%) 23.55%,
+			rgb(0 0 0 / 55%) 26.45%,
+			rgb(0 0 0 / 89.6%) 38.75%,
+			rgb(0 0 0 / 95.1%) 42.25%,
+			rgb(0 0 0 / 100%) 50%
 	);
 }
 
@@ -466,15 +499,15 @@ defineExpose({
 	-webkit-backdrop-filter: var(--MI-blur, blur(4px));
 	backdrop-filter: var(--MI-blur, blur(4px));
 	mask-image: linear-gradient( /* 疑似Easing Linear Gradients */
-		to top,
-		rgb(0 0 0 / 0%) 0%,
-		rgb(0 0 0 / 4.9%) 15.5%,
-		rgb(0 0 0 / 10.4%) 22.5%,
-		rgb(0 0 0 / 45%) 47.1%,
-		rgb(0 0 0 / 55%) 52.9%,
-		rgb(0 0 0 / 89.6%) 77.5%,
-		rgb(0 0 0 / 95.1%) 91.9%,
-		rgb(0 0 0 / 100%) 100%
+			to top,
+			rgb(0 0 0 / 0%) 0%,
+			rgb(0 0 0 / 4.9%) 15.5%,
+			rgb(0 0 0 / 10.4%) 22.5%,
+			rgb(0 0 0 / 45%) 47.1%,
+			rgb(0 0 0 / 55%) 52.9%,
+			rgb(0 0 0 / 89.6%) 77.5%,
+			rgb(0 0 0 / 95.1%) 91.9%,
+			rgb(0 0 0 / 100%) 100%
 	);
 }
 
