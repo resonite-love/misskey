@@ -102,7 +102,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	>
 		<div
 			v-if="thumbnail && !sensitive" :class="$style.thumbnail"
-			:style="prefer.s.dataSaver.urlPreview ? '' : { backgroundImage: `url('${thumbnail}')` }"
+			:style="prefer.s.dataSaver.urlPreviewThumbnail ? '' : { backgroundImage: `url('${thumbnail}')` }"
 		>
 		</div>
 		<article :class="$style.body">
@@ -161,7 +161,7 @@ import { i18n } from '@/i18n.js';
 import * as os from '@/os.js';
 import { deviceKind } from '@/utility/device-kind.js';
 import MkButton from '@/components/MkButton.vue';
-import { transformPlayerUrl } from '@/utility/player-url-transform.js';
+import { transformPlayerUrl } from '@/utility/url-preview.js';
 import { store } from '@/store.js';
 import { prefer } from '@/preferences.js';
 
@@ -340,8 +340,8 @@ const onMouseUp = () => {
 	if (!el) return;
 	isDown = false;
 	el.style.cursor = '';
-	document.removeEventListener('mousemove', onMouseMove);
-	document.removeEventListener('mouseup', onMouseUp);
+	window.document.removeEventListener('mousemove', onMouseMove);
+	window.document.removeEventListener('mouseup', onMouseUp);
 };
 
 function handleImageClick(img: any, i: number) {
@@ -358,8 +358,8 @@ watch(catalystImageWrap, (val, oldVal) => {
 });
 onUnmounted(() => {
 	if (catalystImageWrap.value) catalystImageWrap.value.removeEventListener('mousedown', onMouseDown);
-	document.removeEventListener('mousemove', onMouseMove);
-	document.removeEventListener('mouseup', onMouseUp);
+	window.document.removeEventListener('mousemove', onMouseMove);
+	window.document.removeEventListener('mouseup', onMouseUp);
 });
 </script>
 
