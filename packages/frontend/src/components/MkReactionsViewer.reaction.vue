@@ -27,6 +27,7 @@ import * as Misskey from 'misskey-js';
 import { getUnicodeEmoji } from '@@/js/emojilist.js';
 import MkCustomEmojiDetailedDialog from './MkCustomEmojiDetailedDialog.vue';
 import type { MenuItem } from '@/types/menu';
+import type { components } from 'misskey-js/autogen/types';
 import XDetails from '@/components/MkReactionsViewer.details.vue';
 import MkReactionIcon from '@/components/MkReactionIcon.vue';
 import * as os from '@/os.js';
@@ -40,7 +41,7 @@ import { checkReactionPermissions } from '@/utility/check-reaction-permissions.j
 import { customEmojisMap } from '@/custom-emojis.js';
 import { prefer } from '@/preferences.js';
 import { DI } from '@/di.js';
-import { store } from "@/store";
+import { store } from '@/store';
 import { noteEvents } from '@/composables/use-note-capture.js';
 import { mute as muteEmoji, unmute as unmuteEmoji, checkMuted as isEmojiMuted } from '@/utility/emoji-mute.js';
 
@@ -79,7 +80,7 @@ const isLocalCustomEmoji = props.reaction[0] === ':' && props.reaction.includes(
 // 	_cacheKey_: props.count,
 // });
 
-const users = ref([]);
+const users = ref<components['schemas']['UserLite'][]>([]);
 
 async function toggleReaction() {
 	if (!canToggle.value) return;
@@ -221,7 +222,7 @@ function anime() {
 watch(() => props.count, (newCount, oldCount) => {
 	console.log('count changed', oldCount, newCount);
 	misskeyApiGet('notes/reactions', {
-		noteId: props.note.id,
+		noteId: props.noteId,
 		type: props.reaction,
 		limit: 10,
 		_cacheKey_: newCount,
@@ -234,7 +235,7 @@ watch(() => props.count, (newCount, oldCount) => {
 
 onMounted(() => {
 	misskeyApiGet('notes/reactions', {
-		noteId: props.note.id,
+		noteId: props.noteId,
 		type: props.reaction,
 		limit: 10,
 	}).then((reactions) => {
