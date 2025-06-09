@@ -52,13 +52,13 @@ export const PREF_DEF = definePreferences({
 	widgets: {
 		accountDependent: true,
 		default: () => [{
-			name: 'calendar',
+			name: 'usefulLinks',
 			id: uuid(), place: 'right', data: {},
 		}, {
-			name: 'notifications',
+			name: 'neosEvent',
 			id: uuid(), place: 'right', data: {},
 		}, {
-			name: 'trends',
+			name: 'kokolive',
 			id: uuid(), place: 'right', data: {},
 		}] as {
 			name: string;

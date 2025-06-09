@@ -20,8 +20,9 @@
 
 <script lang="ts" setup>
 import {defineAsyncComponent, onUnmounted, ref, watch} from 'vue';
-import { useWidgetPropsManager, Widget, WidgetComponentEmits, WidgetComponentExpose, WidgetComponentProps } from './widget';
-import { GetFormResultType } from '@/utility/form.js';
+import { useWidgetPropsManager } from './widget.js';
+import type { Widget, WidgetComponentExpose, WidgetComponentProps } from './widget.js';
+import type { GetFormResultType } from '@/utility/form.js';
 import MkContainer from '@/components/MkContainer.vue';
 import { i18n } from '@/i18n';
 import MkButton from "@/components/MkButton.vue";
@@ -112,26 +113,6 @@ const eventData = ref<EventDataByDate>({});
 const loaded = ref<boolean>(false);
 const api = "https://calendar.resonite.love/";
 
-function groupEventsByDate(events) {
-	const eventsByDate: EventDataByDate = {};
-
-	events.forEach(event => {
-		// startDateを抽出
-		const date = new Date(event.startTime).getTime()
-		const startDate = `${formatDate(date)}`;
-
-		// startDateごとにイベントをグループ化
-		if (!eventsByDate[startDate]) {
-			eventsByDate[startDate] = [];
-		}
-		eventsByDate[startDate].push(event);
-	});
-
-	return eventsByDate;
-}
-
-
-setInterval(() => getNeosEvent(), 3 * 60 * 1000);
 
 defineExpose<WidgetComponentExpose>({
 	name,

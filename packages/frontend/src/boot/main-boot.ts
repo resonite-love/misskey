@@ -4,7 +4,8 @@
  */
 
 import { createApp, defineAsyncComponent, markRaw } from 'vue';
-import { ui } from '@@/js/config.js';
+import { v4 as uuid } from 'uuid';
+import { ui, version } from '@@/js/config.js';
 import * as Misskey from 'misskey-js';
 import { compareVersions } from 'compare-versions';
 import { common } from './common.js';
@@ -69,6 +70,33 @@ export async function mainBoot() {
 		const { dispose } = popup(defineAsyncComponent(() => import('@/components/MkUpdated.vue')), {}, {
 			closed: () => dispose(),
 		});
+		console.log('version!!!', version);
+		if (lastVersion && (compareVersions('2025.6.0-resonite-love.2', lastVersion) === 1)) {
+			console.log('migrate version');
+			try {
+				const p = localStorage.getItem('preferences');
+				if (p) {
+					const pref = JSON.parse(p);
+					pref.preferences.widgets.forEach((widget) => {
+						if (widget[1].filter(w => w.name === 'usefulLinks').length > 0) {
+							console.log('do nothing');
+						} else {
+							widget[1].unshift({
+								name: 'usefulLinks',
+								id: uuid(),
+								data: {},
+								place: 'right',
+							});
+						}
+					});
+					localStorage.setItem('preferences', JSON.stringify(pref));
+					console.log('upgrade done.');
+					window.location.reload();
+				}
+			} catch (e) {
+				// do nothing
+			}
+		}
 
 		// prefereces migration
 		// TODO: そのうち消す
