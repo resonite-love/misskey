@@ -42,6 +42,7 @@ export default function(app: App) {
 	app.component('WidgetKokolive', defineAsyncComponent(() => import('./WidgetKokolive.vue')));
 	app.component('WidgetZou', defineAsyncComponent(() => import('./WidgetZou.vue')));
 	app.component('WidgetChat', defineAsyncComponent(() => import('./WidgetChat.vue')));
+	app.component('WidgetUsefulLinks', defineAsyncComponent(() => import('./WidgetUsefulLinks.vue')));
 }
 
 // 連合関連のウィジェット（連合無効時に隠す）
@@ -51,6 +52,7 @@ export const federationWidgets = [
 ];
 
 export const widgets = [
+	'usefulLinks',
 	'profile',
 	'neosUserCount',
 	'neosEvent',
