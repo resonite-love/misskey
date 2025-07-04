@@ -28,6 +28,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 		:onlyFiles="onlyFiles"
 		:withLocalOnly="withLocalOnly"
 		@note="onNote"
+		:sound="true"
+		:customSound="soundSetting"
 	/>
 </XColumn>
 </template>

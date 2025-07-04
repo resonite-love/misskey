@@ -4,134 +4,152 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-	<div class="omfetrab" :class="['s' + size, 'w' + width, 'h' + height, { asDrawer, asWindow }]"
-			 :style="{ maxHeight: maxHeight ? maxHeight + 'px' : undefined }">
-		<div style="display: flex">
-			<MkButton style="width: 50%" @click="() => {isMakeEmoji = false}">えらぶ</MkButton>
-			<MkButton style="width: 50%" @click="() => {isMakeEmoji = true}">つくる</MkButton>
-			<div id="noteId" style="display: none">{{props.targetNote?.id}}</div>
-		</div>
-		<input
-			v-show="!isMakeEmoji"
-			ref="searchEl"
-			:value="q"
-			class="search"
-			data-prevent-emoji-insert
-			:class="{ filled: q != null && q != '' }"
-			:placeholder="i18n.ts.search"
-			type="search"
-			autocapitalize="off"
-			@input="input()"
-			@paste.stop="paste"
-			@keydown="onKeydown"
-		>
-		<!-- FirefoxのTabフォーカスが想定外の挙動となるためtabindex="-1"を追加 https://github.com/misskey-dev/misskey/issues/10744 -->
-		<div v-show="!isMakeEmoji" ref="emojisEl" class="emojis" tabindex="-1">
-			<section class="result">
-				<div v-if="searchResultCustom.length > 0" class="body">
+<div
+	class="omfetrab" :class="['s' + size, 'w' + width, 'h' + height, { asDrawer, asWindow }]"
+	:style="{ maxHeight: maxHeight ? maxHeight + 'px' : undefined }"
+>
+	<div style="display: flex">
+		<MkButton style="width: 50%" @click="() => {isMakeEmoji = false}">えらぶ</MkButton>
+		<MkButton style="width: 50%" @click="() => {isMakeEmoji = true}">つくる</MkButton>
+		<div id="noteId" style="display: none">{{ props.targetNote?.id }}</div>
+	</div>
+	<input
+		v-show="!isMakeEmoji"
+		ref="searchEl"
+		:value="q"
+		class="search"
+		data-prevent-emoji-insert
+		:class="{ filled: q != null && q != '' }"
+		:placeholder="i18n.ts.search"
+		type="search"
+		autocapitalize="off"
+		@input="input()"
+		@paste.stop="paste"
+		@keydown="onKeydown"
+	>
+	<!-- FirefoxのTabフォーカスが想定外の挙動となるためtabindex="-1"を追加 https://github.com/misskey-dev/misskey/issues/10744 -->
+	<div v-show="!isMakeEmoji" ref="emojisEl" class="emojis" tabindex="-1">
+		<section class="result">
+			<div v-if="searchResultCustom.length > 0" class="body">
+				<button
+					v-for="emoji in searchResultCustom"
+					:key="emoji.name"
+					class="_button item"
+					:disabled="!canReact(emoji)"
+					:title="emoji.name"
+					tabindex="0"
+					@click="chosen(emoji, $event)"
+				>
+					<MkCustomEmoji class="emoji" :name="emoji.name" :fallbackToImage="true"/>
+				</button>
+			</div>
+			<div v-if="searchResultUnicode.length > 0" class="body">
+				<button
+					v-for="emoji in searchResultUnicode"
+					:key="emoji.name"
+					class="_button item"
+					:title="emoji.name"
+					tabindex="0"
+					@click="chosen(emoji, $event)"
+				>
+					<MkEmoji class="emoji" :emoji="emoji.char"/>
+				</button>
+			</div>
+		</section>
+
+		<div v-if="tab === 'index'" class="group index">
+			<section v-if="showPinned && (pinned && pinned.length > 0)">
+				<div class="body">
 					<button
-						v-for="emoji in searchResultCustom"
-						:key="emoji.name"
+						v-for="emoji in pinnedEmojisDef"
+						:key="getKey(emoji)"
+						:data-emoji="getKey(emoji)"
 						class="_button item"
 						:disabled="!canReact(emoji)"
-						:title="emoji.name"
 						tabindex="0"
+						@pointerenter="computeButtonTitle"
 						@click="chosen(emoji, $event)"
 					>
-						<MkCustomEmoji class="emoji" :name="emoji.name" :fallbackToImage="true"/>
+						<MkCustomEmoji v-if="!emoji.hasOwnProperty('char')" class="emoji" :name="getKey(emoji)" :normal="true"/>
+						<MkEmoji v-else class="emoji" :emoji="getKey(emoji)" :normal="true"/>
 					</button>
-				</div>
-				<div v-if="searchResultUnicode.length > 0" class="body">
-					<button
-						v-for="emoji in searchResultUnicode"
-						:key="emoji.name"
-						class="_button item"
-						:title="emoji.name"
-						tabindex="0"
-						@click="chosen(emoji, $event)"
-					>
-						<MkEmoji class="emoji" :emoji="emoji.char"/>
-					</button>
+					<button v-tooltip="i18n.ts.settings" class="_button config" @click="settings"><i class="ti ti-settings"></i></button>
 				</div>
 			</section>
 
-			<div v-if="tab === 'index'" class="group index">
-				<section v-if="showPinned && (pinned && pinned.length > 0)">
-					<div class="body">
-						<button
-							v-for="emoji in pinnedEmojisDef"
-							:key="getKey(emoji)"
-							:data-emoji="getKey(emoji)"
-							class="_button item"
-							:disabled="!canReact(emoji)"
-							tabindex="0"
-							@pointerenter="computeButtonTitle"
-							@click="chosen(emoji, $event)"
-						>
-							<MkCustomEmoji v-if="!emoji.hasOwnProperty('char')" class="emoji" :name="getKey(emoji)" :normal="true"/>
-							<MkEmoji v-else class="emoji" :emoji="getKey(emoji)" :normal="true"/>
-						</button>
-					</div>
-				</section>
-
-				<section>
-					<header class="_acrylic"><i class="ti ti-clock ti-fw"></i> {{ i18n.ts.recentUsed }}</header>
-					<div class="body">
-						<button
-							v-for="emoji in recentlyUsedEmojisDef"
-							:key="getKey(emoji)"
-							class="_button item"
-							:disabled="!canReact(emoji)"
-							:data-emoji="getKey(emoji)"
-							@pointerenter="computeButtonTitle"
-							@click="chosen(emoji, $event)"
-						>
-							<MkCustomEmoji v-if="!emoji.hasOwnProperty('char')" class="emoji" :name="getKey(emoji)" :normal="true"/>
-							<MkEmoji v-else class="emoji" :emoji="getKey(emoji)" :normal="true"/>
-						</button>
-					</div>
-				</section>
-			</div>
-			<div v-once class="group">
-				<header class="_acrylic">{{ i18n.ts.customEmojis }}</header>
-				<XSection
-					v-for="child in customEmojiFolderRoot.children"
-					:key="`custom:${child.value}`"
-					:initialShown="false"
-					:emojis="computed(() => customEmojis.filter(e => filterCategory(e, child.value)).map(e => `:${e.name}:`))"
-					:disabledEmojis="computed(() => customEmojis.filter(e => filterCategory(e, child.value)).filter(e => !canReact(e)).map(e => `:${e.name}:`))"
-					:hasChildSection="child.children.length !== 0"
-					:customEmojiTree="child.children"
-					@chosen="chosen"
-				>
-					{{ child.value || i18n.ts.other }}
-				</XSection>
-			</div>
-			<div v-once class="group">
-				<header class="_acrylic">{{ i18n.ts.emoji }}</header>
-				<XSection v-for="category in categories" :key="category" :emojis="emojiCharByCategory.get(category) ?? []"
-									:hasChildSection="false" @chosen="chosen">{{ category }}
-				</XSection>
-			</div>
+			<section>
+				<header class="_acrylic"><i class="ti ti-clock ti-fw"></i> {{ i18n.ts.recentUsed }}</header>
+				<div class="body">
+					<button
+						v-for="emoji in recentlyUsedEmojisDef"
+						:key="getKey(emoji)"
+						class="_button item"
+						:disabled="!canReact(emoji)"
+						:data-emoji="getKey(emoji)"
+						@pointerenter="computeButtonTitle"
+						@click="chosen(emoji, $event)"
+					>
+						<MkCustomEmoji v-if="!emoji.hasOwnProperty('char')" class="emoji" :name="getKey(emoji)" :normal="true"/>
+						<MkEmoji v-else class="emoji" :emoji="getKey(emoji)" :normal="true"/>
+					</button>
+				</div>
+			</section>
 		</div>
-		<div v-show="!isMakeEmoji" class="tabs">
-			<button class="_button tab" :class="{ active: tab === 'index' }" @click="tab = 'index'"><i
-				class="ti ti-asterisk ti-fw"></i></button>
-			<button class="_button tab" :class="{ active: tab === 'custom' }" @click="tab = 'custom'"><i
-				class="ti ti-mood-happy ti-fw"></i></button>
-			<button class="_button tab" :class="{ active: tab === 'unicode' }" @click="tab = 'unicode'"><i
-				class="ti ti-leaf ti-fw"></i></button>
-			<button class="_button tab" :class="{ active: tab === 'tags' }" @click="tab = 'tags'"><i
-				class="ti ti-hash ti-fw"></i></button>
+		<div v-once class="group">
+			<header class="_acrylic">{{ i18n.ts.customEmojis }}</header>
+			<XSection
+				v-for="child in customEmojiFolderRoot.children"
+				:key="`custom:${child.value}`"
+				:initialShown="false"
+				:emojis="computed(() => customEmojis.filter(e => filterCategory(e, child.value)).map(e => `:${e.name}:`))"
+				:disabledEmojis="computed(() => customEmojis.filter(e => filterCategory(e, child.value)).filter(e => !canReact(e)).map(e => `:${e.name}:`))"
+				:hasChildSection="child.children.length !== 0"
+				:customEmojiTree="child.children"
+				@chosen="chosen"
+			>
+				{{ child.value || i18n.ts.other }}
+			</XSection>
 		</div>
-		<div v-show="isMakeEmoji" style="width: 100%; height: 100%">
-			<iframe src="https://megamoji-resonite-love.pages.dev" style="width: 100%; height: 100%; border: none"></iframe>
+		<div v-once class="group">
+			<header class="_acrylic">{{ i18n.ts.emoji }}</header>
+			<XSection
+				v-for="category in categories" :key="category" :emojis="emojiCharByCategory.get(category) ?? []"
+				:hasChildSection="false" @chosen="chosen"
+			>
+				{{ category }}
+			</XSection>
 		</div>
 	</div>
+	<div v-show="!isMakeEmoji" class="tabs">
+		<button class="_button tab" :class="{ active: tab === 'index' }" @click="tab = 'index'">
+			<i
+				class="ti ti-asterisk ti-fw"
+			></i>
+		</button>
+		<button class="_button tab" :class="{ active: tab === 'custom' }" @click="tab = 'custom'">
+			<i
+				class="ti ti-mood-happy ti-fw"
+			></i>
+		</button>
+		<button class="_button tab" :class="{ active: tab === 'unicode' }" @click="tab = 'unicode'">
+			<i
+				class="ti ti-leaf ti-fw"
+			></i>
+		</button>
+		<button class="_button tab" :class="{ active: tab === 'tags' }" @click="tab = 'tags'">
+			<i
+				class="ti ti-hash ti-fw"
+			></i>
+		</button>
+	</div>
+	<div v-show="isMakeEmoji" style="width: 100%; height: 100%">
+		<iframe src="https://megamoji-resonite-love.pages.dev" style="width: 100%; height: 100%; border: none"></iframe>
+	</div>
+</div>
 </template>
 
 <script lang="ts" setup>
-import {ref, useTemplateRef, computed, watch, onMounted, onUnmounted} from 'vue';
+import { ref, useTemplateRef, computed, watch, onMounted, onUnmounted } from 'vue';
 import * as Misskey from 'misskey-js';
 import {
 	emojilist,
@@ -147,18 +165,18 @@ import type {
 import XSection from '@/components/MkEmojiPicker.section.vue';
 import MkRippleEffect from '@/components/MkRippleEffect.vue';
 import * as os from '@/os.js';
-import {isTouchUsing} from '@/utility/touch.js';
-import {deviceKind} from '@/utility/device-kind.js';
-import {i18n} from '@/i18n.js';
-import {store} from '@/store.js';
-import {customEmojiCategories, customEmojis, customEmojisMap} from '@/custom-emojis.js';
-import {$i} from '@/i.js';
-import {checkReactionPermissions} from '@/utility/check-reaction-permissions.js';
-import {prefer} from '@/preferences.js';
-import MkButton from "@/components/MkButton.vue";
-import {misskeyApi} from "@/utility/misskey-api";
-import {apiUrl} from "@@/js/config";
-import {emptyStrToEmptyArray, emptyStrToNull} from "@/pages/admin/custom-emojis-manager.impl";
+import MkButton from '@/components/MkButton.vue';
+import { isTouchUsing } from '@/utility/touch.js';
+import { deviceKind } from '@/utility/device-kind.js';
+import { i18n } from '@/i18n.js';
+import { store } from '@/store.js';
+import { customEmojiCategories, customEmojis, customEmojisMap } from '@/custom-emojis.js';
+import { $i } from '@/i.js';
+import { checkReactionPermissions } from '@/utility/check-reaction-permissions.js';
+import { prefer } from '@/preferences.js';
+import { useRouter } from '@/router.js';
+
+const router = useRouter();
 
 const props = withDefaults(defineProps<{
 	showPinned?: boolean;
@@ -434,7 +452,7 @@ function computeButtonTitle(ev: MouseEvent): void {
 }
 
 function chosen(emoji: string | Misskey.entities.EmojiSimple | UnicodeEmojiDef, ev?: MouseEvent) {
-	console.log("chosen!")
+	console.log("chosen!");
 	const el = ev && (ev.currentTarget ?? ev.target) as HTMLElement | null | undefined;
 	if (el && prefer.s.animation) {
 		const rect = el.getBoundingClientRect();
@@ -509,6 +527,11 @@ function done(query?: string): boolean | void {
 		chosen(searchResultUnicode.value[0]);
 		return true;
 	}
+}
+
+function settings() {
+	emit('esc');
+	router.push('settings/emoji-palette');
 }
 
 /**ここからカスタム */
@@ -599,9 +622,6 @@ if (!window._emojiMessageHandlerRegistered) {
 onMounted(() => {
 	focus();
 });
-
-// コンポーネントがアンマウントされても、グローバルリスナーは残しておく
-// 必要に応じてアプリケーション終了時などに削除する場合は別途対応が必要
 
 defineExpose({
 	focus,
@@ -829,6 +849,15 @@ defineExpose({
 			> .body {
 				position: relative;
 				padding: $pad;
+
+				> .config {
+					position: relative;
+					padding: 0 3px;
+					width: var(--eachSize);
+					height: var(--eachSize);
+					contain: strict;
+					opacity: 0.5;
+				}
 
 				> .item {
 					position: relative;
