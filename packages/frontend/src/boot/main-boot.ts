@@ -4,7 +4,6 @@
  */
 
 import { createApp, defineAsyncComponent, markRaw } from 'vue';
-import { v4 as uuid } from 'uuid';
 import { ui, version } from '@@/js/config.js';
 import * as Misskey from 'misskey-js';
 import { compareVersions } from 'compare-versions';
@@ -31,6 +30,7 @@ import { launchPlugins } from '@/plugin.js';
 import { updateCurrentAccountPartial } from '@/accounts.js';
 import { signout } from '@/signout.js';
 import { migrateOldSettings } from '@/pref-migrate.js';
+import { genId } from '@/utility/id.js';
 
 export async function mainBoot() {
 	const { isClientUpdated, lastVersion } = await common(async () => {
@@ -83,7 +83,7 @@ export async function mainBoot() {
 						} else {
 							widget[1].unshift({
 								name: 'usefulLinks',
-								id: uuid(),
+								id: genId(),
 								data: {},
 								place: 'right',
 							});
