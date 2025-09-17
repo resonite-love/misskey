@@ -4,27 +4,27 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-	<PageWithHeader v-model:tab="src" :actions="headerActions" :tabs="$i ? headerTabs : headerTabsWhenNotLogin" :swipable="true" :displayMyAvatar="true" :canOmitTitle="true">
-		<div class="_spacer" style="--MI_SPACER-w: 800px;">
-			<MkTip v-if="isBasicTimeline(src)" :k="`tl.${src}`" style="margin-bottom: var(--MI-margin);">
-				{{ i18n.ts._timelineDescription[src] }}
-			</MkTip>
-			<MkPostForm v-if="prefer.r.showFixedPostForm.value" :class="$style.postForm" class="_panel" fixed style="margin-bottom: var(--MI-margin);"/>
-			<MkStreamingNotesTimeline
-				ref="tlComponent"
-				:key="src + withRenotes + withReplies + onlyFiles + withLocalOnly + withSensitive"
-				:class="$style.tl"
-				:src="(src.split(':')[0] as (BasicTimelineType | 'list'))"
-				:list="src.split(':')[1]"
-				:withRenotes="withRenotes"
-				:withReplies="withReplies"
-				:withSensitive="withSensitive"
-				:onlyFiles="onlyFiles"
-				:withLocalOnly="withLocalOnly"
-				:sound="true"
-			/>
-		</div>
-	</PageWithHeader>
+<PageWithHeader v-model:tab="src" :actions="headerActions" :tabs="$i ? headerTabs : headerTabsWhenNotLogin" :swipable="true" :displayMyAvatar="true" :canOmitTitle="true">
+	<div class="_spacer" style="--MI_SPACER-w: 800px;">
+		<MkTip v-if="isBasicTimeline(src)" :k="`tl.${src}`" style="margin-bottom: var(--MI-margin);">
+			{{ i18n.ts._timelineDescription[src] }}
+		</MkTip>
+		<MkPostForm v-if="prefer.r.showFixedPostForm.value" :class="$style.postForm" class="_panel" fixed style="margin-bottom: var(--MI-margin);"/>
+		<MkStreamingNotesTimeline
+			ref="tlComponent"
+			:key="src + withRenotes + withReplies + onlyFiles + withLocalOnly + withSensitive"
+			:class="$style.tl"
+			:src="(src.split(':')[0] as (BasicTimelineType | 'list'))"
+			:list="src.split(':')[1]"
+			:withRenotes="withRenotes"
+			:withReplies="withReplies"
+			:withSensitive="withSensitive"
+			:onlyFiles="onlyFiles"
+			:withLocalOnly="withLocalOnly"
+			:sound="true"
+		/>
+	</div>
+</PageWithHeader>
 </template>
 
 <script lang="ts" setup>
@@ -67,8 +67,8 @@ const withLocalOnly = computed<boolean>({
 // computed内での無限ループを防ぐためのフラグ
 const localSocialTLFilterSwitchStore = ref<'withReplies' | 'onlyFiles' | false>(
 	store.r.tl.value.filter.withReplies ? 'withReplies' :
-		store.r.tl.value.filter.onlyFiles ? 'onlyFiles' :
-			false,
+	store.r.tl.value.filter.onlyFiles ? 'onlyFiles' :
+	false,
 );
 
 const withReplies = computed<boolean>({

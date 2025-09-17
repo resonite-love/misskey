@@ -3246,24 +3246,24 @@ export type paths = {
         post: operations['notes___user-list-timeline'];
     };
     '/notes/vmimi-relay-hybrid-timeline': {
-    /**
-     * notes/vmimi-relay-hybrid-timeline
-     * @description No description provided.
-     *
-     * **Credential required**: *Yes* / **Permission**: *read:account*
-     */
-    post: operations['notes___vmimi-relay-hybrid-timeline'];
-  };
-  '/notes/vmimi-relay-timeline': {
-    /**
-     * notes/vmimi-relay-timeline
-     * @description No description provided.
-     *
-     * **Credential required**: *No*
-     */
-    post: operations['notes___vmimi-relay-timeline'];
-  };
-  '/notifications/create': {
+        /**
+         * notes/vmimi-relay-hybrid-timeline
+         * @description No description provided.
+         *
+         *     **Credential required**: *Yes* / **Permission**: *read:account*
+         */
+        post: operations['notes___vmimi-relay-hybrid-timeline'];
+    };
+    '/notes/vmimi-relay-timeline': {
+        /**
+         * notes/vmimi-relay-timeline
+         * @description No description provided.
+         *
+         *     **Credential required**: *No*
+         */
+        post: operations['notes___vmimi-relay-timeline'];
+    };
+    '/notifications/create': {
         /**
          * notifications/create
          * @description No description provided.
@@ -5234,41 +5234,43 @@ export type components = {
         };
         RolePolicies: {
             vrtlAvailable: boolean;
-      gtlAvailable: boolean;
-      ltlAvailable: boolean;
-      canPublicNote: boolean;
-      mentionLimit: number;
-      canInvite: boolean;
-      inviteLimit: number;
-      inviteLimitCycle: number;
-      inviteExpirationTime: number;
-      canManageCustomEmojis: boolean;
-      canManageAvatarDecorations: boolean;
-      canSearchNotes: boolean;
-      canSearchUsers: boolean;canUseTranslator: boolean;
-      canHideAds: boolean;
-      driveCapacityMb: number;
-      maxFileSizeMb: number;
-      uploadableFileTypes: string[];
-      alwaysMarkNsfw: boolean;
-      canUpdateBioMedia: boolean;
-      pinLimit: number;
-      antennaLimit: number;
-      wordMuteLimit: number;
-      webhookLimit: number;
-      clipLimit: number;
-      noteEachClipsLimit: number;
-      userListLimit: number;
-      userEachUserListsLimit: number;
-      rateLimitFactor: number;
-      avatarDecorationLimit: number;
-      canImportAntennas: boolean;
-      canImportBlocking: boolean;
-      canImportFollowing: boolean;
-      canImportMuting: boolean;
-      canImportUserLists: boolean;
-      /** @enum {string} */
-      chatAvailability: 'available' | 'readonly' | 'unavailable';noteDraftLimit: number;
+            gtlAvailable: boolean;
+            ltlAvailable: boolean;
+            canPublicNote: boolean;
+            mentionLimit: number;
+            canInvite: boolean;
+            inviteLimit: number;
+            inviteLimitCycle: number;
+            inviteExpirationTime: number;
+            canManageCustomEmojis: boolean;
+            canManageAvatarDecorations: boolean;
+            canSearchNotes: boolean;
+            canSearchUsers: boolean;
+            canUseTranslator: boolean;
+            canHideAds: boolean;
+            driveCapacityMb: number;
+            maxFileSizeMb: number;
+            uploadableFileTypes: string[];
+            alwaysMarkNsfw: boolean;
+            canUpdateBioMedia: boolean;
+            pinLimit: number;
+            antennaLimit: number;
+            wordMuteLimit: number;
+            webhookLimit: number;
+            clipLimit: number;
+            noteEachClipsLimit: number;
+            userListLimit: number;
+            userEachUserListsLimit: number;
+            rateLimitFactor: number;
+            avatarDecorationLimit: number;
+            canImportAntennas: boolean;
+            canImportBlocking: boolean;
+            canImportFollowing: boolean;
+            canImportMuting: boolean;
+            canImportUserLists: boolean;
+            /** @enum {string} */
+            chatAvailability: 'available' | 'readonly' | 'unavailable';
+            noteDraftLimit: number;
             watermarkAvailable: boolean;
     };
     ReversiGameLite: {
@@ -5444,14 +5446,14 @@ export type components = {
                 emailRequiredForSignup: boolean;
                 localTimeline: boolean;
                 globalTimeline: boolean;
-        vmimiRelayTimeline: boolean;
-        hcaptcha: boolean;
-        turnstile: boolean;
-        recaptcha: boolean;
-        objectStorage: boolean;
-        serviceWorker: boolean;
-        /** @default true */
-        miauth: boolean;
+                vmimiRelayTimeline: boolean;
+                hcaptcha: boolean;
+                turnstile: boolean;
+                recaptcha: boolean;
+                objectStorage: boolean;
+                serviceWorker: boolean;
+                /** @default true */
+                miauth: boolean;
             };
             proxyAccountName: string | null;
             /** @example false */
@@ -12715,37 +12717,37 @@ export interface operations {
                     enableFanoutTimeline?: boolean;
                     enableFanoutTimelineDbFallback?: boolean;
                     vmimiRelayTimelineCacheMax?: number;
-          perLocalUserUserTimelineCacheMax?: number;
-          perRemoteUserUserTimelineCacheMax?: number;
-          perUserHomeTimelineCacheMax?: number;
-          perUserListTimelineCacheMax?: number;
-          enableReactionsBuffering?: boolean;
-          notesPerOneAd?: number;
-          silencedHosts?: string[] | null;
-          mediaSilencedHosts?: string[] | null;
-          /** @description [Deprecated] Use "urlPreviewSummaryProxyUrl" instead. */
-          summalyProxy?: string | null;
-          urlPreviewEnabled?: boolean;
-          urlPreviewAllowRedirect?: boolean;
-          urlPreviewTimeout?: number;
-          urlPreviewMaximumContentLength?: number;
-          urlPreviewRequireContentLength?: boolean;
-          urlPreviewUserAgent?: string | null;
-          urlPreviewSummaryProxyUrl?: string | null;
-          /** @enum {string} */
-          federation?: 'all' | 'none' | 'specified';
-          federationHosts?: string[];
-          deliverSuspendedSoftware?: {
-              software: string;
-              versionRange: string;
-            }[];
-          singleUserMode?: boolean;
-          /** @enum {string} */
-          ugcVisibilityForVisitor?: 'all' | 'local' | 'none';
-          proxyRemoteFiles?: boolean;
-          signToActivityPubGet?: boolean;
-          allowExternalApRedirect?: boolean;
-        enableRemoteNotesCleaning?: boolean;
+                    perLocalUserUserTimelineCacheMax?: number;
+                    perRemoteUserUserTimelineCacheMax?: number;
+                    perUserHomeTimelineCacheMax?: number;
+                    perUserListTimelineCacheMax?: number;
+                    enableReactionsBuffering?: boolean;
+                    notesPerOneAd?: number;
+                    silencedHosts?: string[] | null;
+                    mediaSilencedHosts?: string[] | null;
+                    /** @description [Deprecated] Use "urlPreviewSummaryProxyUrl" instead. */
+                    summalyProxy?: string | null;
+                    urlPreviewEnabled?: boolean;
+                    urlPreviewAllowRedirect?: boolean;
+                    urlPreviewTimeout?: number;
+                    urlPreviewMaximumContentLength?: number;
+                    urlPreviewRequireContentLength?: boolean;
+                    urlPreviewUserAgent?: string | null;
+                    urlPreviewSummaryProxyUrl?: string | null;
+                    /** @enum {string} */
+                    federation?: 'all' | 'none' | 'specified';
+                    federationHosts?: string[];
+                    deliverSuspendedSoftware?: {
+                        software: string;
+                        versionRange: string;
+                    }[];
+                    singleUserMode?: boolean;
+                    /** @enum {string} */
+                    ugcVisibilityForVisitor?: 'all' | 'local' | 'none';
+                    proxyRemoteFiles?: boolean;
+                    signToActivityPubGet?: boolean;
+                    allowExternalApRedirect?: boolean;
+                    enableRemoteNotesCleaning?: boolean;
                     remoteNotesCleaningExpiryDaysForEachNotes?: number;
                     remoteNotesCleaningMaxProcessingDurationInMinutes?: number;};
       };
@@ -31256,176 +31258,199 @@ export interface operations {
             };
         };
     };
-
-  'notes___user-list-timeline': {
-    requestBody: {
-      content: {
-        'application/json': {
-          /** Format: misskey:id */
-          listId: string;
-          /** @default 10 */
-          limit?: number;
-          /** Format: misskey:id */
-          sinceId?: string;
-          /** Format: misskey:id */
-          untilId?: string;
-          sinceDate?: number;
-          untilDate?: number;
-          /** @default false */
-          allowPartial?: boolean;
-          /** @default true */
-          includeMyRenotes?: boolean;
-          /** @default true */
-          includeRenotedMyNotes?: boolean;
-          /** @default true */
-          includeLocalRenotes?: boolean;
-          /** @default true */
-          withRenotes?: boolean;
-          /**
-           * @description Only show notes that have attached files.
-           * @default false
-           */
-          withFiles?: boolean;
+    'notes___user-list-timeline': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** Format: misskey:id */
+                    listId: string;
+                    /** @default 10 */
+                    limit?: number;
+                    /** Format: misskey:id */
+                    sinceId?: string;
+                    /** Format: misskey:id */
+                    untilId?: string;
+                    sinceDate?: number;
+                    untilDate?: number;
+                    /** @default false */
+                    allowPartial?: boolean;
+                    /** @default true */
+                    includeMyRenotes?: boolean;
+                    /** @default true */
+                    includeRenotedMyNotes?: boolean;
+                    /** @default true */
+                    includeLocalRenotes?: boolean;
+                    /** @default true */
+                    withRenotes?: boolean;
+                    /**
+                     * @description Only show notes that have attached files.
+                     * @default false
+                     */
+                    withFiles?: boolean;
+                };
+            };
         };
-      };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Note'][];
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
     };
-    responses: {
-      /** @description OK (with results) */
-      200: {
-        content: {
-          'application/json': components['schemas']['Note'][];
+    'notes___vmimi-relay-hybrid-timeline': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** @default false */
+                    withFiles?: boolean;
+                    /** @default true */
+                    withRenotes?: boolean;
+                    /** @default false */
+                    withReplies?: boolean;
+                    /** @default true */
+                    withLocalOnly?: boolean;
+                    /** @default 10 */
+                    limit?: number;
+                    /** @default true */
+                    allowPartial?: boolean;
+                    /** Format: misskey:id */
+                    sinceId?: string;
+                    /** Format: misskey:id */
+                    untilId?: string;
+                    sinceDate?: number;
+                    untilDate?: number;
+                };
+            };
         };
-      };
-      /** @description Client error */
-      400: {
-        content: {
-          'application/json': components['schemas']['Error'];
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Note'][];
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
         };
-      };
-      /** @description Authentication error */
-      401: {
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Forbidden error */
-      403: {
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description I'm Ai */
-      418: {
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Internal server error */
-      500: {
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
     };
-  };
-  /**
-   * notes/vmimi-relay-hybrid-timeline
-   * @description No description provided.
-   *
-   * **Credential required**: *Yes* / **Permission**: *read:account*
-   */
-  'notes___vmimi-relay-hybrid-timeline': {
-    requestBody: {
-      content: {
-        'application/json': {
-          /** @default false */
-          withFiles?: boolean;
-          /** @default true */
-          withRenotes?: boolean;
-          /** @default false */
-          withReplies?: boolean;
-          /** @default true */
-          withLocalOnly?: boolean;
-          /** @default 10 */
-          limit?: number;
-          /** @default true */
-          allowPartial?: boolean;
-          /** Format: misskey:id */
-          sinceId?: string;
-          /** Format: misskey:id */
-          untilId?: string;
-          sinceDate?: number;
-          untilDate?: number;
-        };
-      };
-    };
-    responses: {
-      /** @description OK (with results) */
-      200: {
-        content: {
-          'application/json': components['schemas']['Note'][];
-        };
-      };
-      /** @description Client error */
-      400: {
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Authentication error */
-      401: {
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Forbidden error */
-      403: {
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description I'm Ai */
-      418: {
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Internal server error */
-      500: {
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-    };
-  };
-  /**
-   * notes/vmimi-relay-timeline
-   * @description No description provided.
-   *
-   * **Credential required**: *No*
-   */
-  'notes___vmimi-relay-timeline': {
-    requestBody: {
-      content: {
-        'application/json': {
-          /** @default false */
-          withFiles?: boolean;
-          /** @default true */
-          withRenotes?: boolean;
-          /** @default false */
-          withReplies?: boolean;
-          /** @default true */
-          withLocalOnly?: boolean;
-          /** @default 10 */
-          limit?: number;
-          /** @default true */
-          allowPartial?: boolean;
-          /** Format: misskey:id */
-          sinceId?: string;
-          /** Format: misskey:id */
-          untilId?: string;
-          sinceDate?: number;
-          untilDate?: number;
+    'notes___vmimi-relay-timeline': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** @default false */
+                    withFiles?: boolean;
+                    /** @default true */
+                    withRenotes?: boolean;
+                    /** @default false */
+                    withReplies?: boolean;
+                    /** @default true */
+                    withLocalOnly?: boolean;
+                    /** @default 10 */
+                    limit?: number;
+                    /** @default true */
+                    allowPartial?: boolean;
+                    /** Format: misskey:id */
+                    sinceId?: string;
+                    /** Format: misskey:id */
+                    untilId?: string;
+                    sinceDate?: number;
+                    untilDate?: number;
                 };
             };
         };

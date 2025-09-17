@@ -191,6 +191,7 @@ export const moderationLogTypes = [
 ] as const;
 
 export const rolePolicies = [
+	'vrtlAvailable',
 	'gtlAvailable',
 	'ltlAvailable',
 	'canPublicNote',
