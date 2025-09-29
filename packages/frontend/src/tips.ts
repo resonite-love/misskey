@@ -15,6 +15,7 @@ export const TIPS = [
 	'tl.local',
 	'tl.social',
 	'tl.global',
+	'tl.rl-relay',
 	'tl.vmimi-relay',
 	'tl.vmimi-relay-social',
 	'abuses',

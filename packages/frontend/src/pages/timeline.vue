@@ -51,10 +51,12 @@ const tlComponent = useTemplateRef('tlComponent');
 type TimelinePageSrc = BasicTimelineType | `list:${string}`;
 
 const srcWhenNotSignin = ref<'local' | 'global' | 'vmimi-relay'>(isAvailableBasicTimeline('local') ? 'local' : 'global');
+
 const src = computed<TimelinePageSrc>({
 	get: () => ($i ? store.r.tl.value.src : srcWhenNotSignin.value),
 	set: (x) => saveSrc(x),
 });
+
 const withRenotes = computed<boolean>({
 	get: () => store.r.tl.value.filter.withRenotes,
 	set: (x) => saveTlFilter('withRenotes', x),

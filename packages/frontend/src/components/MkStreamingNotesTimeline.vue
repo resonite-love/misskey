@@ -4,66 +4,72 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-	<component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" :refresher="() => reloadTimeline()">
-		<MkLoading v-if="paginator.fetching.value"/>
+<component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" :refresher="() => reloadTimeline()">
+	<MkLoading v-if="paginator.fetching.value"/>
 
-		<MkError v-else-if="paginator.error.value" @retry="paginator.init()"/>
+	<MkError v-else-if="paginator.error.value" @retry="paginator.init()"/>
 
-		<div v-else-if="paginator.items.value.length === 0" key="_empty_">
-			<slot name="empty">
-				<MkResult type="empty" :text="i18n.ts.noNotes"/>
-			</slot>
-		</div>
+	<div v-else-if="paginator.items.value.length === 0" key="_empty_">
+		<slot name="empty">
+			<MkResult type="empty" :text="i18n.ts.noNotes"/>
+		</slot>
+	</div>
 
-		<div v-else ref="rootEl">
-			<div v-if="paginator.queuedAheadItemsCount.value > 0" :class="$style.new">
-				<div :class="$style.newBg1"></div>
-				<div :class="$style.newBg2"></div>
-				<button class="_button" :class="$style.newButton" @click="releaseQueue()"><i class="ti ti-circle-arrow-up"></i>
-					{{ i18n.ts.newNote }}
-				</button>
-			</div>
-			<component
-				:is="prefer.s.animation ? TransitionGroup : 'div'"
-				:class="$style.notes"
-				:enterActiveClass="$style.transition_x_enterActive"
-				:leaveActiveClass="$style.transition_x_leaveActive"
-				:enterFromClass="$style.transition_x_enterFrom"
-				:leaveToClass="$style.transition_x_leaveTo"
-				:moveClass="$style.transition_x_move"
-				tag="div"
-			>
-				<template v-for="(note, i) in paginator.items.value" :key="note.id">
-					<div v-if="i > 0 && isSeparatorNeeded(paginator.items.value[i -1].createdAt, note.createdAt)"
-							 :data-scroll-anchor="note.id">
-						<div :class="$style.date">
-							<span><i class="ti ti-chevron-up"></i> {{
-									getSeparatorInfo(paginator.items.value[i - 1].createdAt, note.createdAt)?.prevText
-								}}</span>
-							<span style="height: 1em; width: 1px; background: var(--MI_THEME-divider);"></span>
-							<span>{{ getSeparatorInfo(paginator.items.value[i - 1].createdAt, note.createdAt)?.nextText }} <i
-								class="ti ti-chevron-down"></i></span>
-						</div>
-						<MkNote :class="$style.note" :note="note" :withHardMute="true"/>
-					</div>
-					<div v-else-if="note._shouldInsertAd_" :data-scroll-anchor="note.id">
-						<MkNote :class="$style.note" :note="note" :withHardMute="true"/>
-						<div :class="$style.ad">
-							<MkAd :preferForms="['horizontal', 'horizontal-big']"/>
-						</div>
-					</div>
-					<MkNote v-else :class="$style.note" :note="note" :withHardMute="true" :data-scroll-anchor="note.id"/>
-				</template>
-			</component>
-			<button v-show="paginator.canFetchOlder.value" key="_more_"
-							v-appear="prefer.s.enableInfiniteScroll ? paginator.fetchOlder : null"
-							:disabled="paginator.fetchingOlder.value" class="_button" :class="$style.more"
-							@click="paginator.fetchOlder">
-				<div v-if="!paginator.fetchingOlder.value">{{ i18n.ts.loadMore }}</div>
-				<MkLoading v-else :inline="true"/>
+	<div v-else ref="rootEl">
+		<div v-if="paginator.queuedAheadItemsCount.value > 0" :class="$style.new">
+			<div :class="$style.newBg1"></div>
+			<div :class="$style.newBg2"></div>
+			<button class="_button" :class="$style.newButton" @click="releaseQueue()">
+				<i class="ti ti-circle-arrow-up"></i>
+				{{ i18n.ts.newNote }}
 			</button>
 		</div>
-	</component>
+		<component
+			:is="prefer.s.animation ? TransitionGroup : 'div'"
+			:class="$style.notes"
+			:enterActiveClass="$style.transition_x_enterActive"
+			:leaveActiveClass="$style.transition_x_leaveActive"
+			:enterFromClass="$style.transition_x_enterFrom"
+			:leaveToClass="$style.transition_x_leaveTo"
+			:moveClass="$style.transition_x_move"
+			tag="div"
+		>
+			<template v-for="(note, i) in paginator.items.value" :key="note.id">
+				<div
+					v-if="i > 0 && isSeparatorNeeded(paginator.items.value[i -1].createdAt, note.createdAt)"
+					:data-scroll-anchor="note.id"
+				>
+					<div :class="$style.date">
+						<span><i class="ti ti-chevron-up"></i> {{
+							getSeparatorInfo(paginator.items.value[i - 1].createdAt, note.createdAt)?.prevText
+						}}</span>
+						<span style="height: 1em; width: 1px; background: var(--MI_THEME-divider);"></span>
+						<span>{{ getSeparatorInfo(paginator.items.value[i - 1].createdAt, note.createdAt)?.nextText }} <i
+							class="ti ti-chevron-down"
+						></i></span>
+					</div>
+					<MkNote :class="$style.note" :note="note" :withHardMute="true"/>
+				</div>
+				<div v-else-if="note._shouldInsertAd_" :data-scroll-anchor="note.id">
+					<MkNote :class="$style.note" :note="note" :withHardMute="true"/>
+					<div :class="$style.ad">
+						<MkAd :preferForms="['horizontal', 'horizontal-big']"/>
+					</div>
+				</div>
+				<MkNote v-else :class="$style.note" :note="note" :withHardMute="true" :data-scroll-anchor="note.id"/>
+			</template>
+		</component>
+		<button
+			v-show="paginator.canFetchOlder.value" key="_more_"
+			v-appear="prefer.s.enableInfiniteScroll ? paginator.fetchOlder : null"
+			:disabled="paginator.fetchingOlder.value" class="_button" :class="$style.more"
+			@click="paginator.fetchOlder"
+		>
+			<div v-if="!paginator.fetchingOlder.value">{{ i18n.ts.loadMore }}</div>
+			<MkLoading v-else :inline="true"/>
+		</button>
+	</div>
+</component>
 </template>
 
 <script lang="ts" setup>
@@ -77,28 +83,28 @@ import {
 	onMounted,
 	shallowRef,
 	ref,
-	markRaw
+	markRaw,
 } from 'vue';
 import * as Misskey from 'misskey-js';
-import {useInterval} from '@@/js/use-interval.js';
-import {useDocumentVisibility} from '@@/js/use-document-visibility.js';
-import {getScrollContainer, scrollToTop} from '@@/js/scroll.js';
-import type {BasicTimelineType} from '@/timelines.js';
-import type {SoundStore} from '@/preferences/def.js';
-import type {IPaginator, MisskeyEntity} from '@/utility/paginator.js';
+import { useInterval } from '@@/js/use-interval.js';
+import { useDocumentVisibility } from '@@/js/use-document-visibility.js';
+import { getScrollContainer, scrollToTop } from '@@/js/scroll.js';
+import type { BasicTimelineType } from '@/timelines.js';
+import type { SoundStore } from '@/preferences/def.js';
+import type { IPaginator, MisskeyEntity } from '@/utility/paginator.js';
 import MkPullToRefresh from '@/components/MkPullToRefresh.vue';
-import {useStream} from '@/stream.js';
+import { useStream } from '@/stream.js';
 import * as sound from '@/utility/sound.js';
-import {$i} from '@/i.js';
-import {instance} from '@/instance.js';
-import {prefer} from '@/preferences.js';
-import {store} from '@/store.js';
+import { $i } from '@/i.js';
+import { instance } from '@/instance.js';
+import { prefer } from '@/preferences.js';
+import { store } from '@/store.js';
 import MkNote from '@/components/MkNote.vue';
 import MkButton from '@/components/MkButton.vue';
-import {i18n} from '@/i18n.js';
-import {globalEvents, useGlobalEvent} from '@/events.js';
-import {isSeparatorNeeded, getSeparatorInfo} from '@/utility/timeline-date-separate.js';
-import {Paginator} from '@/utility/paginator.js';
+import { i18n } from '@/i18n.js';
+import { globalEvents, useGlobalEvent } from '@/events.js';
+import { isSeparatorNeeded, getSeparatorInfo } from '@/utility/timeline-date-separate.js';
+import { Paginator } from '@/utility/paginator.js';
 
 const props = withDefaults(defineProps<{
 	src: BasicTimelineType | 'mentions' | 'directs' | 'list' | 'antenna' | 'channel' | 'role';
@@ -170,6 +176,14 @@ if (props.src === 'antenna') {
 		})),
 		useShallowRef: true,
 	}));
+} else if (props.src === 'rl-relay') {
+	paginator = markRaw(new Paginator('notes/global-timeline', {
+		computedParams: computed(() => ({
+			withRenotes: props.withRenotes,
+			withFiles: props.onlyFiles ? true : undefined,
+		})),
+		useShallowRef: true,
+	}));
 } else if (props.src === 'vmimi-relay') {
 	paginator = markRaw(new Paginator('notes/vmimi-relay-timeline', {
 		computedParams: computed(() => ({
@@ -234,7 +248,7 @@ onMounted(() => {
 	if (paginator.computedParams) {
 		watch(paginator.computedParams, () => {
 			paginator.reload();
-		}, {immediate: false, deep: true});
+		}, { immediate: false, deep: true });
 	}
 });
 
@@ -259,9 +273,9 @@ watch(rootEl, (el) => {
 	if (el && scrollContainer == null) {
 		scrollContainer = getScrollContainer(el);
 		if (scrollContainer == null) return;
-		scrollContainer.addEventListener('scroll', onScrollContainerScroll, {passive: true}); // ほんとはscrollendにしたいけどiosが非対応
+		scrollContainer.addEventListener('scroll', onScrollContainerScroll, { passive: true }); // ほんとはscrollendにしたいけどiosが非対応
 	}
-}, {immediate: true});
+}, { immediate: true });
 
 onUnmounted(() => {
 	if (scrollContainer) {
@@ -288,9 +302,9 @@ let adInsertionCounter = 0;
 const MIN_POLLING_INTERVAL = 1000 * 10;
 const POLLING_INTERVAL =
 	prefer.s.pollingInterval === 1 ? MIN_POLLING_INTERVAL * 1.5 * 1.5 :
-		prefer.s.pollingInterval === 2 ? MIN_POLLING_INTERVAL * 1.5 :
-			prefer.s.pollingInterval === 3 ? MIN_POLLING_INTERVAL :
-				MIN_POLLING_INTERVAL;
+	prefer.s.pollingInterval === 2 ? MIN_POLLING_INTERVAL * 1.5 :
+	prefer.s.pollingInterval === 3 ? MIN_POLLING_INTERVAL :
+	MIN_POLLING_INTERVAL;
 
 if (!store.s.realtimeMode) {
 	// TODO: 先頭のノートの作成日時が1日以上前であれば流速が遅いTLと見做してインターバルを通常より延ばす
@@ -353,6 +367,7 @@ const connections = {
 	userList: null as Misskey.IChannelConnection<Misskey.Channels['userList']> | null,
 	channel: null as Misskey.IChannelConnection<Misskey.Channels['channel']> | null,
 	roleTimeline: null as Misskey.IChannelConnection<Misskey.Channels['roleTimeline']> | null,
+	rlRelayTimeline: null as Misskey.IChannelConnection<Misskey.Channels['rlRelayTimeline']> | null,
 	vmimiRelayTimeline: null as Misskey.IChannelConnection<Misskey.Channels['vmimiRelayTimeline']> | null,
 	vmimiRelayHybridTimeline: null as Misskey.IChannelConnection<Misskey.Channels['vmimiRelayHybridTimeline']> | null,
 };
@@ -392,6 +407,15 @@ function connectChannel() {
 			withFiles: props.onlyFiles ? true : undefined,
 		});
 		connections.globalTimeline.on('note', prepend);
+	} else if (props.src === 'rl-relay') {
+		connections.rlRelayTimeline = stream.useChannel('globalTimeline', {
+			withRenotes: props.withRenotes,
+			withFiles: props.onlyFiles ? true : undefined,
+		});
+		connections.rlRelayTimeline.on('note', (note) => {
+			console.log(note);
+			prepend(note);
+		});
 	} else if (props.src === 'vmimi-relay') {
 		connections.vmimiRelayTimeline = stream.useChannel('vmimiRelayTimeline', {
 			withRenotes: props.withRenotes,

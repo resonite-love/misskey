@@ -11,6 +11,7 @@ export const basicTimelineTypes = [
 	'local',
 	'social',
 	'global',
+	'rl-relay',
 	'vmimi-relay',
 	'vmimi-relay-social',
 ] as const;
@@ -31,6 +32,8 @@ export function basicTimelineIconClass(timeline: BasicTimelineType): string {
 			return 'ti ti-universe';
 		case 'global':
 			return 'ti ti-whirl';
+		case 'rl-relay':
+			return 'ti ti-rocket';
 		case 'vmimi-relay':
 			return 'ti ti-circles-relation';
 		case 'vmimi-relay-social':
@@ -48,6 +51,8 @@ export function isAvailableBasicTimeline(timeline: BasicTimelineType | undefined
 			return $i != null && $i.policies.ltlAvailable;
 		case 'global':
 			return ($i == null && instance.policies.gtlAvailable) || ($i != null && $i.policies.gtlAvailable);
+		case 'rl-relay':
+			return (instance.policies.gtlAvailable);
 		case 'vmimi-relay':
 			return ($i == null && instance.policies.vrtlAvailable) || ($i != null && $i.policies.vrtlAvailable);
 		case 'vmimi-relay-social':
@@ -58,13 +63,15 @@ export function isAvailableBasicTimeline(timeline: BasicTimelineType | undefined
 }
 
 export function availableBasicTimelines(): BasicTimelineType[] {
-	return basicTimelineTypes.filter(isAvailableBasicTimeline);
+	const tl = basicTimelineTypes.filter(isAvailableBasicTimeline);
+	console.log('tl', tl);
+	return tl;
 }
 
 export function hasWithReplies(timeline: BasicTimelineType | undefined | null): boolean {
-	return timeline === 'local' || timeline === 'social' || timeline === 'vmimi-relay' || timeline === 'vmimi-relay-social';
+	return timeline === 'local' || timeline === 'social' || timeline === 'rl-relay' || timeline === 'vmimi-relay' || timeline === 'vmimi-relay-social';
 }
 
 export function hasWithLocalOnly(timeline: BasicTimelineType | undefined | null): boolean {
-	return timeline === 'vmimi-relay' || timeline === 'vmimi-relay-social';
+	return timeline === 'vmimi-relay' || timeline === 'vmimi-relay-social' || timeline === 'rl-relay';
 }

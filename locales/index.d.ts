@@ -6475,6 +6475,10 @@ export interface Locale extends ILocale {
          */
         "global": string;
         /**
+         * れぞらぶリレーの投稿が見れます
+         */
+        "rl-relay": string;
+        /**
          * ぶいみみリレータイムラインでは、バーチャルケモミミリレーサーバーに参加しているサーバーのユーザー全員の投稿を見られます。
          */
         "vmimi-relay": string;
@@ -10006,6 +10010,10 @@ export interface Locale extends ILocale {
          * グローバル
          */
         "global": string;
+        /**
+         * れぞらぶリレー
+         */
+        "rl-relay": string;
         /**
          * ぶいみみリレー
          */
