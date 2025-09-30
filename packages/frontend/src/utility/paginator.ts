@@ -101,6 +101,8 @@ export class Paginator<
 	private aheadQueue: T[] = [];
 	private useShallowRef: SRef;
 
+	private customFilter: ((items: T[]) => T[]) | null = null;
+
 	// 配列内の要素をどのような順序で並べるか
 	// newest: 新しいものが先頭 (default)
 	// oldest: 古いものが先頭
@@ -133,6 +135,9 @@ export class Paginator<
 
 		canSearch?: boolean;
 		searchParamName?: keyof E['req'];
+
+		// resonite.love拡張 API用のカスタムフィルタ
+		customFilter?: (items: any[]) => any[];
 	}) {
 		this.endpoint = endpoint;
 		this.useShallowRef = (props.useShallowRef ?? false) as SRef;
@@ -154,6 +159,8 @@ export class Paginator<
 		this.offsetMode = props.offsetMode ?? false;
 		this.canSearch = props.canSearch ?? false;
 		this.searchParamName = props.searchParamName ?? 'search';
+
+		this.customFilter = props.customFilter ?? null;
 
 		this.getNewestId = this.getNewestId.bind(this);
 		this.getOldestId = this.getOldestId.bind(this);
@@ -206,7 +213,7 @@ export class Paginator<
 			} : {}),
 		};
 
-		const apiRes = (await misskeyApi(this.endpoint, data).catch(err => {
+		let apiRes = (await misskeyApi(this.endpoint, data).catch(err => {
 			this.error.value = true;
 			this.fetching.value = false;
 			return null;
@@ -214,6 +221,11 @@ export class Paginator<
 
 		if (apiRes == null) {
 			return;
+		}
+
+		// resonite.love拡張 API用のカスタムフィルタ
+		if (this.customFilter) {
+			apiRes = this.customFilter(apiRes);
 		}
 
 		// 逆順で返ってくるので

@@ -129,6 +129,13 @@ const props = withDefaults(defineProps<{
 	customSound: null,
 });
 
+const rlRelayHosts = ['misskey.kontovr.site',
+																						'ningen.ahoaho.jp',
+																						'misskey.resonite.love',
+																						'mi.harumakizaemon.net',
+																						'kawane.misskey.online',
+																						'pl.ijs01140.dev'];
+
 provide('inTimeline', true);
 provide('tl_withSensitive', computed(() => props.withSensitive));
 provide('inChannel', computed(() => props.src === 'channel'));
@@ -183,6 +190,17 @@ if (props.src === 'antenna') {
 			withFiles: props.onlyFiles ? true : undefined,
 		})),
 		useShallowRef: true,
+		customFilter: (notes: any[]) => {
+			let filteredNotes :any[] = [];
+			for (const note of notes) {
+				if (note.user?.host == null) {
+					filteredNotes.push(note);
+				} else if (rlRelayHosts.includes(note.user.host)) {
+					filteredNotes.push(note);
+				}
+			}
+			return filteredNotes;
+		},
 	}));
 } else if (props.src === 'vmimi-relay') {
 	paginator = markRaw(new Paginator('notes/vmimi-relay-timeline', {
@@ -371,13 +389,6 @@ const connections = {
 	vmimiRelayTimeline: null as Misskey.IChannelConnection<Misskey.Channels['vmimiRelayTimeline']> | null,
 	vmimiRelayHybridTimeline: null as Misskey.IChannelConnection<Misskey.Channels['vmimiRelayHybridTimeline']> | null,
 };
-
-const rlRelayHosts = ['misskey.kontovr.site',
-																						'ningen.ahoaho.jp',
-																						'misskey.resonite.love',
-																						'mi.harumakizaemon.net',
-																						'kawane.misskey.online',
-																						'pl.ijs01140.dev'];
 
 function connectChannel() {
 	if (stream == null) return;

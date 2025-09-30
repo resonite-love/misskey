@@ -109,6 +109,18 @@ export type Channels = {
 		};
 		receives: null;
 	};
+	rlRelayTimeline: {
+		params: {
+			withRenotes?: boolean;
+			withFiles?: boolean;
+			withReplies?: boolean;
+			withLocalOnly?: boolean;
+		};
+		events: {
+			note: (payload: Note) => void;
+		};
+		receives: null;
+	};
 	vmimiRelayTimeline: {
 		params: {
 			withRenotes?: boolean;
