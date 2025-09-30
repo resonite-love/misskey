@@ -372,6 +372,13 @@ const connections = {
 	vmimiRelayHybridTimeline: null as Misskey.IChannelConnection<Misskey.Channels['vmimiRelayHybridTimeline']> | null,
 };
 
+const rlRelayHosts = ['misskey.kontovr.site',
+																						'ningen.ahoaho.jp',
+																						'misskey.resonite.love',
+																						'mi.harumakizaemon.net',
+																						'kawane.misskey.online',
+																						'pl.ijs01140.dev'];
+
 function connectChannel() {
 	if (stream == null) return;
 	if (props.src === 'antenna') {
@@ -413,8 +420,13 @@ function connectChannel() {
 			withFiles: props.onlyFiles ? true : undefined,
 		});
 		connections.rlRelayTimeline.on('note', (note) => {
-			console.log(note);
-			prepend(note);
+			if (note.user?.host == null) {
+				prepend(note);
+				return;
+			} else if (rlRelayHosts.includes(note.user.host)) {
+				prepend(note);
+				return;
+			}
 		});
 	} else if (props.src === 'vmimi-relay') {
 		connections.vmimiRelayTimeline = stream.useChannel('vmimiRelayTimeline', {
