@@ -278,7 +278,7 @@ export class Paginator<
 			}),
 		};
 
-		const apiRes = (await misskeyApi<T[]>(this.endpoint, data).catch(err => {
+		let apiRes = (await misskeyApi<T[]>(this.endpoint, data).catch(err => {
 			return null;
 		})) as T[] | null;
 
@@ -286,6 +286,11 @@ export class Paginator<
 
 		if (apiRes == null) {
 			return;
+		}
+
+		// resonite.love拡張 API用のカスタムフィルタ
+		if (this.customFilter) {
+			apiRes = this.customFilter(apiRes);
 		}
 
 		for (let i = 0; i < apiRes.length; i++) {
@@ -331,7 +336,7 @@ export class Paginator<
 			}),
 		};
 
-		const apiRes = (await misskeyApi<T[]>(this.endpoint, data).catch(err => {
+		let apiRes = (await misskeyApi<T[]>(this.endpoint, data).catch(err => {
 			return null;
 		})) as T[] | null;
 
@@ -341,6 +346,11 @@ export class Paginator<
 			this.canFetchNewer.value = false;
 			// 余計なre-renderを防止するためここで終了
 			return;
+		}
+
+		// resonite.love拡張 API用のカスタムフィルタ
+		if (this.customFilter) {
+			apiRes = this.customFilter(apiRes);
 		}
 
 		if (options.toQueue) {
