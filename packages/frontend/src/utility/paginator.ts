@@ -196,58 +196,101 @@ export class Paginator<
 		this.queuedAheadItemsCount.value = 0;
 		this.fetching.value = true;
 
-		const data: E['req'] = {
-			...(typeof this.params === 'function' ? this.params() : this.params),
-			...(this.computedParams ? this.computedParams.value : {}),
-			...(this.searchQuery.value != null && this.searchQuery.value.trim() !== '' ? { [this.searchParamName]: this.searchQuery.value } : {}),
-			limit: this.limit ?? FIRST_FETCH_LIMIT,
-			allowPartial: true,
-			...((this.initialId == null && this.initialDate == null) && this.initialDirection === 'newer' ? {
-				sinceId: '0',
-			} : this.initialDirection === 'newer' ? {
-				sinceId: this.initialId ?? undefined,
-				sinceDate: this.initialDate ?? undefined,
-			} : (this.initialId || this.initialDate) && this.initialDirection === 'older' ? {
-				untilId: this.initialId ?? undefined,
-				untilDate: this.initialDate ?? undefined,
-			} : {}),
-		};
+		const collectedItems: T[] = [];
+		let lastId: string | undefined = undefined;
+		let lastDate: number | undefined = undefined;
+		let totalFetched = 0;
+		const maxAttempts = 100; // 最大試行回数
 
-		let apiRes = (await misskeyApi(this.endpoint, data).catch(err => {
-			this.error.value = true;
-			this.fetching.value = false;
-			return null;
-		})) as T[] | null;
-
-		if (apiRes == null) {
-			return;
+		// 初回のパラメータ設定
+		if (this.initialDirection === 'newer') {
+			if (this.initialId == null && this.initialDate == null) {
+				lastId = '0';
+			} else {
+				lastId = this.initialId ?? undefined;
+				lastDate = this.initialDate ?? undefined;
+			}
+		} else if ((this.initialId || this.initialDate) && this.initialDirection === 'older') {
+			lastId = this.initialId ?? undefined;
+			lastDate = this.initialDate ?? undefined;
 		}
 
-		// resonite.love拡張 API用のカスタムフィルタ
-		if (this.customFilter) {
-			apiRes = this.customFilter(apiRes);
+		// 必要な数のアイテムが集まるまでループ
+		while (collectedItems.length < (this.limit ?? FIRST_FETCH_LIMIT) && totalFetched < maxAttempts) {
+			const data: E['req'] = {
+				...(typeof this.params === 'function' ? this.params() : this.params),
+				...(this.computedParams ? this.computedParams.value : {}),
+				...(this.searchQuery.value != null && this.searchQuery.value.trim() !== '' ? { [this.searchParamName]: this.searchQuery.value } : {}),
+				limit: this.limit ?? FIRST_FETCH_LIMIT,
+				allowPartial: true,
+				...(this.initialDirection === 'newer' ? {
+					sinceId: lastId,
+					sinceDate: lastDate,
+				} : lastId || lastDate ? {
+					untilId: lastId,
+					untilDate: lastDate,
+				} : {}),
+			};
+
+			let apiRes = (await misskeyApi(this.endpoint, data).catch(err => {
+				this.error.value = true;
+				this.fetching.value = false;
+				return null;
+			})) as T[] | null;
+
+			if (apiRes == null) {
+				break;
+			}
+
+			totalFetched++;
+
+			// APIレスポンスが空の場合、これ以上データがない
+			if (apiRes.length === 0) {
+				break;
+			}
+
+			// 次回のためにIDを更新
+			if (this.initialDirection === 'newer') {
+				const newest = apiRes[apiRes.length - 1];
+				if (newest) lastId = newest.id;
+			} else {
+				const oldest = apiRes[apiRes.length - 1];
+				if (oldest) lastId = oldest.id;
+			}
+
+			// resonite.love拡張 API用のカスタムフィルタ
+			if (this.customFilter) {
+				apiRes = this.customFilter(apiRes);
+			}
+
+			// フィルタ後にアイテムがある場合のみ追加
+			if (apiRes.length > 0) {
+				collectedItems.push(...apiRes);
+			}
 		}
 
 		// 逆順で返ってくるので
 		if ((this.initialId || this.initialDate) && this.initialDirection === 'newer') {
-			apiRes.reverse();
+			collectedItems.reverse();
 		}
 
-		for (let i = 0; i < apiRes.length; i++) {
-			const item = apiRes[i];
+		// 広告挿入位置の設定
+		for (let i = 0; i < collectedItems.length; i++) {
+			const item = collectedItems[i];
 			if (i === 3) item._shouldInsertAd_ = true;
 		}
 
-		this.pushItems(apiRes);
+		this.pushItems(collectedItems);
 
+		// canFetch の判定
 		if (this.canFetchDetection === 'limit') {
-			if (apiRes.length < FIRST_FETCH_LIMIT) {
+			if (totalFetched >= maxAttempts || collectedItems.length < (this.limit ?? FIRST_FETCH_LIMIT)) {
 				(this.initialDirection === 'older' ? this.canFetchOlder : this.canFetchNewer).value = false;
 			} else {
 				(this.initialDirection === 'older' ? this.canFetchOlder : this.canFetchNewer).value = true;
 			}
 		} else if (this.canFetchDetection === 'safe' || this.canFetchDetection == null) {
-			if (apiRes.length === 0 || this.noPaging) {
+			if (totalFetched >= maxAttempts || collectedItems.length === 0 || this.noPaging) {
 				(this.initialDirection === 'older' ? this.canFetchOlder : this.canFetchNewer).value = false;
 			} else {
 				(this.initialDirection === 'older' ? this.canFetchOlder : this.canFetchNewer).value = true;
@@ -266,52 +309,86 @@ export class Paginator<
 		if (!this.canFetchOlder.value || this.fetching.value || this.fetchingOlder.value || this.items.value.length === 0) return;
 		this.fetchingOlder.value = true;
 
-		const data: E['req'] = {
-			...(typeof this.params === 'function' ? this.params() : this.params),
-			...(this.computedParams ? this.computedParams.value : {}),
-			...(this.searchQuery.value != null && this.searchQuery.value.trim() !== '' ? { [this.searchParamName]: this.searchQuery.value } : {}),
-			limit: SECOND_FETCH_LIMIT,
-			...(this.offsetMode ? {
-				offset: this.items.value.length,
-			} : {
-				untilId: this.getOldestId(),
-			}),
-		};
+		const collectedItems: T[] = [];
+		let lastId = this.getOldestId();
+		let totalFetched = 0;
+		const maxAttempts = 100; // 最大試行回数
 
-		let apiRes = (await misskeyApi<T[]>(this.endpoint, data).catch(err => {
-			return null;
-		})) as T[] | null;
+		// 必要な数のアイテムが集まるまでループ
+		while (collectedItems.length < SECOND_FETCH_LIMIT && totalFetched < maxAttempts) {
+			const data: E['req'] = {
+				...(typeof this.params === 'function' ? this.params() : this.params),
+				...(this.computedParams ? this.computedParams.value : {}),
+				...(this.searchQuery.value != null && this.searchQuery.value.trim() !== '' ? { [this.searchParamName]: this.searchQuery.value } : {}),
+				limit: SECOND_FETCH_LIMIT,
+				...(this.offsetMode ? {
+					offset: this.items.value.length + collectedItems.length,
+				} : {
+					untilId: lastId,
+				}),
+			};
+
+			let apiRes = (await misskeyApi<T[]>(this.endpoint, data).catch(err => {
+				return null;
+			})) as T[] | null;
+
+			if (apiRes == null) {
+				break;
+			}
+
+			totalFetched++;
+
+			// APIレスポンスが空の場合、これ以上データがない
+			if (apiRes.length === 0) {
+				break;
+			}
+
+			// 次回のためにIDを更新（offsetModeでない場合）
+			if (!this.offsetMode && apiRes.length > 0) {
+				const oldest = apiRes[apiRes.length - 1];
+				if (oldest) lastId = oldest.id;
+			}
+
+			// resonite.love拡張 API用のカスタムフィルタ
+			if (this.customFilter) {
+				apiRes = this.customFilter(apiRes);
+			}
+
+			// フィルタ後にアイテムがある場合のみ追加
+			if (apiRes.length > 0) {
+				collectedItems.push(...apiRes);
+			}
+		}
 
 		this.fetchingOlder.value = false;
 
-		if (apiRes == null) {
+		// アイテムが取得できなかった場合は終了
+		if (collectedItems.length === 0) {
+			this.canFetchOlder.value = false;
 			return;
 		}
 
-		// resonite.love拡張 API用のカスタムフィルタ
-		if (this.customFilter) {
-			apiRes = this.customFilter(apiRes);
-		}
-
-		for (let i = 0; i < apiRes.length; i++) {
-			const item = apiRes[i];
+		// 広告挿入位置の設定
+		for (let i = 0; i < collectedItems.length; i++) {
+			const item = collectedItems[i];
 			if (i === 10) item._shouldInsertAd_ = true;
 		}
 
 		if (this.order.value === 'oldest') {
-			this.unshiftItems(apiRes.toReversed(), false);
+			this.unshiftItems(collectedItems.toReversed(), false);
 		} else {
-			this.pushItems(apiRes);
+			this.pushItems(collectedItems);
 		}
 
+		// canFetch の判定
 		if (this.canFetchDetection === 'limit') {
-			if (apiRes.length < FIRST_FETCH_LIMIT) {
+			if (totalFetched >= maxAttempts || collectedItems.length < FIRST_FETCH_LIMIT) {
 				this.canFetchOlder.value = false;
 			} else {
 				this.canFetchOlder.value = true;
 			}
 		} else if (this.canFetchDetection === 'safe' || this.canFetchDetection == null) {
-			if (apiRes.length === 0) {
+			if (totalFetched >= maxAttempts || collectedItems.length === 0) {
 				this.canFetchOlder.value = false;
 			} else {
 				this.canFetchOlder.value = true;
@@ -324,58 +401,93 @@ export class Paginator<
 	} = {}): Promise<void> {
 		this.fetchingNewer.value = true;
 
-		const data: E['req'] = {
-			...(typeof this.params === 'function' ? this.params() : this.params),
-			...(this.computedParams ? this.computedParams.value : {}),
-			...(this.searchQuery.value != null && this.searchQuery.value.trim() !== '' ? { [this.searchParamName]: this.searchQuery.value } : {}),
-			limit: SECOND_FETCH_LIMIT,
-			...(this.offsetMode ? {
-				offset: this.items.value.length,
-			} : {
-				sinceId: this.getNewestId(),
-			}),
-		};
+		const collectedItems: T[] = [];
+		let lastId = this.getNewestId();
+		let totalFetched = 0;
+		const maxAttempts = 100; // 最大試行回数
 
-		let apiRes = (await misskeyApi<T[]>(this.endpoint, data).catch(err => {
-			return null;
-		})) as T[] | null;
+		// 必要な数のアイテムが集まるまでループ
+		while (collectedItems.length < SECOND_FETCH_LIMIT && totalFetched < maxAttempts) {
+			const data: E['req'] = {
+				...(typeof this.params === 'function' ? this.params() : this.params),
+				...(this.computedParams ? this.computedParams.value : {}),
+				...(this.searchQuery.value != null && this.searchQuery.value.trim() !== '' ? { [this.searchParamName]: this.searchQuery.value } : {}),
+				limit: SECOND_FETCH_LIMIT,
+				...(this.offsetMode ? {
+					offset: this.items.value.length + collectedItems.length,
+				} : {
+					sinceId: lastId,
+				}),
+			};
+
+			let apiRes = (await misskeyApi<T[]>(this.endpoint, data).catch(err => {
+				return null;
+			})) as T[] | null;
+
+			if (apiRes == null) {
+				break;
+			}
+
+			totalFetched++;
+
+			// APIレスポンスが空の場合、これ以上データがない
+			if (apiRes.length === 0) {
+				break;
+			}
+
+			// 次回のためにIDを更新（offsetModeでない場合）
+			if (!this.offsetMode && apiRes.length > 0) {
+				const newest = apiRes[apiRes.length - 1];
+				if (newest) lastId = newest.id;
+			}
+
+			// resonite.love拡張 API用のカスタムフィルタ
+			if (this.customFilter) {
+				apiRes = this.customFilter(apiRes);
+			}
+
+			// フィルタ後にアイテムがある場合のみ追加
+			if (apiRes.length > 0) {
+				collectedItems.push(...apiRes);
+			}
+		}
 
 		this.fetchingNewer.value = false;
 
-		if (apiRes == null || apiRes.length === 0) {
+		// アイテムが取得できなかった場合は終了
+		if (collectedItems.length === 0) {
 			this.canFetchNewer.value = false;
-			// 余計なre-renderを防止するためここで終了
 			return;
 		}
 
-		// resonite.love拡張 API用のカスタムフィルタ
-		if (this.customFilter) {
-			apiRes = this.customFilter(apiRes);
-		}
-
 		if (options.toQueue) {
-			this.aheadQueue.unshift(...apiRes.toReversed());
+			this.aheadQueue.unshift(...collectedItems.toReversed());
 			if (this.aheadQueue.length > MAX_QUEUE_ITEMS) {
 				this.aheadQueue = this.aheadQueue.slice(0, MAX_QUEUE_ITEMS);
 			}
 			this.queuedAheadItemsCount.value = this.aheadQueue.length;
 		} else {
 			if (this.order.value === 'oldest') {
-				this.pushItems(apiRes);
+				this.pushItems(collectedItems);
 			} else {
-				this.unshiftItems(apiRes.toReversed(), false);
+				this.unshiftItems(collectedItems.toReversed(), false);
 			}
 		}
 
+		// canFetch の判定
 		if (this.canFetchDetection === 'limit') {
-			if (apiRes.length < FIRST_FETCH_LIMIT) {
+			if (totalFetched >= maxAttempts || collectedItems.length < FIRST_FETCH_LIMIT) {
+				this.canFetchNewer.value = false;
+			} else {
+				this.canFetchNewer.value = true;
+			}
+		} else if (this.canFetchDetection === 'safe' || this.canFetchDetection == null) {
+			if (totalFetched >= maxAttempts || collectedItems.length === 0) {
 				this.canFetchNewer.value = false;
 			} else {
 				this.canFetchNewer.value = true;
 			}
 		}
-		// canFetchDetectionが'safe'の場合・apiRes.length === 0 の場合は apiRes.length === 0 の場合に canFetchNewer.value = false になるが、
-		// 余計な re-render を防ぐために上部で処理している。そのため、ここでは何もしない
 	}
 
 	public trim(trigger = true): void {
