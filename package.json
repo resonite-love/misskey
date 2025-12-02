@@ -78,7 +78,6 @@
 		"eslint": "9.39.1",
 		"globals": "16.5.0",
 		"ncp": "2.0.0",
-		"pnpm": "10.22.0",
 		"start-server-and-test": "2.1.2"
 	},
 	"optionalDependencies": {
