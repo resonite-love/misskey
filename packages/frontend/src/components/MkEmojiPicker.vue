@@ -165,6 +165,8 @@ import type {
 import XSection from '@/components/MkEmojiPicker.section.vue';
 import MkRippleEffect from '@/components/MkRippleEffect.vue';
 import * as os from '@/os.js';
+import { apiUrl } from '@@/js/config.js';
+import { misskeyApi } from '@/utility/misskey-api.js';
 import MkButton from '@/components/MkButton.vue';
 import { isTouchUsing } from '@/utility/touch.js';
 import { deviceKind } from '@/utility/device-kind.js';
@@ -541,7 +543,7 @@ function settings() {
 const isMakeEmoji = ref(false);
 
 // グローバルなメッセージイベントハンドラ
-const messageHandler = async (response) => {
+const messageHandler = async (response: MessageEvent) => {
 	// 取得した内容を利用した処理
 	if (response.data) {
 		try {
@@ -595,9 +597,13 @@ const messageHandler = async (response) => {
 
 				console.log(result)
 				// chosen(`:${emojiName}:`);
-				console.log(document.getElementById("noteId"))
-				const noteId = document.getElementById("noteId").innerText
-				console.log(noteId)
+				const noteIdEl = document.getElementById("noteId");
+				if (!noteIdEl) {
+					console.log("noteId element not found");
+					return;
+				}
+				const noteId = noteIdEl.innerText;
+				console.log("noteId:", noteId);
 
 				const r = await misskeyApi(
 					"notes/reactions/create", {
@@ -614,9 +620,9 @@ const messageHandler = async (response) => {
 };
 
 // グローバルイベントリスナーを一度だけ登録
-if (!window._emojiMessageHandlerRegistered) {
+if (!(window as any)._emojiMessageHandlerRegistered) {
 	window.addEventListener("message", messageHandler);
-	window._emojiMessageHandlerRegistered = true;
+	(window as any)._emojiMessageHandlerRegistered = true;
 }
 
 /** ここまで */
@@ -624,6 +630,11 @@ if (!window._emojiMessageHandlerRegistered) {
 
 onMounted(() => {
 	focus();
+});
+
+onUnmounted(() => {
+	window.removeEventListener("message", messageHandler);
+	(window as any)._emojiMessageHandlerRegistered = false;
 });
 
 defineExpose({
