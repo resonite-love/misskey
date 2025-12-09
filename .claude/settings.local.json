@@ -3,7 +3,8 @@
     "allow": [
       "Bash(pnpm --filter frontend typecheck:*)",
       "Bash(cat:*)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "Bash(pnpm --filter frontend typecheck:tsc:*)"
     ],
     "deny": [],
     "ask": []

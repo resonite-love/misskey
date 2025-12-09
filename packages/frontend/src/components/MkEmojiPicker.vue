@@ -178,6 +178,7 @@ import { checkReactionPermissions } from '@/utility/check-reaction-permissions.j
 import { prefer } from '@/preferences.js';
 import { useRouter } from '@/router.js';
 import { haptic } from '@/utility/haptic.js';
+import { noteEvents } from '@/composables/use-note-capture.js';
 
 const router = useRouter();
 
@@ -687,6 +688,17 @@ const messageHandler = async (response: MessageEvent) => {
 							reaction: `:${emojiName}:`,
 						});
 						console.log('Reaction added to note:', noteId);
+
+						// ローカルUIを更新するためにイベントを発火（通常のリアクションと同じ処理）
+						noteEvents.emit(`reacted:${noteId}`, {
+							userId: $i!.id,
+							reaction: `:${emojiName}@.:`,
+							emoji: {
+								name: emojiName,
+								url: json.url,
+							},
+						});
+						console.log('noteEvents emitted for local UI update');
 					} catch (reactionError) {
 						console.log('Failed to add reaction:', reactionError);
 					}
@@ -711,10 +723,18 @@ const messageHandler = async (response: MessageEvent) => {
 					});
 				}, 500);
 
-				// ピッカーを閉じてリアクションを反映
+				// 最近使った絵文字に追加
+				const emojiKey = `:${emojiName}:`;
+				let recents = store.s.recentlyUsedEmojis;
+				recents = recents.filter((e) => e !== emojiKey);
+				recents.unshift(emojiKey);
+				store.set('recentlyUsedEmojis', recents.splice(0, 32));
+
+				// ピッカーを閉じる（chosen()だと再度リアクションAPIが呼ばれるのでescで閉じる）
+				haptic();
 				setTimeout(() => {
-					chosen(`:${emojiName}:`);
-				}, 1000);
+					emit('esc');
+				}, 500);
 			}
 		} catch (e) {
 			console.error('Error processing message:', e);
