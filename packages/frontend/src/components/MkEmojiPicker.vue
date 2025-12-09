@@ -546,8 +546,12 @@ const megamojiIframe = useTemplateRef('megamojiIframe');
 // iframeに結果を送信するヘルパー関数
 function sendToMegamoji(message: object) {
 	const iframe = megamojiIframe.value;
+	console.log('sendToMegamoji called:', message, 'iframe:', !!iframe?.contentWindow);
 	if (iframe?.contentWindow) {
 		iframe.contentWindow.postMessage(JSON.stringify(message), '*');
+		console.log('Message sent to MEGAMOJI');
+	} else {
+		console.log('Failed to send: iframe not available');
 	}
 }
 
