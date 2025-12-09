@@ -172,7 +172,7 @@ import { isTouchUsing } from '@/utility/touch.js';
 import { deviceKind } from '@/utility/device-kind.js';
 import { i18n } from '@/i18n.js';
 import { store } from '@/store.js';
-import { customEmojiCategories, customEmojis, customEmojisMap } from '@/custom-emojis.js';
+import { customEmojiCategories, customEmojis, customEmojisMap, addCustomEmoji } from '@/custom-emojis.js';
 import { $i } from '@/i.js';
 import { checkReactionPermissions } from '@/utility/check-reaction-permissions.js';
 import { prefer } from '@/preferences.js';
@@ -570,7 +570,11 @@ function onMegamojiIframeLoad() {
 const messageHandler = async (response: MessageEvent) => {
 	if (response.data) {
 		try {
-			const data = JSON.parse(response.data);
+			// 文字列の場合のみJSONパース（MEGAMOJIからのメッセージはJSON文字列）
+			let data = response.data;
+			if (typeof data === 'string') {
+				data = JSON.parse(data);
+			}
 			if (data.source === 'emoji-gen') {
 				console.log('Received from MEGAMOJI:', data);
 
@@ -650,6 +654,19 @@ const messageHandler = async (response: MessageEvent) => {
 						fileId: json.id,
 					});
 					console.log('Emoji registered:', result);
+
+					// ローカルキャッシュに追加（即座にリアクションで使えるようにする）
+					const newEmoji: Misskey.entities.EmojiSimple = {
+						name: emojiName,
+						category: 'generatedEmoji',
+						aliases: [],
+						isSensitive: false,
+						localOnly: false,
+						roleIdsThatCanBeUsedThisEmojiAsReaction: [],
+						url: json.url,
+					};
+					addCustomEmoji(newEmoji);
+					console.log('Emoji added to local cache:', emojiName);
 				} catch (emojiError: any) {
 					sendToMegamoji({
 						source: 'misskey-emoji-picker',
@@ -693,6 +710,11 @@ const messageHandler = async (response: MessageEvent) => {
 						emojis: emojiNames,
 					});
 				}, 500);
+
+				// ピッカーを閉じてリアクションを反映
+				setTimeout(() => {
+					chosen(`:${emojiName}:`);
+				}, 1000);
 			}
 		} catch (e) {
 			console.error('Error processing message:', e);
