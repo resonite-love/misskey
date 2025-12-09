@@ -142,7 +142,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			></i>
 		</button>
 	</div>
-	<div v-show="isMakeEmoji" style="width: 100%; height: 100%">
+	<div v-if="isMakeEmoji" style="width: 100%; height: 100%">
 		<iframe ref="megamojiIframe" src="https://megamoji-resonite-love.pages.dev" style="width: 100%; height: 100%; border: none" @load="onMegamojiIframeLoad"></iframe>
 	</div>
 </div>
@@ -704,24 +704,8 @@ const messageHandler = async (response: MessageEvent) => {
 					}
 				}
 
-				// 成功を通知
-				sendToMegamoji({
-					source: 'misskey-emoji-picker',
-					type: 'result',
-					success: true,
-					emojiName: emojiName,
-				});
-
-				// 絵文字リストを更新して再送信
-				setTimeout(() => {
-					const emojiNames = Array.from(customEmojisMap.keys());
-					emojiNames.push(emojiName); // 新しく追加した絵文字も含める
-					sendToMegamoji({
-						source: 'misskey-emoji-picker',
-						type: 'emoji-list',
-						emojis: emojiNames,
-					});
-				}, 500);
+				// 成功を通知（Misskey側でトースト表示）
+				os.toast(`絵文字「:${emojiName}:」を登録しました！`);
 
 				// 最近使った絵文字に追加
 				const emojiKey = `:${emojiName}:`;
@@ -730,11 +714,10 @@ const messageHandler = async (response: MessageEvent) => {
 				recents.unshift(emojiKey);
 				store.set('recentlyUsedEmojis', recents.splice(0, 32));
 
-				// ピッカーを閉じる（chosen()だと再度リアクションAPIが呼ばれるのでescで閉じる）
+				// ピッカーを閉じる（次回開いたときに「えらぶ」タブから始まるようにリセット）
+				isMakeEmoji.value = false;
 				haptic();
-				setTimeout(() => {
-					emit('esc');
-				}, 500);
+				emit('esc');
 			}
 		} catch (e) {
 			console.error('Error processing message:', e);
