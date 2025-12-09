@@ -143,7 +143,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</button>
 	</div>
 	<div v-show="isMakeEmoji" style="width: 100%; height: 100%">
-		<iframe src="https://megamoji-resonite-love.pages.dev" style="width: 100%; height: 100%; border: none"></iframe>
+		<iframe ref="megamojiIframe" src="https://megamoji-resonite-love.pages.dev" style="width: 100%; height: 100%; border: none" @load="onMegamojiIframeLoad"></iframe>
 	</div>
 </div>
 </template>
@@ -541,21 +541,60 @@ function settings() {
 
 /**ここからカスタム */
 const isMakeEmoji = ref(false);
+const megamojiIframe = useTemplateRef('megamojiIframe');
+
+// iframeに結果を送信するヘルパー関数
+function sendToMegamoji(message: object) {
+	const iframe = megamojiIframe.value;
+	if (iframe?.contentWindow) {
+		iframe.contentWindow.postMessage(JSON.stringify(message), '*');
+	}
+}
+
+// iframe読み込み時に既存絵文字リストを送信
+function onMegamojiIframeLoad() {
+	const emojiNames = Array.from(customEmojisMap.keys());
+	sendToMegamoji({
+		source: 'misskey-emoji-picker',
+		type: 'emoji-list',
+		emojis: emojiNames,
+	});
+	console.log('Sent emoji list to MEGAMOJI:', emojiNames.length, 'emojis');
+}
 
 // グローバルなメッセージイベントハンドラ
 const messageHandler = async (response: MessageEvent) => {
-	// 取得した内容を利用した処理
 	if (response.data) {
 		try {
-			const data = JSON.parse(response.data)
-			if (data.source === "emoji-gen") {
-				console.log(data)
+			const data = JSON.parse(response.data);
+			if (data.source === 'emoji-gen') {
+				console.log('Received from MEGAMOJI:', data);
+
 				if ($i == null) {
-					console.log("i is null")
-					return
+					sendToMegamoji({
+						source: 'misskey-emoji-picker',
+						type: 'result',
+						success: false,
+						error: 'ログインしていません',
+					});
+					return;
 				}
 
-				const base64Image = data.binaryData
+				const emojiName = data.emojiName || 'GEmoji' + Date.now();
+
+				// 重複チェック
+				if (customEmojisMap.has(emojiName)) {
+					sendToMegamoji({
+						source: 'misskey-emoji-picker',
+						type: 'result',
+						success: false,
+						error: `絵文字名「${emojiName}」は既に存在します`,
+						errorType: 'duplicate',
+					});
+					return;
+				}
+
+				const base64Image = data.binaryData;
 
 				// Convert base64 to blob
 				const byteString = atob(base64Image.split(',')[1]);
@@ -567,7 +606,7 @@ const messageHandler = async (response: MessageEvent) => {
 					ia[i] = byteString.charCodeAt(i);
 				}
 
-				const blob = new Blob([ab], {type: mimeType});
+				const blob = new Blob([ab], { type: mimeType });
 
 				const formData = new FormData();
 				formData.append('file', blob);
@@ -575,53 +614,91 @@ const messageHandler = async (response: MessageEvent) => {
 				formData.append('isSensitive', 'false');
 				formData.append('i', $i.token);
 
+				// ファイルアップロード
 				const res = await window.fetch(apiUrl + '/drive/files/create', {
 					method: 'POST',
 					body: formData,
 				});
 
+				if (!res.ok) {
+					sendToMegamoji({
+						source: 'misskey-emoji-picker',
+						type: 'result',
+						success: false,
+						error: 'ファイルのアップロードに失敗しました',
+					});
+					return;
+				}
+
 				const json = await res.json();
-				console.log(json)
-				const emojiName = !!data.emojiName ? data.emojiName : "GEmoji" + Date.now();
-				const result = await misskeyApi(
-					'admin/emoji/add', {
+				console.log('File uploaded:', json);
+
+				// 絵文字登録
+				try {
+					const result = await misskeyApi('admin/emoji/add', {
 						name: emojiName,
-						category: "generatedEmoji",
+						category: 'generatedEmoji',
 						aliases: [],
 						license: null,
 						isSensitive: false,
 						localOnly: false,
 						roleIdsThatCanBeUsedThisEmojiAsReaction: [],
 						fileId: json.id,
-					})
-
-				console.log(result)
-				// chosen(`:${emojiName}:`);
-				const noteIdEl = document.getElementById("noteId");
-				if (!noteIdEl) {
-					console.log("noteId element not found");
+					});
+					console.log('Emoji registered:', result);
+				} catch (emojiError: any) {
+					sendToMegamoji({
+						source: 'misskey-emoji-picker',
+						type: 'result',
+						success: false,
+						error: emojiError.message || '絵文字の登録に失敗しました',
+					});
 					return;
 				}
-				const noteId = noteIdEl.innerText;
-				console.log("noteId:", noteId);
 
-				const r = await misskeyApi(
-					"notes/reactions/create", {
-						noteId: noteId,
-						reaction: `:${emojiName}:`
+				// ノートにリアクション
+				const noteIdEl = document.getElementById('noteId');
+				if (noteIdEl && noteIdEl.innerText) {
+					const noteId = noteIdEl.innerText;
+					try {
+						await misskeyApi('notes/reactions/create', {
+							noteId: noteId,
+							reaction: `:${emojiName}:`,
+						});
+						console.log('Reaction added to note:', noteId);
+					} catch (reactionError) {
+						console.log('Failed to add reaction:', reactionError);
 					}
-				)
+				}
+
+				// 成功を通知
+				sendToMegamoji({
+					source: 'misskey-emoji-picker',
+					type: 'result',
+					success: true,
+					emojiName: emojiName,
+				});
+
+				// 絵文字リストを更新して再送信
+				setTimeout(() => {
+					const emojiNames = Array.from(customEmojisMap.keys());
+					emojiNames.push(emojiName); // 新しく追加した絵文字も含める
+					sendToMegamoji({
+						source: 'misskey-emoji-picker',
+						type: 'emoji-list',
+						emojis: emojiNames,
+					});
+				}, 500);
 			}
 		} catch (e) {
-			// do nothing
-
+			console.error('Error processing message:', e);
 		}
 	}
 };
 
 // グローバルイベントリスナーを一度だけ登録
 if (!(window as any)._emojiMessageHandlerRegistered) {
-	window.addEventListener("message", messageHandler);
+	window.addEventListener('message', messageHandler);
 	(window as any)._emojiMessageHandlerRegistered = true;
 }
 
