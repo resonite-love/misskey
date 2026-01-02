@@ -118,6 +118,7 @@ async function setType() {
 		}, {
 			value: 'vmimi-relay-social' as const, text: i18n.ts._timelines['vmimi-relay-social'],
 		}],
+		default: props.column.tl,
 	});
 	if (canceled) {
 		if (props.column.tl == null) {
