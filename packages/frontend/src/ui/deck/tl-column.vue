@@ -112,13 +112,13 @@ async function setType() {
 		}, {
 			value: 'global', label: i18n.ts._timelines.global,
 		}, {
-			value: 'rl-relay' as const, text: i18n.ts._timelines['rl-relay'],
+			value: 'rl-relay' as const, label: i18n.ts._timelines['rl-relay'],
 		}, {
-			value: 'rl-relay-social' as const, text: i18n.ts._timelines['rl-relay-social'],
+			value: 'rl-relay-social' as const, label: i18n.ts._timelines['rl-relay-social'],
 		}, {
-			value: 'vmimi-relay' as const, text: i18n.ts._timelines['vmimi-relay'],
+			value: 'vmimi-relay' as const, label: i18n.ts._timelines['vmimi-relay'],
 		}, {
-			value: 'vmimi-relay-social' as const, text: i18n.ts._timelines['vmimi-relay-social'],
+			value: 'vmimi-relay-social' as const, label: i18n.ts._timelines['vmimi-relay-social'],
 		}],
 		default: props.column.tl,
 	});
