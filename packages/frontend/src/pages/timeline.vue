@@ -10,7 +10,20 @@ SPDX-License-Identifier: AGPL-3.0-only
 			{{ i18n.ts._timelineDescription[src] }}
 		</MkTip>
 		<MkPostForm v-if="prefer.r.showFixedPostForm.value" :class="$style.postForm" class="_panel" fixed style="margin-bottom: var(--MI-margin);"/>
+		<MkRlRelaySocialTimeline
+			v-if="src === 'rl-relay-social'"
+			ref="tlComponent"
+			:key="src + withRenotes + withReplies + onlyFiles + withLocalOnly + withSensitive"
+			:class="$style.tl"
+			:withRenotes="withRenotes"
+			:withReplies="withReplies"
+			:withSensitive="withSensitive"
+			:onlyFiles="onlyFiles"
+			:withLocalOnly="withLocalOnly"
+			:sound="true"
+		/>
 		<MkStreamingNotesTimeline
+			v-else
 			ref="tlComponent"
 			:key="src + withRenotes + withReplies + onlyFiles + withLocalOnly + withSensitive"
 			:class="$style.tl"
@@ -33,6 +46,7 @@ import type { Tab } from '@/components/global/MkPageHeader.tabs.vue';
 import type { MenuItem } from '@/types/menu.js';
 import type { BasicTimelineType } from '@/timelines.js';
 import MkStreamingNotesTimeline from '@/components/MkStreamingNotesTimeline.vue';
+import MkRlRelaySocialTimeline from '@/components/MkRlRelaySocialTimeline.vue';
 import MkPostForm from '@/components/MkPostForm.vue';
 import * as os from '@/os.js';
 import { store } from '@/store.js';
