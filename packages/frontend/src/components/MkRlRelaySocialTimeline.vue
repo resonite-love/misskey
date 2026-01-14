@@ -136,7 +136,9 @@ provide('tl_withSensitive', computed(() => props.withSensitive));
 provide('inChannel', false);
 
 // Paginator 1: hybrid-timeline (ホーム+ローカル)
+// 初回は少なく取得して早く表示、後から追加読み込み
 const paginator1 = markRaw(new Paginator('notes/hybrid-timeline', {
+	limit: 5,
 	computedParams: computed(() => ({
 		withRenotes: props.withRenotes,
 		withReplies: props.withReplies,
@@ -146,7 +148,9 @@ const paginator1 = markRaw(new Paginator('notes/hybrid-timeline', {
 }));
 
 // Paginator 2: global-timeline (rlRelayHostsのみ、ローカル除外)
+// フィルター効率が悪いので、一度に多く取得してAPIリクエスト回数を減らす
 const paginator2 = markRaw(new Paginator('notes/global-timeline', {
+	limit: 100,
 	computedParams: computed(() => ({
 		withRenotes: props.withRenotes,
 		withFiles: props.onlyFiles ? true : undefined,
@@ -177,7 +181,8 @@ const mergedItems = computed(() => {
 	return merged;
 });
 
-const isFetching = computed(() => paginator1.fetching.value && paginator2.fetching.value);
+// hybrid-timelineが取得できたら先に表示（GTLフィルターは遅いので待たない）
+const isFetching = computed(() => paginator1.fetching.value);
 const queuedCount = computed(() => paginator1.queuedAheadItemsCount.value + paginator2.queuedAheadItemsCount.value);
 const canFetchOlder = computed(() => paginator1.canFetchOlder.value || paginator2.canFetchOlder.value);
 const fetchingOlder = computed(() => paginator1.fetchingOlder.value || paginator2.fetchingOlder.value);

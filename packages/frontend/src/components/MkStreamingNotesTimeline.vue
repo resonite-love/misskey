@@ -184,7 +184,9 @@ if (props.src === 'antenna') {
 		useShallowRef: true,
 	}));
 } else if (props.src === 'rl-relay') {
+	// フィルター効率が悪いので、一度に多く取得してAPIリクエスト回数を減らす
 	paginator = markRaw(new Paginator('notes/global-timeline', {
+		limit: 100,
 		computedParams: computed(() => ({
 			withRenotes: props.withRenotes,
 			withFiles: props.onlyFiles ? true : undefined,
