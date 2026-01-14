@@ -136,9 +136,9 @@ provide('tl_withSensitive', computed(() => props.withSensitive));
 provide('inChannel', false);
 
 // Paginator 1: hybrid-timeline (ホーム+ローカル)
-// 初回は少なく取得して早く表示、後から追加読み込み
+// minItemsToShow: 1で1件取れたら即表示
 const paginator1 = markRaw(new Paginator('notes/hybrid-timeline', {
-	limit: 5,
+	minItemsToShow: 1,
 	computedParams: computed(() => ({
 		withRenotes: props.withRenotes,
 		withReplies: props.withReplies,
@@ -148,9 +148,10 @@ const paginator1 = markRaw(new Paginator('notes/hybrid-timeline', {
 }));
 
 // Paginator 2: global-timeline (rlRelayHostsのみ、ローカル除外)
-// フィルター効率が悪いので、一度に多く取得してAPIリクエスト回数を減らす
+// limit: 100で多く取得、minItemsToShow: 1で1件でも取れたら即表示
 const paginator2 = markRaw(new Paginator('notes/global-timeline', {
 	limit: 100,
+	minItemsToShow: 1,
 	computedParams: computed(() => ({
 		withRenotes: props.withRenotes,
 		withFiles: props.onlyFiles ? true : undefined,

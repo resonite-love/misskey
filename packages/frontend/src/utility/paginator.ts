@@ -109,6 +109,7 @@ export class Paginator<
 	private useShallowRef: SRef;
 
 	private customFilter: ((items: T[]) => T[]) | null = null;
+	private minItemsToShow: number;
 
 	// 配列内の要素をどのような順序で並べるか
 	// newest: 新しいものが先頭 (default)
@@ -145,6 +146,10 @@ export class Paginator<
 
 		// resonite.love拡張 API用のカスタムフィルタ
 		customFilter?: (items: any[]) => any[];
+
+		// resonite.love拡張 表示開始に必要な最小アイテム数（デフォルトはlimitと同じ）
+		// フィルター付きの場合、これを小さくすると早く表示開始できる
+		minItemsToShow?: number;
 	}) {
 		this.endpoint = endpoint;
 		this.useShallowRef = (props.useShallowRef ?? false) as SRef;
@@ -168,6 +173,7 @@ export class Paginator<
 		this.searchParamName = props.searchParamName ?? 'search';
 
 		this.customFilter = props.customFilter ?? null;
+		this.minItemsToShow = props.minItemsToShow ?? this.limit;
 
 		this.getNewestId = this.getNewestId.bind(this);
 		this.getOldestId = this.getOldestId.bind(this);
@@ -222,8 +228,8 @@ export class Paginator<
 			lastDate = this.initialDate ?? undefined;
 		}
 
-		// 必要な数のアイテムが集まるまでループ
-		while (collectedItems.length < (this.limit ?? FIRST_FETCH_LIMIT) && totalFetched < maxAttempts) {
+		// 必要な数のアイテムが集まるまでループ（minItemsToShowで早期表示可能）
+		while (collectedItems.length < this.minItemsToShow && totalFetched < maxAttempts) {
 			const data: E['req'] = {
 				...(typeof this.params === 'function' ? this.params() : this.params),
 				...(this.computedParams ? this.computedParams.value : {}),
