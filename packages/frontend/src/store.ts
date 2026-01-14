@@ -55,7 +55,7 @@ export const store = markRaw(new Pizzax('base', {
 	tl: {
 		where: 'deviceAccount',
 		default: {
-			src: 'home' as 'home' | 'local' | 'social' | 'global' | 'rl-relay' | 'rl-relay-social' | 'vmimi-relay' | 'vmimi-relay-social' | `list:${string}`,
+			src: 'home' as 'home' | 'local' | 'social' | 'global' | 'rl-relay' | 'vmimi-relay' | 'vmimi-relay-social' | `list:${string}`,
 			userList: null as Misskey.entities.UserList | null,
 			filter: {
 				withReplies: true,
