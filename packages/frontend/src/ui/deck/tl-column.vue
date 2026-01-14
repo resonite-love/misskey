@@ -17,6 +17,18 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</p>
 		<p :class="$style.disabledDescription">{{ i18n.ts._disabledTimeline.description }}</p>
 	</div>
+	<MkRlRelaySocialTimeline
+		v-else-if="column.tl === 'rl-relay-social'"
+		ref="timeline"
+		:key="column.tl + withRenotes + withReplies + onlyFiles + withLocalOnly"
+		:withRenotes="withRenotes"
+		:withReplies="withReplies"
+		:withSensitive="withSensitive"
+		:onlyFiles="onlyFiles"
+		:withLocalOnly="withLocalOnly"
+		:sound="true"
+		:customSound="soundSetting"
+	/>
 	<MkStreamingNotesTimeline
 		v-else-if="column.tl"
 		ref="timeline"
@@ -41,6 +53,7 @@ import type { MenuItem } from '@/types/menu.js';
 import type { SoundStore } from '@/preferences/def.js';
 import { removeColumn, updateColumn } from '@/deck.js';
 import MkStreamingNotesTimeline from '@/components/MkStreamingNotesTimeline.vue';
+import MkRlRelaySocialTimeline from '@/components/MkRlRelaySocialTimeline.vue';
 import * as os from '@/os.js';
 import { i18n } from '@/i18n.js';
 import { hasWithReplies, isAvailableBasicTimeline, basicTimelineIconClass, hasWithLocalOnly } from '@/timelines.js';
