@@ -6809,6 +6809,10 @@ export interface Locale extends ILocale {
          */
         "rl-relay": string;
         /**
+         * れぞらぶソーシャルタイムラインには、ホームタイムラインとれぞらぶリレータイムラインの投稿が両方表示されます。
+         */
+        "rl-relay-social": string;
+        /**
          * ぶいみみリレータイムラインでは、バーチャルケモミミリレーサーバーに参加しているサーバーのユーザー全員の投稿を見られます。
          */
         "vmimi-relay": string;
@@ -10410,6 +10414,10 @@ export interface Locale extends ILocale {
          * れぞらぶリレー
          */
         "rl-relay": string;
+        /**
+         * れぞらぶソーシャル
+         */
+        "rl-relay-social": string;
         /**
          * ぶいみみリレー
          */

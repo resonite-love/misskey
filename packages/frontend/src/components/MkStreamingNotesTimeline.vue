@@ -5,18 +5,18 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" :refresher="() => reloadTimeline()">
-	<MkLoading v-if="paginator.fetching.value"/>
+	<MkLoading v-if="isFetching"/>
 
 	<MkError v-else-if="paginator.error.value" @retry="paginator.init()"/>
 
-	<div v-else-if="paginator.items.value.length === 0" key="_empty_">
+	<div v-else-if="mergedItems.length === 0" key="_empty_">
 		<slot name="empty">
 			<MkResult type="empty" :text="i18n.ts.noNotes"/>
 		</slot>
 	</div>
 
 	<div v-else ref="rootEl">
-		<div v-if="paginator.queuedAheadItemsCount.value > 0" :class="$style.new">
+		<div v-if="mergedQueuedCount > 0" :class="$style.new">
 			<div :class="$style.newBg1"></div>
 			<div :class="$style.newBg2"></div>
 			<button class="_button" :class="$style.newButton" @click="releaseQueue()">
@@ -34,17 +34,17 @@ SPDX-License-Identifier: AGPL-3.0-only
 			:moveClass="$style.transition_x_move"
 			tag="div"
 		>
-			<template v-for="(note, i) in paginator.items.value" :key="note.id">
+			<template v-for="(note, i) in mergedItems" :key="note.id">
 				<div
-					v-if="i > 0 && isSeparatorNeeded(paginator.items.value[i -1].createdAt, note.createdAt)"
+					v-if="i > 0 && isSeparatorNeeded(mergedItems[i -1].createdAt, note.createdAt)"
 					:data-scroll-anchor="note.id"
 				>
 					<div :class="$style.date">
 						<span><i class="ti ti-chevron-up"></i> {{
-							getSeparatorInfo(paginator.items.value[i - 1].createdAt, note.createdAt)?.prevText
+							getSeparatorInfo(mergedItems[i - 1].createdAt, note.createdAt)?.prevText
 						}}</span>
 						<span style="height: 1em; width: 1px; background: var(--MI_THEME-divider);"></span>
-						<span>{{ getSeparatorInfo(paginator.items.value[i - 1].createdAt, note.createdAt)?.nextText }} <i
+						<span>{{ getSeparatorInfo(mergedItems[i - 1].createdAt, note.createdAt)?.nextText }} <i
 							class="ti ti-chevron-down"
 						></i></span>
 					</div>
@@ -60,12 +60,12 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</template>
 		</component>
 		<button
-			v-show="paginator.canFetchOlder.value" key="_more_"
-			v-appear="prefer.s.enableInfiniteScroll ? paginator.fetchOlder : null"
-			:disabled="paginator.fetchingOlder.value" class="_button" :class="$style.more"
-			@click="paginator.fetchOlder"
+			v-show="canFetchMore" key="_more_"
+			v-appear="prefer.s.enableInfiniteScroll ? fetchOlder : null"
+			:disabled="isFetchingOlder" class="_button" :class="$style.more"
+			@click="fetchOlder"
 		>
-			<div v-if="!paginator.fetchingOlder.value">{{ i18n.ts.loadMore }}</div>
+			<div v-if="!isFetchingOlder">{{ i18n.ts.loadMore }}</div>
 			<MkLoading v-else :inline="true"/>
 		</button>
 	</div>
@@ -141,6 +141,7 @@ provide('tl_withSensitive', computed(() => props.withSensitive));
 provide('inChannel', computed(() => props.src === 'channel'));
 
 let paginator: IPaginator<Misskey.entities.Note>;
+let paginator2: IPaginator<Misskey.entities.Note> | null = null; // rl-relay-social用の2つ目のpaginator
 
 if (props.src === 'antenna') {
 	paginator = markRaw(new Paginator('antennas/notes', {
@@ -196,6 +197,34 @@ if (props.src === 'antenna') {
 				if (note.user?.host == null) {
 					filteredNotes.push(note);
 				} else if (rlRelayHosts.includes(note.user.host)) {
+					filteredNotes.push(note);
+				}
+			}
+			return filteredNotes;
+		},
+	}));
+} else if (props.src === 'rl-relay-social') {
+	// hybrid-timeline: ホーム+ローカル
+	paginator = markRaw(new Paginator('notes/hybrid-timeline', {
+		computedParams: computed(() => ({
+			withRenotes: props.withRenotes,
+			withReplies: props.withReplies,
+			withFiles: props.onlyFiles ? true : undefined,
+		})),
+		useShallowRef: true,
+	}));
+	// global-timeline: rlRelayHostsのみ（ローカルは除外して重複防止）
+	paginator2 = markRaw(new Paginator('notes/global-timeline', {
+		computedParams: computed(() => ({
+			withRenotes: props.withRenotes,
+			withFiles: props.onlyFiles ? true : undefined,
+		})),
+		useShallowRef: true,
+		customFilter: (notes: any[]) => {
+			let filteredNotes: any[] = [];
+			for (const note of notes) {
+				// ローカルは除外（hybrid-timelineで取得済み）
+				if (note.user?.host != null && rlRelayHosts.includes(note.user.host)) {
 					filteredNotes.push(note);
 				}
 			}
@@ -260,12 +289,68 @@ if (props.src === 'antenna') {
 	throw new Error('Unrecognized timeline type: ' + props.src);
 }
 
+// rl-relay-social用: 2つのpaginatorのitemsをマージ
+const mergedItems = computed(() => {
+	if (paginator2 == null) return paginator.items.value;
+
+	const items1 = paginator.items.value;
+	const items2 = paginator2.items.value;
+
+	// 両方のitemsをマージして重複排除、時系列でソート
+	const seenIds = new Set<string>();
+	const merged: Misskey.entities.Note[] = [];
+
+	for (const note of [...items1, ...items2]) {
+		if (!seenIds.has(note.id)) {
+			seenIds.add(note.id);
+			merged.push(note);
+		}
+	}
+
+	// 時系列でソート（新しい順）
+	merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+	return merged;
+});
+
+// rl-relay-social用: queuedAheadItemsCountのマージ
+const mergedQueuedCount = computed(() => {
+	if (paginator2 == null) return paginator.queuedAheadItemsCount.value;
+	return paginator.queuedAheadItemsCount.value + paginator2.queuedAheadItemsCount.value;
+});
+
+// rl-relay-social用: fetchingのマージ
+const isFetching = computed(() => {
+	if (paginator2 == null) return paginator.fetching.value;
+	return paginator.fetching.value || paginator2.fetching.value;
+});
+
+// rl-relay-social用: canFetchOlderのマージ
+const canFetchMore = computed(() => {
+	if (paginator2 == null) return paginator.canFetchOlder.value;
+	return paginator.canFetchOlder.value || paginator2.canFetchOlder.value;
+});
+
+// rl-relay-social用: fetchingOlderのマージ
+const isFetchingOlder = computed(() => {
+	if (paginator2 == null) return paginator.fetchingOlder.value;
+	return paginator.fetchingOlder.value || paginator2.fetchingOlder.value;
+});
+
 onMounted(() => {
 	paginator.init();
+	if (paginator2) {
+		paginator2.init();
+	}
 
 	if (paginator.computedParams) {
 		watch(paginator.computedParams, () => {
 			paginator.reload();
+		}, { immediate: false, deep: true });
+	}
+	if (paginator2?.computedParams) {
+		watch(paginator2.computedParams, () => {
+			paginator2!.reload();
 		}, { immediate: false, deep: true });
 	}
 });
@@ -283,6 +368,7 @@ let scrollContainer: HTMLElement | null = null;
 function onScrollContainerScroll() {
 	if (isTop()) {
 		paginator.releaseQueue();
+		if (paginator2) paginator2.releaseQueue();
 	}
 }
 
@@ -330,6 +416,11 @@ if (!store.s.realtimeMode) {
 		paginator.fetchNewer({
 			toQueue: !isTop() || isPausingUpdate,
 		});
+		if (paginator2) {
+			paginator2.fetchNewer({
+				toQueue: !isTop() || isPausingUpdate,
+			});
+		}
 	}, POLLING_INTERVAL, {
 		immediate: false,
 		afterMounted: true,
@@ -339,16 +430,28 @@ if (!store.s.realtimeMode) {
 		paginator.fetchNewer({
 			toQueue: !isTop() || isPausingUpdate,
 		});
+		if (paginator2) {
+			paginator2.fetchNewer({
+				toQueue: !isTop() || isPausingUpdate,
+			});
+		}
 	});
 }
 
 useGlobalEvent('noteDeleted', (noteId) => {
 	paginator.removeItem(noteId);
+	if (paginator2) paginator2.removeItem(noteId);
 });
 
 function releaseQueue() {
 	paginator.releaseQueue();
+	if (paginator2) paginator2.releaseQueue();
 	scrollToTop(rootEl.value!);
+}
+
+function fetchOlder() {
+	paginator.fetchOlder();
+	if (paginator2) paginator2.fetchOlder();
 }
 
 function prepend(note: Misskey.entities.Note & MisskeyEntity) {
@@ -386,6 +489,8 @@ const connections = {
 	channel: null as Misskey.IChannelConnection<Misskey.Channels['channel']> | null,
 	roleTimeline: null as Misskey.IChannelConnection<Misskey.Channels['roleTimeline']> | null,
 	rlRelayTimeline: null as Misskey.IChannelConnection<Misskey.Channels['rlRelayTimeline']> | null,
+	rlRelayHybridTimeline: null as Misskey.IChannelConnection<Misskey.Channels['hybridTimeline']> | null,
+	rlRelayGlobalTimeline: null as Misskey.IChannelConnection<Misskey.Channels['globalTimeline']> | null,
 	vmimiRelayTimeline: null as Misskey.IChannelConnection<Misskey.Channels['vmimiRelayTimeline']> | null,
 	vmimiRelayHybridTimeline: null as Misskey.IChannelConnection<Misskey.Channels['vmimiRelayHybridTimeline']> | null,
 };
@@ -437,6 +542,26 @@ function connectChannel() {
 			} else if (rlRelayHosts.includes(note.user.host)) {
 				prepend(note);
 				return;
+			}
+		});
+	} else if (props.src === 'rl-relay-social') {
+		// hybridTimeline: ホーム+ローカル（そのままprepend）
+		connections.rlRelayHybridTimeline = stream.useChannel('hybridTimeline', {
+			withRenotes: props.withRenotes,
+			withReplies: props.withReplies,
+			withFiles: props.onlyFiles ? true : undefined,
+		});
+		connections.rlRelayHybridTimeline.on('note', prepend);
+
+		// globalTimeline: rlRelayHostsのみ（ローカルは除外して重複防止）
+		connections.rlRelayGlobalTimeline = stream.useChannel('globalTimeline', {
+			withRenotes: props.withRenotes,
+			withFiles: props.onlyFiles ? true : undefined,
+		});
+		connections.rlRelayGlobalTimeline.on('note', (note) => {
+			// ローカルは除外（hybridTimelineで取得済み）
+			if (note.user?.host != null && rlRelayHosts.includes(note.user.host)) {
+				prepend(note);
 			}
 		});
 	} else if (props.src === 'vmimi-relay') {
@@ -519,7 +644,11 @@ function reloadTimeline() {
 	return new Promise<void>((res) => {
 		adInsertionCounter = 0;
 
-		paginator.reload().then(() => {
+		const promises = [paginator.reload()];
+		if (paginator2) {
+			promises.push(paginator2.reload());
+		}
+		Promise.all(promises).then(() => {
 			res();
 		});
 	});
