@@ -3735,6 +3735,15 @@ export type paths = {
          */
         post: operations['users___gallery___posts'];
     };
+    '/users/get-following-users-by-birthday': {
+        /**
+         * users/get-following-users-by-birthday
+         * @description Retrieve users who have a birthday on the specified range.
+         *
+         *     **Credential required**: *Yes* / **Permission**: *read:account*
+         */
+        post: operations['users___get-following-users-by-birthday'];
+    };
     '/users/get-frequently-replied-users': {
         /**
          * users/get-frequently-replied-users
@@ -4277,6 +4286,33 @@ export type components = {
                     userListId: string;
                 };
                 test?: {
+                    /** @enum {string} */
+                    type: 'all' | 'following' | 'follower' | 'mutualFollow' | 'followingOrFollower' | 'never';
+                } | {
+                    /** @enum {string} */
+                    type: 'list';
+                    /** Format: misskey:id */
+                    userListId: string;
+                };
+                login?: {
+                    /** @enum {string} */
+                    type: 'all' | 'following' | 'follower' | 'mutualFollow' | 'followingOrFollower' | 'never';
+                } | {
+                    /** @enum {string} */
+                    type: 'list';
+                    /** Format: misskey:id */
+                    userListId: string;
+                };
+                createToken?: {
+                    /** @enum {string} */
+                    type: 'all' | 'following' | 'follower' | 'mutualFollow' | 'followingOrFollower' | 'never';
+                } | {
+                    /** @enum {string} */
+                    type: 'list';
+                    /** Format: misskey:id */
+                    userListId: string;
+                };
+                exportCompleted?: {
                     /** @enum {string} */
                     type: 'all' | 'following' | 'follower' | 'mutualFollow' | 'followingOrFollower' | 'never';
                 } | {
@@ -5290,7 +5326,6 @@ export type components = {
             usersCount: number;
         };
         RolePolicies: {
-            vrtlAvailable: boolean;
             gtlAvailable: boolean;
             ltlAvailable: boolean;
             canPublicNote: boolean;
@@ -5330,142 +5365,144 @@ export type components = {
             noteDraftLimit: number;
             scheduledNoteLimit: number;
             watermarkAvailable: boolean;
-    };
-    ReversiGameLite: {
-        /** Format: id */
-        id: string;
-        /** Format: date-time */
-        createdAt: string;
-        /** Format: date-time */
-        startedAt: string | null;
-        /** Format: date-time */
-        endedAt: string | null;
-        isStarted: boolean;
-        isEnded: boolean;
-        /** Format: id */
-        user1Id: string;
-        /** Format: id */
-        user2Id: string;
-        user1: components['schemas']['UserLite'];
-        user2: components['schemas']['UserLite'];
-        /** Format: id */
-        winnerId: string | null;
-        winner: components['schemas']['UserLite'] | null;
-        /** Format: id */
-        surrenderedUserId: string | null;
-        /** Format: id */
-        timeoutUserId: string | null;
-        black: number | null;
-        bw: string;
-        noIrregularRules: boolean;
-        isLlotheo: boolean;
-        canPutEverywhere: boolean;
-        loopedBoard: boolean;
-        timeLimitForEachTurn: number;
-    };
-    ReversiGameDetailed: {
-        /** Format: id */
-        id: string;
-        /** Format: date-time */
-        createdAt: string;
-        /** Format: date-time */
-        startedAt: string | null;
-        /** Format: date-time */
-        endedAt: string | null;
-        isStarted: boolean;
-        isEnded: boolean;
-        form1: Record<string, never> | null;
-        form2: Record<string, never> | null;
-        user1Ready: boolean;
-        user2Ready: boolean;
-        /** Format: id */
-        user1Id: string;
-        /** Format: id */
-        user2Id: string;
-        user1: components['schemas']['UserLite'];
-        user2: components['schemas']['UserLite'];
-        /** Format: id */
-        winnerId: string | null;
-        winner: components['schemas']['UserLite'] | null;
-        /** Format: id */
-        surrenderedUserId: string | null;
-        /** Format: id */
-        timeoutUserId: string | null;
-        black: number | null;
-        bw: string;
-        noIrregularRules: boolean;
-        isLlotheo: boolean;
-        canPutEverywhere: boolean;
-        loopedBoard: boolean;
-        timeLimitForEachTurn: number;
-        logs: number[][];
-        map: string[];
-    };
-    MetaLite: {
-        maintainerName: string | null;
-        maintainerEmail: string | null;
-        version: string;
-        providesTarball: boolean;
-        name: string | null;
-        shortName: string | null;
-        /**
-         * Format: url
-         * @example https://misskey.example.com
-         */
-        uri: string;
-        description: string | null;
-        langs: string[];
-        tosUrl: string | null;
-        /** @default https://github.com/misskey-dev/misskey */
-        repositoryUrl: string | null;
-        /** @default https://github.com/misskey-dev/misskey/issues/new */
-        feedbackUrl: string | null;
-        defaultDarkTheme: string | null;
-        defaultLightTheme: string | null;
-        clientOptions: Record<string, never>;
-        disableRegistration: boolean;
-        emailRequiredForSignup: boolean;
-        enableHcaptcha: boolean;
-        hcaptchaSiteKey: string | null;
-        enableMcaptcha: boolean;
-        mcaptchaSiteKey: string | null;
-        mcaptchaInstanceUrl: string | null;
-        enableRecaptcha: boolean;
-        recaptchaSiteKey: string | null;
-        enableTurnstile: boolean;
-        turnstileSiteKey: string | null;
-        enableTestcaptcha: boolean;
-        googleAnalyticsMeasurementId: string | null;
-        swPublickey: string | null;
-        /** @default /assets/ai.png */
-        mascotImageUrl: string;
-        bannerUrl: string | null;
-        serverErrorImageUrl: string | null;
-        infoImageUrl: string | null;
-        notFoundImageUrl: string | null;
-        iconUrl: string | null;
-        maxNoteTextLength: number;
-        ads: {
-            /**
-             * Format: id
-             * @example xxxxxxxxxx
-             */
+        };
+        ReversiGameLite: {
+            /** Format: id */
             id: string;
-            /** Format: url */
-            url: string;
-            place: string;
-            ratio: number;
-            /** Format: url */
-            imageUrl: string;
-            dayOfWeek: number;
-            isSensitive?: boolean;
-        }[];
-        /** @default 0 */
-        notesPerOneAd: number;
-        enableEmail: boolean;
-        enableServiceWorker: boolean;
-        translatorAvailable: boolean;
-        sentryForFrontend: {
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            endedAt: string | null;
+            isStarted: boolean;
+            isEnded: boolean;
+            /** Format: id */
+            user1Id: string;
+            /** Format: id */
+            user2Id: string;
+            user1: components['schemas']['UserLite'];
+            user2: components['schemas']['UserLite'];
+            /** Format: id */
+            winnerId: string | null;
+            winner: components['schemas']['UserLite'] | null;
+            /** Format: id */
+            surrenderedUserId: string | null;
+            /** Format: id */
+            timeoutUserId: string | null;
+            black: number | null;
+            /** @enum {string} */
+            bw: 'random' | '1' | '2';
+            noIrregularRules: boolean;
+            isLlotheo: boolean;
+            canPutEverywhere: boolean;
+            loopedBoard: boolean;
+            timeLimitForEachTurn: number;
+        };
+        ReversiGameDetailed: {
+            /** Format: id */
+            id: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            endedAt: string | null;
+            isStarted: boolean;
+            isEnded: boolean;
+            form1: Record<string, never> | null;
+            form2: Record<string, never> | null;
+            user1Ready: boolean;
+            user2Ready: boolean;
+            /** Format: id */
+            user1Id: string;
+            /** Format: id */
+            user2Id: string;
+            user1: components['schemas']['UserLite'];
+            user2: components['schemas']['UserLite'];
+            /** Format: id */
+            winnerId: string | null;
+            winner: components['schemas']['UserLite'] | null;
+            /** Format: id */
+            surrenderedUserId: string | null;
+            /** Format: id */
+            timeoutUserId: string | null;
+            black: number | null;
+            /** @enum {string} */
+            bw: 'random' | '1' | '2';
+            noIrregularRules: boolean;
+            isLlotheo: boolean;
+            canPutEverywhere: boolean;
+            loopedBoard: boolean;
+            timeLimitForEachTurn: number;
+            logs: number[][];
+            map: string[];
+        };
+        MetaLite: {
+            maintainerName: string | null;
+            maintainerEmail: string | null;
+            version: string;
+            providesTarball: boolean;
+            name: string | null;
+            shortName: string | null;
+            /**
+             * Format: url
+             * @example https://misskey.example.com
+             */
+            uri: string;
+            description: string | null;
+            langs: string[];
+            tosUrl: string | null;
+            /** @default https://github.com/misskey-dev/misskey */
+            repositoryUrl: string | null;
+            /** @default https://github.com/misskey-dev/misskey/issues/new */
+            feedbackUrl: string | null;
+            defaultDarkTheme: string | null;
+            defaultLightTheme: string | null;
+            clientOptions: components['schemas']['MetaClientOptions'];
+            disableRegistration: boolean;
+            emailRequiredForSignup: boolean;
+            enableHcaptcha: boolean;
+            hcaptchaSiteKey: string | null;
+            enableMcaptcha: boolean;
+            mcaptchaSiteKey: string | null;
+            mcaptchaInstanceUrl: string | null;
+            enableRecaptcha: boolean;
+            recaptchaSiteKey: string | null;
+            enableTurnstile: boolean;
+            turnstileSiteKey: string | null;
+            enableTestcaptcha: boolean;
+            googleAnalyticsMeasurementId: string | null;
+            swPublickey: string | null;
+            /** @default /assets/ai.png */
+            mascotImageUrl: string;
+            bannerUrl: string | null;
+            serverErrorImageUrl: string | null;
+            infoImageUrl: string | null;
+            notFoundImageUrl: string | null;
+            iconUrl: string | null;
+            maxNoteTextLength: number;
+            ads: {
+                /**
+                 * Format: id
+                 * @example xxxxxxxxxx
+                 */
+                id: string;
+                /** Format: url */
+                url: string;
+                place: string;
+                ratio: number;
+                /** Format: url */
+                imageUrl: string;
+                dayOfWeek: number;
+                isSensitive?: boolean;
+            }[];
+            /** @default 0 */
+            notesPerOneAd: number;
+            enableEmail: boolean;
+            enableServiceWorker: boolean;
+            translatorAvailable: boolean;
+            sentryForFrontend: {
                 options: {
                     dsn: string;
                 } & {
@@ -5506,7 +5543,6 @@ export type components = {
                 emailRequiredForSignup: boolean;
                 localTimeline: boolean;
                 globalTimeline: boolean;
-                vmimiRelayTimeline: boolean;
                 hcaptcha: boolean;
                 turnstile: boolean;
                 recaptcha: boolean;
@@ -5522,6 +5558,12 @@ export type components = {
             cacheRemoteSensitiveFiles: boolean;
         };
         MetaDetailed: components['schemas']['MetaLite'] & components['schemas']['MetaDetailedOnly'];
+        MetaClientOptions: {
+            /** @enum {string} */
+            entrancePageStyle: 'classic' | 'simple';
+            showTimelineForVisitor: boolean;
+            showActivitiesForVisitor: boolean;
+        };
         UserWebhook: {
             /** Format: id */
             id: string;
@@ -6797,8 +6839,10 @@ export interface operations {
                         updatedAt: string | null;
                         text: string;
                         title: string;
-                        icon: string | null;
-                        display: string;
+                        /** @enum {string} */
+                        icon: 'info' | 'warning' | 'error' | 'success';
+                        /** @enum {string} */
+                        display: 'normal' | 'banner' | 'dialog';
                         isActive: boolean;
                         forExistingUsers: boolean;
                         silence: boolean;
@@ -8237,16 +8281,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    'application/json': {
-                        /** Format: id */
-                        id: string;
-                        aliases: string[];
-                        name: string;
-                        category: string | null;
-                        /** @description The local host is represented with `null`. The field exists for compatibility with other API endpoints that return files. */
-                        host: string | null;
-                        url: string;
-                    }[];
+                    'application/json': components['schemas']['EmojiDetailed'][];
                 };
             };
             /** @description Client error */
@@ -8325,16 +8360,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    'application/json': {
-                        /** Format: id */
-                        id: string;
-                        aliases: string[];
-                        name: string;
-                        category: string | null;
-                        /** @description The local host is represented with `null`. */
-                        host: string | null;
-                        url: string;
-                    }[];
+                    'application/json': components['schemas']['EmojiDetailed'][];
                 };
             };
             /** @description Client error */
@@ -9466,7 +9492,7 @@ export interface operations {
                         deeplIsPro: boolean;
                         defaultDarkTheme: string | null;
                         defaultLightTheme: string | null;
-                        clientOptions: Record<string, never>;
+                        clientOptions: components['schemas']['MetaClientOptions'];
                         description: string | null;
                         disableRegistration: boolean;
                         impressumUrl: string | null;
@@ -12722,7 +12748,12 @@ export interface operations {
                     description?: string | null;
                     defaultLightTheme?: string | null;
                     defaultDarkTheme?: string | null;
-                    clientOptions?: Record<string, never>;
+                    clientOptions?: {
+                        /** @enum {string} */
+                        entrancePageStyle?: 'classic' | 'simple';
+                        showTimelineForVisitor?: boolean;
+                        showActivitiesForVisitor?: boolean;
+                    };
                     cacheRemoteFiles?: boolean;
                     cacheRemoteSensitiveFiles?: boolean;
                     emailRequiredForSignup?: boolean;
@@ -12799,7 +12830,6 @@ export interface operations {
                     manifestJsonOverride?: string;
                     enableFanoutTimeline?: boolean;
                     enableFanoutTimelineDbFallback?: boolean;
-                    vmimiRelayTimelineCacheMax?: number;
                     perLocalUserUserTimelineCacheMax?: number;
                     perRemoteUserUserTimelineCacheMax?: number;
                     perUserHomeTimelineCacheMax?: number;
@@ -24008,6 +24038,8 @@ export interface operations {
                     tag: string;
                     /** @default 10 */
                     limit?: number;
+                    /** @default 0 */
+                    offset?: number;
                     /** @enum {string} */
                     sort: '+follower' | '-follower' | '+createdAt' | '-createdAt' | '+updatedAt' | '-updatedAt';
                     /**
@@ -35032,6 +35064,7 @@ export interface operations {
                     untilDate?: number;
                     /** @default 10 */
                     limit?: number;
+                    /** @description @deprecated use get-following-users-by-birthday instead. */
                     birthday?: string | null;
                 };
             };
@@ -35118,6 +35151,92 @@ export interface operations {
                 };
                 content: {
                     'application/json': components['schemas']['GalleryPost'][];
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'users___get-following-users-by-birthday': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** @default 10 */
+                    limit?: number;
+                    /** @default 0 */
+                    offset?: number;
+                    birthday: {
+                        month: number;
+                        day: number;
+                    } | {
+                        begin: {
+                            month: number;
+                            day: number;
+                        };
+                        end: {
+                            month: number;
+                            day: number;
+                        };
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        /** Format: misskey:id */
+                        id: string;
+                        birthday: string;
+                        user: components['schemas']['UserLite'];
+                    }[];
                 };
             };
             /** @description Client error */

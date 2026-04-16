@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { Injectable } from '@nestjs/common';
-import { isUserRelated } from '@/misc/is-user-related.js';
+import { Inject, Injectable, Scope } from '@nestjs/common';
 import type { Packed } from '@/misc/json-schema.js';
 import { MetaService } from '@/core/MetaService.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
@@ -12,9 +11,12 @@ import { bindThis } from '@/decorators.js';
 import { RoleService } from '@/core/RoleService.js';
 import { VmimiRelayTimelineService } from '@/core/VmimiRelayTimelineService.js';
 import { isRenotePacked, isQuotePacked } from '@/misc/is-renote.js';
-import Channel, { type MiChannelService } from '../channel.js';
+import type { JsonObject } from '@/misc/json-value.js';
+import Channel, { type ChannelRequest } from '../channel.js';
+import { REQUEST } from '@nestjs/core';
 
-class VmimiRelayHybridTimelineChannel extends Channel {
+@Injectable({ scope: Scope.TRANSIENT })
+export class VmimiRelayHybridTimelineChannel extends Channel {
 	public readonly chName = 'vmimiRelayHybridTimeline';
 	public static shouldShare = false;
 	public static requireCredential = true as const;
@@ -25,27 +27,26 @@ class VmimiRelayHybridTimelineChannel extends Channel {
 	private withLocalOnly: boolean;
 
 	constructor(
+		@Inject(REQUEST)
+		request: ChannelRequest,
+
 		private metaService: MetaService,
 		private roleService: RoleService,
 		private noteEntityService: NoteEntityService,
 		private vmimiRelayTimelineService: VmimiRelayTimelineService,
-
-		id: string,
-		connection: Channel['connection'],
 	) {
-		super(id, connection);
-		//this.onNote = this.onNote.bind(this);
+		super(request);
 	}
 
 	@bindThis
-	public async init(params: any): Promise<void> {
+	public async init(params: JsonObject): Promise<void> {
 		const policies = await this.roleService.getUserPolicies(this.user ? this.user.id : null);
 		if (!policies.vrtlAvailable) return;
 
-		this.withRenotes = params.withRenotes ?? true;
-		this.withReplies = params.withReplies ?? false;
-		this.withFiles = params.withFiles ?? false;
-		this.withLocalOnly = params.withLocalOnly ?? true;
+		this.withRenotes = !!(params.withRenotes ?? true);
+		this.withReplies = !!(params.withReplies ?? false);
+		this.withFiles = !!(params.withFiles ?? false);
+		this.withLocalOnly = !!(params.withLocalOnly ?? true);
 
 		// Subscribe events
 		this.subscriber.on('notesStream', this.onNote);
@@ -99,7 +100,6 @@ class VmimiRelayHybridTimelineChannel extends Channel {
 
 		if (this.user && note.renoteId && !note.text) {
 			if (note.renote && Object.keys(note.renote.reactions).length > 0) {
-				console.log(note.renote.reactionAndUserPairCache);
 				const myRenoteReaction = await this.noteEntityService.populateMyReaction(note.renote, this.user.id);
 				note.renote.myReaction = myRenoteReaction;
 			}
@@ -112,32 +112,5 @@ class VmimiRelayHybridTimelineChannel extends Channel {
 	public dispose(): void {
 		// Unsubscribe events
 		this.subscriber.off('notesStream', this.onNote);
-	}
-}
-
-@Injectable()
-export class VmimiRelayHybridTimelineChannelService implements MiChannelService<true> {
-	public readonly shouldShare = VmimiRelayHybridTimelineChannel.shouldShare;
-	public readonly requireCredential = VmimiRelayHybridTimelineChannel.requireCredential;
-	public readonly kind = VmimiRelayHybridTimelineChannel.kind;
-
-	constructor(
-		private metaService: MetaService,
-		private roleService: RoleService,
-		private noteEntityService: NoteEntityService,
-		private vmimiRelayTimelineService: VmimiRelayTimelineService,
-	) {
-	}
-
-	@bindThis
-	public create(id: string, connection: Channel['connection']): VmimiRelayHybridTimelineChannel {
-		return new VmimiRelayHybridTimelineChannel(
-			this.metaService,
-			this.roleService,
-			this.noteEntityService,
-			this.vmimiRelayTimelineService,
-			id,
-			connection,
-		);
 	}
 }
