@@ -18,149 +18,153 @@
 </div>
 </template>
 
-<script lang="ts">
-import { defineComponent, onMounted, onBeforeUnmount } from 'vue';
+<script lang="ts" setup>
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 
-export default defineComponent({
-	name: 'MkImageLightbox',
-	props: {
-		src: { type: String, required: true },
-		alt: { type: String, required: false },
-	},
-	emits: ['close'],
-	data() {
-		return {
-			scale: 1,
-			translateX: 0,
-			translateY: 0,
-			dragging: false,
-			lastX: 0,
-			lastY: 0,
-			touching: false,
-			lastTouchDist: 0,
-			lastTouchMid: { x: 0, y: 0 },
-			suppressClose: false,
-			suppressCloseTimeout: null as null | number,
+defineProps<{
+	src: string;
+	alt?: string;
+}>();
+
+const emit = defineEmits<{
+	(ev: 'close'): void;
+}>();
+
+const scale = ref(1);
+const translateX = ref(0);
+const translateY = ref(0);
+const dragging = ref(false);
+const lastX = ref(0);
+const lastY = ref(0);
+const touching = ref(false);
+const lastTouchDist = ref(0);
+const lastTouchMid = ref({ x: 0, y: 0 });
+const suppressClose = ref(false);
+let suppressCloseTimeout: number | null = null;
+
+const imgStyle = computed(() => ({
+	transform: `scale(${scale.value}) translate(${translateX.value}px, ${translateY.value}px)`,
+	cursor: scale.value > 1 ? (dragging.value ? 'grabbing' : 'grab') : 'auto',
+	transition: dragging.value || touching.value ? 'none' : 'transform 0.2s',
+}));
+
+function close() {
+	emit('close');
+}
+
+function onKey(e: KeyboardEvent) {
+	if (e.key === 'Escape') close();
+}
+
+function onOverlayClick() {
+	if (suppressClose.value) return;
+	close();
+}
+
+function onWheel(e: WheelEvent) {
+	e.preventDefault();
+	const delta = e.deltaY < 0 ? 0.1 : -0.1;
+	let nextScale = scale.value + delta;
+	if (nextScale < 1) nextScale = 1;
+	if (nextScale > 6) nextScale = 6;
+	scale.value = nextScale;
+}
+
+function onMouseDown(e: MouseEvent) {
+	if (scale.value === 1) return;
+	dragging.value = true;
+	lastX.value = e.clientX;
+	lastY.value = e.clientY;
+	suppressClose.value = true;
+}
+
+function onMouseMove(e: MouseEvent) {
+	if (!dragging.value) return;
+	const dx = e.clientX - lastX.value;
+	const dy = e.clientY - lastY.value;
+	translateX.value += dx;
+	translateY.value += dy;
+	lastX.value = e.clientX;
+	lastY.value = e.clientY;
+}
+
+function onMouseUp() {
+	dragging.value = false;
+	if (suppressClose.value) {
+		if (suppressCloseTimeout) {
+			clearTimeout(suppressCloseTimeout);
+		}
+		suppressCloseTimeout = window.setTimeout(() => {
+			suppressClose.value = false;
+			suppressCloseTimeout = null;
+		}, 120);
+	}
+}
+
+function onTouchStart(e: TouchEvent) {
+	if (e.touches.length === 1) {
+		touching.value = true;
+		lastX.value = e.touches[0].clientX;
+		lastY.value = e.touches[0].clientY;
+		suppressClose.value = false;
+	} else if (e.touches.length === 2) {
+		touching.value = true;
+		const dx = e.touches[0].clientX - e.touches[1].clientX;
+		const dy = e.touches[0].clientY - e.touches[1].clientY;
+		lastTouchDist.value = Math.sqrt(dx * dx + dy * dy);
+		lastTouchMid.value = {
+			x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+			y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
 		};
-	},
-	computed: {
-		imgStyle() {
-			return {
-				transform: `scale(${this.scale}) translate(${this.translateX}px, ${this.translateY}px)`,
-				cursor: this.scale > 1 ? (this.dragging ? 'grabbing' : 'grab') : 'auto',
-				transition: this.dragging || this.touching ? 'none' : 'transform 0.2s',
-			};
-		},
-	},
-	mounted() {
-		window.addEventListener('keydown', this.onKey);
-		window.addEventListener('mousemove', this.onMouseMove);
-		window.addEventListener('mouseup', this.onMouseUp);
-	},
-	beforeUnmount() {
-		window.removeEventListener('keydown', this.onKey);
-		window.removeEventListener('mousemove', this.onMouseMove);
-		window.removeEventListener('mouseup', this.onMouseUp);
-	},
-	methods: {
-		close() {
-			this.$emit('close');
-		},
-		onKey(e: KeyboardEvent) {
-			if (e.key === 'Escape') this.close();
-		},
-		onOverlayClick() {
-			if (this.suppressClose) return;
-			this.close();
-		},
-		onWheel(e: WheelEvent) {
-			e.preventDefault();
-			const delta = e.deltaY < 0 ? 0.1 : -0.1;
-			let nextScale = this.scale + delta;
-			if (nextScale < 1) nextScale = 1;
-			if (nextScale > 6) nextScale = 6;
-			this.scale = nextScale;
-		},
-		onMouseDown(e: MouseEvent) {
-			if (this.scale === 1) return;
-			this.dragging = true;
-			this.lastX = e.clientX;
-			this.lastY = e.clientY;
-			this.suppressClose = true;
-		},
-		onMouseMove(e: MouseEvent) {
-			if (!this.dragging) return;
-			const dx = e.clientX - this.lastX;
-			const dy = e.clientY - this.lastY;
-			this.translateX += dx;
-			this.translateY += dy;
-			this.lastX = e.clientX;
-			this.lastY = e.clientY;
-		},
-		onMouseUp() {
-			this.dragging = false;
-			if (this.suppressClose) {
-				if (this.suppressCloseTimeout) {
-					clearTimeout(this.suppressCloseTimeout);
-				}
-				this.suppressCloseTimeout = window.setTimeout(() => {
-					this.suppressClose = false;
-					this.suppressCloseTimeout = null;
-				}, 120);
-			}
-		},
-		onTouchStart(e: TouchEvent) {
-			if (e.touches.length === 1) {
-				this.touching = true;
-				this.lastX = e.touches[0].clientX;
-				this.lastY = e.touches[0].clientY;
-				this.suppressClose = false;
-			} else if (e.touches.length === 2) {
-				this.touching = true;
-				const dx = e.touches[0].clientX - e.touches[1].clientX;
-				const dy = e.touches[0].clientY - e.touches[1].clientY;
-				this.lastTouchDist = Math.sqrt(dx * dx + dy * dy);
-				this.lastTouchMid = {
-					x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
-					y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
-				};
-				this.suppressClose = true;
-			}
-		},
-		onTouchMove(e: TouchEvent) {
-			if (e.touches.length === 1 && this.touching) {
-				const dx = e.touches[0].clientX - this.lastX;
-				const dy = e.touches[0].clientY - this.lastY;
-				this.translateX += dx;
-				this.translateY += dy;
-				this.lastX = e.touches[0].clientX;
-				this.lastY = e.touches[0].clientY;
-			} else if (e.touches.length === 2) {
-				const dx = e.touches[0].clientX - e.touches[1].clientX;
-				const dy = e.touches[0].clientY - e.touches[1].clientY;
-				const dist = Math.sqrt(dx * dx + dy * dy);
-				let scaleDelta = dist / this.lastTouchDist;
-				let nextScale = this.scale * scaleDelta;
-				if (nextScale < 1) nextScale = 1;
-				if (nextScale > 6) nextScale = 6;
-				this.scale = nextScale;
-				this.lastTouchDist = dist;
-			}
-		},
-		onTouchEnd(e: TouchEvent) {
-			this.touching = false;
-			this.lastTouchDist = 0;
-			if (this.suppressClose) {
-				if (this.suppressCloseTimeout) {
-					clearTimeout(this.suppressCloseTimeout);
-				}
-				this.suppressCloseTimeout = window.setTimeout(() => {
-					this.suppressClose = false;
-					this.suppressCloseTimeout = null;
-				}, 120);
-			}
-		},
-	},
+		suppressClose.value = true;
+	}
+}
+
+function onTouchMove(e: TouchEvent) {
+	if (e.touches.length === 1 && touching.value) {
+		const dx = e.touches[0].clientX - lastX.value;
+		const dy = e.touches[0].clientY - lastY.value;
+		translateX.value += dx;
+		translateY.value += dy;
+		lastX.value = e.touches[0].clientX;
+		lastY.value = e.touches[0].clientY;
+	} else if (e.touches.length === 2) {
+		const dx = e.touches[0].clientX - e.touches[1].clientX;
+		const dy = e.touches[0].clientY - e.touches[1].clientY;
+		const dist = Math.sqrt(dx * dx + dy * dy);
+		const scaleDelta = dist / lastTouchDist.value;
+		let nextScale = scale.value * scaleDelta;
+		if (nextScale < 1) nextScale = 1;
+		if (nextScale > 6) nextScale = 6;
+		scale.value = nextScale;
+		lastTouchDist.value = dist;
+	}
+}
+
+function onTouchEnd() {
+	touching.value = false;
+	lastTouchDist.value = 0;
+	if (suppressClose.value) {
+		if (suppressCloseTimeout) {
+			clearTimeout(suppressCloseTimeout);
+		}
+		suppressCloseTimeout = window.setTimeout(() => {
+			suppressClose.value = false;
+			suppressCloseTimeout = null;
+		}, 120);
+	}
+}
+
+onMounted(() => {
+	window.addEventListener('keydown', onKey);
+	window.addEventListener('mousemove', onMouseMove);
+	window.addEventListener('mouseup', onMouseUp);
+});
+
+onBeforeUnmount(() => {
+	window.removeEventListener('keydown', onKey);
+	window.removeEventListener('mousemove', onMouseMove);
+	window.removeEventListener('mouseup', onMouseUp);
 });
 </script>
 
