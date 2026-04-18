@@ -103,10 +103,12 @@ function onMouseUp() {
 
 function onTouchStart(e: TouchEvent) {
 	if (e.touches.length === 1) {
+		// scale が 1 のときは 1 本指でパンしない (ピンチするか、何もしない)
+		if (scale.value === 1) return;
 		touching.value = true;
 		lastX.value = e.touches[0].clientX;
 		lastY.value = e.touches[0].clientY;
-		suppressClose.value = false;
+		suppressClose.value = true;
 	} else if (e.touches.length === 2) {
 		touching.value = true;
 		const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -121,7 +123,7 @@ function onTouchStart(e: TouchEvent) {
 }
 
 function onTouchMove(e: TouchEvent) {
-	if (e.touches.length === 1 && touching.value) {
+	if (e.touches.length === 1 && touching.value && scale.value > 1) {
 		const dx = e.touches[0].clientX - lastX.value;
 		const dy = e.touches[0].clientY - lastY.value;
 		translateX.value += dx;
