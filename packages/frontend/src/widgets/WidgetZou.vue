@@ -19,6 +19,9 @@
 				<MkButton v-if="!cooldown" @click="doFuro">お風呂🛀に入った</MkButton>
 				<MkButton v-else>お風呂クールダウン中</MkButton>
 			</div>
+			<div class="switch-box">
+				<MkSwitch v-model="skipNote">風呂キャンする（ノートしない）</MkSwitch>
+			</div>
 			<div class="button-box">
 				<MkButton @click="doAnalytics">お風呂統計📈</MkButton>
 			</div>
@@ -49,6 +52,7 @@ import type { WidgetComponentEmits, WidgetComponentExpose, WidgetComponentProps 
 import type { GetFormResultType } from '@/utility/form.js';
 import MkContainer from '@/components/MkContainer.vue';
 import MkButton from '@/components/MkButton.vue';
+import MkSwitch from '@/components/MkSwitch.vue';
 
 import { $i } from '@/i.js';
 import {misskeyApi} from "@/utility/misskey-api.js";
@@ -64,6 +68,7 @@ const bankData = ref(null);
 const furoData = ref(null);
 
 const cooldown = ref(false);
+const skipNote = ref(false);
 
 onMounted(async () => {
 	console.log('mounted');
@@ -224,21 +229,33 @@ function doFuro() {
 		console.log("i", $i);
 
 
-		if (furoResult.message === "First time furo") {
-			const postData = {
-				text: `${$i.name ?? $i.username}は初めてお風呂に入りました！！🎉🎉🎉🎉`,
-				visibility: "home"
-			};
-			await misskeyApi('notes/create', postData)
-		} else {
+		const failedFuroCan = skipNote.value && Math.random() < 0.3;
 
-			const postData = {
-				text: `${$i.name ?? $i.username}は${secondsToHms(furoResult.span)}ぶりにお風呂に入りました🛀
+		if (!skipNote.value || failedFuroCan) {
+			if (furoResult.message === "First time furo") {
+				const postData = {
+					text: `${$i.name ?? $i.username}は初めてお風呂に入りました！！🎉🎉🎉🎉`,
+					visibility: "home"
+				};
+				await misskeyApi('notes/create', postData)
+			} else {
+
+				const postData = {
+					text: `${$i.name ?? $i.username}は${secondsToHms(furoResult.span)}ぶりにお風呂に入りました🛀
 今回のお風呂で${furoResult.reward}🐘を獲得しました！`,
-				visibility: "home"
-			};
-			//
-			await misskeyApi('notes/create', postData)
+					visibility: "home"
+				};
+				//
+				await misskeyApi('notes/create', postData)
+			}
+		}
+
+		if (failedFuroCan) {
+			os.alert({
+				type: 'warning',
+				title: '風呂キャン失敗！',
+				text: '残念！投稿されちゃった！',
+			});
 		}
 
 		if (res.status === 200) {
@@ -377,6 +394,12 @@ defineExpose<WidgetComponentExpose>({
 	flex-direction: row;
 	justify-content: space-evenly;
 	gap: 10px;
+	margin: 10px;
+}
+
+.switch-box {
+	display: flex;
+	justify-content: center;
 	margin: 10px;
 }
 
