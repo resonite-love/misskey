@@ -156,7 +156,7 @@ import { maybeMakeRelative } from '@@/js/url.js';
 import MkCatalystSensitiveImage from './MkCatalystSensitiveImage.vue';
 import MkImgPreviewDialog from './MkImgPreviewDialog.vue';
 import { openImageLightbox } from './MkImageLightboxController';
-import type { summaly } from '@misskey-dev/summaly';
+import type { SummalyResult } from '@misskey-dev/summaly';
 import { i18n } from '@/i18n.js';
 import * as os from '@/os.js';
 import { deviceKind } from '@/utility/device-kind.js';
@@ -164,8 +164,6 @@ import MkButton from '@/components/MkButton.vue';
 import { transformPlayerUrl } from '@/utility/url-preview.js';
 import { store } from '@/store.js';
 import { prefer } from '@/preferences.js';
-
-type SummalyResult = Awaited<ReturnType<typeof summaly>>;
 
 const props = withDefaults(defineProps<{
 	url: string;

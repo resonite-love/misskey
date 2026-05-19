@@ -102,6 +102,7 @@ import { store } from '@/store.js';
 import MkNote from '@/components/MkNote.vue';
 import MkButton from '@/components/MkButton.vue';
 import { i18n } from '@/i18n.js';
+import { DI } from '@/di.js';
 import { globalEvents, useGlobalEvent } from '@/events.js';
 import { isSeparatorNeeded, getSeparatorInfo } from '@/utility/timeline-date-separate.js';
 import { Paginator } from '@/utility/paginator.js';
@@ -138,7 +139,7 @@ const rlRelayHosts = ['misskey.kontovr.site',
 
 provide('inTimeline', true);
 provide('tl_withSensitive', computed(() => props.withSensitive));
-provide('inChannel', computed(() => props.src === 'channel'));
+provide(DI.inChannel, computed(() => props.src === 'channel' ? props.channel ?? null : null));
 
 let paginator: IPaginator<Misskey.entities.Note>;
 
