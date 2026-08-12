@@ -8,8 +8,8 @@
 import { nextTick, ref } from 'vue';
 import * as misskey from 'misskey-js';
 import * as os from '@/os.js';
-import { store } from '@/store.js';
 import { getAccounts } from '@/accounts.js';
+import { prefer } from '@/preferences.js';
 import { useStream } from "@/stream.js";
 import {misskeyApi} from "@/utility/misskey-api.js";
 
@@ -49,7 +49,7 @@ setTimeout(async () => {
 
 	misskeyApi('drive/files/upload-from-url', {
 		url: imageUrl,
-		folderId: store.s.uploadFolder,
+		folderId: prefer.s.uploadFolder,
 		marker,
 	});
 }, 1000);

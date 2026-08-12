@@ -56,11 +56,6 @@ export class FanoutTimelineService {
 	}
 
 	@bindThis
-	public remove(tl: FanoutTimelineName, id: string, pipeline: Redis.ChainableCommander) {
-		pipeline.lrem('list:' + tl, 0, id);
-	}
-
-	@bindThis
 	public push(tl: FanoutTimelineName, id: string, maxlen: number, pipeline: Redis.ChainableCommander) {
 		// リモートから遅れて届いた(もしくは後から追加された)投稿日時が古い投稿が追加されるとページネーション時に問題を引き起こすため、
 		// 3分以内に投稿されたものでない場合、Redisにある最古のIDより新しい場合のみ追加する
@@ -122,5 +117,10 @@ export class FanoutTimelineService {
 	@bindThis
 	public purge(name: FanoutTimelineName) {
 		return this.redisForTimelines.del('list:' + name);
+	}
+
+	@bindThis
+	public remove(name: FanoutTimelineName, id: string) {
+		return this.redisForTimelines.lrem('list:' + name, 1, id);
 	}
 }

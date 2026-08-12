@@ -24,9 +24,8 @@ packages/sw/.yarn/cache
 # pnpm
 .pnpm-store
 
-# Cypress
-cypress/screenshots
-cypress/videos
+# Playwright
+packages/frontend/test/e2e/artifacts
 
 # Coverage
 coverage
@@ -36,7 +35,7 @@ coverage
 !/.config/example.yml
 !/.config/default.yml
 !/.config/docker_example.env
-!/.config/cypress-devcontainer.yml
+!/.config/playwright-devcontainer.yml
 docker-compose.yml
 ./compose.yml
 .devcontainer/compose.yml
@@ -83,5 +82,7 @@ vite.config.local-dev.ts.timestamp-*
 # VSCode addon
 .favorites.json
 
-
 .playwright-mcp/
+
+# Affinity
+*.af~lock~
