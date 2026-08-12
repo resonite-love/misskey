@@ -35,6 +35,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<div :class="$style.toolbar">
 				<span :class="$style.viewerFileName">{{ media.name }}</span>
 				<a
+					v-if="hasDropped"
+					class="_button"
 					:class="$style.control"
 					:href="media.url"
 					:download="media.name"
@@ -43,6 +45,19 @@ SPDX-License-Identifier: AGPL-3.0-only
 				>
 					<i class="ti ti-download"></i>
 				</a>
+				<button
+					ref="dropButton"
+					type="button"
+					class="_button"
+					:class="$style.control"
+					:disabled="status !== 'ready'"
+					:aria-disabled="status !== 'ready'"
+					:title="i18n.ts.drop3dPreview"
+					:aria-label="i18n.ts.drop3dPreview"
+					@click="dropPreview"
+				>
+					<i class="ti ti-arrow-down"></i>
+				</button>
 				<button
 					type="button"
 					class="_button"
@@ -85,10 +100,12 @@ const props = defineProps<{
 }>();
 
 const canvas = useTemplateRef("canvas");
+const dropButton = useTemplateRef("dropButton");
 const formatLabel = getThreeDFileFormat(props.media)?.toUpperCase() ?? props.media.type;
 const hide = ref(shouldHideFileByDefault(props.media));
 const expanded = ref(false);
 const status = ref<"idle" | "loading" | "ready" | "error">("idle");
+const hasDropped = ref(false);
 let viewer: ThreeDViewer | null = null;
 let abortController: AbortController | null = null;
 
@@ -133,6 +150,21 @@ async function loadViewer() {
 		console.error("Failed to load 3D preview", error);
 		status.value = "error";
 	}
+}
+
+async function dropPreview() {
+	const currentViewer = viewer;
+	const currentButton = dropButton.value;
+	if (currentViewer == null || currentButton == null || status.value !== "ready") return;
+
+	const snapshot = currentViewer.captureImage();
+	const buttonRect = currentButton.getBoundingClientRect();
+	const { dropThreeDPreview } = await import("@/utility/three-d-drop-effect.js");
+	dropThreeDPreview(snapshot, {
+		x: buttonRect.left + buttonRect.width / 2,
+		y: buttonRect.bottom,
+	});
+	hasDropped.value = true;
 }
 
 function closePreview() {
@@ -277,6 +309,12 @@ onBeforeUnmount(disposeViewer);
 
 	&:hover {
 		background: var(--MI_THEME-buttonHoverBg);
+	}
+
+	&:disabled {
+		opacity: 0.5;
+		background: var(--MI_THEME-panel);
+		cursor: wait;
 	}
 }
 

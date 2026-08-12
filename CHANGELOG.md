@@ -5,6 +5,7 @@
 
 ### Client
 - Feat: 添付された3DモデルとGaussian Splatをクリックしてプレビューできるように
+- Enhance: 3Dプレビューを透明な2D画像としてブラウザ内へ物理演算で落とせるように
 
 ### Server
 -

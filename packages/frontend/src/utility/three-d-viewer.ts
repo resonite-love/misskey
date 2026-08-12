@@ -15,6 +15,7 @@ import { isGaussianSplatFormat } from "@/utility/three-d-file.js";
 import type { ThreeDFileFormat } from "@/utility/three-d-file.js";
 
 export type ThreeDViewer = {
+	captureImage: () => HTMLCanvasElement;
 	dispose: () => void;
 };
 
@@ -93,6 +94,23 @@ export async function createThreeDViewer(
 		renderer.render(scene, camera);
 	};
 
+	const captureImage = (): HTMLCanvasElement => {
+		renderer.render(scene, camera);
+
+		const aspect = canvas.width / Math.max(canvas.height, 1);
+		const maxSize = 320;
+		const snapshotWidth = Math.max(1, Math.round(aspect >= 1 ? maxSize : maxSize * aspect));
+		const snapshotHeight = Math.max(1, Math.round(aspect >= 1 ? maxSize / aspect : maxSize));
+		const snapshot = window.document.createElement("canvas");
+		snapshot.width = snapshotWidth;
+		snapshot.height = snapshotHeight;
+		const context = snapshot.getContext("2d");
+		if (context == null) return snapshot;
+
+		context.drawImage(canvas, 0, 0, snapshotWidth, snapshotHeight);
+		return snapshot;
+	};
+
 	const dispose = () => {
 		if (disposed) return;
 		disposed = true;
@@ -148,7 +166,7 @@ export async function createThreeDViewer(
 
 		fitCamera(camera, controls, bounds);
 		frameId = window.requestAnimationFrame(animate);
-		return { dispose };
+		return { captureImage, dispose };
 	} catch (error) {
 		dispose();
 		throw error;

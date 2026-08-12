@@ -337,6 +337,10 @@ export interface Locale extends ILocale {
      */
     "download": string;
     /**
+     * ブラウザに落とす
+     */
+    "drop3dPreview": string;
+    /**
      * ファイル「{name}」を削除しますか？このファイルを使用した一部のコンテンツも削除されます。
      */
     "driveFileDeleteConfirm": ParameterizedString<"name">;
