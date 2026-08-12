@@ -5,7 +5,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <div :class="$style.root">
-	<XBanner v-for="media in mediaList.filter(media => !previewable(media))" :key="media.id" :media="media"/>
+	<X3d v-for="media in mediaList.filter(isThreeDFile)" :key="media.id" :media="media"/>
+	<XBanner v-for="media in mediaList.filter(media => !previewable(media) && !isThreeDFile(media))" :key="media.id" :media="media"/>
 	<div v-if="mediaList.filter(media => previewable(media)).length > 0" :class="$style.container">
 		<div
 			ref="gallery"
@@ -48,12 +49,14 @@ import { computed, markRaw, onMounted, onUnmounted, useTemplateRef } from 'vue';
 import * as Misskey from 'misskey-js';
 import { FILE_TYPE_BROWSERSAFE } from '@@/js/const.js';
 import type { Content } from '@/components/MkLightbox.item.vue';
+import X3d from '@/components/MkMedia3d.vue';
 import XBanner from '@/components/MkMediaBanner.vue';
 import XImage from '@/components/MkMediaImage.vue';
 import XVideo from '@/components/MkMediaVideo.vue';
 import * as os from '@/os.js';
 import { prefer } from '@/preferences.js';
 import { genId } from '@/utility/id.js';
+import { isThreeDFile } from '@/utility/three-d-file.js';
 
 const props = defineProps<{
 	mediaList: Misskey.entities.DriveFile[];
