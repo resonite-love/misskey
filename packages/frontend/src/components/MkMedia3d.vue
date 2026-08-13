@@ -31,6 +31,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				ref="canvas"
 				:class="$style.canvas"
 				:aria-label="`${i18n.ts.preview}: ${media.name}`"
+				@contextmenu.prevent.stop
 			></canvas>
 			<div :class="$style.toolbar">
 				<span :class="$style.viewerFileName">{{ media.name }}</span>

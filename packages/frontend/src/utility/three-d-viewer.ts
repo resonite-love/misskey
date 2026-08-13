@@ -31,6 +31,14 @@ type LoadedModel = {
 	animations: THREE.AnimationClip[];
 };
 
+// Some captures contain a sparse, distant background shell. Only use the dense
+// central range for initial framing when the full extent is clearly an outlier.
+const MAX_SPLAT_FRAMING_SAMPLES = 65_536;
+const SPLAT_CORE_LOWER_QUANTILE = 0.15;
+const SPLAT_CORE_UPPER_QUANTILE = 0.85;
+const SPLAT_CORE_PADDING = 1.3;
+const SPLAT_OUTLIER_RADIUS_RATIO = 4;
+
 export async function createThreeDViewer(
 	options: ThreeDViewerOptions,
 ): Promise<ThreeDViewer> {
@@ -136,6 +144,7 @@ export async function createThreeDViewer(
 		if (signal?.aborted) throw signal.reason;
 
 		let bounds: THREE.Box3;
+		let sceneBounds: THREE.Box3 | undefined;
 		if (isGaussianSplatFormat(format)) {
 			sparkRenderer = new SparkRenderer({ renderer });
 			scene.add(sparkRenderer);
@@ -147,7 +156,9 @@ export async function createThreeDViewer(
 			await splatMesh.initialized;
 			if (signal?.aborted) throw signal.reason;
 			scene.add(splatMesh);
-			bounds = splatMesh.getBoundingBox();
+			const splatBounds = getSplatFramingBounds(splatMesh);
+			bounds = splatBounds.focus;
+			sceneBounds = splatBounds.scene;
 		} else {
 			const loaded = await loadPolygonModel(format, fileBytes, file.url);
 			if (signal?.aborted) throw signal.reason;
@@ -164,13 +175,86 @@ export async function createThreeDViewer(
 			}
 		}
 
-		fitCamera(camera, controls, bounds);
+		fitCamera(camera, controls, bounds, sceneBounds);
 		frameId = window.requestAnimationFrame(animate);
 		return { captureImage, dispose };
 	} catch (error) {
 		dispose();
 		throw error;
 	}
+}
+
+function getSplatFramingBounds(splatMesh: SplatMesh): {
+	focus: THREE.Box3;
+	scene: THREE.Box3;
+} {
+	const numSplats = splatMesh.splats?.getNumSplats() ?? 0;
+	if (numSplats === 0) {
+		const bounds = splatMesh.getBoundingBox();
+		return { focus: bounds, scene: bounds };
+	}
+
+	const scene = new THREE.Box3();
+	const sampleStride = Math.max(
+		1,
+		Math.ceil(numSplats / MAX_SPLAT_FRAMING_SAMPLES),
+	);
+	const xs: number[] = [];
+	const ys: number[] = [];
+	const zs: number[] = [];
+
+	splatMesh.forEachSplat((index, center) => {
+		scene.expandByPoint(center);
+		if (index % sampleStride !== 0) return;
+		xs.push(center.x);
+		ys.push(center.y);
+		zs.push(center.z);
+	});
+
+	if (scene.isEmpty() || xs.length < 32) {
+		return { focus: scene, scene };
+	}
+
+	xs.sort((a, b) => a - b);
+	ys.sort((a, b) => a - b);
+	zs.sort((a, b) => a - b);
+	const core = new THREE.Box3(
+		new THREE.Vector3(
+			quantile(xs, SPLAT_CORE_LOWER_QUANTILE),
+			quantile(ys, SPLAT_CORE_LOWER_QUANTILE),
+			quantile(zs, SPLAT_CORE_LOWER_QUANTILE),
+		),
+		new THREE.Vector3(
+			quantile(xs, SPLAT_CORE_UPPER_QUANTILE),
+			quantile(ys, SPLAT_CORE_UPPER_QUANTILE),
+			quantile(zs, SPLAT_CORE_UPPER_QUANTILE),
+		),
+	);
+	const sceneRadius = scene.getSize(new THREE.Vector3()).length() / 2;
+	const coreRadius = core.getSize(new THREE.Vector3()).length() / 2;
+	if (
+		!Number.isFinite(sceneRadius) ||
+		!Number.isFinite(coreRadius) ||
+		coreRadius <= 0 ||
+		sceneRadius / coreRadius < SPLAT_OUTLIER_RADIUS_RATIO
+	) {
+		return { focus: scene, scene };
+	}
+
+	const focus = new THREE.Box3().setFromCenterAndSize(
+		core.getCenter(new THREE.Vector3()),
+		core.getSize(new THREE.Vector3()).multiplyScalar(SPLAT_CORE_PADDING),
+	);
+	return { focus, scene };
+}
+
+function quantile(sortedValues: number[], position: number): number {
+	const index = (sortedValues.length - 1) * position;
+	const lowerIndex = Math.floor(index);
+	const upperIndex = Math.ceil(index);
+	const lower = sortedValues[lowerIndex];
+	const upper = sortedValues[upperIndex];
+	return lower + (upper - lower) * (index - lowerIndex);
 }
 
 async function loadPolygonModel(
@@ -227,13 +311,18 @@ function fitCamera(
 	camera: THREE.PerspectiveCamera,
 	controls: OrbitControls,
 	bounds: THREE.Box3,
+	sceneBounds = bounds,
 ): void {
 	const safeBounds = bounds.isEmpty()
 		? new THREE.Box3(new THREE.Vector3(-0.5), new THREE.Vector3(0.5))
 		: bounds;
+	const safeSceneBounds = sceneBounds.isEmpty() ? safeBounds : sceneBounds;
 	const center = safeBounds.getCenter(new THREE.Vector3());
 	const size = safeBounds.getSize(new THREE.Vector3());
 	const radius = Math.max(size.length() / 2, 0.01);
+	const sceneCenter = safeSceneBounds.getCenter(new THREE.Vector3());
+	const sceneRadius = safeSceneBounds.getSize(new THREE.Vector3()).length() / 2;
+	const sceneDistance = center.distanceTo(sceneCenter) + sceneRadius;
 	const fov = THREE.MathUtils.degToRad(camera.fov);
 	const distance = Math.max(radius / Math.tan(fov / 2), 0.1) * 1.25;
 
@@ -241,11 +330,11 @@ function fitCamera(
 		.copy(center)
 		.add(new THREE.Vector3(0.8, 0.55, 1).normalize().multiplyScalar(distance));
 	camera.near = Math.max(distance / 1000, 0.0001);
-	camera.far = Math.max(distance * 1000, 100);
+	camera.far = Math.max(distance * 1000, sceneDistance * 4, 100);
 	camera.updateProjectionMatrix();
 	controls.target.copy(center);
 	controls.minDistance = Math.max(radius * 0.01, 0.0001);
-	controls.maxDistance = Math.max(radius * 100, 100);
+	controls.maxDistance = Math.max(radius * 100, sceneDistance * 4, 100);
 	controls.update();
 }
 
