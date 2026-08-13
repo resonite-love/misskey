@@ -130,12 +130,16 @@ const props = withDefaults(defineProps<{
 	customSound: null,
 });
 
-const rlRelayHosts = ['misskey.kontovr.site',
-																						'ningen.ahoaho.jp',
-																						'misskey.resonite.love',
-																						'mi.harumakizaemon.net',
-																						'kawane.misskey.online',
-																						'pl.ijs01140.dev'];
+const rlRelayHosts = [
+	'misskey.kontovr.site',
+	'kawane.misskey.online',
+	'misskey.natsuneko.com',
+	'okinosan.net',
+	'ningen.ahoaho.jp',
+	'mi.harumakizaemon.net',
+	'misskey.resonite.love',
+	'pl.ijs01140.dev',
+];
 
 provide('inTimeline', true);
 provide('tl_withSensitive', computed(() => props.withSensitive));

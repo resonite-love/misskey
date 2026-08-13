@@ -124,10 +124,12 @@ const props = withDefaults(defineProps<{
 
 const rlRelayHosts = [
 	'misskey.kontovr.site',
-	'ningen.ahoaho.jp',
-	'misskey.resonite.love',
-	'mi.harumakizaemon.net',
 	'kawane.misskey.online',
+	'misskey.natsuneko.com',
+	'okinosan.net',
+	'ningen.ahoaho.jp',
+	'mi.harumakizaemon.net',
+	'misskey.resonite.love',
 	'pl.ijs01140.dev',
 ];
 
