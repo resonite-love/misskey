@@ -5,9 +5,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <div :class="$style.root">
-	<X3d v-for="media in mediaList.filter(isThreeDFile)" :key="media.id" :media="media"/>
-	<XBanner v-for="media in mediaList.filter(media => !previewable(media) && !isThreeDFile(media))" :key="media.id" :media="media"/>
-	<div v-if="mediaList.filter(media => previewable(media)).length > 0" :class="$style.container">
+	<X3d v-for="media in medias.threeD" :key="media.id" :media="media"/>
+	<XBanner v-for="media in medias.nonPreviewable" :key="media.id" :media="media"/>
+	<div v-if="count > 0" :class="$style.container">
 		<div
 			ref="gallery"
 			:class="[
@@ -20,10 +20,18 @@ SPDX-License-Identifier: AGPL-3.0-only
 				}] : count === 2 ? $style.n2 : count === 3 ? $style.n3 : count === 4 ? $style.n4 : $style.nMany,
 			]"
 		>
-			<template v-for="media in mediaList.filter(media => previewable(media))">
+			<template v-for="media in medias.previewable">
+				<XAudio
+					v-if="media.type.startsWith('audio')"
+					:key="`audio:${media.id}`"
+					:class="$style.media"
+					:audio="media"
+					@mediaClick="onMediaClick(media)"
+				/>
 				<XVideo
 					v-if="media.type.startsWith('video')"
 					:key="`video:${media.id}`"
+					:ref="(comp) => { mediaComponents.set(media.id, comp as InstanceType<typeof XVideo> | null); }"
 					:class="$style.media"
 					:video="media"
 					@mediaClick="onMediaClick(media)"
@@ -31,6 +39,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<XImage
 					v-else-if="media.type.startsWith('image')"
 					:key="`image:${media.id}`"
+					:ref="(comp) => { mediaComponents.set(media.id, comp as InstanceType<typeof XImage> | null); }"
 					:marker="`${markerId}:${media.id}`"
 					:disableImageLink="true"
 					:class="$style.media"
@@ -47,24 +56,48 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script lang="ts" setup>
 import { computed, markRaw, onMounted, onUnmounted, useTemplateRef } from 'vue';
 import * as Misskey from 'misskey-js';
-import { FILE_TYPE_BROWSERSAFE } from '@@/js/const.js';
 import type { Content } from '@/components/MkLightbox.item.vue';
+import type { MediaComponentExposes } from '@/types/media-component.js';
 import X3d from '@/components/MkMedia3d.vue';
 import XBanner from '@/components/MkMediaBanner.vue';
+import XAudio from '@/components/MkMediaAudio.vue';
 import XImage from '@/components/MkMediaImage.vue';
 import XVideo from '@/components/MkMediaVideo.vue';
 import * as os from '@/os.js';
 import { prefer } from '@/preferences.js';
+import { isPreviewable, getType } from '@/utility/lightbox.js';
 import { genId } from '@/utility/id.js';
 import { isThreeDFile } from '@/utility/three-d-file.js';
 
 const props = defineProps<{
 	mediaList: Misskey.entities.DriveFile[];
+	user?: Misskey.entities.User | null; // DriveFileのuserはnullになることがある。その場合に使用する所有者情報
 	raw?: boolean;
 }>();
 
 const gallery = useTemplateRef('gallery');
-const count = computed(() => props.mediaList.filter(media => previewable(media)).length);
+const medias = computed(() => {
+	const previewable: Misskey.entities.DriveFile[] = [];
+	const nonPreviewable: Misskey.entities.DriveFile[] = [];
+	const threeD: Misskey.entities.DriveFile[] = [];
+	for (const file of props.mediaList) {
+		if (isThreeDFile(file)) {
+			threeD.push(file);
+		} else if (isPreviewable(file.type)) {
+			previewable.push(file);
+		} else {
+			nonPreviewable.push(file);
+		}
+	}
+
+	return {
+		previewable,
+		nonPreviewable,
+		threeD,
+	};
+});
+const mediaComponents = new Map<string, MediaComponentExposes | null>();
+const count = computed(() => medias.value.previewable.length);
 const markerId = genId();
 
 async function calcAspectRatio() {
@@ -105,13 +138,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+	mediaComponents.clear();
 });
-
-const previewable = (file: Misskey.entities.DriveFile): boolean => {
-	if (file.type === 'image/svg+xml') return true; // svgのwebpublic/thumbnailはpngなのでtrue
-	// FILE_TYPE_BROWSERSAFEに適合しないものはブラウザで表示するのに不適切
-	return (file.type.startsWith('video') || file.type.startsWith('image')) && FILE_TYPE_BROWSERSAFE.includes(file.type);
-};
 
 function onMediaClick(file: Misskey.entities.DriveFile) {
 	if (prefer.s.imageNewTab) {
@@ -123,7 +151,7 @@ function onMediaClick(file: Misskey.entities.DriveFile) {
 
 async function openGallery(id?: string) {
 	if (id == null) {
-		const firstImage = props.mediaList.find(media => previewable(media));
+		const firstImage = medias.value.previewable[0];
 		if (firstImage == null) return;
 		id = firstImage.id;
 	}
@@ -135,9 +163,9 @@ async function openGallery(id?: string) {
 		return markRaw(found);
 	};
 
-	const contents = props.mediaList.filter(media => previewable(media)).map<Content>(media => ({
+	const contents = medias.value.previewable.map<Content>(media => ({
 		id: media.id,
-		type: media.type.startsWith('video') ? 'video' : 'image',
+		type: getType(media.type),
 		url: media.url,
 		thumbnailUrl: media.thumbnailUrl,
 		width: media.properties.width,
@@ -147,9 +175,15 @@ async function openGallery(id?: string) {
 		sourceElement: getElementByMarker(`${markerId}:${media.id}`),
 	}));
 
+	const initiallyRevealedContentIds = contents
+		.filter(content => mediaComponents.get(content.id)?.isRevealed() === true)
+		.map(content => content.id);
+
 	const { dispose } = await os.popupAsyncWithDialog(import('@/components/MkLightbox.vue').then(x => x.default), {
 		defaultIndex: contents.findIndex(conten => conten.id === id),
 		contents: contents,
+		initiallyRevealedContentIds,
+		user: props.user,
 	}, {
 		closed: () => dispose(),
 	});
