@@ -2550,6 +2550,16 @@ export type paths = {
          */
         post: operations['gridspace___private-upload'];
     };
+    '/gridspace/profile-import': {
+        /**
+         * gridspace/profile-import
+         * @description Copy unset profile fields once from the authorized linked source account.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___profile-import'];
+    };
     '/gridspace/search': {
         /**
          * gridspace/search
@@ -26909,6 +26919,78 @@ export interface operations {
                     'application/json': {
                         id: string;
                         name: string;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___profile-import': {
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        copied: ('name' | 'description' | 'location' | 'birthday' | 'fields' | 'avatarId' | 'bannerId')[];
+                        skipped: ('name' | 'description' | 'location' | 'birthday' | 'fields' | 'avatarId' | 'bannerId')[];
+                        failed: ('name' | 'description' | 'location' | 'birthday' | 'fields' | 'avatarId' | 'bannerId')[];
+                        complete: boolean;
                     };
                 };
             };

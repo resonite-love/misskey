@@ -2128,6 +2128,7 @@ declare namespace entities {
         GridspacePrivateReplyResponse,
         GridspacePrivateUploadRequest,
         GridspacePrivateUploadResponse,
+        GridspaceProfileImportResponse,
         GridspaceSearchRequest,
         GridspaceSearchResponse,
         GridspaceSearchInfoResponse,
@@ -2816,6 +2817,9 @@ type GridspacePrivateUploadRequest = operations['gridspace___private-upload']['r
 
 // @public (undocumented)
 type GridspacePrivateUploadResponse = operations['gridspace___private-upload']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceProfileImportResponse = operations['gridspace___profile-import']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type GridspaceSearchInfoResponse = operations['gridspace___search-info']['responses']['200']['content']['application/json'];

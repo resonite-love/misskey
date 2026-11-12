@@ -437,6 +437,7 @@ import type {
 	GridspacePrivateReplyResponse,
 	GridspacePrivateUploadRequest,
 	GridspacePrivateUploadResponse,
+	GridspaceProfileImportResponse,
 	GridspaceSearchRequest,
 	GridspaceSearchResponse,
 	GridspaceSearchInfoResponse,
@@ -1005,6 +1006,7 @@ export type Endpoints = {
 	'gridspace/private-notes': { req: GridspacePrivateNotesRequest; res: GridspacePrivateNotesResponse };
 	'gridspace/private-reply': { req: GridspacePrivateReplyRequest; res: GridspacePrivateReplyResponse };
 	'gridspace/private-upload': { req: GridspacePrivateUploadRequest; res: GridspacePrivateUploadResponse };
+	'gridspace/profile-import': { req: EmptyRequest; res: GridspaceProfileImportResponse };
 	'gridspace/search': { req: GridspaceSearchRequest; res: GridspaceSearchResponse };
 	'gridspace/search-info': { req: EmptyRequest; res: GridspaceSearchInfoResponse };
 	'hashtags/list': { req: HashtagsListRequest; res: HashtagsListResponse };

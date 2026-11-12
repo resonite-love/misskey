@@ -440,6 +440,7 @@ export type GridspacePrivateReplyRequest = operations['gridspace___private-reply
 export type GridspacePrivateReplyResponse = operations['gridspace___private-reply']['responses']['200']['content']['application/json'];
 export type GridspacePrivateUploadRequest = operations['gridspace___private-upload']['requestBody']['content']['multipart/form-data'];
 export type GridspacePrivateUploadResponse = operations['gridspace___private-upload']['responses']['200']['content']['application/json'];
+export type GridspaceProfileImportResponse = operations['gridspace___profile-import']['responses']['200']['content']['application/json'];
 export type GridspaceSearchRequest = operations['gridspace___search']['requestBody']['content']['application/json'];
 export type GridspaceSearchResponse = operations['gridspace___search']['responses']['200']['content']['application/json'];
 export type GridspaceSearchInfoResponse = operations['gridspace___search-info']['responses']['200']['content']['application/json'];

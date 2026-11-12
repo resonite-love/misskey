@@ -110,6 +110,10 @@ export const PREF_DEF = definePreferences({
 		accountDependent: true,
 		default: false,
 	},
+	gridspaceProfileImportPending: {
+		accountDependent: true,
+		default: false,
+	},
 
 	emojiPalettes: {
 		serverDependent: true,

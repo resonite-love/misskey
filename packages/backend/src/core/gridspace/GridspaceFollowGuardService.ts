@@ -6,6 +6,7 @@
 import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import pg from 'pg';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { MiGridspaceFollowOverride } from '@/models/Gridspace.js';
@@ -14,14 +15,34 @@ import { MiGridspaceFollowOverride } from '@/models/Gridspace.js';
 export class GridspaceFollowGuardService implements OnApplicationShutdown {
 	private locks: pg.Pool | null;
 	private decisionLocks: pg.Pool | null;
+	private profileLocks: pg.Pool | null;
+	private profileContext = new AsyncLocalStorage<{ userId: string; active: boolean }>();
 	constructor(@Inject(DI.db) private db: DataSource, @Inject(DI.config) private config: Config) {
 		// Lock waiters must never occupy the pool used by the operations holding those locks.
 		this.locks = config.gridspace?.enabled ? new pg.Pool({ host: config.db.host, port: config.db.port,
 			user: config.db.user, password: config.db.pass, database: config.db.db, ...config.db.extra, max: 2 }) : null;
 		this.decisionLocks = this.locks ? new pg.Pool({ host: config.db.host, port: config.db.port, user: config.db.user, password: config.db.pass, database: config.db.db, ...config.db.extra, max: 2 }) : null;
+		this.profileLocks = this.locks ? new pg.Pool({ host: config.db.host, port: config.db.port, user: config.db.user, password: config.db.pass, database: config.db.db, ...config.db.extra, max: 2 }) : null;
 	}
 
-	public async onApplicationShutdown(): Promise<void> { await Promise.all([this.locks?.end(), this.decisionLocks?.end()]); }
+	public async onApplicationShutdown(): Promise<void> { await Promise.all([this.locks?.end(), this.decisionLocks?.end(), this.profileLocks?.end()]); }
+
+	/** Serialize import with ordinary profile edits; the nested i/update reuses this lock. */
+	public async runProfile<T>(userId: string, action: () => Promise<T>): Promise<T> {
+		const parent = this.profileContext.getStore();
+		if (!this.profileLocks || (parent?.active && parent.userId === userId)) return action();
+		const connection = await this.profileLocks.connect();
+		const key = `gridspace-profile:${userId}`;
+		const context = { userId, active: true };
+		try {
+			await connection.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [key]);
+			return await this.profileContext.run(context, action);
+		} finally {
+			context.active = false;
+			let released = false;
+			try { await connection.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [key]); released = true; } finally { connection.release(!released); }
+		}
+	}
 
 	/** Shared by block and delegated decisions, before either acquires following locks. */
 	public async runDecisionPair<T>(a: string, b: string, action: () => Promise<T>): Promise<T> {

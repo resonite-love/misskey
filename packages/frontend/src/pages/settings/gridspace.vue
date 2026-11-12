@@ -37,6 +37,12 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<MkInfo v-if="paletteCopied">{{ i18n.ts._gridspace.paletteCopied }}</MkInfo>
 				<MkInfo v-if="paletteError" warn>{{ i18n.ts._gridspace.paletteCopyFailed }}</MkInfo>
 				<MkButton v-if="paletteError" :disabled="busy" @click="retryPalette">{{ i18n.ts.retry }}</MkButton>
+				<template v-if="status.initiator && status.channelsEnabled">
+					<MkInfo>{{ i18n.ts._gridspace.profileCopyDescription }}</MkInfo>
+					<MkInfo v-if="profileResult?.complete" role="status">{{ i18n.tsx._gridspace.profileCopied({ copied: profileResult.copied.length, skipped: profileResult.skipped.length }) }}</MkInfo>
+					<MkInfo v-if="profileError" warn role="alert">{{ i18n.ts._gridspace.profileCopyFailed }}</MkInfo>
+					<MkButton :disabled="busy || profileResult?.complete" @click="retryProfile">{{ profileError ? i18n.ts.retry : i18n.ts._gridspace.profileCopy }}</MkButton>
+				</template>
 			</section>
 			<template v-if="status.total">
 				<div aria-live="polite">{{ i18n.tsx._gridspace.progress({ total: status.total, done: status.done, pending: status.pending, requested: status.requested, failed: status.failed, skipped: status.skipped }) }}</div>
@@ -63,6 +69,7 @@ import { store } from '@/store.js';
 import { prefer } from '@/preferences.js';
 import { gridspacePaletteSource, mergeGridspacePalette } from '@/utility/gridspace-palette.js';
 import { $i } from '@/i.js';
+import { updateCurrentAccount } from '@/accounts.js';
 import { definePage } from '@/page.js';
 import * as os from '@/os.js';
 
@@ -76,11 +83,14 @@ const busy = ref(false);
 const error = ref('');
 const paletteCopied = ref(false);
 const paletteError = ref(false);
+const profileResult = ref<entities.GridspaceProfileImportResponse | null>(null);
+const profileError = ref(false);
 const storageKey = `gridspace-link:${$i?.id}`;
 const query = new URLSearchParams(window.location.search);
 let poll: number | undefined;
 let stopped = false;
 let paletteAttempted = false;
+let profileAttempted = false;
 
 function errorLabel(reason: string): string {
 	if (reason === 'AUTHORIZATION_REVOKED' || reason === 'INVALID_CALLBACK') return i18n.ts._gridspace.authorizationError;
@@ -117,6 +127,7 @@ async function refresh() {
 		status.value = await misskeyApi('gridspace/link', { action: 'status' });
 		readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' });
 		if (!paletteAttempted) await resumePalette();
+		if (!profileAttempted) await resumeProfile();
 	});
 }
 
@@ -128,6 +139,7 @@ async function start() {
 		sessionStorage.setItem(`${storageKey}:purpose`, 'link');
 		await prefer.cloudReady;
 		prefer.commit('gridspacePaletteImportPending', true);
+		prefer.commit('gridspaceProfileImportPending', true);
 		window.location.assign(result.authorizationUrl);
 	});
 }
@@ -178,6 +190,29 @@ async function retryPalette() {
 	await perform(resumePalette);
 }
 
+async function resumeProfile() {
+	await prefer.cloudReady;
+	if (!prefer.s.gridspaceProfileImportPending || status.value?.state !== 'active' || !status.value.initiator || !status.value.channelsEnabled) return;
+	profileAttempted = true;
+	profileError.value = false;
+	try {
+		const result = await misskeyApi('gridspace/profile-import', {});
+		profileResult.value = result;
+		profileError.value = !result.complete;
+		if (result.complete) prefer.commit('gridspaceProfileImportPending', false);
+	} catch { profileError.value = true; }
+	// The copy receipt remains successful even if refreshing the sidebar fails.
+	try { updateCurrentAccount(await misskeyApi('i', {})); } catch { /* Refreshed by the next account update. */ }
+}
+
+async function retryProfile() {
+	await perform(async () => {
+		await prefer.cloudReady;
+		prefer.commit('gridspaceProfileImportPending', true);
+		await resumeProfile();
+	});
+}
+
 async function revoke() {
 	const { canceled } = await os.confirm({ type: 'warning', text: i18n.ts._gridspace.revokeConfirm });
 	if (canceled) return;
@@ -185,6 +220,7 @@ async function revoke() {
 		status.value = await misskeyApi('gridspace/link', { action: 'revoke' });
 		sessionStorage.removeItem(storageKey);
 		prefer.commit('gridspacePaletteImportPending', false);
+		prefer.commit('gridspaceProfileImportPending', false);
 	});
 }
 
@@ -204,7 +240,9 @@ onMounted(async () => {
 				else {
 					status.value = await misskeyApi('gridspace/link', input);
 					prefer.commit('gridspacePaletteImportPending', true);
+					prefer.commit('gridspaceProfileImportPending', true);
 					await resumePalette();
+					await resumeProfile();
 				}
 				sessionStorage.removeItem(storageKey);
 				sessionStorage.removeItem(`${storageKey}:purpose`);
@@ -212,6 +250,7 @@ onMounted(async () => {
 		} else {
 			error.value = i18n.ts._gridspace.authorizationError;
 			prefer.commit('gridspacePaletteImportPending', false);
+			prefer.commit('gridspaceProfileImportPending', false);
 		}
 	}
 	if (!status.value) {
@@ -221,6 +260,7 @@ onMounted(async () => {
 	try { readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' }); } catch { error.value ||= i18n.ts._gridspace.connectionError; }
 	if (stopped) return;
 	if (!paletteAttempted) await resumePalette();
+	if (!profileAttempted) await perform(resumeProfile);
 	poll = window.setInterval(() => { if (status.value?.pending && !busy.value) void refresh(); }, 3000);
 });
 onUnmounted(() => { stopped = true; window.clearInterval(poll); });

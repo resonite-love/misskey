@@ -33,6 +33,7 @@ import { HttpRequestService } from '@/core/HttpRequestService.js';
 import type { Config } from '@/config.js';
 import { AvatarDecorationService } from '@/core/AvatarDecorationService.js';
 import { notificationRecieveConfig } from '@/models/json-schema/user.js';
+import { GridspaceFollowGuardService } from '@/core/gridspace/GridspaceFollowGuardService.js';
 import { ApiLoggerService } from '../../ApiLoggerService.js';
 import { ApiError } from '../../error.js';
 
@@ -282,8 +283,9 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		private httpRequestService: HttpRequestService,
 		private avatarDecorationService: AvatarDecorationService,
 		private utilityService: UtilityService,
+		private gridspaceGuard: GridspaceFollowGuardService,
 	) {
-		super(meta, paramDef, async (ps, _user, token) => {
+		super(meta, paramDef, async (ps, _user, token) => this.gridspaceGuard.runProfile(_user.id, async () => {
 			const user = await this.usersRepository.findOneByOrFail({ id: _user.id }) as MiLocalUser;
 			const isSecure = token == null;
 
@@ -580,7 +582,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			}
 
 			return iObj;
-		});
+		}));
 	}
 
 	private async verifyLink(url: string, user: MiLocalUser) {
