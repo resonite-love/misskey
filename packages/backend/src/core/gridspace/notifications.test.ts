@@ -75,6 +75,32 @@ describe('GridSpace notifications', () => {
 			await expect(f.service.remote(f.viewer, {})).rejects.toMatchObject({ code: 'PEER_UNAVAILABLE' });
 		}
 	});
+	test('shares actor checks within one page but rechecks blocks on the next request', async () => {
+		const f = fixture();
+		const actor = { uri: 'https://r.example/users/actor', host: 'r.example', username: 'actor', name: null };
+		const note = { id: 'note', filterActors: [actor] } as PrivateWireNote;
+		f.links.json.mockResolvedValue({ items: [1, 2, 3].map(id => ({ id: String(id), user: actor, note })), origin: 'https://r.example', recipientId: 'old' });
+		f.notes.localAllows.mockImplementation(async (_user, item, _home, _peer, check) => check!(item.filterActors[0]));
+		expect((await f.service.remote(f.viewer, {})).items).toHaveLength(3);
+		expect(f.notes.localActorAllows).toHaveBeenCalledTimes(1);
+		f.notes.localActorAllows.mockResolvedValue(false);
+		expect((await f.service.remote(f.viewer, {})).items).toEqual([]);
+		expect(f.notes.localActorAllows).toHaveBeenCalledTimes(2);
+		expect(f.links.checkPrivateUnchanged).toHaveBeenCalledTimes(2);
+	});
+	test('batch notifier lookup still excludes blocked or suspended actors', async () => {
+		const f = fixture(); f.links.hasNotificationScope.mockResolvedValue(true);
+		const rows = ['allowed', 'blocked', 'allowed'].map((notifierId, i) => ({ id: String(i), type: 'follow', notifierId, createdAt: new Date().toISOString() } as MiNotification));
+		f.notifications.getNotifications.mockResolvedValue(rows);
+		f.packer.packMany.mockResolvedValue(rows.map(n => ({ ...n, user: { id: 'actor' } })) as Packed<'Notification'>[]);
+		const query = { andWhere: () => query, getMany: async () => [{ id: 'allowed', username: 'allowed', host: null, uri: null, name: null }] };
+		f.search.userQuery.mockReturnValue(query as unknown as ReturnType<GridspaceSearchService['userQuery']>);
+		f.reads.state.mockResolvedValue({ unreadCount: 3, changed: false, isRead: [false, false] });
+		const result = await f.service.peer('query', {});
+		expect(result.items.map(n => n.id)).toEqual(['0', '2']);
+		expect(f.search.userQuery).toHaveBeenCalledTimes(1);
+		expect(f.search.userQuery).toHaveBeenCalledWith({ id: 'viewer' });
+	});
 	test('does not mark anything read when querying, including an excluded page', async () => {
 		const f = fixture(); f.links.hasNotificationScope.mockResolvedValue(true);
 		f.notifications.getNotifications.mockResolvedValue([{ id: 'test', createdAt: '2026-11-12T00:00:00Z', type: 'test' }]);
@@ -121,7 +147,7 @@ describe('GridSpace notifications', () => {
 		const rows = Array.from({ length: 100 }, (_, i) => ({ id: `n${i}`, type: 'renote', noteId: `wrapper${i}`, notifierId: 'actor', createdAt: new Date().toISOString() } as MiNotification));
 		f.notifications.getNotifications.mockResolvedValue(rows);
 		f.packer.packMany.mockResolvedValue(rows.map((n, i) => ({ ...n, user: { id: 'actor' }, note: { id: `wrapper${i}`, renoteId: `target${i}`, user: { id: 'actor' } } })) as Packed<'Notification'>[]);
-		const query = { andWhere: () => query, getOne: async () => ({ id: 'actor', username: 'actor', host: null, uri: null, name: null }) };
+		const query = { andWhere: () => query, getMany: async () => [{ id: 'actor', username: 'actor', host: null, uri: null, name: null }] };
 		f.search.userQuery.mockReturnValue(query as unknown as ReturnType<GridspaceSearchService['userQuery']>);
 		f.notes.peerNotes.mockImplementation(async input => ({ notes: input.ids!.map(id => ({ id, renoteId: id.startsWith('wrapper') ? id.replace('wrapper', 'target') : null } as PrivateWireNote)), next: null, head: null, scannedThrough: null, observedAt: new Date().toISOString() }));
 		f.reads.state.mockResolvedValue({ unreadCount: 100, changed: false, isRead: Array(100).fill(false) });

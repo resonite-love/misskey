@@ -27,6 +27,10 @@ describe('linked notification counts', () => {
 			: new Promise<{ unreadCount: number }>(resolve => { release = resolve; })) as typeof misskeyApi);
 		const pending = refreshLinkedNotifications();
 		await Promise.resolve(); await Promise.resolve();
+		// A slow badge request must not keep the notification timeline unmounted.
+		expect(linkedNotifications.checked).toBe(true);
+		expect(linkedNotifications.statusKnown).toBe(true);
+		expect(linkedNotifications.enabled).toBe(true);
 		setLinkedNotificationCount(0);
 		release({ unreadCount: 7 }); await pending;
 		expect(linkedNotifications.count).toBe(0);

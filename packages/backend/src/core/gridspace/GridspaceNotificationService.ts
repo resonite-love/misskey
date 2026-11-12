@@ -106,9 +106,12 @@ export class GridspaceNotificationService {
 		const displayUser = (user: Packed<'UserLite'>) => ({ ...user, host: user.host ?? host });
 		const recipient = displayUser(await users.pack(link.localUserId, { id: link.localUserId }));
 		const canManageFollowRequest = valid.some(n => n.type === 'receiveFollowRequest') && await this.links.hasFollowRequestScope(input);
+		const notifierIds = [...new Set(rows.flatMap(n => 'notifierId' in n ? [n.notifierId] : []))];
+		const actors = new Map((notifierIds.length ? await this.search.userQuery({ id: link.localUserId })
+			.andWhere('user.id IN (:...notifierIds)', { notifierIds }).getMany() : []).map(actor => [actor.id, actor]));
 		for (const packed of valid) {
 			const raw = rows.find(n => n.id === packed.id)!;
-			const actor = 'notifierId' in raw ? await this.search.userQuery({ id: link.localUserId }).andWhere('user.id = :id', { id: raw.notifierId }).getOne() : null;
+			const actor = 'notifierId' in raw ? actors.get(raw.notifierId) : null;
 			if ('notifierId' in raw && !actor) continue;
 			let reactionUrl: string | null = null;
 			if (raw.type === 'reaction' && raw.reaction.startsWith(':')) {
@@ -161,11 +164,20 @@ export class GridspaceNotificationService {
 		const page = await this.links.json<NotificationPage<WireNotification>>(`/gridspace/v1/notifications/${action}`, { ...options, ...this.links.privateCredential(link) });
 		if (page.origin !== link.peerOrigin || page.recipientId !== link.peerUserId || !Array.isArray(page.items) || page.items.length > 100) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		const items: PeerNotification[] = [];
+		// Request-scoped only: repeated reactions often share their notifier and
+		// target author. Every subsequent request checks current blocks/mutes again.
+		const actorChecks = new Map<string, Promise<boolean>>();
+		const actorAllows = (actor: NonNullable<WireNotification['user']>) => {
+			const key = JSON.stringify([actor.uri, actor.host]);
+			let result = actorChecks.get(key);
+			if (!result) { result = this.notes.localActorAllows(user, actor); actorChecks.set(key, result); }
+			return result;
+		};
 		for (const item of page.items) {
-			if (item.user && !await this.notes.localActorAllows(user, item.user)) continue;
-			if (item.note && !await this.notes.localAllows(user, item.note, false, link.peerUserId)) continue;
+			if (item.user && !await actorAllows(item.user)) continue;
+			if (item.note && !await this.notes.localAllows(user, item.note, false, link.peerUserId, actorAllows)) continue;
 			const note = item.note ? (({ filterActors: _, ...display }) => display)(item.note) : null;
-			const renote = item.renote && await this.notes.localAllows(user, item.renote, false, link.peerUserId) ? (({ filterActors: _, ...display }) => display)(item.renote) : null;
+			const renote = item.renote && await this.notes.localAllows(user, item.renote, false, link.peerUserId, actorAllows) ? (({ filterActors: _, ...display }) => display)(item.renote) : null;
 			items.push({ ...item, note, renote });
 		}
 		await this.links.checkPrivateUnchanged(link);

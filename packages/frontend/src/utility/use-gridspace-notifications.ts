@@ -105,7 +105,7 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 		while (true) {
 			const allRevision = allReadRevisions[source];
 			const revision = readRevisions[source];
-			const page = await misskeyApi('gridspace/notifications', { ...options, source, excludeTypes: exclude.value, limit: 40 }, undefined, signal);
+			const page = await misskeyApi('gridspace/notifications', { ...options, source, excludeTypes: exclude.value, limit: 20 }, undefined, signal);
 			if (allRevision === allReadRevisions[source]) return { page, revision };
 			// All-read includes IDs not loaded yet. Fetch their current flags instead
 			// of accepting an older snapshot or guessing which new arrivals it covers.

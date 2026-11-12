@@ -209,8 +209,10 @@ export class GridspacePrivateService {
 		return !local || !!(await this.search.userQuery(viewer).andWhere('user.id = :author', { author: local.id }).getOne());
 	}
 
-	public async localAllows(viewer: MiLocalUser, note: PrivateWireNote, home: boolean, peerUserId: string) {
-		for (const actor of note.filterActors) if (!await this.localActorAllows(viewer, actor)) return false;
+	public async localAllows(viewer: MiLocalUser, note: PrivateWireNote, home: boolean, peerUserId: string,
+		actorAllows: (actor: PrivateWireNote['filterActors'][number]) => Promise<boolean> = actor => this.localActorAllows(viewer, actor)) {
+		for (const actor of note.filterActors) if (!await actorAllows(actor)) return false;
+		if (!home) return true;
 		const uri = note.author.uri;
 		const where = uri.startsWith(`${this.peer!.origin}/users/`) ? { id: uri.slice(`${this.peer!.origin}/users/`.length), host: IsNull() } : { uri };
 		const local = await this.db.getRepository(MiUser).findOneBy(where);

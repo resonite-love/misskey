@@ -33,6 +33,9 @@ export async function refreshLinkedNotifications() {
 		linkedNotifications.statusKnown = true;
 		linkedNotifications.enabled = status.canReadNotifications;
 		linkedNotifications.available = true;
+		// The timeline can start as soon as the grant is known. Badge counts are
+		// independent and must not delay its first page.
+		linkedNotifications.checked = true;
 		if (!status.canReadNotifications) linkedNotifications.count = null;
 		if (status.canReadNotifications) {
 			const revision = countRevision;
