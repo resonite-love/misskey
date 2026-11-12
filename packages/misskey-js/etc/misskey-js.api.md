@@ -2062,6 +2062,9 @@ declare namespace entities {
         GridspaceLinkResponse,
         GridspaceMemberRequest,
         GridspaceMemberResponse,
+        GridspaceSearchRequest,
+        GridspaceSearchResponse,
+        GridspaceSearchInfoResponse,
         HashtagsListRequest,
         HashtagsListResponse,
         HashtagsSearchRequest,
@@ -2672,6 +2675,15 @@ type GridspaceMemberRequest = operations['gridspace___member']['requestBody']['c
 
 // @public (undocumented)
 type GridspaceMemberResponse = operations['gridspace___member']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceSearchInfoResponse = operations['gridspace___search-info']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceSearchRequest = operations['gridspace___search']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceSearchResponse = operations['gridspace___search']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type Hashtag = components['schemas']['Hashtag'];

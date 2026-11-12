@@ -131,6 +131,19 @@ node scripts/gridspace/test-history-ui.mjs
 
 画面試験はインストール済み Chrome と Playwright を使う。履歴試験が作成した `.config/gridspace-history-test-accounts.json` を読み、G/R の両アカウントの初期表示、表示をオフにするボタンがないこと、ページ追加、デスクトップ幅とスマートフォン幅を確認する。画像は `.config/history-*-desktop.png` と `.config/history-*-mobile.png` に保存する。認証情報と画像は Git に追加しない。
 
+### 人物・過去投稿の検索試験
+
+```powershell
+node scripts/gridspace/test-search.mjs ../resonite-love-gridspace ../gridspace-external-test
+node scripts/gridspace/test-search-ui.mjs
+```
+
+検索試験は新しい専用アカウントと履歴行を作り、未取得の過去投稿、本文・CW、人物の旧新名、公開範囲、ミュート・ブロック、動的な過去投稿の非表示、削除、ページ送りと連携世代を確かめる。G/R の既定ポリシーは、他の値を維持して `canSearchNotes: true` にする。この設定は画面の試用用に残す。テスト用アカウントだけに一時的な回数制限除外ロールを付け、終了時にロールを削除する。未ログイン閲覧設定も終了時に戻す。
+
+認証情報は Git 管理外の `.config/gridspace-search-test-accounts.json` に保存する。画面試験は G/R の実 API で検索し、画像を `.config/search-*-desktop.png` と `.config/search-*-mobile.png` に保存する。部分応答を受けた画面の再試行は Playwright で応答を置き換えて検証する。
+
+実際の停止・復旧は `node scripts/gridspace/test-search-outage.mjs prepare`、R の Misskey プロセスを停止して `during`、R を再開して `after` の順に実行する。これらの引数を省略しない。試験スクリプト自体はプロセスを停止しない。DB・Redis・トンネルは停止する必要がない。
+
 ## 停止と再開
 
 試験環境を停止する場合は Misskey 本体とトンネルを停止し、次を実行する。DB のボリュームは保持される。

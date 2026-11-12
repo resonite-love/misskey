@@ -8,12 +8,13 @@ import type { GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
 import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH } from '@/core/gridspace/link-crypto.js';
 import type { GridspacePeerLinkRequest } from '@/core/gridspace/GridspaceLinkService.js';
 import type { HistoryPeerRequest } from '@/core/gridspace/history-protocol.js';
+import type { SearchPeerRequest } from '@/core/gridspace/search-protocol.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 export type ClaimGridspaceNonce = (key: string, ttlMs: number) => Promise<boolean>;
 
 /** Mounted under /gridspace/v1; independent from user-authorized /api endpoints. */
-export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>): void {
+export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>): void {
 	if (config === null) return;
 	// Preserve wire bytes for the signature without changing other server plugins' parsers.
 	const parseJson = fastify.getDefaultJsonParser('error', 'error');
@@ -57,9 +58,28 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			origin: config.origin,
 			peerOrigin: config.peerOrigin,
 			// Only advertise features once their authorization and persistence are implemented.
-			features: [...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : []), ...(history ? ['member-history'] : [])],
+			features: [...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : []), ...(history ? ['member-history'] : []), ...(search ? ['community-search'] : [])],
 		};
 	});
+	if (search) {
+		const id = { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' };
+		const date = { type: 'integer', minimum: 1, maximum: 4102444800000 };
+		fastify.post<{ Body: SearchPeerRequest }>('/search', {
+			bodyLimit: 4096, config: { rawBody: true }, preHandler: authenticate,
+			schema: { body: { type: 'object', additionalProperties: false, required: ['kind', 'query', 'limit'], properties: {
+				kind: { type: 'string', enum: ['notes', 'users'] }, query: { type: 'string', minLength: 1, maxLength: 200 },
+				viewerId: id, targetId: id, before: id, head: id,
+				ids: { type: 'array', minItems: 1, maxItems: 20, uniqueItems: true, items: id },
+				limit: { type: 'integer', minimum: 0, maximum: 20 }, rangeStartAt: date, rangeEndAt: date,
+				link: { type: 'object', additionalProperties: false, required: ['id', 'generation', 'counterpartId'], properties: {
+					id: { type: 'string', format: 'uuid' }, generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, counterpartId: id,
+				} },
+			} } },
+		}, async (request, reply) => {
+			if (request.body.link && !request.body.targetId) return reply.code(400).send({ error: 'INVALID_SEARCH' });
+			try { return await search(request.body); } catch { return reply.code(503).send({ error: 'PEER_SEARCH_UNAVAILABLE' }); }
+		});
+	}
 	if (history) {
 		const id = { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' };
 		fastify.post<{ Body: HistoryPeerRequest }>('/history', {

@@ -6,6 +6,7 @@
 import { Module } from '@nestjs/common';
 import { GridspaceNoteService } from './gridspace/GridspaceNoteService.js';
 import { GridspaceHistoryService } from './gridspace/GridspaceHistoryService.js';
+import { GridspaceSearchService } from './gridspace/GridspaceSearchService.js';
 import { GridspaceIdentityService } from './gridspace/GridspaceIdentityService.js';
 import { GridspaceLinkService } from './gridspace/GridspaceLinkService.js';
 import { GridspaceFollowGuardService } from './gridspace/GridspaceFollowGuardService.js';
@@ -327,6 +328,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceNoteService,
 		GridspaceIdentityService,
 		GridspaceHistoryService,
+		GridspaceSearchService,
 		GridspaceFollowGuardService,
 		VmimiRelayTimelineService,
 		LoggerService,
@@ -639,6 +641,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceNoteService,
 		GridspaceIdentityService,
 		GridspaceHistoryService,
+		GridspaceSearchService,
 		GridspaceFollowGuardService,
 		VmimiRelayTimelineService,
 		QueueModule,

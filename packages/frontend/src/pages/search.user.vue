@@ -10,9 +10,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<template #prefix><i class="ti ti-search"></i></template>
 		</MkInput>
 		<MkRadios
-			v-if="instance.federation !== 'none'"
+			v-if="community?.enabled || instance.federation !== 'none'"
 			v-model="searchOrigin"
 			:options="[
+				...(community?.enabled ? [{ value: 'community', label: i18n.ts._gridspace.searchBoth }] : []),
 				{ value: 'combined', label: i18n.ts.all },
 				{ value: 'local', label: i18n.ts.local },
 				{ value: 'remote', label: i18n.ts.remote },
@@ -23,16 +24,17 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkButton large primary gradate rounded @click="search">{{ i18n.ts.search }}</MkButton>
 	</div>
 
-	<MkFoldableSection v-if="paginator">
+	<MkFoldableSection v-if="communityParams || paginator">
 		<template #header>{{ i18n.ts.searchResult }}</template>
-		<MkUserList :key="`searchUsers:${key}`" :paginator="paginator"/>
+		<XCommunitySearch v-if="communityParams" :key="`community:${key}`" :params="communityParams"/>
+		<MkUserList v-else-if="paginator" :key="`searchUsers:${key}`" :paginator="paginator"/>
 	</MkFoldableSection>
 </div>
 </template>
 
 <script lang="ts" setup>
 import { markRaw, ref, shallowRef, toRef } from 'vue';
-import type { Endpoints } from 'misskey-js';
+import type { Endpoints, entities } from 'misskey-js';
 import MkUserList from '@/components/MkUserList.vue';
 import MkInput from '@/components/MkInput.vue';
 import MkRadios from '@/components/MkRadios.vue';
@@ -44,6 +46,7 @@ import MkFoldableSection from '@/components/MkFoldableSection.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { useRouter } from '@/router.js';
 import { Paginator } from '@/utility/paginator.js';
+import XCommunitySearch from './search.community.vue';
 
 const props = withDefaults(defineProps<{
 	query?: string,
@@ -57,9 +60,11 @@ const router = useRouter();
 
 const key = ref(0);
 const paginator = shallowRef<Paginator<'users/search'> | null>(null);
+const communityParams = shallowRef<entities.GridspaceSearchRequest | null>(null);
+const community = await misskeyApi('gridspace/search-info', {}).catch(() => null);
 
 const searchQuery = ref(toRef(props, 'query').value);
-const searchOrigin = ref(toRef(props, 'origin').value);
+const searchOrigin = ref<'community' | NonNullable<Endpoints['users/search']['req']['origin']>>(community?.enabled && props.origin === 'combined' ? 'community' : props.origin);
 
 async function search() {
 	const query = searchQuery.value.toString().trim();
@@ -130,6 +135,13 @@ async function search() {
 		}
 	}
 
+	if (searchOrigin.value === 'community') {
+		communityParams.value = { kind: 'users', query };
+		paginator.value = null;
+		key.value++;
+		return;
+	}
+	communityParams.value = null;
 	paginator.value = markRaw(new Paginator('users/search', {
 		limit: 10,
 		offsetMode: true,

@@ -42,7 +42,7 @@ export class GridspaceHistoryService {
 		private sharedNotes: GridspaceNoteService,
 	) { this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env); }
 
-	private async findLink(userId: string): Promise<MiGridspaceLink | null> {
+	public async findLink(userId: string): Promise<MiGridspaceLink | null> {
 		if (!this.peer) return null;
 		const user = await this.db.getRepository(MiUser).findOneBy({ id: userId, isDeleted: false, isSuspended: false });
 		if (!user) return null;

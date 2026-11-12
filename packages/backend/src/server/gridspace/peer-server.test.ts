@@ -18,7 +18,7 @@ const g = resolveGridspaceConfig(source, 'https://g.example', env)!;
 const r = resolveGridspaceConfig({ ...source, peerUrl: g.origin }, source.peerUrl, env)!;
 const servers: FastifyInstance[] = [];
 
-async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5]) {
+async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6]) {
 	const app = Fastify();
 	servers.push(app);
 	const used = new Set<string>();
@@ -29,7 +29,7 @@ async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Para
 			if (used.has(key)) return false;
 			used.add(key);
 			return true;
-		}), action, notes, history);
+		}), action, notes, history, search);
 	}, { prefix: '/gridspace/v1' });
 	return app;
 }
@@ -41,6 +41,37 @@ function request(protocolVersion = 1) {
 
 afterEach(async () => {
 	await Promise.all(servers.splice(0).map(app => app.close()));
+});
+
+describe('GridSpace search transport', () => {
+	test('authenticates, bounds queries, rejects delegation and advertises only implemented search', async () => {
+		let calls = 0;
+		const app = await server(true, undefined, undefined, undefined, undefined, async () => { calls++; return { active: true, items: [] }; });
+		const url = '/gridspace/v1/search';
+		const input = { kind: 'notes', query: 'past notes', limit: 20 };
+		const send = (body: object, signed = true) => {
+			const payload = Buffer.from(JSON.stringify(body));
+			return app.inject({ method: 'POST', url, payload, headers: signed ? createGridspaceHeaders(g, 'POST', url, payload) : { 'content-type': 'application/json' } });
+		};
+		expect((await app.inject(request())).json().features).toEqual(['community-search']);
+		expect((await send(input, false)).statusCode).toBe(403);
+		expect((await send(input)).statusCode).toBe(200);
+		for (const extra of [{ query: 'a'.repeat(201) }, { query: '' }, { limit: 21 }, { ids: Array.from({ length: 21 }, (_, n) => String(n)) }, { viewerId: '../secret' }, { link: { id: '87d7b3cb-7e34-427e-b1b2-af4c93b2e07a', generation: 1, counterpartId: 'me' } }]) {
+			expect((await send({ ...input, ...extra })).statusCode).toBe(400);
+		}
+		expect(calls).toBe(1);
+	});
+
+	test('hides failures and never mounts on an ordinary instance', async () => {
+		const app = await server(true, undefined, undefined, undefined, undefined, async () => { throw new Error('synthetic secret'); });
+		const url = '/gridspace/v1/search';
+		const payload = Buffer.from(JSON.stringify({ kind: 'users', query: 'someone', limit: 10 }));
+		const response = await app.inject({ method: 'POST', url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) });
+		expect(response.statusCode).toBe(503);
+		expect(response.json()).toEqual({ error: 'PEER_SEARCH_UNAVAILABLE' });
+		expect(response.headers['cache-control']).toBe('no-store');
+		expect((await (await server(false)).inject({ method: 'POST', url, payload: {} })).statusCode).toBe(404);
+	});
 });
 
 describe('GridSpace account link transport', () => {

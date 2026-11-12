@@ -110,9 +110,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</div>
 	</div>
 
-	<MkFoldableSection v-if="paginator">
+	<MkFoldableSection v-if="communityParams || paginator">
 		<template #header>{{ i18n.ts.searchResult }}</template>
-		<MkNotesTimeline :key="`searchNotes:${key}`" :paginator="paginator"/>
+		<XCommunitySearch v-if="communityParams" :key="`community:${key}`" :params="communityParams"/>
+		<MkNotesTimeline v-else-if="paginator" :key="`searchNotes:${key}`" :paginator="paginator"/>
 	</MkFoldableSection>
 </div>
 </template>
@@ -136,6 +137,7 @@ import MkRadios from '@/components/MkRadios.vue';
 import MkUserCardMini from '@/components/MkUserCardMini.vue';
 import { Paginator } from '@/utility/paginator.js';
 import type { MkRadiosOption } from '@/components/MkRadios.vue';
+import XCommunitySearch from './search.community.vue';
 
 const props = withDefaults(defineProps<{
 	query?: string;
@@ -153,6 +155,8 @@ const router = useRouter();
 
 const key = ref(0);
 const paginator = shallowRef<Paginator<'notes/search'> | null>(null);
+const communityParams = shallowRef<Misskey.entities.GridspaceSearchRequest | null>(null);
+const community = await misskeyApi('gridspace/search-info', {}).catch(() => null);
 
 const searchQuery = ref(toRef(props, 'query').value);
 const hostInput = ref(toRef(props, 'host').value);
@@ -181,14 +185,15 @@ if (props.username && fetchedUser == null) {
 }
 
 if (fetchedUser != null) {
-	if (!(noteSearchableScope === 'local' && fetchedUser.host != null)) {
+	if (community?.enabled || !(noteSearchableScope === 'local' && fetchedUser.host != null)) {
 		user.value = fetchedUser;
 	}
 }
 //#endregion
 
-const searchScope = ref<'all' | 'local' | 'server' | 'user'>((() => {
+const searchScope = ref<'community' | 'all' | 'local' | 'server' | 'user'>((() => {
 	if (user.value != null) return 'user';
+	if (community?.enabled && !hostInput.value) return 'community';
 	if (noteSearchableScope === 'local') return 'local';
 	if (hostInput.value) return 'server';
 	return 'all';
@@ -196,6 +201,7 @@ const searchScope = ref<'all' | 'local' | 'server' | 'user'>((() => {
 
 const searchScopeDef = computed<MkRadiosOption[]>(() => {
 	const options: MkRadiosOption[] = [];
+	if (community?.enabled) options.push({ value: 'community', label: i18n.ts._gridspace.searchBoth });
 
 	if (instance.federation !== 'none' && noteSearchableScope === 'global') {
 		options.push({ value: 'all', label: i18n.ts._search.searchScopeAll });
@@ -278,7 +284,7 @@ const searchParams = computed<SearchParams | null>(() => {
 function selectUser() {
 	os.selectUser({
 		includeSelf: true,
-		localOnly: instance.noteSearchableScope === 'local',
+		localOnly: !community?.enabled && instance.noteSearchableScope === 'local',
 	}).then(_user => {
 		user.value = _user;
 	});
@@ -352,6 +358,18 @@ async function search() {
 		}
 	}
 
+	if (community?.enabled && (searchScope.value === 'community' || (searchScope.value === 'user' && user.value && (user.value.host == null || community.origins.includes(`https://${user.value.host}`))))) {
+		communityParams.value = {
+			query: searchParams.value.query,
+			userId: searchParams.value.userId,
+			rangeStartAt: searchParams.value.rangeStartAt ?? undefined,
+			rangeEndAt: searchParams.value.rangeEndAt ?? undefined,
+		};
+		paginator.value = null;
+		key.value++;
+		return;
+	}
+	communityParams.value = null;
 	paginator.value = markRaw(new Paginator('notes/search', {
 		limit: 10,
 		params: {

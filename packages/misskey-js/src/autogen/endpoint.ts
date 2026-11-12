@@ -405,6 +405,9 @@ import type {
 	GridspaceLinkResponse,
 	GridspaceMemberRequest,
 	GridspaceMemberResponse,
+	GridspaceSearchRequest,
+	GridspaceSearchResponse,
+	GridspaceSearchInfoResponse,
 	HashtagsListRequest,
 	HashtagsListResponse,
 	HashtagsSearchRequest,
@@ -953,6 +956,8 @@ export type Endpoints = {
 	'gridspace/history': { req: GridspaceHistoryRequest; res: GridspaceHistoryResponse };
 	'gridspace/link': { req: GridspaceLinkRequest; res: GridspaceLinkResponse };
 	'gridspace/member': { req: GridspaceMemberRequest; res: GridspaceMemberResponse };
+	'gridspace/search': { req: GridspaceSearchRequest; res: GridspaceSearchResponse };
+	'gridspace/search-info': { req: EmptyRequest; res: GridspaceSearchInfoResponse };
 	'hashtags/list': { req: HashtagsListRequest; res: HashtagsListResponse };
 	'hashtags/search': { req: HashtagsSearchRequest; res: HashtagsSearchResponse };
 	'hashtags/show': { req: HashtagsShowRequest; res: HashtagsShowResponse };

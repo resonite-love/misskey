@@ -13676,6 +13676,22 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * 両サーバー
+         */
+        "searchBoth": string;
+        /**
+         * 両サーバーの名前・ユーザー名、投稿の本文・CWを検索します。人物を指定すると連携アカウントも対象になります。限定公開の投稿は、このサーバーに届いていて今のアカウントで読めるものが対象です。
+         */
+        "searchScope": string;
+        /**
+         * 相手サーバーの結果を取得できませんでした。取得できた結果を表示しています。再試行すると続きを取得します。
+         */
+        "searchPartial": string;
+        /**
+         * 検索結果はありません。
+         */
+        "searchEmpty": string;
+        /**
          * 連携しているアカウント
          */
         "linkedAccounts": string;

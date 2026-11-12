@@ -463,4 +463,6 @@ export * as 'admin/auto-translation/update-config' from './endpoints/admin/auto-
 export * as 'admin/auto-translation/test-connection' from './endpoints/admin/auto-translation/test-connection.js';
 export * as 'gridspace/member' from './endpoints/gridspace/member.js';
 export * as 'gridspace/history' from './endpoints/gridspace/history.js';
+export * as 'gridspace/search' from './endpoints/gridspace/search.js';
+export * as 'gridspace/search-info' from './endpoints/gridspace/search-info.js';
 export * as 'gridspace/link' from './endpoints/gridspace/link.js';
