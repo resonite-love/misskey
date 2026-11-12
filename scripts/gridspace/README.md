@@ -74,8 +74,27 @@ pnpm --filter backend test --run src/core/gridspace/peer-protocol.test.ts src/se
 
 probe は G→R と R→G の署名つきリクエストが成功し、同じリクエストの再送と不正な署名が拒否されることを確認する。本人のアクセストークンやノート本文は扱わない。単体試験の初回実行前には `.config/test.yml` を試験用の例から作成する。既にある場合は上書きしない。
 
+### テスト用アカウントと通常連合
+
+G のリポジトリで次を実行する。3 サイトが起動し、トンネル経由で応答する状態にしておく。
+
+```powershell
+node scripts/gridspace/seed-lab.mjs ../resonite-love-gridspace ../gridspace-external-test
+node scripts/gridspace/test-lab.mjs ../resonite-love-gridspace ../gridspace-external-test
+```
+
+`seed-lab.mjs` は各サイトに `lab_admin`、`lab_author`、`lab_reader`、`lab_locked` を作る。`lab_admin` は初回の管理者、`lab_locked` は承認制のアカウントとする。一般登録を招待制にし、通常連合の接続先を上記 3 サイトの範囲に設定する。この処理は専用の URL とローカル DB ポートを照合し、異なる環境では停止する。
+
+ログイン用パスワードとトークンは、各リポジトリの `.config/gridspace-lab-accounts.json` に保存する。表示や Git への追加はしない。同じファイルを保持した再実行ではアカウントを再利用する。パスワードを変更した場合は、このファイルも手元で更新してから再実行する。
+
+`test-lab.mjs` はテスト投稿と Follow を作り、HTTPS、WebSocket の新着、3 サイト間の通常配送、ローカル限定の外部配送禁止、鍵アカウントの承認、通知を確認する。テスト投稿は履歴として残る。これは連携機能を追加する前の基準動作であり、本人連携や共通 LTL の受け入れ試験は含まない。
+
+## 停止と再開
+
 試験環境を停止する場合は Misskey 本体とトンネルを停止し、次を実行する。DB のボリュームは保持される。
 
 ```powershell
 docker compose --env-file .config/gridspace-lab.env -f compose.gridspace-test.yml stop
 ```
+
+再開するときは Docker の `up -d --wait`、各サイトの `run-lab.ps1 -Action start`、`tunnel.ps1` を実行する。設定作成、アカウント作成、DB の作り直しは不要。PC の停止・スリープ中は公開 URL も利用できない。現構成には OS 起動時の自動起動を設定していない。
