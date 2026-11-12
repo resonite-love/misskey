@@ -116,7 +116,7 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 		}
 	}
 	if (notifications) {
-		for (const name of ['query', 'read']) {
+		for (const name of ['query', 'read', 'read-all']) {
 			fastify.post<{ Body: NotificationPeerRequest }>(`/notifications/${name}`, {
 				bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
 				schema: { body: { type: 'object', additionalProperties: false,

@@ -13,6 +13,7 @@ import { NotificationEntityService } from '@/core/entities/NotificationEntitySer
 import { MiUser, type MiLocalUser } from '@/models/User.js';
 import type { MiNotification } from '@/models/Notification.js';
 import type { Packed } from '@/misc/json-schema.js';
+import { GRIDSPACE_NOTIFICATION_WRITE_SCOPE } from './link-crypto.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
 import { GridspaceSearchService } from './GridspaceSearchService.js';
@@ -60,9 +61,12 @@ export class GridspaceNotificationService {
 
 	public async peer(action: string, input: NotificationPeerRequest): Promise<NotificationPage<WireNotification>> {
 		const link = await this.authorize(input);
-		if (action === 'read') {
-			if (!input.ids?.length) throw new GridspaceLinkError('INVALID_REQUEST');
-			const state = await this.notifications.readNotifications(link.localUserId, input.ids);
+		if (action === 'read' || action === 'read-all') {
+			if (action === 'read' && !input.ids?.length) throw new GridspaceLinkError('INVALID_REQUEST');
+			const state = await this.db.transaction(async manager => {
+				await this.links.lockReplyAuthorization(input, manager, GRIDSPACE_NOTIFICATION_WRITE_SCOPE);
+				return action === 'read-all' ? this.notifications.readAllNotification(link.localUserId) : this.notifications.readNotifications(link.localUserId, input.ids!);
+			});
 			return this.page([], [], link.localUserId, state.unreadCount, input);
 		}
 		const rows = await this.raw(link.localUserId, input);

@@ -228,7 +228,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 	private async revokeLocal(link: MiGridspaceLink): Promise<void> {
 		await this.guard.run(link.localUserId, async () => {
 			const current = await this.db.getRepository(MiGridspaceLink).findOneBy({ id: link.id, generation: link.generation });
-			if (current) await this.commitRevocation(current);
+			if (current && current.state !== 'revoked') await this.commitRevocation(current);
 		});
 	}
 

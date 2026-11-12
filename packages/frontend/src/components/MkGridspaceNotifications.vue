@@ -6,6 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <div :class="$style.root">
 	<MkInfo v-if="timeline.error.value" warn role="status">{{ i18n.ts._gridspace.notificationUnavailable }} <button class="_textButton" @click="timeline.reload">{{ i18n.ts.retry }}</button></MkInfo>
+	<MkInfo v-if="timeline.readError.value" warn role="status">{{ i18n.ts._gridspace.notificationReadFailed }}</MkInfo>
 	<MkLoading v-if="timeline.busy.value && timeline.rows.value.length === 0"/>
 	<MkResult v-else-if="!timeline.error.value && timeline.rows.value.length === 0 && !timeline.hasMore.value" type="empty" :text="i18n.ts.noNotifications"/>
 	<div v-for="row in timeline.rows.value" :key="row.members.map(n => n.key).join('|')" v-appear="() => timeline.seen(row)" :class="$style.item" :data-notification-key="row.key" :data-unread="!row.isRead">
@@ -52,7 +53,7 @@ function notificationType(type: string) {
 	return i18n.ts._notification._types[type as keyof typeof i18n.ts._notification._types] ?? i18n.ts.notifications;
 }
 
-defineExpose({ reload: timeline.reload, markDisplayed: timeline.markDisplayed });
+defineExpose({ reload: timeline.reload, markDisplayed: timeline.markDisplayed, markAll: timeline.markAll });
 </script>
 
 <style module lang="scss">

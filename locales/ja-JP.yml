@@ -3696,6 +3696,8 @@ _gridspace:
   notificationUnavailable: "一部の通知を取得できません。取得できた通知を表示しています。"
   notificationRecipient: "{host} のアカウント宛て"
   notificationOpenSource: "受信先で開く"
+  notificationMarkAll: "両サーバーの通知をすべて既読にする"
+  notificationReadFailed: "既読にできませんでした。もう一度操作してください。"
   notificationMarkDisplayed: "表示した通知を既読にする"
   privateTitle: "連携先の権限で読む投稿"
   notesPartial: "一部の投稿を取得できませんでした。"

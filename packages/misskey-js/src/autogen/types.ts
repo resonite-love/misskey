@@ -25582,7 +25582,9 @@ export interface operations {
                      * @enum {string}
                      */
                     source?: 'local' | 'peer';
-                    ids: string[];
+                    ids?: string[];
+                    /** @default false */
+                    all?: boolean;
                 };
             };
         };

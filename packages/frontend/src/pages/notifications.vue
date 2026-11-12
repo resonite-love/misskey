@@ -71,10 +71,10 @@ const headerActions = computed<PageHeaderItem[]>(() => ([tab.value === 'all' ? {
 	highlighted: includeTypes.value != null,
 	handler: setFilter,
 } : undefined, tab.value === 'all' ? {
-	text: linkedNotifications.enabled ? i18n.ts._gridspace.notificationMarkDisplayed : i18n.ts.markAllAsRead,
+	text: linkedNotifications.enabled ? i18n.ts._gridspace.notificationMarkAll : i18n.ts.markAllAsRead,
 	icon: 'ti ti-check',
 	handler: () => {
-		if (linkedNotifications.enabled) void notificationsTimeline.value?.markDisplayed();
+		if (linkedNotifications.enabled) void notificationsTimeline.value?.markAll();
 		else os.apiWithDialog('notifications/mark-all-as-read', {});
 	},
 } : undefined] as (PageHeaderItem | undefined)[]).filter(x => x !== undefined));

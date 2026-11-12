@@ -37,6 +37,25 @@ function mount(sourceValue: GridspaceNoteSource = { kind: 'search', query: 'quer
 }
 
 describe('one profile/search note list', () => {
+	it('keeps ordinary rows through a granted background check while private notes are loading', async () => {
+		let delay = false; let release!: (value: unknown) => void;
+		respond = async endpoint => {
+			if (endpoint === 'gridspace/private-grant') return { available: true, granted: true };
+			if (endpoint === 'gridspace/search') return searchPage([normal(4)]);
+			return delay ? new Promise(resolve => { release = resolve; }) : page([privateNote(5)]);
+		};
+		const { list } = mount(); await settle();
+		const original = list.rows.value.find(row => row.kind === 'normal')!.note;
+		delay = true;
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+		document.dispatchEvent(new Event('visibilitychange'));
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange')); await settle();
+		expect(list.rows.value.map(row => row.note.id)).toEqual(['n4']);
+		expect(list.rows.value[0].note).toBe(original);
+		release(page([privateNote(5)])); await settle();
+		expect(list.rows.value.map(row => row.note.id)).toEqual(['p5', 'n4']);
+		expect(list.rows.value[1].note).toBe(original);
+	});
 	it('waits for both sources, sorts pages and holds equal-time boundaries', async () => {
 		let release!: (value: unknown) => void;
 		respond = async (endpoint, params) => {
@@ -126,4 +145,22 @@ describe('one profile/search note list', () => {
 		release(page([privateNote(9)])); await settle();
 		expect(list.rows.value.map(row => row.note.id)).toEqual(['n4']);
 	});
+	it('preserves ordinary rows while a focus or visibility consent check is pending', async () => {
+		let delay = false; let release!: (value: unknown) => void;
+		respond = async endpoint => endpoint === 'gridspace/private-grant'
+			? delay ? new Promise(resolve => { release = resolve; }) : { available: true, granted: false }
+			: searchPage([normal(4)]);
+		const { list } = mount(); await settle();
+		const original = list.rows.value[0].note;
+		delay = true; window.dispatchEvent(new Event('focus')); await settle();
+		expect(list.rows.value[0].note).toBe(original);
+		release({ available: true, granted: false }); await settle();
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+		document.dispatchEvent(new Event('visibilitychange'));
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange')); await settle();
+		expect(list.rows.value[0].note).toBe(original);
+		release({ available: true, granted: false }); await settle();
+		expect(list.rows.value[0].note).toBe(original);
+	});
+
 });

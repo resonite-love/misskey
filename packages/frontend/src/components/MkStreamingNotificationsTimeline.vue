@@ -5,6 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <MkLoading v-if="!linkedNotifications.checked"/>
+<MkInfo v-else-if="!linkedNotifications.statusKnown" warn role="status">{{ i18n.ts._gridspace.notificationUnavailable }} <button class="_textButton" @click="refreshLinkedNotifications">{{ i18n.ts.retry }}</button></MkInfo>
 <MkGridspaceNotifications v-else-if="linkedNotifications.enabled" ref="linkedTimeline" :excludeTypes="excludeTypes"/>
 <component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" v-else :refresher="() => reload()">
 	<MkLoading v-if="paginator.fetching.value"/>
@@ -51,7 +52,8 @@ import { useInterval } from '@@/js/use-interval.js';
 import { useDocumentVisibility } from '@@/js/use-document-visibility.js';
 import { getScrollContainer, scrollToTop } from '@@/js/scroll.js';
 import MkGridspaceNotifications from '@/components/MkGridspaceNotifications.vue';
-import { linkedNotifications, startLinkedNotificationCounts } from '@/utility/gridspace-notification-state.js';
+import { linkedNotifications, legacyNotificationsReady, refreshLinkedNotifications, startLinkedNotificationCounts } from '@/utility/gridspace-notification-state.js';
+import MkInfo from '@/components/MkInfo.vue';
 import XNotification from '@/components/MkNotification.vue';
 import MkNote from '@/components/MkNote.vue';
 import { useStream } from '@/stream.js';
@@ -91,7 +93,7 @@ const POLLING_INTERVAL =
 
 if (!store.s.realtimeMode) {
 	useInterval(async () => {
-		if (linkedNotifications.enabled || !linkedNotifications.checked) return;
+		if (!legacyNotificationsReady.value) return;
 		paginator.fetchNewer({
 			toQueue: false,
 		});
@@ -134,7 +136,7 @@ const visibility = useDocumentVisibility();
 let isPausingUpdate = false;
 
 watch(visibility, () => {
-	if (linkedNotifications.enabled || !linkedNotifications.checked) return;
+	if (!legacyNotificationsReady.value) return;
 	if (visibility.value === 'hidden') {
 		isPausingUpdate = true;
 	} else { // 'visible'
@@ -146,7 +148,7 @@ watch(visibility, () => {
 });
 
 function onNotification(notification: Misskey.entities.Notification) {
-	if (linkedNotifications.enabled || !linkedNotifications.checked) return;
+	if (!legacyNotificationsReady.value) return;
 	const isMuted = props.excludeTypes ? props.excludeTypes.includes(notification.type as typeof notificationTypes[number]) : false;
 	if (isMuted || window.document.visibilityState === 'visible') {
 		if (store.s.realtimeMode) {
@@ -164,19 +166,19 @@ function onNotification(notification: Misskey.entities.Notification) {
 }
 
 function reload() {
-	return linkedNotifications.enabled ? linkedTimeline.value?.reload() : paginator.reload();
+	return linkedNotifications.enabled ? linkedTimeline.value?.reload() : legacyNotificationsReady.value ? paginator.reload() : refreshLinkedNotifications();
 }
 
 let connection: Misskey.IChannelConnection<Misskey.Channels['main']> | null = null;
 
 onMounted(() => {
-	watch(() => [linkedNotifications.checked, linkedNotifications.enabled], () => {
-		if (linkedNotifications.checked && !linkedNotifications.enabled) void paginator.init();
+	watch(legacyNotificationsReady, ready => {
+		if (ready) void paginator.init();
 	}, { immediate: true });
 
 	if (paginator.computedParams) {
 		watch(paginator.computedParams, () => {
-			if (!linkedNotifications.enabled) paginator.reload();
+			if (legacyNotificationsReady.value) paginator.reload();
 		}, { immediate: false, deep: true });
 	}
 
@@ -197,6 +199,7 @@ onUnmounted(() => {
 defineExpose({
 	reload,
 	markDisplayed: () => linkedTimeline.value?.markDisplayed(),
+	markAll: () => linkedTimeline.value?.markAll(),
 });
 </script>
 

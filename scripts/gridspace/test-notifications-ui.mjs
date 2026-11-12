@@ -14,6 +14,8 @@ const { chromium } = require('playwright'); const { expect } = require('@playwri
 const g = loadSite('.', 0); const r = loadSite('../resonite-love-gridspace', 1);
 const fixture = JSON.parse(readFileSync('.config/gridspace-notification-test-accounts.json', 'utf8'));
 const accounts = {};
+// MFM expands a mention to the full remote handle in the rendered text.
+const visibleBody = note => note.text.replace(/^@\S+\s+/, '');
 for (const [site, user] of [[g, fixture.grid], [r, fixture.old]]) {
 	await api(site, 'i/registry/set', { scope: ['client', 'base'], key: 'accountSetupWizard', value: -1 }, user.token);
 	accounts[site.origin] = { ...await api(site, 'i', {}, user.token), token: user.token };
@@ -43,22 +45,44 @@ try {
 		await expect(page.getByText('連携先の通知も表示します。', { exact: true })).toBeVisible();
 	}
 	await consent(); console.log('Browser OAuth notification scopes and callback PASS');
+	// An unknown link state must not fall back to legacy auto-mark-all APIs.
+	const legacyRequests = [];
+	page.on('request', request => { if (/\/api\/i\/notifications(?:-grouped)?$/.test(request.url())) legacyRequests.push(request.url()); });
+	await page.route('**/api/gridspace/private-grant', route => route.abort());
+	await page.goto(`${g.origin}/my/notifications`, { waitUntil: 'domcontentloaded' });
+	await expect(page.getByRole('status').filter({ hasText: '一部の通知を取得できません' })).toBeVisible();
+	assert.deepEqual(legacyRequests, []);
+	await page.unroute('**/api/gridspace/private-grant');
+	console.log('Initial grant status outage does not auto-read through legacy notifications PASS');
+	await page.route('**/api/gridspace/notifications/read', route => route.abort());
+	await api(g, 'notifications/test-notification', {}, fixture.grid.token);
 	await page.goto(`${g.origin}/my/notifications`, { waitUntil: 'domcontentloaded' });
 	const rows = page.locator('[data-notification-key]');
 	await expect(rows.first()).toBeVisible();
-	await expect(page.locator('[data-gridspace-private-note]').filter({ hasText: fixture.live.text })).toBeVisible();
+	await expect(page.locator('[data-gridspace-private-note]').filter({ hasText: visibleBody(fixture.live) })).toBeVisible();
 	assert.ok(await rows.filter({ hasText: new URL(g.origin).host }).count());
 	assert.ok(await rows.filter({ hasText: new URL(r.origin).host }).count());
+	await expect(page.getByText('既読にできませんでした。もう一度操作してください。', { exact: true })).toBeVisible();
+	assert.ok(await rows.count(), 'Read failure must preserve fetched notification rows');
+	await page.unroute('**/api/gridspace/notifications/read');
+	// Page-header actions expose their text through the tooltip, not aria-label.
+	const allRead = page.locator('button').filter({ has: page.locator('i.ti-check') });
+	await allRead.hover();
+	await expect(page.getByText('両サーバーの通知をすべて既読にする', { exact: true })).toBeVisible();
+	await allRead.click();
+	await expect.poll(async () => (await api(r, 'i', {}, fixture.old.token)).unreadNotificationsCount).toBe(0);
+	await expect.poll(async () => (await api(g, 'i', {}, fixture.grid.token)).unreadNotificationsCount).toBe(0);
+	console.log('Read failure preserves rows; explicit all-read clears both source counts PASS');
 	await page.screenshot({ path: '.config/notifications-desktop.png' });
 	await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: '.config/notifications-mobile.png' });
 	assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 	console.log('Normal notification list combines both recipients and private mention; desktop/mobile PASS');
 	const live = (await api(r, 'notes/create', { text: `@${fixture.old.username} notification-live-update`, visibility: 'specified', localOnly: true, visibleUserIds: [fixture.old.id] }, fixture.author.token)).createdNote;
-	await expect(page.locator('[data-gridspace-private-note]').filter({ hasText: live.text })).toBeVisible({ timeout: 30000 });
+	await expect(page.locator('[data-gridspace-private-note]').filter({ hasText: visibleBody(live) })).toBeVisible({ timeout: 30000 });
 	await api(r, 'notes/delete', { noteId: live.id }, fixture.author.token);
-	await expect(page.locator('[data-gridspace-private-note]').filter({ hasText: live.text })).toHaveCount(0, { timeout: 30000 });
+	await expect(page.locator('[data-gridspace-private-note]').filter({ hasText: visibleBody(live) })).toHaveCount(0, { timeout: 30000 });
 	console.log('Peer new notification and deleted-note revalidation without reload PASS');
-	const card = page.locator('[data-gridspace-private-note]').filter({ hasText: fixture.live.text });
+	const card = page.locator('[data-gridspace-private-note]').filter({ hasText: visibleBody(fixture.live) });
 	await card.getByRole('button', { name: '添付ファイルを表示: notification.png', exact: true }).click();
 	await expect(card.locator('img[src^="blob:"]')).toBeVisible();
 	const blob = await card.locator('img[src^="blob:"]').getAttribute('src');
@@ -83,7 +107,7 @@ try {
 		note: { ...source, id: `note${n}`, renoteId: 'sameOriginal', files: [] } }));
 	const seen = new Set();
 	await page.route('**/api/gridspace/notifications/read', async route => {
-		for (const id of route.request().postDataJSON().ids) seen.add(id);
+		for (const id of route.request().postDataJSON().ids ?? []) seen.add(id);
 		await route.fulfill({ json: { unreadCount: 0 } });
 	});
 	await page.route('**/api/gridspace/notifications', async route => {

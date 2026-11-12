@@ -13816,6 +13816,14 @@ export interface Locale extends ILocale {
          */
         "notificationOpenSource": string;
         /**
+         * 両サーバーの通知をすべて既読にする
+         */
+        "notificationMarkAll": string;
+        /**
+         * 既読にできませんでした。もう一度操作してください。
+         */
+        "notificationReadFailed": string;
+        /**
          * 表示した通知を既読にする
          */
         "notificationMarkDisplayed": string;

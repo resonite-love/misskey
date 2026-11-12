@@ -87,16 +87,20 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 		}
 	}
 
-	async function initPrivate() {
-		clearPrivate(); privateError.value = false; enabled.value = false; privateReady.value = false;
+	async function initPrivate(background = false) {
+		if (background && authorizing.value) return;
+		clearPrivate(); privateError.value = false; enabled.value = false; privateReady.value = background;
 		if (!usable()) { privateReady.value = true; return; }
 		const current = privateGeneration; authorizing.value = true;
 		try {
 			const status = await misskeyApi('gridspace/private-grant', {}, undefined, signal(privateController));
 			if (current !== privateGeneration) return;
 			if (!status.available && status.granted) { failPrivate(); return; }
-			enabled.value = status.available && status.granted;
-			if (enabled.value) { privateMore.value = true; await loadPrivate(); }
+			if (status.available && status.granted) {
+				if (!background) enabled.value = true;
+				privateMore.value = true; await loadPrivate();
+				if (current === privateGeneration) enabled.value = true;
+			}
 		} catch { if (current === privateGeneration) failPrivate(); } finally {
 			if (current === privateGeneration) { privateReady.value = true; authorizing.value = false; }
 		}
@@ -181,9 +185,9 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 		} catch { if (current === privateGeneration) failPrivate(); } finally { if (checking === current) checking = null; }
 	}
 
-	function visibility() { if (window.document.hidden) { clearPrivate(); privateReady.value = true; } else void initPrivate(); }
+	function visibility() { if (window.document.hidden) { clearPrivate(); privateReady.value = true; } else void initPrivate(true); }
 
-	function focus() { if (!enabled.value && !privateError.value) void initPrivate(); else void revalidate(); }
+	function focus() { if (!enabled.value && !privateError.value) void initPrivate(true); else void revalidate(); }
 
 	function removeNormal(id: string) { normal.value = normal.value.filter(item => item.id !== id); preview.value = preview.value.filter(item => item.id !== id); }
 
@@ -192,7 +196,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	window.addEventListener('focus', focus);
 	watch(() => JSON.stringify(source.value), reload, { immediate: true });
 	onDeactivated(() => { active = false; clearPrivate(); privateReady.value = true; });
-	onActivated(() => { if (!active) { active = true; void initPrivate(); } });
+	onActivated(() => { if (!active) { active = true; void initPrivate(true); } });
 	onBeforeUnmount(() => {
 		active = false; clearPrivate(); normalGeneration++; normalController.abort();
 		window.clearInterval(timer); window.document.removeEventListener('visibilitychange', visibility); window.removeEventListener('focus', focus);

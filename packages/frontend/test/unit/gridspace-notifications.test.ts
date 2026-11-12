@@ -16,7 +16,7 @@ vi.mock('@/composables/use-note.js', () => ({ checkNoteWordMute: () => false }))
 vi.mock('@/preferences.js', () => ({ prefer: { s: { useGroupedNotifications: true } } }));
 vi.mock('@/store.js', () => ({ store: { s: { realtimeMode: false } } }));
 vi.mock('@/stream.js', () => ({ useStream: () => { throw new Error('WebSocket forbidden in polling mode'); } }));
-vi.mock('@/utility/gridspace-notification-state.js', () => ({ linkedNotifications: { count: null, available: true }, refreshLinkedNotifications: vi.fn() }));
+vi.mock('@/utility/gridspace-notification-state.js', () => ({ linkedNotifications: { count: null, available: true }, refreshLinkedNotifications: vi.fn(), setLinkedNotificationCount: (value: number) => { linkedNotifications.count = value; linkedNotifications.available = true; } }));
 
 const api = vi.mocked(misskeyApi);
 const at = (n: number) => new Date(1700000000000 + n * 1000).toISOString();
@@ -38,6 +38,55 @@ beforeEach(() => { vi.useFakeTimers(); api.mockReset(); api.mockImplementation((
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('combined notifications', () => {
+	it('revalidates rows loaded while an all-read write is still in flight', async () => {
+		let releasePage!: (value: unknown) => void;
+		let releaseRead!: (value: unknown) => void;
+		respond = async (endpoint, p) => {
+			if (endpoint.endsWith('/read')) return p.source === 'peer' ? new Promise(resolve => { releaseRead = resolve; }) : { unreadCount: 0 };
+			if (p.source === 'local') return page('local');
+			if (p.ids) return { ...page('peer', [{ ...notice(9), isRead: true }]), unreadCount: 0 };
+			return new Promise(resolve => { releasePage = resolve; });
+		};
+		const list = mount(); await settle();
+		const writing = list.markAll(); await settle();
+		releasePage(page('peer', [notice(9)])); await settle();
+		expect(list.rows.value[0].isRead).toBe(false);
+		releaseRead({ unreadCount: 0 }); await writing;
+		expect(list.rows.value[0].isRead).toBe(true);
+		expect(linkedNotifications.count).toBe(0);
+	});
+	it('refetches a page that was still loading at all-read and keeps later arrivals unread', async () => {
+		let release!: (value: unknown) => void;
+		let queried = false;
+		respond = async (endpoint, p) => {
+			if (endpoint.endsWith('/read')) return { unreadCount: 0 };
+			if (p.source === 'local') return page('local');
+			if (!queried) { queried = true; return new Promise(resolve => { release = resolve; }); }
+			return { ...page('peer', [notice(10), { ...notice(9), isRead: true }]), unreadCount: 1 };
+		};
+		const list = mount(); await settle();
+		await list.markAll();
+		release(page('peer', [notice(9)])); await settle();
+		expect(list.rows.value.map(n => [n.id, n.isRead])).toEqual([['10', false], ['9', true]]);
+		expect(linkedNotifications.count).toBe(1);
+	});
+	it('retains confirmed read flags and counts when older validation completes later', async () => {
+		let release!: (page: unknown) => void;
+		let read = false;
+		respond = async (endpoint, p) => {
+			if (endpoint.endsWith('/read')) { if (p.source === 'peer') read = true; return { unreadCount: 0 }; }
+			if (p.source === 'peer' && p.ids && !read) return new Promise(resolve => { release = resolve; });
+			return { ...page(String(p.source), [{ ...notice(9), isRead: read }]), unreadCount: read ? 0 : 5 };
+		};
+		const list = mount(); await settle();
+		// The timer callback awaits validation, so release it after the read below.
+		await vi.advanceTimersByTimeAsync(9000);
+		vi.advanceTimersByTime(1000); await settle();
+		await list.markAll();
+		release(page('peer', [notice(9)])); await settle();
+		expect(list.rows.value.find(n => n.source === 'peer')!.isRead).toBe(true);
+		expect(linkedNotifications.count).toBe(0);
+	});
 	it('retains equal short IDs across origins and holds the common page boundary', async () => {
 		respond = async (_, p) => p.before ? page(String(p.source), [notice(1)]) : page(String(p.source), [notice(9, 'same'), notice(4)], '4', 4);
 		const list = mount(); await settle();
@@ -84,4 +133,47 @@ describe('combined notifications', () => {
 		release(page('peer', [notice(9)])); await settle();
 		expect(list.rows.value.some(n => n.source === 'peer')).toBe(false);
 	});
+	it('marks both entire streams read only on the explicit action, including empty filtered pages', async () => {
+		respond = async (endpoint, p) => endpoint.endsWith('/read') ? { unreadCount: 0 } : page(String(p.source));
+		const list = mount(); await settle();
+		await vi.advanceTimersByTimeAsync(10000);
+		expect(api.mock.calls.some(([endpoint]) => endpoint.endsWith('/read'))).toBe(false);
+		await list.markAll();
+		expect(api.mock.calls.filter(([endpoint]) => endpoint.endsWith('/read')).map(([, p]) => p)).toEqual([
+			{ source: 'local', all: true }, { source: 'peer', all: true },
+		]);
+		expect(linkedNotifications.count).toBe(0);
+	});
+	it('keeps unread rows after a read transport failure and retries the same seen IDs', async () => {
+		let online = false;
+		respond = async (endpoint, p) => {
+			if (endpoint.endsWith('/read')) { if (!online) throw new Error('offline'); return { unreadCount: 0 }; }
+			return page(String(p.source), [notice(9)]);
+		};
+		const list = mount(); await settle();
+		const before = list.rows.value.map(n => n.key);
+		list.seen(list.rows.value.find(n => n.source === 'peer')!); await list.markDisplayed();
+		expect(list.rows.value.map(n => n.key)).toEqual(before);
+		expect(list.rows.value.every(n => !n.isRead)).toBe(true); expect(list.readError.value).toBe(true);
+		online = true; await list.markDisplayed();
+		expect(list.rows.value.find(n => n.source === 'peer')!.isRead).toBe(true);
+		expect(list.readError.value).toBe(false);
+	});
+
+	it('queues explicit all-read behind an in-flight automatic read', async () => {
+		let release!: (result: { unreadCount: number }) => void;
+		respond = async (endpoint, p) => {
+			if (endpoint.endsWith('/read')) return p.all ? { unreadCount: 0 } : new Promise(resolve => { release = resolve; });
+			return page(String(p.source), [notice(9)]);
+		};
+		const list = mount(); await settle();
+		list.seen(list.rows.value.find(n => n.source === 'peer')!);
+		const automatic = list.markDisplayed(); await settle();
+		const explicit = list.markAll(); await settle();
+		expect(api.mock.calls.some(([endpoint, p]) => endpoint.endsWith('/read') && (p as { source?: string }).source === 'peer' && (p as { all?: boolean }).all)).toBe(false);
+		release({ unreadCount: 4 }); await automatic; await explicit;
+		expect(api.mock.calls.some(([endpoint, p]) => endpoint.endsWith('/read') && (p as { source?: string }).source === 'peer' && (p as { all?: boolean }).all)).toBe(true);
+		expect(linkedNotifications.count).toBe(0);
+	});
+
 });

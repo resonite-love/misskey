@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from 'vitest';
 import { mockDeep } from 'vitest-mock-extended';
-import type { DataSource } from 'typeorm';
+import type { DataSource, EntityManager } from 'typeorm';
 import type { Config } from '@/config.js';
 import type { MiLocalUser } from '@/models/User.js';
 import type { MiGridspaceLink } from '@/models/Gridspace.js';
@@ -29,7 +29,9 @@ function fixture() {
 	links.authorizePrivate.mockResolvedValue(link);
 	links.privateCredential.mockReturnValue({ accessToken: 'pair-token', linkId: 'real-link', localUserId: 'viewer', generation: 2 });
 	notes.localActorAllows.mockResolvedValue(true); notes.localAllows.mockResolvedValue(true);
-	const service = new GridspaceNotificationService({ url: 'https://g.example' } as Config, mockDeep<DataSource>(), notifications, reads, packer, links, notes, mockDeep<GridspaceSearchService>());
+	const db = mockDeep<DataSource>();
+	db.transaction.mockImplementation((async (run: (manager: EntityManager) => Promise<unknown>) => run(db.manager)) as DataSource['transaction']);
+	const service = new GridspaceNotificationService({ url: 'https://g.example' } as Config, db, notifications, reads, packer, links, notes, mockDeep<GridspaceSearchService>());
 	return { service, links, notes, notifications, reads, packer, viewer: { id: 'viewer' } as MiLocalUser };
 }
 
@@ -64,7 +66,7 @@ describe('GridSpace notifications', () => {
 	test('does not mark anything read when querying, including an excluded page', async () => {
 		const f = fixture(); f.links.hasNotificationScope.mockResolvedValue(true);
 		f.notifications.getNotifications.mockResolvedValue([{ id: 'test', createdAt: '2026-11-12T00:00:00Z', type: 'test' }]);
-		f.packer.packMany.mockResolvedValue([]); f.reads.state.mockResolvedValue({ unreadCount: 1, isRead: [] });
+		f.packer.packMany.mockResolvedValue([]); f.reads.state.mockResolvedValue({ unreadCount: 1, changed: false, isRead: [] });
 		const result = await f.service.peer('query', { excludeTypes: ['test'], limit: 1 });
 		expect(result.items).toEqual([]); expect(result.next).toBe('test'); expect(result.unreadCount).toBe(1);
 		expect(f.notifications.readNotifications).not.toHaveBeenCalled();
@@ -74,5 +76,16 @@ describe('GridSpace notifications', () => {
 		f.links.json.mockResolvedValue({ items: [] as WireNotification[], origin: 'https://r.example', recipientId: 'old' });
 		f.links.checkPrivateUnchanged.mockRejectedValue(new Error('revoked'));
 		await expect(f.service.remote(f.viewer, {})).rejects.toThrow('revoked');
+	});
+	test('all-read requires a current write grant and is never inferred from query options', async () => {
+		const f = fixture(); f.links.hasNotificationScope.mockResolvedValue(true);
+		f.notifications.readAllNotification.mockResolvedValue({ unreadCount: 0, changed: true, isRead: [] });
+		expect((await f.service.peer('read-all', {})).unreadCount).toBe(0);
+		expect(f.links.lockReplyAuthorization).toHaveBeenCalled();
+		expect(f.notifications.readAllNotification).toHaveBeenCalledWith('viewer');
+		f.notifications.readAllNotification.mockClear();
+		f.links.lockReplyAuthorization.mockRejectedValue(new Error('revoked while waiting'));
+		await expect(f.service.peer('read-all', {})).rejects.toThrow('revoked while waiting');
+		expect(f.notifications.readAllNotification).not.toHaveBeenCalled();
 	});
 });

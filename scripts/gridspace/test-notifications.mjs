@@ -57,22 +57,26 @@ try {
 	const reads = { state: async (userId, noteIds = [], action = 'status') => {
 		const result = await g.redis.eval(notificationReadScript, 3, `notificationTimeline:${userId}`, `latestReadNotification:${userId}`, `readNotifications:${userId}`, action,
 			...noteIds.map(id => { const p = ids.parseFull(id); return `${p.date}-${p.additional}`; }));
-		return { unreadCount: result[0], isRead: result.slice(1).map(n => n === 1) };
+		return { unreadCount: result[0], changed: result[1] === 1, isRead: result.slice(2).map(n => n === 1) };
 	} };
 	const first = await seed(g, user, 3);
-	assert.equal((await reads.state(user.id)).unreadCount, 3);
-	assert.deepEqual(await reads.state(user.id, [first[1].id], 'read'), { unreadCount: 2, isRead: [true] });
-	await reads.state(user.id, [g.ids.gen()], 'read');
+	assert.deepEqual(await reads.state(user.id), { unreadCount: 3, changed: false, isRead: [] });
+	assert.deepEqual(await reads.state(user.id, [first[1].id], 'read'), { unreadCount: 2, changed: true, isRead: [true] });
+	assert.equal((await reads.state(user.id, [first[1].id], 'read')).changed, false);
+	assert.equal((await reads.state(user.id, [g.ids.gen()], 'read')).changed, false);
 	assert.equal((await reads.state(user.id)).unreadCount, 2);
 	await Promise.all([reads.state(user.id, [first[1].id], 'read'), seed(g, user, 1, Date.now() - 1000)]);
 	assert.equal((await reads.state(user.id)).unreadCount, 3);
-	await reads.state(user.id, [], 'all'); assert.equal((await reads.state(user.id)).unreadCount, 0);
-	await seed(g, user, 1, Date.now()); assert.equal((await reads.state(user.id)).unreadCount, 1);
+	assert.equal((await reads.state(user.id, [], 'all')).changed, true);
+	assert.equal((await reads.state(user.id, [], 'all')).changed, false); assert.equal((await reads.state(user.id)).unreadCount, 0);
+	await seed(g, user, 1, Date.now());
+	assert.deepEqual(await reads.state(user.id), { unreadCount: 1, changed: false, isRead: [] });
+	assert.equal((await reads.state(user.id, [], 'all')).changed, true);
 	await g.redis.del(`notificationTimeline:${user.id}`, `latestReadNotification:${user.id}`, `readNotifications:${user.id}`);
 	const keys = [`uint64:${suffix}`, `uint64-mark:${suffix}`, `uint64-seen:${suffix}`];
 	await g.redis.xadd(keys[0], '1000-9', 'data', '{}'); await g.redis.xadd(keys[0], '1000-10', 'data', '{}'); await g.redis.xadd(keys[0], '1000-18446744073709551615', 'data', '{}');
 	await g.redis.set(keys[1], '1000-9');
-	assert.deepEqual(await g.redis.eval(notificationReadScript, 3, ...keys, 'read', '1000-10'), [1, 1]);
+	assert.deepEqual(await g.redis.eval(notificationReadScript, 3, ...keys, 'read', '1000-10'), [1, 1, 1]);
 	await g.redis.del(...keys);
 	console.log('Redis partial read, all-read watermark, racing arrival and uint64 ordering PASS');
 	const grid = await create(g, 'g'); const old = await create(r, 'r'); const author = await create(r, 'a');
@@ -86,7 +90,7 @@ try {
 	assert.equal(status.canReadNotifications, true); assert.equal(status.canReply, true);
 	await denied(api(r, 'gridspace/notifications', { source: 'peer' }, old.token));
 	console.log('Explicit notification consent, preserved reply scope, reverse grant stays read-only PASS');
-	await Promise.all([seed(g, grid, 85), seed(r, old, 85)]);
+	const [localSeed] = await Promise.all([seed(g, grid, 85), seed(r, old, 85)]);
 	async function list(source, token = grid.token) { return api(g, 'gridspace/notifications', { source, limit: 40 }, token); }
 	for (const source of ['local', 'peer']) {
 		const seen = new Set(); let before; let page;
@@ -97,6 +101,7 @@ try {
 		} while (before);
 		assert.equal(seen.size, 85); assert.equal(page.unreadCount, 85);
 	}
+	await assert.rejects(api(g, 'gridspace/notifications/read', { source: 'peer' }, grid.token), error => error.code === 'INVALID_PARAM');
 	const page = await list('peer'); const displayed = page.remote[0].id;
 	await api(r, 'notifications/test-notification', {}, old.token);
 	await eventually('new unread', async () => (await list('peer')).unreadCount === 86);
@@ -127,5 +132,23 @@ try {
 	const file = await uploaded.json();
 	const live = (await api(r, 'notes/create', { text: `@${old.username} live notification ${suffix}`, fileIds: [file.id], visibility: 'specified', localOnly: true, visibleUserIds: [old.id] }, author.token)).createdNote;
 	savePrivateJson(resolve('.config/gridspace-notification-test-accounts.json'), { grid, old, author, live });
+	// Excluded/deleted notifications still contribute to unread totals. Only an
+	// explicit all-read action may clear them, and subsequent arrivals stay unread.
+	await eventually('latest private mention arrives before all-read', async () => (await list('peer')).remote.some(n => n.note?.id === live.id));
+	const hiddenPage = await api(g, 'gridspace/notifications', { source: 'peer', excludeTypes: ['test', 'mention', 'reply'], limit: 40 }, grid.token);
+	assert.ok(hiddenPage.unreadCount > 0);
+	assert.equal((await api(g, 'gridspace/notifications/read', { source: 'peer', all: true }, grid.token)).unreadCount, 0);
+	assert.equal((await api(r, 'i', {}, old.token)).unreadNotificationsCount, 0);
+	const untouched = await api(g, 'gridspace/notifications', { source: 'local', ids: localSeed.map(n => n.id) }, grid.token);
+	assert.equal(untouched.local.length, 85);
+	assert.ok(untouched.local.every(n => !n.isRead), 'Peer all-read must preserve every seeded local unread notification');
+	await api(r, 'notifications/test-notification', {}, old.token);
+	await eventually('new arrival stays unread after all-read', async () => (await list('peer')).unreadCount === 1);
+	await denied(api(g, 'gridspace/notifications/read', { source: 'peer', all: true }, weak.token));
+	await api(g, 'gridspace/private-grant', { action: 'revoke' }, grid.token);
+	await denied(api(g, 'gridspace/notifications/read', { source: 'peer', all: true }, grid.token));
+	assert.equal((await api(r, 'i', {}, old.token)).unreadNotificationsCount, 1);
+	await consent(grid, old, 'gridspace/private-grant', { withNotifications: true });
 	console.log('Private mention, note deletion, no-store response and revoked-grant isolation PASS');
+	console.log('Explicit all-read, later arrival and revoked write grant PASS');
 } finally { await Promise.all([g.redis.quit(), r.redis.quit()]); }

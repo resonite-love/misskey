@@ -54,14 +54,17 @@ export class NotificationService implements OnApplicationShutdown {
 		userId: MiUser['id'],
 		force = false,
 	) {
-		await this.reads.state(userId, [], 'all');
-		return this.postReadAllNotifications(userId);
+		const state = await this.reads.state(userId, [], 'all');
+		if (force || state.changed) this.postReadAllNotifications(userId);
+		return state;
 	}
 
 	public async readNotifications(userId: string, ids: string[]) {
 		const state = await this.reads.state(userId, ids, 'read');
-		this.globalEventService.publishMainStream(userId, 'notificationRead', { unreadCount: state.unreadCount });
-		if (state.unreadCount === 0) this.postReadAllNotifications(userId);
+		if (state.changed) {
+			this.globalEventService.publishMainStream(userId, 'notificationRead', { unreadCount: state.unreadCount });
+			if (state.unreadCount === 0) this.postReadAllNotifications(userId);
+		}
 		return state;
 	}
 
