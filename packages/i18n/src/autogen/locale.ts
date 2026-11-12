@@ -13803,6 +13803,14 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * れぞらぶ
+         */
+        "resoniteLoveName": string;
+        /**
+         * ぐりすぺ
+         */
+        "gridSpaceName": string;
+        /**
          * 連携先のチャンネル
          */
         "channels": string;

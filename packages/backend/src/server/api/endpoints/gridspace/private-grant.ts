@@ -15,6 +15,7 @@ export const meta = {
 	limit: { duration: 60000, max: 30 },
 	errors: { unavailable: { message: 'Private reading authorization is unavailable.', code: 'GRIDSPACE_PRIVATE_UNAVAILABLE', id: 'b5a87ddd-39f1-4e4c-a962-eacbbdb045bf' } },
 	res: { type: 'object', optional: false, nullable: false, properties: {
+		peerRole: { ...text, enum: ['source', 'client'] },
 		enabled: flag, granted: flag, mutual: flag, canReply: flag, canInteract: flag, canReadNotifications: flag, canWriteChannels: flag, canManageFollowRequests: flag, available: flag, peerOrigin: text, authorizationUrl: text, clientKey: text,
 	} },
 } as const;

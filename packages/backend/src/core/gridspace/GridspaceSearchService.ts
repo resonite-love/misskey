@@ -103,7 +103,7 @@ export class GridspaceSearchService {
 		return query.orderBy('user.id', 'DESC');
 	}
 
-	public noteQuery(viewer: { id: string } | null, options: SearchOptions, source: boolean, authenticated = viewer != null, channelId?: string, authorScoped = options.userId != null) {
+	public noteQuery(viewer: { id: string } | null, options: SearchOptions, source: boolean, authenticated = viewer != null, channelId?: string, authorScoped = options.userId != null, includeSensitiveChannels = false) {
 		const query = this.db.getRepository(MiNote).createQueryBuilder('note')
 			.innerJoinAndSelect('note.user', 'user')
 			.leftJoinAndSelect('note.channel', 'channel')
@@ -129,7 +129,7 @@ export class GridspaceSearchService {
 			query.andWhere("(note.visibility != 'specified' OR note.userId = :privacyViewer OR :privacyViewer = ANY(note.visibleUserIds))");
 			if (!viewer) this.queries.generateUgcVisibilityQueryForVisitor(query);
 			if (channelId) query.andWhere('note.channelId = :openedChannel', { openedChannel: channelId });
-			else query.andWhere('(note.channelId IS NULL OR channel.isSensitive = false OR note.userId = :channelAuthor)', { channelAuthor: viewer?.id ?? null });
+			else if (!includeSensitiveChannels) query.andWhere('(note.channelId IS NULL OR channel.isSensitive = false OR note.userId = :channelAuthor)', { channelAuthor: viewer?.id ?? null });
 		}
 		if (viewer) {
 			query.andWhere(`NOT EXISTS (SELECT 1 FROM blocking b WHERE b."blockerId" = :viewer

@@ -4,6 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
+<component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" :refresher="reload">
 <div :class="$style.root" :aria-busy="loading" data-gridspace-note-list>
 	<div v-for="row in rows" :key="row.key" :class="$style.entry" :data-scroll-anchor="row.key">
 		<MkNote v-if="row.kind === 'normal'" :note="row.note" :withHardMute="true"/>
@@ -19,6 +20,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkButton @click="load">{{ i18n.ts.loadMore }}</MkButton>
 	</div>
 </div>
+</component>
 </template>
 
 <script lang="ts" setup>
@@ -26,6 +28,7 @@ import { computed, onBeforeUnmount, useTemplateRef, watch } from 'vue';
 import MkNote from '@/components/MkNote.vue';
 import MkGridspacePrivateNoteRow from '@/components/MkGridspacePrivateNoteRow.vue';
 import MkButton from '@/components/MkButton.vue';
+import MkPullToRefresh from '@/components/MkPullToRefresh.vue';
 import { useGridspaceNoteList } from '@/utility/use-gridspace-note-list.js';
 import type { GridspaceNoteSource } from '@/utility/use-gridspace-note-list.js';
 import { useGlobalEvent } from '@/events.js';

@@ -212,6 +212,7 @@ import { makeDoubleTapDetector } from '@/utility/double-tap.js';
 import { deviceKind } from '@/utility/device-kind.js';
 import { isTouchUsing } from '@/utility/touch.js';
 import { getFileMenu } from '@/utility/get-file-menu.js';
+import MkPopupMenu from '@/components/MkPopupMenu.vue';
 
 const props = withDefaults(defineProps<{
 	content: Content;
@@ -963,6 +964,9 @@ function onMediaClick() {
 	}
 }
 
+let disposePrivateMenu: (() => void) | undefined;
+onBeforeUnmount(() => disposePrivateMenu?.());
+
 function openMenu(ev: PointerEvent) {
 	const menu: MenuItem[] = [];
 
@@ -1002,7 +1006,13 @@ function openMenu(ev: PointerEvent) {
 		}
 	}
 
-	os.popupMenu(menu, (ev.currentTarget ?? ev.target ?? undefined) as HTMLElement | undefined);
+	if (props.content.url.startsWith('blob:')) {
+		disposePrivateMenu?.();
+		const { dispose } = os.popup(MkPopupMenu, { items: menu, anchorElement: ev.currentTarget as HTMLElement }, { closed: () => dispose() });
+		disposePrivateMenu = dispose;
+	} else {
+		os.popupMenu(menu, (ev.currentTarget ?? ev.target ?? undefined) as HTMLElement | undefined);
+	}
 }
 
 function onActive() {

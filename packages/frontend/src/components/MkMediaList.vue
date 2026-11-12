@@ -54,7 +54,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { computed, markRaw, onMounted, onUnmounted, useTemplateRef } from 'vue';
+import { computed, markRaw, onMounted, onUnmounted, useTemplateRef, watch } from 'vue';
 import * as Misskey from 'misskey-js';
 import type { Content } from '@/components/MkLightbox.item.vue';
 import type { MediaComponentExposes } from '@/types/media-component.js';
@@ -73,7 +73,17 @@ const props = defineProps<{
 	mediaList: Misskey.entities.DriveFile[];
 	user?: Misskey.entities.User | null; // DriveFileのuserはnullになることがある。その場合に使用する所有者情報
 	raw?: boolean;
+	/** Authorized, in-memory media. Close detached viewers when the grant/body expires. */
+	ephemeral?: boolean;
 }>();
+
+let galleryGeneration = 0;
+let disposeGallery: (() => void) | undefined;
+
+function clearGallery() { galleryGeneration++; disposeGallery?.(); disposeGallery = undefined; }
+
+watch(() => props.mediaList.map(file => file.url).join('\n'), () => { if (props.ephemeral) clearGallery(); }, { flush: 'sync' });
+onUnmounted(() => { if (props.ephemeral) clearGallery(); });
 
 const gallery = useTemplateRef('gallery');
 const medias = computed(() => {
@@ -142,7 +152,7 @@ onUnmounted(() => {
 });
 
 function onMediaClick(file: Misskey.entities.DriveFile) {
-	if (prefer.s.imageNewTab) {
+	if (prefer.s.imageNewTab && !props.ephemeral) {
 		window.open(file.url, '_blank');
 		return;
 	}
@@ -150,6 +160,7 @@ function onMediaClick(file: Misskey.entities.DriveFile) {
 }
 
 async function openGallery(id?: string) {
+	const generation = galleryGeneration;
 	if (id == null) {
 		const firstImage = medias.value.previewable[0];
 		if (firstImage == null) return;
@@ -187,6 +198,10 @@ async function openGallery(id?: string) {
 	}, {
 		closed: () => dispose(),
 	});
+	if (props.ephemeral) {
+		if (generation !== galleryGeneration) dispose();
+		else { disposeGallery?.(); disposeGallery = dispose; }
+	}
 }
 
 defineExpose({

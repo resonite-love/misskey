@@ -559,7 +559,8 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 
 	public async privateStatus(user: MiLocalUser) {
 		const peer = this.peer;
-		const result = { enabled: !!peer, granted: false, mutual: false, canReply: false, canReadNotifications: false, canInteract: false, canWriteChannels: false, canManageFollowRequests: false, available: true, peerOrigin: peer?.peerOrigin ?? null, authorizationUrl: null as string | null, clientKey: null as string | null };
+		const peerRole: 'source' | 'client' | null = this.config.gridspace?.channelRole === 'client' ? 'source' : this.config.gridspace?.channelRole === 'source' ? 'client' : null;
+		const result = { enabled: !!peer, granted: false, mutual: false, canReply: false, canReadNotifications: false, canInteract: false, canWriteChannels: false, canManageFollowRequests: false, available: true, peerRole, peerOrigin: peer?.peerOrigin ?? null, authorizationUrl: null as string | null, clientKey: null as string | null };
 		if (!peer) return result;
 		try {
 			const link = await this.privateLink(user.id);

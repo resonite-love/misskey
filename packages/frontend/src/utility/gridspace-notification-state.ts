@@ -8,7 +8,7 @@ import { $i } from '@/i.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 
 // Counts only, never notification bodies. A failed peer query is unknown, not zero.
-export const linkedNotifications = reactive({ checked: false, statusKnown: false, enabled: false, available: true, count: null as number | null, origin: '' });
+export const linkedNotifications = reactive({ checked: false, statusKnown: false, enabled: false, available: true, count: null as number | null, origin: '', peerRole: null as 'source' | 'client' | null });
 export const notificationCount = computed(() => ($i?.unreadNotificationsCount ?? 0) + (linkedNotifications.count ?? 0));
 export const notificationIndicator = computed(() => notificationCount.value > 0 || (linkedNotifications.enabled && !linkedNotifications.available));
 export const notificationBadge = computed(() => linkedNotifications.enabled && !linkedNotifications.available ? `${notificationCount.value || ''}?` : notificationCount.value > 99 ? '99+' : notificationCount.value ? String(notificationCount.value) : '');
@@ -28,6 +28,7 @@ export async function refreshLinkedNotifications() {
 	try {
 		const status = await misskeyApi('gridspace/private-grant', {}, undefined, AbortSignal.timeout(15000));
 		linkedNotifications.origin = status.peerOrigin ?? '';
+		linkedNotifications.peerRole = status.peerRole;
 		if (!status.available) throw new Error('Peer unavailable');
 		linkedNotifications.statusKnown = true;
 		linkedNotifications.enabled = status.canReadNotifications;

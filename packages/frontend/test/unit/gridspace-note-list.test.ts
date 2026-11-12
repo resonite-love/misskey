@@ -39,6 +39,22 @@ function mount(sourceValue: GridspaceNoteSource = { kind: 'search', query: 'quer
 }
 
 describe('one profile/search note list', () => {
+	it.each([false, true])('merges old-account mentions with local mentions (direct=%s) and revalidates the same scope', async direct => {
+		respond = async (endpoint, params) => {
+			if (endpoint === 'gridspace/private-grant') return { available: true, granted: true };
+			if (endpoint === 'notes/mentions') return [normal(4)];
+			return page([privateNote(5)]);
+		};
+		const { list } = mount({ kind: 'mentions', direct }); await settle();
+		expect(list.rows.value.map(row => row.note.id)).toEqual(['p5', 'n4']);
+		expect(api.mock.calls.find(([endpoint]) => endpoint === 'notes/mentions')?.[1]).toMatchObject({ visibility: direct ? 'specified' : undefined });
+		expect(api.mock.calls.find(([endpoint]) => endpoint === 'gridspace/private-notes')?.[1]).toMatchObject({ mode: direct ? 'direct' : 'mentions' });
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+		document.dispatchEvent(new Event('visibilitychange'));
+		expect(list.rows.value[0].note).not.toHaveProperty('text');
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange')); await settle();
+		expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ mode: 'validate', contextMode: direct ? 'direct' : 'mentions', ids: ['p5'] });
+	});
 	it('allows anonymous ordinary profile pagination after hiding and returning', async () => {
 		auth.user = null;
 		respond = async (_endpoint, params) => params.untilId ? [normal(1)] : Array.from({ length: 20 }, (_, index) => normal(30 - index));

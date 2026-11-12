@@ -20,6 +20,7 @@ import type { MiMeta } from '@/models/Meta.js';
 import { UtilityService } from '@/core/UtilityService.js';
 import { IdService } from '@/core/IdService.js';
 import { RoleService } from '@/core/RoleService.js';
+import { QueryService } from '@/core/QueryService.js';
 import { HttpRequestService } from '@/core/HttpRequestService.js';
 import { InternalStorageService } from '@/core/InternalStorageService.js';
 import { UserEntityService } from '@/core/entities/UserEntityService.js';
@@ -55,6 +56,7 @@ export class GridspacePrivateService {
 		private emojis: CustomEmojiService,
 		private extendedReactions: GridspaceReactionService,
 		private channelAuth: GridspaceChannelAuthService,
+		private queries: QueryService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 		this.noteTime = searchNoteTimeSql(config.id);
@@ -71,8 +73,16 @@ export class GridspacePrivateService {
 	private query(viewerId: string, input: Partial<PrivatePeerRequest> = {}, authors?: Pick<MiUser, 'id' | 'makeNotesFollowersOnlyBefore'>[]) {
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
 		if ((mode === 'channel' && !input.channelId) || (input.channelId && mode !== 'channel' && mode !== 'show')) throw new GridspaceLinkError('INVALID_REQUEST');
-		const query = this.search.noteQuery({ id: viewerId }, { query: input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length);
-		if (mode && mode !== 'show' && mode !== 'channel' && authors?.every(author => author.makeNotesFollowersOnlyBefore == null)) {
+		const query = this.search.noteQuery({ id: viewerId }, { query: input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length, mode === 'mentions' || mode === 'direct');
+		if (mode === 'mentions' || mode === 'direct') {
+			// Include public mentions too: delivery to the old account does not
+			// imply delivery to the new one. Keep the visibility query above.
+			query.andWhere('(:mentionViewer::varchar[] <@ note.mentions OR :mentionViewer::varchar[] <@ note.visibleUserIds)', { mentionViewer: [viewerId] });
+			if (mode === 'direct') query.andWhere("note.visibility = 'specified'");
+			this.queries.generateMutedNoteThreadQuery(query, { id: viewerId });
+			// As in notes/mentions, avoid a primary-key scan over the whole timeline.
+			query.orderBy('CONCAT(note.id)', 'DESC');
+		} else if (mode && mode !== 'show' && mode !== 'channel' && authors?.every(author => author.makeNotesFollowersOnlyBefore == null)) {
 			query.andWhere("note.visibility IN ('followers', 'specified')");
 		} else if (mode && mode !== 'show' && mode !== 'channel') {
 			query.andWhere(`(note.visibility IN ('followers', 'specified') OR ("user"."makeNotesFollowersOnlyBefore" IS NOT NULL

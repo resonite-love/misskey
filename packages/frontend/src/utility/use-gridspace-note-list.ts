@@ -16,6 +16,7 @@ import { url } from '@@/js/config.js';
 import { $i } from '@/i.js';
 
 export type GridspaceNoteSource =
+	| { kind: 'mentions'; direct: boolean }
 	| { kind: 'profile'; userId: string; linked: boolean; withReplies: boolean; withRenotes: boolean; withFiles: boolean; withChannelNotes: boolean }
 	| ({ kind: 'search' } & Omit<entities.GridspaceSearchRequest, 'kind' | 'cursor' | 'limit'>);
 type PrivateNote = entities.GridspacePrivateNotesResponse['notes'][number];
@@ -50,6 +51,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	const privateParams = computed<entities.GridspacePrivateNotesRequest>(() => {
 		const { kind, ...params } = source.value;
 		if (kind === 'search') return { ...params, mode: 'search' };
+		if (source.value.kind === 'mentions') return { mode: source.value.direct ? 'direct' : 'mentions' };
 		const profile = source.value as Extract<GridspaceNoteSource, { kind: 'profile' }>;
 		return { mode: 'profile', userId: profile.userId, withReplies: profile.withReplies, withRenotes: profile.withRenotes, withFiles: profile.withFiles, withChannelNotes: profile.withChannelNotes };
 	});
@@ -116,7 +118,10 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 		try {
 			const input = source.value;
 			let items: entities.Note[]; let cursor: string | null; let partial = false;
-			if (input.kind === 'search') {
+			if (input.kind === 'mentions') {
+				items = await misskeyApi('notes/mentions', { visibility: input.direct ? 'specified' : undefined, untilId: normalCursor, limit: 20 }, undefined, signal(normalController));
+				cursor = items.length === 20 ? items.at(-1)!.id : null;
+			} else if (input.kind === 'search') {
 				const { kind: _kind, ...params } = input;
 				const page = await misskeyApi('gridspace/search', { ...params, kind: 'notes', cursor: normalCursor, limit: 20 }, undefined, signal(normalController));
 				items = page.notes; cursor = page.cursor; partial = !page.peerAvailable;
@@ -179,7 +184,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 				if (!status.granted || !status.available) throw new Error('Unavailable');
 			}
 			for (let i = 0; i < snapshot.length; i += 100) {
-				const page = await misskeyApi('gridspace/private-notes', { ...privateParams.value, mode: 'validate', contextMode: privateParams.value.mode as 'profile' | 'search', ids: snapshot.slice(i, i + 100).map(item => item.id) }, undefined, signal(privateController));
+				const page = await misskeyApi('gridspace/private-notes', { ...privateParams.value, mode: 'validate', contextMode: privateParams.value.mode as 'profile' | 'search' | 'mentions' | 'direct', ids: snapshot.slice(i, i + 100).map(item => item.id) }, undefined, signal(privateController));
 				if (current !== privateGeneration) return;
 				for (const item of page.notes) allowed.set(item.uri, item);
 			}

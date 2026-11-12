@@ -7,8 +7,8 @@ import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import type { ReactionPreview } from './reaction-protocol.js';
 
 export type PrivateOptions = {
-	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'validate';
-	contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel';
+	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'validate';
+	contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct';
 	channelId?: string;
 	query?: string; userId?: string; noteId?: string; ids?: string[];
 	rangeStartAt?: number; rangeEndAt?: number;
@@ -68,8 +68,8 @@ export const privateNoteSchema = {
 } as const;
 
 export const privateOptionsSchema = {
-	mode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'validate'], default: 'home' },
-	contextMode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel'] },
+	mode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'validate'], default: 'home' },
+	contextMode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct'] },
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	query: { type: 'string', minLength: 1, maxLength: 200 },
 	userId: { type: 'string', format: 'misskey:id', maxLength: 32 },

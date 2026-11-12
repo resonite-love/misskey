@@ -12,13 +12,15 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<span v-if="info" :class="$style.peerIdentity" :title="identity">{{ identity }}</span>
 		</div>
 		<div :class="$style.headerRight">
-			<span :class="[$style.headerRightItem, $style.visibility]" :title="channel?.name ?? i18n.ts.channel"><i class="ti ti-device-tv"></i><span :class="$style.headerRightButtonText">{{ channel?.name ?? i18n.ts.channel }}</span></span>
+			<span :class="[$style.headerRightItem, $style.visibility]" :title="audience"><i :class="channelId ? 'ti ti-device-tv' : info?.visibility === 'specified' ? 'ti ti-mail' : 'ti ti-lock'"></i><span :class="$style.headerRightButtonText">{{ audience }}</span></span>
+			<span v-if="info?.localOnly && !channelId" :title="i18n.ts._visibility.disableFederation"><i class="ti ti-rocket-off"></i></span>
 			<button class="_button" :class="$style.submit" :disabled="!canSend" data-testid="post-form-submit" @click="send"><div :class="$style.submitInner"><MkEllipsis v-if="sending"/><template v-else>{{ pending ? i18n.ts.retry : reply ? i18n.ts.reply : i18n.ts.note }}</template><i style="margin-left: 6px;" :class="reply ? 'ti ti-arrow-back-up' : 'ti ti-send'"></i></div></button>
 		</div>
 	</header>
 	<MkLoading v-if="loading"/>
 	<MkInfo v-if="error" warn role="alert" :class="$style.peerInfo">{{ error }}</MkInfo>
 	<template v-if="info">
+		<div v-if="!channelId && info.recipients.length" :class="$style.peerInfo">{{ i18n.ts._gridspace.replyRecipients }}: {{ info.recipients.map(person => `@${person.username}@${person.host}`).join(', ') }}</div>
 		<div v-if="reply" :class="$style.targetNote"><strong>{{ reply.author.name || reply.author.username }}</strong><Mfm :text="reply.cw ?? reply.text ?? ''" :author="reply.author" :emojiUrls="reply.emojis ?? {}" :plain="true"/></div>
 		<template v-if="info.canReply">
 			<fieldset :disabled="locked" :class="$style.peerFields">
@@ -46,7 +48,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</fieldset>
 			<div v-if="pending" :class="$style.peerInfo"><p>{{ i18n.ts._gridspace.replyPending }}</p><MkButton :disabled="sending" @click="discard">{{ i18n.ts._gridspace.replyDiscard }}</MkButton></div>
 		</template>
-		<div v-else :class="$style.peerInfo"><p>{{ i18n.ts._gridspace.channelPostUnavailable }}</p><MkA to="/settings/gridspace">{{ i18n.ts._gridspace.replyAuthorize }}</MkA></div>
+		<div v-else :class="$style.peerInfo"><p>{{ channelId ? i18n.ts._gridspace.channelPostUnavailable : i18n.ts._gridspace.replyConsent }}</p><MkA to="/settings/gridspace">{{ i18n.ts._gridspace.replyAuthorize }}</MkA></div>
 	</template>
 	<MkButton v-if="!info && !loading" :class="$style.peerInfo" @click="reauthorize">{{ i18n.ts.retry }}</MkButton>
 </section>
@@ -56,13 +58,13 @@ SPDX-License-Identifier: AGPL-3.0-only
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef, useTemplateRef, watch } from 'vue';
 import { apiUrl, host } from '@@/js/config.js';
 import type { entities } from 'misskey-js';
+import type { PollEditorModelValue } from '@/components/MkPollEditor.vue';
+import type { UploaderItem } from '@/composables/use-uploader.js';
 import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import MkUploaderItems from '@/components/MkUploaderItems.vue';
 import MkPollEditor from '@/components/MkPollEditor.vue';
-import type { PollEditorModelValue } from '@/components/MkPollEditor.vue';
 import { getUploadName, useUploader } from '@/composables/use-uploader.js';
-import type { UploaderItem } from '@/composables/use-uploader.js';
 import { Autocomplete } from '@/utility/autocomplete.js';
 import { emojiPicker } from '@/utility/emoji-picker.js';
 import { mfmFunctionPicker } from '@/utility/mfm-function-picker.js';
@@ -72,7 +74,7 @@ import { $i } from '@/i.js';
 import { pendingReplyRequest, rememberReplyRequest, forgetReplyRequest } from '@/utility/gridspace-reply-request.js';
 import * as os from '@/os.js';
 
-const props = defineProps<{ channelId: string; channel?: { name: string; color: string }; reply?: entities.GridspacePrivateNotesResponse['notes'][number]; embedded?: boolean; autofocus?: boolean }>();
+const props = defineProps<{ channelId?: string; channel?: { name: string; color: string }; reply?: entities.GridspacePrivateNotesResponse['notes'][number]; embedded?: boolean; autofocus?: boolean }>();
 const emit = defineEmits<{ (event: 'close'): void; (event: 'sent'): void }>();
 const accountId = $i?.id ?? 'storybook';
 const info = shallowRef<entities.GridspacePrivateReplyResponse | null>(null);
@@ -89,21 +91,28 @@ const uploaded = new Map<string, { blob: Blob; metadata: string; id: string }>()
 const textarea = useTemplateRef('textarea');
 const cwInput = useTemplateRef('cwInput');
 const fileInput = useTemplateRef('fileInput');
-const pending = shallowRef<entities.GridspaceChannelPostRequest | null>(null);
+type PostRequest = Omit<entities.GridspacePrivateReplyRequest, 'noteId'> & { noteId?: string; channelId?: string };
+const pending = shallowRef<PostRequest | null>(null);
 const locked = computed(() => sending.value || !!pending.value);
 const identity = computed(() => info.value ? `@${info.value.account.username}@${info.value.account.host}` : '');
+const audience = computed(() => props.channelId ? props.channel?.name ?? i18n.ts.channel : info.value?.visibility === 'specified' ? i18n.ts._visibility.specified : i18n.ts._visibility.followers);
 const remaining = computed(() => (info.value?.maxTextLength ?? 0) - Array.from(text.value).length);
 const validPoll = computed(() => !poll.value || (poll.value.choices.length >= 2 && poll.value.choices.length <= 10 && new Set(poll.value.choices).size === poll.value.choices.length && poll.value.choices.every(choice => choice.trim() && Array.from(choice).length <= 50)));
 const canSend = computed(() => !!info.value?.canReply && !sending.value && !loading.value && (!!pending.value || (remaining.value >= 0 && validPoll.value && !!(text.value.trim() || uploader.items.value.length || poll.value) && !uploader.items.value.some(item => item.preprocessing))));
 const target = () => ({ noteId: props.reply?.id, channelId: props.channelId });
-const operationKey = () => `channel:${props.channelId}:${props.reply?.id ?? 'new'}`;
+const operationKey = () => props.channelId ? `channel:${props.channelId}:${props.reply?.id ?? 'new'}` : props.reply!.id;
 let generation = 0;
 let active = true;
 let rechecking = false;
 let authorizedActor: string | undefined;
 let controller = new AbortController();
 const signal = () => AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
-const request = (input: entities.GridspaceChannelPostRequest) => misskeyApi('gridspace/channel-post', input, undefined, signal());
+
+function request(input: PostRequest) {
+	if (props.channelId) return misskeyApi('gridspace/channel-post', { ...input, channelId: props.channelId }, undefined, signal());
+	if (!props.reply) throw new Error('Missing reply target');
+	return misskeyApi('gridspace/private-reply', { ...input, noteId: props.reply.id }, undefined, signal());
+}
 
 function clear() {
 	generation++; controller.abort(); controller = new AbortController();
@@ -142,6 +151,7 @@ async function reauthorize() {
 }
 
 function visibility() {
+	if (window.document.hidden && !props.channelId) { clear(); emit('close'); return; }
 	if (window.document.hidden) { generation++; controller.abort(); controller = new AbortController(); info.value = null; sending.value = false; loading.value = false; } else void reauthorize();
 }
 
@@ -157,7 +167,8 @@ async function send() {
 				let cached = uploaded.get(item.id);
 				if (!cached || cached.blob !== blob || cached.metadata !== metadata) {
 					const form = new FormData();
-					form.set('i', $i!.token); form.set('name', getUploadName(item)); form.set('channelId', props.channelId);
+					form.set('i', $i!.token); form.set('name', getUploadName(item));
+					if (props.channelId) form.set('channelId', props.channelId);
 					if (props.reply) form.set('noteId', props.reply.id);
 					form.set('expectedActorUri', info.value.account.uri);
 					form.set('comment', item.caption ?? ''); form.set('isSensitive', String(item.isSensitive ?? false)); form.set('file', blob, getUploadName(item));
@@ -173,7 +184,7 @@ async function send() {
 			const requestId = rememberReplyRequest(accountId, operationKey(), fresh);
 			pending.value = requestId === fresh
 				? { action: 'send', ...target(), expectedActorUri: info.value.account.uri, requestId, text: text.value, cw: useCw.value ? cw.value : null, fileIds,
-					poll: poll.value ? { choices: [...poll.value.choices], multiple: poll.value.multiple, expiresAt: poll.value.expiredAfter ? Date.now() + poll.value.expiredAfter : poll.value.expiresAt } : undefined }
+								poll: poll.value ? { choices: [...poll.value.choices], multiple: poll.value.multiple, expiresAt: poll.value.expiredAfter ? Date.now() + poll.value.expiredAfter : poll.value.expiresAt } : undefined }
 				: { action: 'status', ...target(), requestId };
 		}
 		const result = await request(pending.value);

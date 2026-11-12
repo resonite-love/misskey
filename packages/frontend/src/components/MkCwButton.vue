@@ -19,7 +19,7 @@ const props = defineProps<{
 	modelValue: boolean;
 	text: string | null;
 	renote?: Misskey.entities.Note | null;
-	files?: Misskey.entities.DriveFile[];
+	files?: Pick<Misskey.entities.DriveFile, 'id'>[];
 	poll?: Misskey.entities.Note['poll'] | PollEditorModelValue | null;
 }>();
 

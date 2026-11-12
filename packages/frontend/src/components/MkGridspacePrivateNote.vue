@@ -8,46 +8,27 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<MkA :to="authorPage" :class="$style.avatar" :aria-label="note.author.name || note.author.username"><img :src="avatarUrl" alt="" loading="lazy" decoding="async"></MkA>
 	<div :class="$style.content">
 	<MkNoteHeader :note="headerNote" :noteUrl="noteLink(note.id)"/>
-	<div v-if="note.channelId && (note.replyId || note.renoteId)" :class="$style.parentLinks"><MkA v-if="note.replyId" :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA><MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA></div>
-	<template v-if="note.channelId && note.cw != null">
-		<div :class="$style.body"><Mfm :text="note.cw || i18n.ts._gridspace.privateContentWarning" :author="note.author" :emojiUrls="note.emojis ?? {}" :plain="true"/><MkCwButton v-model="expanded" :text="note.text" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/></div>
-		<div v-if="expanded" :class="[$style.body, $style.text]"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false"/></div>
+	<div v-if="(note.replyId || note.renoteId)" :class="$style.parentLinks"><MkA v-if="note.replyId" :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA><MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA></div>
+	<template v-if="note.cw != null">
+		<div :class="$style.body"><Mfm :text="note.cw || i18n.ts._gridspace.privateContentWarning" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false"/><MkCwButton v-model="expanded" :text="note.text" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/></div>
+		<div v-if="expanded" :class="[$style.body, $style.text]"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
 	</template>
-	<details v-else-if="note.cw != null" :class="$style.body" :open="expanded" @toggle="toggleContent">
-		<summary><Mfm :text="note.cw || i18n.ts._gridspace.privateContentWarning" :author="note.author" :emojiUrls="note.emojis ?? {}" :plain="true" :enableEmojiMenu="false"/></summary>
-		<div :class="$style.text"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false"/></div>
-	</details>
-	<div v-else :class="[$style.body, $style.text]"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false"/></div>
+	<div v-else :class="[$style.body, $style.text]"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
 	<div v-if="note.cw == null || expanded" class="_gaps_s">
-		<div v-for="file in note.files" :key="file.id" class="_gaps_s">
-			<MkButton v-if="!blobs[file.id]" small :disabled="loading === file.id" @click="loadFile(file.id)">
-				{{ file.isSensitive ? i18n.ts._gridspace.privateSensitiveFile : i18n.ts._gridspace.privateFile }}: {{ file.name }}
-			</MkButton>
-			<template v-else>
-				<img v-if="imageTypes.includes(file.type)" :src="blobs[file.id]" :alt="file.comment || file.name" :class="$style.media">
-				<video v-else-if="file.type.startsWith('video/')" :src="blobs[file.id]" controls :class="$style.media"></video>
-				<audio v-else-if="file.type.startsWith('audio/')" :src="blobs[file.id]" controls :class="$style.media"></audio>
-				<a :href="blobs[file.id]" :download="file.name">{{ file.name }}</a>
-				<MkButton small @click="clearFile(file.id)">{{ i18n.ts.hide }}</MkButton>
-			</template>
-		</div>
+		<MkMediaList v-if="media.length" :mediaList="media" :raw="true" ephemeral/>
+		<MkButton v-for="file in note.files.filter(item => !blobs[item.id])" :key="file.id" small :disabled="loading === file.id" @click="loadFile(file.id)">
+			<i :class="file.isSensitive ? 'ti ti-eye-exclamation' : 'ti ti-photo'"></i> {{ file.isSensitive ? i18n.ts.sensitive : i18n.ts.clickToShow }}: {{ file.name }}
+		</MkButton>
 	</div>
-	<MkGridspaceNoteActions v-show="note.cw == null || expanded" ref="actions" :note="note" :compact="!!note.channelId" @changed="updated = $event" @unavailable="emit('unavailable')"/>
+	<MkGridspaceNoteActions v-show="note.cw == null || expanded" ref="actions" :note="note" :compact="true" @changed="updated = $event" @unavailable="emit('unavailable')"/>
 	<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateFileError }}</p>
-	<footer v-if="note.channelId" :class="$style.footer">
-		<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.reply" :title="i18n.ts.reply" @click="replyToChannel"><i class="ti ti-arrow-back-up"></i></button>
-		<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.renote" disabled><i class="ti ti-repeat"></i></button>
+	<footer :class="$style.footer">
+		<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.reply" :title="i18n.ts.reply" @click="reply"><i class="ti ti-arrow-back-up"></i></button>
+		<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.renote" disabled><i class="ti ti-ban"></i></button>
 		<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.reaction" :title="i18n.ts.reaction" @click="actions?.react($event)"><i class="ti ti-plus"></i></button>
 		<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.more" :title="i18n.ts.more" @click="showMenu"><i class="ti ti-dots"></i></button>
 	</footer>
-	<footer v-else class="_buttons">
-		<MkButton v-if="note.channelId && (note.canDelete || isOwnGridNote)" small danger :disabled="deleting" @click="deleteNote">{{ i18n.ts.delete }}</MkButton>
-		<MkButton v-if="!replying" small @click="replying = true"><i class="ti ti-arrow-back-up" aria-hidden="true"></i> {{ note.channelId ? i18n.ts.reply : i18n.ts._gridspace.replyAction }}</MkButton>
-		<MkA v-if="note.replyId" :to="noteLink(note.replyId)">{{ i18n.ts._gridspace.privateReply }}</MkA>
-		<MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA>
-	</footer>
 	<p v-if="deleteError" role="alert">{{ i18n.ts._gridspace.channelDeleteFailed }}</p>
-	<MkGridspaceReply v-if="replying" :noteId="note.id" :channelId="note.channelId ?? undefined" @close="replying = false"/>
 	</div>
 </article>
 </template>
@@ -57,7 +38,7 @@ import { computed, onBeforeUnmount, onDeactivated, onMounted, ref, useTemplateRe
 import type { entities } from 'misskey-js';
 import MkGridspaceNoteActions from '@/components/MkGridspaceNoteActions.vue';
 import MkButton from '@/components/MkButton.vue';
-import MkGridspaceReply from '@/components/MkGridspaceReply.vue';
+import MkMediaList from '@/components/MkMediaList.vue';
 import MkCwButton from '@/components/MkCwButton.vue';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import { gridspacePost } from '@/utility/gridspace-post.js';
@@ -85,8 +66,13 @@ const deleted = ref(false);
 const deleting = ref(false);
 const deleteError = ref(false);
 const isOwnGridNote = computed(() => !!$i && props.note.author.uri === `${url}/users/${$i.id}`);
-const replying = ref(false);
 const blobs = ref<Record<string, string>>({});
+// Ephemeral blobs only: source file IDs never enter normal drive APIs or caches.
+const media = computed<entities.DriveFile[]>(() => note.value.files.filter(file => blobs.value[file.id]).map(file => ({
+	...file, id: `gridspace:${note.value.origin}:${file.id}`, createdAt: note.value.createdAt,
+	url: blobs.value[file.id], thumbnailUrl: file.type.startsWith('image/') ? blobs.value[file.id] : null, properties: {}, blurhash: null, md5: '',
+	userId: null, user: null, folderId: null, folder: null,
+})));
 const loading = ref<string | null>(null);
 const error = ref(false);
 const imageTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'];
@@ -94,14 +80,14 @@ let generation = 0;
 let observer: IntersectionObserver | undefined;
 const visible = ref(false);
 
-function replyToChannel() {
-	if (note.value.channelId) void gridspacePost({ channelId: note.value.channelId, reply: note.value }, () => emit('replied'));
+function reply() {
+	void gridspacePost({ channelId: note.value.channelId ?? undefined, reply: note.value }, () => emit('replied'));
 }
 
 function showMenu(event: MouseEvent) {
 	os.popupMenu([{
 		text: i18n.ts.copyLink, icon: 'ti ti-link', action: () => copyToClipboard(`${url}${noteLink(note.value.id)}`),
-	}, ...(note.value.canDelete || isOwnGridNote.value ? [{ text: i18n.ts.delete, icon: 'ti ti-trash', danger: true, action: deleteNote }] : [])], event.currentTarget ?? event.target);
+	}, ...(note.value.channelId && (note.value.canDelete || isOwnGridNote.value) ? [{ text: i18n.ts.delete, icon: 'ti ti-trash', danger: true, action: deleteNote }] : [])], event.currentTarget ?? event.target);
 }
 
 async function deleteNote() {
@@ -131,11 +117,6 @@ function clear() {
 	loading.value = null;
 }
 
-function toggleContent(event: Event) {
-	expanded.value = (event.target as HTMLDetailsElement).open;
-	if (!expanded.value) clear();
-}
-
 async function loadFile(fileId: string) {
 	if (loading.value) return;
 	const current = generation;
@@ -162,7 +143,7 @@ watch(() => props.note.files, files => {
 	for (const id of Object.keys(blobs.value)) if (!files.some(file => file.id === id)) clearFile(id);
 });
 watch([visible, expanded, () => props.note.id], async () => {
-	if (!visible.value || !note.value.channelId || prefer.s.dataSaver.media || (note.value.cw != null && !expanded.value)) return;
+	if (!visible.value || prefer.s.dataSaver.media || (note.value.cw != null && !expanded.value)) return;
 	const current = generation;
 	for (const file of note.value.files) {
 		if (current !== generation) return;
@@ -179,7 +160,7 @@ onDeactivated(clear);
 </script>
 
 <style lang="scss" module>
-.note { display: flex; gap: 16px; padding: 28px 32px; border-bottom: 1px solid var(--MI_THEME-divider); overflow-wrap: anywhere; }
+.note { display: flex; gap: 14px; padding: 28px 32px; border-bottom: 1px solid var(--MI_THEME-divider); overflow-wrap: anywhere; }
 .avatar { flex: none; width: 58px; height: 58px; img { width: 100%; height: 100%; border-radius: 100%; object-fit: cover; } }
 .content { flex: 1; min-width: 0; }
 .header { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: 0.95em; }

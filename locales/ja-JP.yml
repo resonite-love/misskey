@@ -3693,6 +3693,8 @@ _autoTranslation:
   showTranslation: "翻訳を表示"
   failed: "翻訳できなかったため、原文を表示しています。"
 _gridspace:
+  resoniteLoveName: "れぞらぶ"
+  gridSpaceName: "ぐりすぺ"
   channels: "連携先のチャンネル"
   channelsFollowed: "フォロー中のチャンネルだけ表示"
   channelDeleteConfirm: "この投稿を連携先のチャンネルから削除しますか？"

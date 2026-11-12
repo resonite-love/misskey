@@ -10,42 +10,31 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkStreamingNotificationsTimeline ref="notificationsTimeline" :class="$style.notifications" :excludeTypes="excludeTypes"/>
 		</div>
 		<div v-else-if="tab === 'mentions'">
-			<MkNotesTimeline :paginator="mentionsPaginator"/>
+			<MkGridspaceNoteList ref="notesTimeline" :source="{ kind: 'mentions', direct: false }"/>
 		</div>
 		<div v-else-if="tab === 'directNotes'">
-			<MkNotesTimeline :paginator="directNotesPaginator"/>
+			<MkGridspaceNoteList ref="notesTimeline" :source="{ kind: 'mentions', direct: true }"/>
 		</div>
 	</div>
 </PageWithHeader>
 </template>
 
 <script lang="ts" setup>
-import { computed, markRaw, ref, useTemplateRef } from 'vue';
+import { computed, ref, useTemplateRef } from 'vue';
 import { notificationTypes } from 'misskey-js';
 import type { PageHeaderItem } from '@/types/page-header.js';
 import MkStreamingNotificationsTimeline from '@/components/MkStreamingNotificationsTimeline.vue';
-import MkNotesTimeline from '@/components/MkNotesTimeline.vue';
+import MkGridspaceNoteList from '@/components/MkGridspaceNoteList.vue';
 import * as os from '@/os.js';
 import { i18n } from '@/i18n.js';
 import { definePage } from '@/page.js';
 import { linkedNotifications } from '@/utility/gridspace-notification-state.js';
-import { Paginator } from '@/utility/paginator.js';
 
 const notificationsTimeline = useTemplateRef('notificationsTimeline');
+const notesTimeline = useTemplateRef('notesTimeline');
 const tab = ref('all');
 const includeTypes = ref<string[] | null>(null);
 const excludeTypes = computed(() => includeTypes.value ? notificationTypes.filter(t => !includeTypes.value!.includes(t)) : null);
-
-const mentionsPaginator = markRaw(new Paginator('notes/mentions', {
-	limit: 10,
-}));
-
-const directNotesPaginator = markRaw(new Paginator('notes/mentions', {
-	limit: 10,
-	params: {
-		visibility: 'specified',
-	},
-}));
 
 function setFilter(ev: PointerEvent) {
 	const typeItems = notificationTypes.map(t => ({
@@ -70,7 +59,11 @@ const headerActions = computed<PageHeaderItem[]>(() => ([tab.value === 'all' ? {
 	icon: 'ti ti-filter',
 	highlighted: includeTypes.value != null,
 	handler: setFilter,
-} : undefined, tab.value === 'all' ? {
+} : {
+	text: i18n.ts.reload,
+	icon: 'ti ti-refresh',
+	handler: () => { void notesTimeline.value?.reload(); },
+}, tab.value === 'all' ? {
 	text: linkedNotifications.enabled ? i18n.ts._gridspace.notificationMarkAll : i18n.ts.markAllAsRead,
 	icon: 'ti ti-check',
 	handler: () => {

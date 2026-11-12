@@ -26532,6 +26532,8 @@ export interface operations {
                 };
                 content: {
                     'application/json': {
+                        /** @enum {string|null} */
+                        peerRole: 'source' | 'client' | null;
                         enabled: boolean;
                         granted: boolean;
                         mutual: boolean;
@@ -26611,9 +26613,9 @@ export interface operations {
                      * @default home
                      * @enum {string}
                      */
-                    mode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'validate';
+                    mode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'validate';
                     /** @enum {string} */
-                    contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel';
+                    contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct';
                     channelId?: string;
                     query?: string;
                     /** Format: misskey:id */

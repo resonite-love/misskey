@@ -17,7 +17,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<span><i class="ti ti-chevron-up"></i> {{ getSeparatorInfo(timeline.rows.value[i - 1].createdAt, row.createdAt)?.prevText }}</span>
 				<span>{{ getSeparatorInfo(timeline.rows.value[i - 1].createdAt, row.createdAt)?.nextText }} <i class="ti ti-chevron-down"></i></span>
 			</div>
-			<div :class="ui.recipient"><i v-if="!row.isRead" class="ti ti-point-filled" :aria-label="i18n.ts.unread"></i>{{ i18n.tsx._gridspace.notificationRecipient({ host: host(row.origin) }) }}</div>
+			<div v-if="row.source === 'peer'" :class="ui.recipient" :title="host(row.origin)"><i v-if="!row.isRead" class="ti ti-point-filled" :aria-label="i18n.ts.unread"></i>→ {{ peerName(row.origin) }}</div>
 			<template v-if="row.source === 'local'">
 				<MkNote v-if="['reply', 'quote', 'mention'].includes(row.local.type) && 'note' in row.local" :class="$style.content" :note="row.local.note" :withHardMute="true"/>
 				<MkNotification v-else :class="$style.content" :notification="row.local" :withTime="true" :full="true"/>
@@ -48,6 +48,7 @@ import MkNote from '@/components/MkNote.vue';
 import MkNotification from '@/components/MkNotification.vue';
 import MkGridspacePrivateNote from '@/components/MkGridspacePrivateNote.vue';
 import { useGridspaceNotifications } from '@/utility/use-gridspace-notifications.js';
+import { linkedNotifications } from '@/utility/gridspace-notification-state.js';
 
 const props = defineProps<{ excludeTypes?: string[] | null }>();
 const rootEl = useTemplateRef('rootEl');
@@ -71,6 +72,7 @@ onBeforeUnmount(() => scrollContainer?.removeEventListener('scroll', onScroll));
 function clearPeerRow(el: Element) { if (el.hasAttribute('data-gridspace-peer-notification')) el.replaceChildren(); }
 
 const host = (origin: string) => new URL(origin).host;
+const peerName = (origin: string) => linkedNotifications.peerRole === 'source' ? i18n.ts._gridspace.resoniteLoveName : linkedNotifications.peerRole === 'client' ? i18n.ts._gridspace.gridSpaceName : host(origin);
 
 defineExpose({ reload: timeline.reload, markDisplayed: timeline.markDisplayed, markAll: timeline.markAll });
 </script>
