@@ -54,17 +54,67 @@ describe('home common timeline', () => {
 	});
 });
 
-function mountHome(isTop = () => false) {
+function mountHome(isTop = () => false, delegated = true) {
 	const paginator = new Paginator('notes/timeline', {});
 	paginator.fetching.value = false; paginator.canFetchOlder.value = false;
 	let home!: ReturnType<typeof useGridspaceHome>;
-	const app = createApp({ setup() { home = useGridspaceHome(paginator, computed(() => ({ mode: 'home' })), isTop, computed(() => true)); return () => null; } });
+	const app = createApp({ setup() { home = useGridspaceHome(paginator, computed(() => delegated ? { mode: 'home' } : null), isTop, computed(() => true)); return () => null; } });
 	app.mount(document.createElement('div'));
 	cleanup = () => app.unmount();
 	return { home, paginator };
 }
 
 describe('private home lifecycle', () => {
+	it('preserves rows and old cursor, reauthorizes without a head reset, and ignores stale validation', async () => {
+		api.mockResolvedValueOnce({ available: true, granted: true }).mockResolvedValueOnce(page([privateNote(8)], 'old-cursor', at(4)));
+		const { home, paginator } = mountHome(); await settle();
+		const native = normal(9) as entities.Note; paginator.items.value = [native];
+		const original = home.rows.value[0].note;
+		const keys = home.rows.value.map(row => row.key);
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+		document.dispatchEvent(new Event('visibilitychange')); await settle();
+		expect(home.rows.value.map(row => row.key)).toEqual(keys);
+		expect(home.rows.value[0].note).toBe(original);
+		expect(home.rows.value[1].note).toEqual({ id: 'p8', uri: privateNote(8).uri, createdAt: at(8), suspended: true, visible: true });
+		let stale!: (value: unknown) => void;
+		api.mockImplementationOnce(() => new Promise(resolve => { stale = resolve; }));
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')); await settle();
+		expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ mode: 'validate', ids: ['p8'] });
+		expect(api).toHaveBeenCalledTimes(3);
+		hidden.mockReturnValue(true); document.dispatchEvent(new Event('visibilitychange'));
+		stale(page([privateNote(8)])); await settle();
+		expect(home.rows.value[1].note).toHaveProperty('suspended', true);
+		api.mockResolvedValueOnce(page([privateNote(8)])).mockResolvedValueOnce(page());
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange')); await settle();
+		expect(home.rows.value[1].note).toHaveProperty('text', 'private 8');
+		api.mockResolvedValueOnce(page([privateNote(2)])); await home.fetchOlder();
+		expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ cursor: 'old-cursor' });
+		vi.restoreAllMocks();
+	});
+	it('keeps normal pagination usable on non-home timelines after a tab switch', async () => {
+		const { home, paginator } = mountHome(() => false, false); await settle();
+		paginator.canFetchOlder.value = true;
+		const fetch = vi.spyOn(paginator, 'fetchOlder').mockResolvedValue(undefined);
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+		document.dispatchEvent(new Event('visibilitychange'));
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange'));
+		await home.fetchOlder(); expect(fetch).toHaveBeenCalledOnce();
+		vi.restoreAllMocks();
+	});
+	it('removes denied suspended notes and retains normal pagination after a peer failure', async () => {
+		api.mockResolvedValueOnce({ available: true, granted: true }).mockResolvedValueOnce(page([privateNote(8)]));
+		const { home, paginator } = mountHome(); await settle();
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+		document.dispatchEvent(new Event('visibilitychange'));
+		api.mockRejectedValueOnce(new Error('revoked'));
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange')); await settle();
+		expect(home.error.value).toBe(true); expect(home.rows.value).toHaveLength(0);
+		hidden.mockReturnValue(true); document.dispatchEvent(new Event('visibilitychange'));
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange'));
+		const fetch = vi.spyOn(paginator, 'fetchOlder').mockResolvedValue(undefined);
+		await home.fetchOlder(); expect(fetch).toHaveBeenCalledOnce();
+		vi.restoreAllMocks();
+	});
 	it('keeps native rows when private retrieval fails and clears queued bodies', async () => {
 		api.mockResolvedValueOnce({ available: true, granted: true }).mockResolvedValueOnce(page([privateNote(1)]));
 		const { home, paginator } = mountHome();

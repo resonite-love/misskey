@@ -30,6 +30,7 @@ try {
 	await context.addInitScript(({ origin, account }) => {
 		if (location.origin === origin) localStorage.setItem('account', JSON.stringify(account));
 		localStorage.setItem('lang', 'ja-JP'); localStorage.setItem('neverShowDonationInfo', 'true');
+		if (!localStorage.getItem('preferences')) localStorage.setItem('preferences', JSON.stringify({ id: 'channel-motion', type: 'main', version: '1', modifiedAt: Date.now(), name: 'channel-motion', preferences: { animation: [[{}, true, {}]] } }));
 		localStorage.setItem('modifiedVersionMustProminentlyOfferInAgplV3Section13Read', 'true');
 	}, { origin: g.origin, account });
 	const page = await context.newPage(); page.setDefaultTimeout(30000);
@@ -134,6 +135,32 @@ try {
 	await expect(posted.locator('img[src^="blob:"]')).toBeVisible();
 	await page.screenshot({ path: '.config/channels-desktop.png', fullPage: true });
 	console.log('Old identity, CW, attachment upload and authenticated image display UI PASS');
+	const row = posted.locator('..');
+	const beforeHeight = await row.evaluate(el => { window.channelAnchor = el; return el.getBoundingClientRect().height; });
+	const rootCount = await root.locator('[data-gridspace-private-row]').count();
+	let releaseValidation; const validationGate = new Promise(resolve => { releaseValidation = resolve; });
+	let validationCount = 0; let initialCount = 0;
+	await page.route('**/api/gridspace/private-notes', async route => {
+		const params = route.request().postDataJSON();
+		if (params.mode === 'validate') { validationCount++; await validationGate; }
+		else if (!params.cursor && params.rangeStartAt == null) initialCount++;
+		await route.continue();
+	});
+	await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
+	await expect(root.locator('[data-gridspace-private-note]')).toHaveCount(0);
+	assert.equal(await root.locator('[data-gridspace-private-row]').count(), rootCount);
+	assert.ok(Math.abs(await page.evaluate(() => window.channelAnchor.getBoundingClientRect().height) - beforeHeight) < 2);
+	await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')); });
+	await expect.poll(() => validationCount).toBe(1);
+	await expect(root.getByText(body, { exact: true })).toHaveCount(0);
+	releaseValidation();
+	await expect(root.getByText(body, { exact: true })).toBeVisible();
+	assert.equal(await row.evaluate(el => el === window.channelAnchor), true);
+	assert.ok(await row.evaluate(el => el.getBoundingClientRect().height) >= beforeHeight - 2);
+	assert.equal(initialCount, 0);
+	await page.unroute('**/api/gridspace/private-notes');
+	console.log('Channel keeps row identity/height and CW expansion; restores only after validation without first-page reload PASS');
+
 	await posted.getByRole('button', { name: '返信', exact: true }).click();
 	await expect(composer).toBeVisible();
 	const replyBody = `UI reply ${randomUUID()}`;
@@ -184,6 +211,34 @@ try {
 	assert.equal(source.filter(note => note.text === uncertain).length, 1);
 	await page.unroute('**/api/gridspace/channel-post');
 	console.log('Committed post with lost HTTP response retries without duplicate PASS');
+	const retainedUris = await root.locator('[data-scroll-anchor]').evaluateAll(elements => elements.map(el => el.getAttribute('data-scroll-anchor')));
+	await root.locator('[data-gridspace-private-row]').last().scrollIntoViewIfNeeded();
+	await page.evaluate(() => { window.channelAnimations = []; document.addEventListener('transitionrun', event => { if (event.target instanceof Element && event.target.hasAttribute('data-gridspace-private-row')) window.channelAnimations.push(event.propertyName); }); });
+	const burst = `Channel burst ${randomUUID()}`;
+	for (let index = 0; index < 12; index++) await api(r, 'notes/create', { channelId: fixture.channel.id, text: `${burst} ${index}` }, fixture.author.token);
+	await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+	const newNotes = root.getByRole('button', { name: '新しいノート', exact: true });
+	await expect(newNotes).toBeVisible();
+	const queuedUris = await root.locator('[data-scroll-anchor]').evaluateAll(elements => elements.map(el => el.getAttribute('data-scroll-anchor')));
+	assert.ok(retainedUris.every(uri => queuedUris.includes(uri)), 'New channel window discarded old pages');
+	await newNotes.click();
+	await expect(root.getByText(`${burst} 11`, { exact: true })).toBeVisible();
+	await expect(root.getByText(`${burst} 0`, { exact: true })).toHaveCount(1);
+	await expect.poll(() => page.evaluate(() => window.channelAnimations.includes('opacity'))).toBe(true);
+	console.log('More than 10 new channel notes queue while scrolled, retain history and animate on release PASS');
+	await page.evaluate(() => { const prefs = JSON.parse(localStorage.getItem('preferences')); prefs.preferences.animation = [[{}, false, {}]]; localStorage.setItem('preferences', JSON.stringify(prefs)); });
+	await page.reload();
+	await expect(root.getByText(`${burst} 11`, { exact: true })).toBeVisible();
+	await page.evaluate(() => { window.channelAnimations = []; document.addEventListener('transitionrun', event => { if (event.target instanceof Element && event.target.hasAttribute('data-gridspace-private-row')) window.channelAnimations.push(event.propertyName); }); });
+	const noMotion = `Channel no motion ${randomUUID()}`;
+	await api(r, 'notes/create', { channelId: fixture.channel.id, text: noMotion }, fixture.author.token);
+	await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+	await expect(root.getByText(noMotion, { exact: true })).toBeVisible();
+	await page.waitForTimeout(800);
+	assert.deepEqual(await page.evaluate(() => window.channelAnimations), []);
+	console.log('Animation preference OFF leaves new channel notes without transitions PASS');
+
+
 
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.screenshot({ path: '.config/channels-mobile.png', fullPage: true });
@@ -192,7 +247,7 @@ try {
 	await expect(root.getByRole('button', { name: 'センシティブなチャンネルの投稿を表示する', exact: true })).toHaveCount(0);
 	await expect(root.getByText(`Sensitive body ${fixture.suffix}`, { exact: true })).toBeVisible();
 	await page.goto(url);
-	await expect(root.getByText(uncertain, { exact: true })).toBeVisible();
+	await expect(root.getByText(noMotion, { exact: true })).toBeVisible();
 	await api(g, 'gridspace/private-grant', { action: 'revoke' }, fixture.grid.token);
 	await expect(root.locator('[data-gridspace-private-note]')).toHaveCount(0, { timeout: 40000 });
 	await expect(root.getByText('チャンネルの投稿を取得できませんでした。接続と閲覧の許可を確認して再試行してください。', { exact: true })).toBeVisible();

@@ -80,7 +80,7 @@ const actions = useTemplateRef('actions');
 const article = useTemplateRef('article');
 const authorPage = computed(() => `/@${props.note.author.username}@${props.note.author.host}`);
 const avatarUrl = computed(() => prefer.s.disableShowingAnimatedImages || prefer.s.dataSaver.avatar ? getStaticImageUrl(props.note.author.avatarUrl) : props.note.author.avatarUrl);
-const expanded = ref(false);
+const expanded = defineModel<boolean>('expanded', { default: false });
 const deleted = ref(false);
 const deleting = ref(false);
 const deleteError = ref(false);

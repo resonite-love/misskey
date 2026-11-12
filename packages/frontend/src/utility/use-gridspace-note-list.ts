@@ -9,7 +9,8 @@ import type { entities } from 'misskey-js';
 import { note as noteUtils } from 'misskey-js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { mergeHomeRows } from '@/utility/gridspace-home-merge.js';
-import { checkTextWordMute } from '@/utility/check-word-mute.js';
+import { isVisiblePrivateNote, suspendPrivateNotes } from '@/utility/gridspace-note-suspension.js';
+import type { GridspaceNoteEntry } from '@/utility/gridspace-note-suspension.js';
 import { checkNoteWordMute } from '@/composables/use-note.js';
 import { url } from '@@/js/config.js';
 import { $i } from '@/i.js';
@@ -23,7 +24,9 @@ type PrivateNote = entities.GridspacePrivateNotesResponse['notes'][number];
 export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	const normal = shallowRef<entities.Note[]>([]);
 	const preview = shallowRef<entities.Note[]>([]);
-	const delegated = shallowRef<PrivateNote[]>([]);
+	const delegated = shallowRef<GridspaceNoteEntry[]>([]);
+	let suspended = false;
+	let privatePageLoaded = false;
 	const normalMore = ref(true);
 	const privateMore = ref(false);
 	const normalBoundary = ref(Infinity);
@@ -52,7 +55,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	});
 	const rows = computed(() => {
 		const n = [...normal.value, ...preview.value].filter(item => !$i || !checkNoteWordMute(noteUtils.isPureRenote(item) ? item.renote ?? item : item, $i, $i.hardMutedWords));
-		const p = delegated.value.filter(item => !$i || !checkTextWordMute(`${item.cw ?? ''}\n${item.text ?? ''}`, $i.hardMutedWords));
+		const p = delegated.value.filter(item => isVisiblePrivateNote(item));
 		return mergeHomeRows(n, p, url,
 			normalError.value ? -Infinity : normalBoundary.value,
 			!privateReady.value ? Infinity : !enabled.value || privateError.value ? -Infinity : privateBoundary.value);
@@ -64,7 +67,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 
 	function clearPrivate() {
 		privateGeneration++; privateController.abort(); privateController = new AbortController();
-		enabled.value = false;
+		enabled.value = false; suspended = false; privatePageLoaded = false;
 		delegated.value = []; privateCursor = undefined; privateMore.value = false; privateBoundary.value = Infinity;
 		privateBusy.value = false; authorizing.value = false; checking = null;
 	}
@@ -72,7 +75,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	function failPrivate() { clearPrivate(); privateReady.value = true; privateError.value = true; }
 
 	async function loadPrivate() {
-		if (!usable() || privateBusy.value || !privateMore.value) return;
+		if (!usable() || suspended || privateBusy.value || !privateMore.value) return;
 		const current = privateGeneration; privateBusy.value = true;
 		try {
 			const page = await misskeyApi('gridspace/private-notes', { ...privateParams.value, cursor: privateCursor, limit: 20 }, undefined, signal(privateController));
@@ -82,6 +85,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 			delegated.value = [...new Map([...delegated.value, ...page.notes].map(item => [item.uri, item])).values()];
 			privateCursor = page.cursor ?? undefined; privateMore.value = page.cursor != null;
 			privateBoundary.value = privateMore.value ? boundary : -Infinity;
+			privatePageLoaded = true;
 		} catch { if (current === privateGeneration) failPrivate(); } finally {
 			if (current === privateGeneration) { privateBusy.value = false; pagingKey.value++; }
 		}
@@ -144,7 +148,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	}
 
 	async function load() {
-		if (loading.value) return;
+		if (loading.value || suspended || !active || window.document.hidden) return;
 		const n = normalError.value ? -Infinity : normalBoundary.value;
 		const p = !enabled.value || privateError.value ? -Infinity : privateBoundary.value;
 		await Promise.all([
@@ -182,12 +186,25 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 			if (current !== privateGeneration) return;
 			const previous = new Set(snapshot.map(item => item.uri));
 			delegated.value = delegated.value.flatMap(item => !previous.has(item.uri) ? [item] : allowed.has(item.uri) ? [allowed.get(item.uri)!] : []);
+			suspended = false;
 		} catch { if (current === privateGeneration) failPrivate(); } finally { if (checking === current) checking = null; }
 	}
 
-	function visibility() { if (window.document.hidden) { clearPrivate(); privateReady.value = true; } else void initPrivate(true); }
+	function suspend() {
+		if (!$i || privateError.value) return;
+		privateGeneration++; privateController.abort(); privateController = new AbortController();
+		delegated.value = suspendPrivateNotes(delegated.value); suspended = true;
+		privateBusy.value = false; authorizing.value = false; checking = null;
+		privateReady.value = true;
+		if (!privatePageLoaded) enabled.value = false;
+	}
 
-	function focus() { if (!enabled.value && !privateError.value) void initPrivate(true); else void revalidate(); }
+	function focus() {
+		if (!usable()) return;
+		if ((!enabled.value || !privatePageLoaded) && !privateError.value) void initPrivate(true); else void revalidate();
+	}
+
+	function visibility() { if (window.document.hidden) suspend(); else focus(); }
 
 	function removeNormal(id: string) { normal.value = normal.value.filter(item => item.id !== id); preview.value = preview.value.filter(item => item.id !== id); }
 
@@ -195,8 +212,8 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	window.document.addEventListener('visibilitychange', visibility);
 	window.addEventListener('focus', focus);
 	watch(() => JSON.stringify(source.value), reload, { immediate: true });
-	onDeactivated(() => { active = false; clearPrivate(); privateReady.value = true; });
-	onActivated(() => { if (!active) { active = true; void initPrivate(true); } });
+	onDeactivated(() => { active = false; suspend(); });
+	onActivated(() => { if (!active) { active = true; focus(); } });
 	onBeforeUnmount(() => {
 		active = false; clearPrivate(); normalGeneration++; normalController.abort();
 		window.clearInterval(timer); window.document.removeEventListener('visibilitychange', visibility); window.removeEventListener('focus', focus);

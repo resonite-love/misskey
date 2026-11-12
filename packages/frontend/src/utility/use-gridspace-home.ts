@@ -9,15 +9,16 @@ import type { entities } from 'misskey-js';
 import type { IPaginator } from '@/utility/paginator.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { mergeHomeRows } from '@/utility/gridspace-home-merge.js';
-import { checkTextWordMute } from '@/utility/check-word-mute.js';
+import { isVisiblePrivateNote, suspendPrivateNotes } from '@/utility/gridspace-note-suspension.js';
+import type { GridspaceNoteEntry } from '@/utility/gridspace-note-suspension.js';
 import { url } from '@@/js/config.js';
 import { $i } from '@/i.js';
 
 type PrivateNote = entities.GridspacePrivateNotesResponse['notes'][number];
 
 export function useGridspaceHome(normal: IPaginator<entities.Note>, params: ComputedRef<entities.GridspacePrivateNotesRequest | null>, isTop: () => boolean, withSensitive: ComputedRef<boolean>) {
-	const notes = shallowRef<PrivateNote[]>([]);
-	const queued = shallowRef<PrivateNote[]>([]);
+	const notes = shallowRef<GridspaceNoteEntry[]>([]);
+	const queued = shallowRef<GridspaceNoteEntry[]>([]);
 	const enabled = ref(false);
 	const error = ref(false);
 	const busy = ref(false);
@@ -27,14 +28,15 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 	let cursor: string | undefined;
 	let generation = 0;
 	let active = true;
-	let polling = false;
+	let polling: number | null = null;
+	let suspended = false;
 	let controller = new AbortController();
 	let lastSync: number | null = null;
-	let newer: { start: number; observedAt?: number; cursor?: string; notes: PrivateNote[] } | null = null;
+	let newer: { start: number; observedAt?: number; cursor?: string; notes: GridspaceNoteEntry[] } | null = null;
 	const normalBoundary = computed(() => normal.fetching.value ? Infinity : normal.canFetchOlder.value ? Date.parse(normal.items.value.at(-1)?.createdAt ?? '') || Infinity : -Infinity);
 	const rows = computed(() => {
 		if (!params.value || !enabled.value || error.value) return normal.items.value.map(note => ({ kind: 'normal' as const, key: note.uri || `${url}/notes/${note.id}`, createdAt: note.createdAt, note }));
-		const filtered = notes.value.filter(note => (withSensitive.value || !note.files.some(file => file.isSensitive)) && (!$i || !checkTextWordMute(`${note.cw ?? ''}\n${note.text ?? ''}`, $i.hardMutedWords)));
+		const filtered = notes.value.filter(note => isVisiblePrivateNote(note, withSensitive.value));
 		return mergeHomeRows(normal.items.value, filtered, url, normalBoundary.value, boundary.value);
 	});
 	const hasMore = computed(() => normal.canFetchOlder.value || (enabled.value && more.value && !error.value));
@@ -44,19 +46,20 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 	const usable = () => active && !window.document.hidden && params.value != null;
 
 	function clear() {
-		generation++; controller.abort(); controller = new AbortController();
+		generation++; controller.abort(); controller = new AbortController(); polling = null; suspended = false;
 		notes.value = []; queued.value = []; newer = null; cursor = undefined; more.value = false; boundary.value = Infinity; busy.value = false;
 	}
 
 	function fail() { clear(); error.value = true; }
 
 	function releaseQueue() {
+		if (!usable() || suspended) return;
 		notes.value = [...new Map([...notes.value, ...queued.value].map(note => [note.uri, note])).values()];
 		queued.value = [];
 	}
 
 	async function loadOld() {
-		if (!usable() || busy.value || !more.value || error.value) return;
+		if (!usable() || suspended || busy.value || !more.value || error.value) return;
 		const current = generation; busy.value = true;
 		try {
 			const result = await misskeyApi('gridspace/private-notes', { ...params.value!, cursor, limit: 20 }, undefined, signal());
@@ -84,7 +87,7 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 	}
 
 	async function fetchOlder() {
-		if (loading.value) return;
+		if (loading.value || suspended || !active || window.document.hidden) return;
 		if (!enabled.value || error.value || !params.value) { await normal.fetchOlder(); return; }
 		const n = normalBoundary.value; const p = boundary.value;
 		const beforeCursor = cursor;
@@ -99,9 +102,8 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 	}
 
 	async function poll() {
-		if (polling || !usable() || !enabled.value || error.value || lastSync == null) return;
-		polling = true;
-		const current = generation;
+		if (polling != null || !usable() || !enabled.value || error.value || lastSync == null) return;
+		const current = generation; polling = current;
 		try {
 			// Validate every retained body, including rows waiting for the other stream
 			// and new notes queued while the user is reading older history.
@@ -113,9 +115,10 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 				for (const note of result.notes) allowed.set(note.uri, note);
 			}
 			const previous = new Set(snapshot.map(note => note.uri));
-			const valid = (items: PrivateNote[]) => items.flatMap(note => !previous.has(note.uri) ? [note] : allowed.has(note.uri) ? [allowed.get(note.uri)!] : []);
+			const valid = (items: GridspaceNoteEntry[]) => items.flatMap(note => !previous.has(note.uri) ? [note] : allowed.has(note.uri) ? [allowed.get(note.uri)!] : []);
 			notes.value = valid(notes.value); queued.value = valid(queued.value);
 			if (newer) newer.notes = valid(newer.notes);
+			suspended = false;
 			// Include the preceding second for peers whose IDs have second precision.
 			newer ??= { start: Math.max(1, lastSync - 1001), notes: [] };
 			// Bounded per tick, but retain the cursor until this entire window is read.
@@ -132,19 +135,30 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 					break;
 				}
 			}
-		} catch { if (current === generation) fail(); } finally { polling = false; }
+		} catch { if (current === generation) fail(); } finally { if (polling === current) polling = null; }
 	}
 
-	function visibility() { if (window.document.hidden) clear(); else void reload(); }
+	function suspend() {
+		if (!params.value || error.value) return;
+		generation++; controller.abort(); controller = new AbortController(); polling = null; busy.value = false; suspended = true;
+		notes.value = suspendPrivateNotes(notes.value, withSensitive.value);
+		queued.value = suspendPrivateNotes(queued.value, withSensitive.value);
+		if (newer) newer.notes = suspendPrivateNotes(newer.notes, withSensitive.value);
+	}
 
-	function focus() { if (!enabled.value && !error.value) void reload(); else void poll(); }
+	function focus() {
+		if (!usable()) return;
+		if ((!enabled.value || lastSync == null) && !error.value) void reload(); else void poll();
+	}
+
+	function visibility() { if (window.document.hidden) suspend(); else focus(); }
 
 	const timer = window.setInterval(poll, 10000);
 	window.document.addEventListener('visibilitychange', visibility);
 	window.addEventListener('focus', focus);
 	watch(() => JSON.stringify(params.value), reload, { immediate: true });
-	onDeactivated(() => { active = false; clear(); });
-	onActivated(() => { if (!active) { active = true; void reload(); } });
+	onDeactivated(() => { active = false; suspend(); });
+	onActivated(() => { if (!active) { active = true; focus(); } });
 	onBeforeUnmount(() => { active = false; clear(); window.clearInterval(timer); window.document.removeEventListener('visibilitychange', visibility); window.removeEventListener('focus', focus); });
 	return { rows, hasMore, loading, busy, queuedCount, pagingKey, error, reload, fetchOlder, releaseQueue, fail };
 }

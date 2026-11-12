@@ -24,14 +24,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<div :class="$style.detail"><h2>{{ selected.name }}</h2><span :class="$style.origin">{{ originHost }}</span><Mfm v-if="selected.description" :text="selected.description" :isNote="false"/></div>
 			</section>
 			<MkInfo v-if="selected.isArchived" warn>{{ i18n.ts.thisChannelArchived }}</MkInfo>
-				<template v-if="tab === 'timeline'">
-					<MkGridspacePrivateNotes :key="timelineKey" :params="{ mode: 'channel', channelId: selected.id }" plain alwaysShow @loaded="markRead"/>
-				</template>
-				<template v-else-if="tab === 'search'">
-					<MkInput v-model="searchQuery" type="search" @enter="search"><template #prefix><i class="ti ti-search"></i></template></MkInput>
-					<MkButton primary rounded @click="search">{{ i18n.ts.search }}</MkButton>
-					<MkGridspacePrivateNotes v-if="appliedSearch" :key="appliedSearch" :params="{ mode: 'channel', channelId: selected.id, query: appliedSearch }" plain alwaysShow/>
-				</template>
+			<template v-if="tab === 'timeline'">
+				<MkGridspacePrivateNotes ref="timeline" :params="{ mode: 'channel', channelId: selected.id }" plain alwaysShow @loaded="markRead"/>
+			</template>
+			<template v-else-if="tab === 'search'">
+				<MkInput v-model="searchQuery" type="search" @enter="search"><template #prefix><i class="ti ti-search"></i></template></MkInput>
+				<MkButton primary rounded @click="search">{{ i18n.ts.search }}</MkButton>
+				<MkGridspacePrivateNotes v-if="appliedSearch" :key="appliedSearch" :params="{ mode: 'channel', channelId: selected.id, query: appliedSearch }" plain alwaysShow/>
+			</template>
 		</template>
 		<template v-else-if="!channelId">
 			<MkA v-for="channel in channels" :key="channel.id" :to="`/gridspace/channels/${channel.id}`" class="_panel" :class="$style.card">
@@ -51,7 +51,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef, watch } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef, useTemplateRef, watch } from 'vue';
 import type { entities } from 'misskey-js';
 import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
@@ -88,7 +88,7 @@ const searchQuery = ref('');
 const appliedSearch = ref('');
 // Keep only the composer instance (and its in-memory draft) across channel revalidation.
 const composerReady = ref(false);
-const timelineKey = ref(0);
+const timeline = useTemplateRef('timeline');
 let generation = 0;
 let appliedQuery: string | undefined;
 let active = true;
@@ -103,11 +103,11 @@ function clear() {
 	channels.value = []; next.value = null; loading.value = false;
 }
 
-async function load(more: boolean) {
+async function load(more: boolean, background = false) {
 	if (!active || window.document.hidden || (more && (loading.value || !next.value))) return;
-	if (!more) { clear(); appliedQuery = query.value.trim() || undefined; }
+	if (!more && !background) { clear(); appliedQuery = query.value.trim() || undefined; }
 	const current = generation;
-	loading.value = true; error.value = false;
+	loading.value = !background; error.value = false;
 	try {
 		const result = await misskeyApi('gridspace/channels', {
 			channelId: props.channelId, query: appliedQuery, followed: followed.value, before: more ? next.value! : undefined,
@@ -115,12 +115,12 @@ async function load(more: boolean) {
 		if (current !== generation) return;
 		if (props.channelId && !result.channels.length) throw new Error('Unavailable');
 		const seen = new Set(channels.value.map(channel => channel.id));
-		channels.value = [...channels.value, ...result.channels.filter(channel => !seen.has(channel.id))];
+		channels.value = background && props.channelId ? result.channels : [...channels.value, ...result.channels.filter(channel => !seen.has(channel.id))];
 		origin.value = new URL(result.origin).origin; next.value = result.next;
 	} catch { if (current === generation) { clear(); error.value = true; } } finally { if (current === generation) loading.value = false; }
 }
 
-function refreshNotes() { timelineKey.value++; }
+function refreshNotes() { timeline.value?.refresh(); }
 
 function search() { appliedSearch.value = searchQuery.value.trim(); }
 
@@ -128,15 +128,19 @@ function openPostForm() { if (selected.value) void gridspacePost({ channelId: se
 
 function refresh() { refreshNotes(); void load(false); }
 
-function visibility() { if (window.document.hidden) clear(); else void load(false); }
+function suspend() { generation++; controller.abort(); controller = new AbortController(); loading.value = false; }
+
+function resume() { if (props.channelId || !channels.value.length) void load(false, channels.value.length > 0); }
+
+function visibility() { if (window.document.hidden) suspend(); else resume(); }
 
 window.document.addEventListener('visibilitychange', visibility);
 watch(selected, () => {
 	if (selected.value && !selected.value.isArchived) composerReady.value = true;
 });
 watch(() => props.channelId, () => { composerReady.value = false; void load(false); }, { immediate: true });
-onDeactivated(() => { active = false; composerReady.value = false; clear(); });
-onActivated(() => { if (!active) { active = true; void load(false); } });
+onDeactivated(() => { active = false; suspend(); });
+onActivated(() => { if (!active) { active = true; resume(); } });
 onBeforeUnmount(() => { clear(); window.document.removeEventListener('visibilitychange', visibility); });
 definePage(() => ({ title: selected.value?.name ?? i18n.ts._gridspace.channels, icon: 'ti ti-device-tv' }));
 </script>

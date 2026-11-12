@@ -29,21 +29,22 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</button>
 		</div>
 		<component
-			:is="prefer.s.animation && src !== 'home' ? TransitionGroup : 'div'"
+			:is="prefer.s.animation ? TransitionGroup : 'div'"
 			:class="$style.notes"
 			:enterActiveClass="$style.transition_x_enterActive"
-			:leaveActiveClass="$style.transition_x_leaveActive"
+			:leaveActiveClass="src === 'home' ? undefined : $style.transition_x_leaveActive"
 			:enterFromClass="$style.transition_x_enterFrom"
-			:leaveToClass="$style.transition_x_leaveTo"
+			:leaveToClass="src === 'home' ? undefined : $style.transition_x_leaveTo"
 			:moveClass="$style.transition_x_move"
 			tag="div"
+			@beforeLeave="clearLeavingPrivateNote"
 		>
 			<template v-for="(row, i) in home.rows.value" :key="row.key">
 				<div v-if="i > 0 && isSeparatorNeeded(home.rows.value[i - 1].createdAt, row.createdAt)" :class="$style.date">
 					<span><i class="ti ti-chevron-up"></i> {{ getSeparatorInfo(home.rows.value[i - 1].createdAt, row.createdAt)?.prevText }}</span>
 					<span>{{ getSeparatorInfo(home.rows.value[i - 1].createdAt, row.createdAt)?.nextText }} <i class="ti ti-chevron-down"></i></span>
 				</div>
-				<MkGridspacePrivateNote v-if="row.kind === 'private'" :class="$style.note" :note="row.note" :data-scroll-anchor="row.key" @unavailable="home.fail"/>
+				<MkGridspacePrivateNoteRow v-if="row.kind === 'private'" :class="$style.note" :note="row.note" :data-scroll-anchor="row.key" @unavailable="home.fail"/>
 				<template v-else>
 					<MkNote :class="$style.note" :note="row.note" :withHardMute="true" :data-scroll-anchor="row.key"/>
 					<div v-if="row.note._shouldInsertAd_" :class="$style.ad"><MkAd :preferForms="['horizontal', 'horizontal-big']"/></div>
@@ -91,9 +92,10 @@ import { instance } from '@/instance.js';
 import { prefer } from '@/preferences.js';
 import { store } from '@/store.js';
 import MkNote from '@/components/MkNote.vue';
-import MkGridspacePrivateNote from '@/components/MkGridspacePrivateNote.vue';
+import MkGridspacePrivateNoteRow from '@/components/MkGridspacePrivateNoteRow.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import { useGridspaceHome } from '@/utility/use-gridspace-home.js';
+import { clearLeavingPrivateNote } from '@/utility/gridspace-note-suspension.js';
 import MkButton from '@/components/MkButton.vue';
 import { i18n } from '@/i18n.js';
 import { DI } from '@/di.js';

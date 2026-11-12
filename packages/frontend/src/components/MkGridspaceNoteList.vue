@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <div :class="$style.root" :aria-busy="loading" data-gridspace-note-list>
 	<div v-for="row in rows" :key="row.key" :class="$style.entry" :data-scroll-anchor="row.key">
 		<MkNote v-if="row.kind === 'normal'" :note="row.note" :withHardMute="true"/>
-		<MkGridspacePrivateNote v-else :note="row.note" @unavailable="failPrivate"/>
+		<MkGridspacePrivateNoteRow v-else :note="row.note" @unavailable="failPrivate"/>
 	</div>
 	<div v-if="normalError || privateError" role="status" :class="$style.status">
 		<p>{{ i18n.ts._gridspace.notesPartial }}</p>
@@ -24,7 +24,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script lang="ts" setup>
 import { computed, onBeforeUnmount, useTemplateRef, watch } from 'vue';
 import MkNote from '@/components/MkNote.vue';
-import MkGridspacePrivateNote from '@/components/MkGridspacePrivateNote.vue';
+import MkGridspacePrivateNoteRow from '@/components/MkGridspacePrivateNoteRow.vue';
 import MkButton from '@/components/MkButton.vue';
 import { useGridspaceNoteList } from '@/utility/use-gridspace-note-list.js';
 import type { GridspaceNoteSource } from '@/utility/use-gridspace-note-list.js';

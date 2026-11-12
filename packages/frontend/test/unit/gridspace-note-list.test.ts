@@ -10,7 +10,8 @@ import { useGridspaceNoteList } from '@/utility/use-gridspace-note-list.js';
 import type { GridspaceNoteSource } from '@/utility/use-gridspace-note-list.js';
 
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: vi.fn() }));
-vi.mock('@/i.js', () => ({ $i: { id: 'viewer', hardMutedWords: [] } }));
+const auth = vi.hoisted(() => ({ user: { id: 'viewer', hardMutedWords: [] } as { id: string; hardMutedWords: [] } | null }));
+vi.mock('@/i.js', () => ({ get $i() { return auth.user; } }));
 vi.mock('@/composables/use-note.js', () => ({ checkNoteWordMute: () => false }));
 const api = vi.mocked(misskeyApi);
 const at = (n: number) => new Date(1700000000000 + n * 1000).toISOString();
@@ -24,6 +25,7 @@ let respond: (endpoint: string, params: Record<string, unknown>) => Promise<unkn
 
 beforeEach(() => {
 	vi.useFakeTimers(); api.mockReset();
+	auth.user = { id: 'viewer', hardMutedWords: [] };
 	api.mockImplementation(((endpoint, params) => respond(endpoint, params ?? {})) as typeof misskeyApi);
 });
 afterEach(() => { cleanup(); cleanup = () => {}; vi.restoreAllMocks(); vi.useRealTimers(); });
@@ -37,6 +39,40 @@ function mount(sourceValue: GridspaceNoteSource = { kind: 'search', query: 'quer
 }
 
 describe('one profile/search note list', () => {
+	it('allows anonymous ordinary profile pagination after hiding and returning', async () => {
+		auth.user = null;
+		respond = async (_endpoint, params) => params.untilId ? [normal(1)] : Array.from({ length: 20 }, (_, index) => normal(30 - index));
+		const { list } = mount({ kind: 'profile', userId: 'author', linked: false, withReplies: false, withRenotes: false, withFiles: false, withChannelNotes: false });
+		await settle();
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+		document.dispatchEvent(new Event('visibilitychange'));
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange'));
+		await list.load();
+		expect(list.rows.value).toHaveLength(21);
+		expect(api.mock.calls.every(([endpoint]) => endpoint === 'users/notes')).toBe(true);
+	});
+	it('retains the private cursor after revalidation and keeps normal pagination after revocation', async () => {
+		let revoked = false;
+		respond = async (endpoint, params) => {
+			if (endpoint === 'gridspace/private-grant') return { available: true, granted: true };
+			if (endpoint === 'gridspace/search') return params.cursor ? searchPage([normal(1)]) : searchPage([normal(9), normal(4)], 'normal-next');
+			if (params.mode === 'validate') { if (revoked) throw new Error('revoked'); return page([privateNote(8), privateNote(2)]); }
+			return params.cursor ? page([privateNote(1)]) : page([privateNote(8), privateNote(2)], 'private-next', 6);
+		};
+		const { list } = mount(); await settle();
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+		document.dispatchEvent(new Event('visibilitychange'));
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange')); await settle();
+		await list.load();
+		expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ cursor: 'private-next' });
+		revoked = true; window.dispatchEvent(new Event('focus')); await settle();
+		expect(list.privateError.value).toBe(true);
+		hidden.mockReturnValue(true); document.dispatchEvent(new Event('visibilitychange'));
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange'));
+		await list.load();
+		expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ cursor: 'normal-next' });
+		expect(list.rows.value.every(row => row.kind === 'normal')).toBe(true);
+	});
 	it('keeps ordinary rows through a granted background check while private notes are loading', async () => {
 		let delay = false; let release!: (value: unknown) => void;
 		respond = async endpoint => {
@@ -50,8 +86,9 @@ describe('one profile/search note list', () => {
 		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
 		document.dispatchEvent(new Event('visibilitychange'));
 		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange')); await settle();
-		expect(list.rows.value.map(row => row.note.id)).toEqual(['n4']);
-		expect(list.rows.value[0].note).toBe(original);
+		expect(list.rows.value.map(row => row.note.id)).toEqual(['p5', 'n4']);
+		expect(list.rows.value[0].note).toEqual({ id: 'p5', uri: 'https://peer/notes/p5', createdAt: at(5), suspended: true, visible: true });
+		expect(list.rows.value[1].note).toBe(original);
 		release(page([privateNote(5)])); await settle();
 		expect(list.rows.value.map(row => row.note.id)).toEqual(['p5', 'n4']);
 		expect(list.rows.value[1].note).toBe(original);

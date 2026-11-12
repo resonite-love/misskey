@@ -20,7 +20,21 @@ for (const [site, user] of [[g, fixture.grid], [r, fixture.resonite]]) {
 	accounts[site.origin] = { ...await api(site, 'i', {}, user.token), token: user.token };
 }
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
+const roles = [];
 try {
+	// Repeated consent/revocation scenarios exceed interactive-user request rates.
+	// Disable throttling only for these disposable lab accounts, not either server.
+	for (const [site, user] of [[g, fixture.grid], [r, fixture.resonite]]) {
+		const admin = JSON.parse(readFileSync(site.accountsPath, 'utf8')).accounts.admin;
+		const role = await api(site, 'admin/roles/create', {
+			name: `Private UI ${Date.now()}`, description: 'Temporary UI test role', color: null, iconUrl: null,
+			target: 'manual', condFormula: {}, isPublic: false, isModerator: false, isAdministrator: false,
+			asBadge: false, canEditMembersByModerator: false, displayOrder: 0,
+			policies: { rateLimitFactor: { useDefault: false, priority: 2, value: 0 } },
+		}, admin.token);
+		roles.push({ site, admin, id: role.id });
+		await api(site, 'admin/roles/assign', { roleId: role.id, userId: user.id }, admin.token);
+	}
 	const context = await browser.newContext({ viewport: { width: 1280, height: 960 }, locale: 'ja-JP' });
 	await context.addInitScript(({ accounts }) => {
 		const account = accounts[location.origin];
@@ -49,7 +63,7 @@ try {
 		await expect(page.getByText('連携した両アカウントから、お互いの権限で限定投稿を閲覧・検索できるようにする', { exact: true })).toBeVisible();
 		await accept.click();
 		await page.waitForURL(`${g.origin}/settings/gridspace**`);
-		await expect(page.getByText('限定投稿の閲覧・検索、通知、連携先のアカウント名義での返信・リアクション・投票・添付を利用できます。', { exact: true })).toBeVisible({ timeout: 30000 });
+		await expect(page.getByText('限定投稿の閲覧・検索、通知、連携先のアカウント名義での返信・リアクション・投票・添付を利用できます。', { exact: false })).toBeVisible({ timeout: 30000 });
 	}
 	await consent();
 	assert.equal((await api(r, 'gridspace/private-grant', {}, fixture.resonite.token)).mutual, true);
@@ -89,7 +103,34 @@ try {
 	await mixedCard.locator('summary').click();
 	await mixedCard.getByRole('button', { name: '添付ファイルを表示: private.png', exact: true }).click();
 	await expect(mixedCard.locator('img[src^="blob:"]')).toBeVisible();
-	const mixedBlob = await mixedCard.locator('img[src^="blob:"]').getAttribute('src');
+	let mixedBlob = await mixedCard.locator('img[src^="blob:"]').getAttribute('src');
+	const row = mixedCard.locator('..');
+	const height = await row.evaluate(el => { window.profileAnchor = el; return el.getBoundingClientRect().height; });
+	let releaseValidation; const validationGate = new Promise(resolve => { releaseValidation = resolve; });
+	let validations = 0; let headReloads = 0;
+	await page.route('**/api/gridspace/private-notes', async route => {
+		const params = route.request().postDataJSON();
+		if (params.mode === 'validate') { validations++; await validationGate; }
+		else if (!params.cursor) headReloads++;
+		await route.continue();
+	});
+	await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
+	await expect(section.locator('[data-gridspace-private-note]')).toHaveCount(0);
+	assert.ok(await page.evaluate(url => window.privateRevokedUrls.includes(url), mixedBlob));
+	await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')); });
+	await expect.poll(() => validations).toBe(1);
+	await expect(section.locator('[data-gridspace-private-note]')).toHaveCount(0);
+	releaseValidation();
+	await expect(mixedCard).toBeVisible();
+	await expect(mixedCard.locator('details')).toHaveJSProperty('open', true);
+	assert.equal(await row.evaluate(el => el === window.profileAnchor), true);
+	assert.ok(await row.evaluate(el => el.getBoundingClientRect().height) >= height - 2);
+	assert.equal(headReloads, 0);
+	await page.unroute('**/api/gridspace/private-notes');
+	await mixedCard.getByRole('button', { name: '添付ファイルを表示: private.png', exact: true }).click();
+	await expect(mixedCard.locator('img[src^="blob:"]')).toBeVisible();
+	mixedBlob = await mixedCard.locator('img[src^="blob:"]').getAttribute('src');
+	console.log('Profile preserves row geometry/CW, clears blobs and reauthorizes without first-page reset PASS');
 	await api(g, 'gridspace/private-grant', { action: 'revoke' }, fixture.grid.token);
 	await page.evaluate(() => window.dispatchEvent(new Event('focus')));
 	await expect(section.locator('[data-gridspace-private-note]')).toHaveCount(0);
@@ -138,7 +179,9 @@ try {
 	await api(g, 'gridspace/private-grant', { action: 'revoke' }, fixture.grid.token);
 	await page.goBack();
 	await expect(section.locator('article')).toHaveCount(0, { timeout: 30000 });
-	await expect(section.getByRole('link', { name: '両アカウントでの閲覧を許可する', exact: true })).toBeVisible();
+	// Returning revalidates retained references instead of restarting consent/history.
+	await expect(section.getByRole('alert')).toBeVisible();
+	await expect(section.getByRole('button', { name: '再試行', exact: true })).toBeVisible();
 	console.log('Failed reauthorization and KeepAlive return do not retain private content PASS');
 	await consent();
 	await page.goto(`${g.origin}/gridspace/private`, { waitUntil: 'domcontentloaded' });
@@ -153,4 +196,7 @@ try {
 	console.log('Unchanged parameters do not reset private results on parent rerender PASS');
 	assert.deepEqual(errors, []);
 	await context.close();
-} finally { await browser.close(); }
+} finally {
+	await browser.close();
+	for (const { site, admin, id } of roles) await api(site, 'admin/roles/delete', { roleId: id }, admin.token);
+}

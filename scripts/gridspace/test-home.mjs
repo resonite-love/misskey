@@ -60,6 +60,7 @@ try {
 	const context = await browser.newContext({ viewport: { width: 1280, height: 960 }, locale: 'ja-JP' });
 	await context.addInitScript(account => {
 		localStorage.setItem('account', JSON.stringify(account)); localStorage.setItem('lang', 'ja-JP');
+		if (!localStorage.getItem('preferences')) localStorage.setItem('preferences', JSON.stringify({ id: 'home-motion-test', type: 'main', version: '1', modifiedAt: Date.now(), name: 'home-motion', preferences: { animation: [[{}, true, {}]], enableInfiniteScroll: [[{}, false, {}]] } }));
 		localStorage.setItem('neverShowDonationInfo', 'true'); localStorage.setItem('modifiedVersionMustProminentlyOfferInAgplV3Section13Read', 'true');
 	}, account);
 	page = await context.newPage(); page.setDefaultTimeout(30000);
@@ -84,6 +85,39 @@ try {
 	assert.deepEqual(order.filter(uri => expected.includes(uri)), expected);
 	assert.equal(new Set(order).size, order.length);
 	console.log('One ordinary home, mixed chronological pagination and no duplicate rows PASS');
+	// Pause validation to inspect the exact state while returning to the tab.
+	const retained = page.locator('[data-scroll-anchor]').filter({ hasText: `${prefix} ordinary 0` });
+	await retained.scrollIntoViewIfNeeded();
+	const geometry = await retained.evaluate(el => { window.homeAnchor = el; return el.getBoundingClientRect().top; });
+	const originalRows = await page.locator('[data-scroll-anchor]').count();
+	let unblock; const gate = new Promise(resolve => { unblock = resolve; });
+	let validations = 0; let headReloads = 0;
+	await page.route('**/api/gridspace/private-notes', async route => {
+		const params = route.request().postDataJSON();
+		if (params.mode === 'validate') { validations++; await gate; }
+		else if (!params.cursor && params.rangeStartAt == null) headReloads++;
+		await route.continue();
+	});
+	await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
+	await expect(page.locator('[data-gridspace-private-note]')).toHaveCount(0);
+	assert.equal(await page.locator('[data-scroll-anchor]').count(), originalRows);
+	assert.equal(await retained.evaluate(el => el === window.homeAnchor), true);
+	assert.ok(Math.abs(await retained.evaluate(el => el.getBoundingClientRect().top) - geometry) < 2, 'Hide moved the scroll anchor');
+	await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')); });
+	await expect.poll(() => validations).toBe(1);
+	await expect(page.locator('[data-gridspace-private-note]')).toHaveCount(0);
+	unblock();
+	await expect(page.getByText(`${prefix} delegated 0`, { exact: true })).toHaveCount(1);
+	assert.equal(headReloads, 0, 'Return restarted history at the first page');
+	assert.equal(await retained.evaluate(el => el === window.homeAnchor), true);
+	assert.ok(Math.abs(await retained.evaluate(el => el.getBoundingClientRect().top) - geometry) < 2, 'Resume moved the scroll anchor');
+	await page.unroute('**/api/gridspace/private-notes');
+	await page.evaluate(() => {
+		window.homeAnimations = [];
+		document.addEventListener('transitionrun', event => { if (event.target instanceof Element && event.target.hasAttribute('data-scroll-anchor')) window.homeAnimations.push({ property: event.propertyName, text: event.target.textContent }); });
+	});
+	console.log('Hidden bodies cleared; same normal DOM, row count, scroll position and old pages restored without head reload PASS');
+
 	await page.screenshot({ path: '.config/home-desktop.png' });
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.screenshot({ path: '.config/home-mobile.png' });
@@ -96,7 +130,14 @@ try {
 	await expect(fresh).toBeVisible(); await fresh.click();
 	await expect(page.getByText(`${prefix} live 24`, { exact: true })).toBeVisible();
 	await expect(page.getByText(`${prefix} live 0`, { exact: true })).toHaveCount(1);
-	console.log('More than 20 live delegated notes enter the normal new-note queue PASS');
+	assert.ok(await page.evaluate(() => window.homeAnimations.some(event => event.property === 'opacity' && event.text.includes(' live '))), 'Home new-note enter animation missing');
+	console.log('More than 20 live delegated notes enter the normal new-note queue with animation PASS');
+	const nativeMotion = `${prefix} ordinary motion`;
+	await post(g, fixture.grid, { text: nativeMotion });
+	await expect(page.getByText(nativeMotion, { exact: true })).toBeVisible();
+	await expect.poll(() => page.evaluate(text => window.homeAnimations.some(event => event.property === 'opacity' && event.text.includes(text)), nativeMotion)).toBe(true);
+	console.log('Ordinary streaming home insertion uses the same animation PASS');
+
 	const stored = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
 	assert.equal(stored.includes(`${prefix} delegated`), false);
 	assert.equal(stored.includes(`${prefix} live`), false);
@@ -110,6 +151,17 @@ try {
 	await page.getByRole('button', { name: '再試行', exact: true }).click();
 	await expect(page.getByText(`${prefix} live 24`, { exact: true })).toBeVisible();
 	console.log('Delegated failure clears bodies and keeps ordinary home; retry recovers PASS');
+	await page.evaluate(() => { const prefs = JSON.parse(localStorage.getItem('preferences')); prefs.preferences.animation = [[{}, false, {}]]; localStorage.setItem('preferences', JSON.stringify(prefs)); });
+	await page.reload();
+	await expect(page.getByText(`${prefix} live 24`, { exact: true })).toBeVisible();
+	await page.evaluate(() => { window.homeAnimations = []; document.addEventListener('transitionrun', event => { if (event.target instanceof Element && event.target.hasAttribute('data-scroll-anchor')) window.homeAnimations.push(event.propertyName); }); });
+	const noMotion = `${prefix} animation off`;
+	await post(g, fixture.grid, { text: noMotion });
+	await expect(page.getByText(noMotion, { exact: true })).toBeVisible();
+	await page.waitForTimeout(800);
+	assert.deepEqual(await page.evaluate(() => window.homeAnimations), []);
+	console.log('Animation preference OFF leaves native new notes without transitions PASS');
+
 	const subscription = await api(g, 'users/show', { userId: remote.id }, fixture.grid.token);
 	await api(g, subscription.isFollowing ? 'following/delete' : 'following/requests/cancel', { userId: remote.id }, fixture.grid.token);
 	await page.evaluate(() => window.dispatchEvent(new Event('focus')));
