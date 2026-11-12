@@ -5,7 +5,7 @@
 
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Inject, Injectable, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
-import { DataSource, In, IsNull, LessThan } from 'typeorm';
+import { DataSource, In, IsNull, LessThan, type EntityManager } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
@@ -15,17 +15,18 @@ import { MiFollowRequest } from '@/models/FollowRequest.js';
 import { MiMuting } from '@/models/Muting.js';
 import { MiBlocking } from '@/models/Blocking.js';
 import { MiGridspaceAuthSession, MiGridspaceFollowOverride, MiGridspaceImportItem, MiGridspaceLink, type GridspaceSnapshotItem } from '@/models/Gridspace.js';
+import { IdService } from '@/core/IdService.js';
 import { UserFollowingService } from '@/core/UserFollowingService.js';
 import { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
 import { GridspaceFollowGuardService } from './GridspaceFollowGuardService.js';
 import { createGridspaceHeaders, resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
-import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH, GRIDSPACE_LINK_SCOPES, GRIDSPACE_PRIVATE_CLIENT_PATH, GRIDSPACE_PRIVATE_SCOPE, gridspaceChallenge, gridspaceHash, openGridspaceSecret, sealGridspaceSecret } from './link-crypto.js';
+import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH, GRIDSPACE_LINK_SCOPES, GRIDSPACE_PRIVATE_CLIENT_PATH, GRIDSPACE_PRIVATE_SCOPE, GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE, gridspaceChallenge, gridspaceHash, openGridspaceSecret, sealGridspaceSecret } from './link-crypto.js';
 
 export class GridspaceLinkError extends Error {
 	constructor(public code: string) { super(code); }
 }
 
-export type GridspacePeerLinkRequest = { accessToken?: string; linkId?: string; generation?: number; localUserId?: string; localUsername?: string };
+export type GridspacePeerLinkRequest = { accessToken?: string; linkId?: string; generation?: number; localUserId?: string; localUsername?: string; pairId?: string; expectedRevision?: number; reverseToken?: string };
 
 @Injectable()
 export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown {
@@ -40,6 +41,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		private following: UserFollowingService,
 		private people: ApPersonService,
 		private guard: GridspaceFollowGuardService,
+		private ids: IdService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 	}
@@ -91,13 +93,13 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		}
 	}
 
-	public async start(user: MiLocalUser, purpose: 'link' | 'private' = 'link') {
-		return purpose === 'private' ? this.guard.run(user.id, () => this.startSession(user, purpose)) : this.startSession(user, purpose);
+	public async start(user: MiLocalUser, purpose: MiGridspaceAuthSession['purpose'] = 'link') {
+		return purpose !== 'link' ? this.guard.run(user.id, () => this.startSession(user, purpose)) : this.startSession(user, purpose);
 	}
 
-	private async startSession(user: MiLocalUser, purpose: 'link' | 'private') {
+	private async startSession(user: MiLocalUser, purpose: MiGridspaceAuthSession['purpose']) {
 		const peer = this.enabled();
-		const link = purpose === 'private' ? await this.privateLink(user.id) : null;
+		const link = purpose !== 'link' ? await this.privateLink(user.id) : null;
 		if (link?.privateRevocationCipher) throw new GridspaceLinkError('REVOKE_PENDING');
 		const state = randomBytes(32).toString('base64url');
 		const clientKey = randomBytes(32).toString('base64url');
@@ -111,8 +113,8 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		});
 		const url = new URL('/oauth/authorize', peer.peerOrigin);
 		url.search = new URLSearchParams({
-			response_type: 'code', client_id: peer.origin + (purpose === 'private' ? GRIDSPACE_PRIVATE_CLIENT_PATH : GRIDSPACE_CLIENT_PATH),
-			redirect_uri: peer.origin + GRIDSPACE_CALLBACK_PATH, scope: purpose === 'private' ? GRIDSPACE_PRIVATE_SCOPE : GRIDSPACE_LINK_SCOPES.join(' '),
+			response_type: 'code', client_id: peer.origin + (purpose !== 'link' ? GRIDSPACE_PRIVATE_CLIENT_PATH : GRIDSPACE_CLIENT_PATH),
+			redirect_uri: peer.origin + GRIDSPACE_CALLBACK_PATH, scope: purpose === 'private-mutual' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE}` : purpose === 'private' ? GRIDSPACE_PRIVATE_SCOPE : GRIDSPACE_LINK_SCOPES.join(' '),
 			state, code_challenge: gridspaceChallenge(verifier), code_challenge_method: 'S256'
 		}).toString();
 		return { authorizationUrl: url.href, clientKey };
@@ -148,7 +150,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 				link = links.create({
 					...link, id: link?.id ?? randomUUID(), localUserId: user.id, peerOrigin: peer.peerOrigin,
 					peerUserId: identity.id, peerUsername: identity.username, generation: (link?.generation ?? 0) + 1,
-					initiator: true, state: 'preparing', tokenCipher: null, privateTokenCipher: null, privateTokenHash: null, privateRevocationCipher: null, createdAt: link?.createdAt ?? session.createdAt, lastError: null
+					initiator: true, state: 'preparing', tokenCipher: null, privateTokenCipher: null, privateTokenHash: null, privateMutualGrantId: null, privateMutualReady: false, privateRevocationCipher: null, createdAt: link?.createdAt ?? session.createdAt, lastError: null
 				});
 				try { await links.save(link); } catch { throw new GridspaceLinkError('LINK_CONFLICT'); }
 				await sessions.update(session.id, { linkId: link.id, generation: link.generation });
@@ -212,7 +214,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 			const generationChanged = link?.generation !== input.generation;
 			link = links.create({
 					...link, id: input.linkId, localUserId: user.id, peerOrigin: peer.peerOrigin, peerUserId: input.localUserId,
-					...(generationChanged ? { privateTokenCipher: null, privateTokenHash: null, privateRevocationCipher: null } : {}),
+					...(generationChanged ? { privateTokenCipher: null, privateTokenHash: null, privateMutualGrantId: null, privateMutualReady: false, privateRevocationCipher: null } : {}),
 					peerUsername: input.localUsername, generation: input.generation, initiator: false, state: 'active', createdAt: link?.createdAt ?? new Date()
 				});
 			if (link.snapshot === null || link.snapshot === undefined) {
@@ -243,7 +245,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		await this.db.transaction(async manager => {
 			await manager.getRepository(MiGridspaceAuthSession).delete({ localUserId: link.localUserId });
 			await manager.getRepository(MiAccessToken).delete({ userId: link.localUserId, name: In([link.peerOrigin + GRIDSPACE_CLIENT_PATH, link.peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH]) });
-			await manager.getRepository(MiGridspaceLink).update({ id: link.id, generation: link.generation }, { state: 'revoked', tokenCipher: null, privateTokenCipher: null, privateTokenHash: null, privateRevocationCipher: null });
+			await manager.getRepository(MiGridspaceLink).update({ id: link.id, generation: link.generation }, { state: 'revoked', tokenCipher: null, privateTokenCipher: null, privateTokenHash: null, privateMutualGrantId: null, privateMutualReady: false, privateRevocationCipher: null });
 			await manager.getRepository(MiGridspaceImportItem).update({ linkId: link.id, state: In(['pending', 'failed']) }, { state: 'cancelled', reason: 'LINK_REVOKED' });
 		});
 	}
@@ -299,25 +301,86 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 	}
 
 	/** The read grant belongs to the viewer's link, never to the profile being viewed. */
-	public async authorizePrivate(input: GridspacePeerLinkRequest, bind = false) {
+	public assertPrivateCaller(token: MiAccessToken | null) {
+		// Peer credentials are valid only on signed, pair-bound routes. In particular,
+		// an orphaned credential must not consume a later grant through the general API.
+		if (token?.name === this.enabled().peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+	}
+
+	private async deletePrivateBinding(manager: EntityManager, link: MiGridspaceLink, replacementHash?: string) {
+		if (!link.privateTokenHash || link.privateTokenHash === replacementHash) return;
+		const tokens = manager.getRepository(MiAccessToken);
+		const candidates = await tokens.find({ where: { userId: link.localUserId, name: this.enabled().peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH }, select: { id: true, token: true } });
+		const ids = candidates.filter(token => gridspaceHash(token.token) === link.privateTokenHash).map(token => token.id);
+		if (ids.length) await tokens.delete(ids);
+	}
+
+	private async authorizePrivateLocal(input: GridspacePeerLinkRequest, bind = false) {
 		const peer = this.enabled();
 		if (!input.accessToken || !input.linkId || !input.localUserId || !input.generation) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const token = await this.db.getRepository(MiAccessToken).findOneBy({ token: input.accessToken, name: peer.peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH });
 		if (!token?.permission.includes(GRIDSPACE_PRIVATE_SCOPE)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const link = await this.privateLink(token.userId);
 		if (link.id !== input.linkId || link.generation !== input.generation || link.peerUserId !== input.localUserId ||
-			(!bind && link.privateTokenHash !== gridspaceHash(input.accessToken))) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			(!bind && ((link.privateMutualGrantId && !link.privateMutualReady) || link.privateTokenHash !== gridspaceHash(input.accessToken) || (link.privateMutualGrantId ?? null) !== (input.pairId ?? null)))) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		return link;
+	}
+
+	public async authorizePrivate(input: GridspacePeerLinkRequest) {
+		const link = await this.authorizePrivateLocal(input);
+		if (link.privateMutualGrantId) {
+			// This endpoint checks only its own DB, so reciprocal checks cannot recurse.
+			await this.json('/gridspace/v1/private/pair-check', this.privateCredential(link));
+			await this.authorizePrivateLocal(input);
+		}
 		return link;
 	}
 
 	public async peerPrivateGrant(action: string, input: GridspacePeerLinkRequest) {
-		const link = await this.authorizePrivate(input, action !== 'check');
+		if (action === 'check') { await this.authorizePrivate(input); return { ok: true }; }
+		if (action === 'pair-check') {
+			const link = await this.authorizePrivateLocal(input);
+			if (!input.pairId || !link.privateTokenCipher) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			return { ok: true };
+		}
+		const link = await this.authorizePrivateLocal(input, true);
 		return this.guard.run(link.localUserId, async () => {
-			await this.authorizePrivate(input, action !== 'check');
-			if (action === 'authorize') await this.db.getRepository(MiGridspaceLink).update({ id: link.id, generation: link.generation, state: 'active' }, { privateTokenHash: gridspaceHash(input.accessToken!) });
+			const current = await this.authorizePrivateLocal(input, true);
+			const links = this.db.getRepository(MiGridspaceLink);
+			const tokens = this.db.getRepository(MiAccessToken);
+			const hash = gridspaceHash(input.accessToken!);
+			if (action === 'mutual-probe' || action === 'reciprocal') {
+				const token = await tokens.findOneByOrFail({ token: input.accessToken! });
+				if (!token.permission.includes(GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE) || current.privateRevocationCipher) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+				if (action === 'mutual-probe') return { revision: current.privateRevision };
+				if (!input.pairId || !input.reverseToken || input.expectedRevision === undefined) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+				if (current.privateMutualGrantId === input.pairId) {
+					// An idempotent retry can confirm a live grant, never resurrect a revoked one.
+					if (current.privateTokenHash !== hash || this.privateCredential(current).accessToken !== input.reverseToken) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+				} else {
+					if (current.privateRevision !== input.expectedRevision) throw new GridspaceLinkError('LINK_CONFLICT');
+					await this.db.transaction(async manager => {
+						await this.deletePrivateBinding(manager, current, hash);
+						await manager.getRepository(MiGridspaceLink).update({ id: link.id, generation: link.generation, state: 'active' }, {
+							privateMutualGrantId: input.pairId, privateMutualReady: true, privateTokenHash: hash, privateRevision: () => '"privateRevision" + 1',
+							privateTokenCipher: sealGridspaceSecret(this.enabled(), input.reverseToken!, `private:${link.id}:${link.generation}`),
+						});
+					});
+				}
+			}
+			if (action === 'authorize') {
+				if (current.privateMutualGrantId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+				await this.db.transaction(async manager => {
+					await this.deletePrivateBinding(manager, current, hash);
+					await manager.getRepository(MiGridspaceLink).update({ id: link.id, generation: link.generation, state: 'active' }, { privateTokenHash: hash, privateRevision: () => '"privateRevision" + 1' });
+				});
+			}
 			if (action === 'revoke') {
-				await this.db.getRepository(MiGridspaceLink).update({ id: link.id, generation: link.generation, privateTokenHash: gridspaceHash(input.accessToken!) }, { privateTokenHash: null });
-				await this.db.getRepository(MiAccessToken).delete({ token: input.accessToken, userId: link.localUserId, name: this.enabled().peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH });
+				if (current.privateTokenHash === hash && (current.privateMutualGrantId ?? null) === (input.pairId ?? null)) {
+					await links.update(link.id, { privateTokenHash: null, privateRevision: () => '"privateRevision" + 1', ...(current.privateMutualGrantId ? { privateTokenCipher: null } : {}) });
+					if (current.privateMutualGrantId) await this.db.getRepository(MiGridspaceAuthSession).delete({ localUserId: link.localUserId, purpose: In(['private', 'private-mutual']) });
+				}
+				await tokens.delete({ token: input.accessToken, userId: link.localUserId, name: this.enabled().peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH });
 			}
 			return { ok: true };
 		});
@@ -326,9 +389,9 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 	public async finishPrivate(user: MiLocalUser, input: { state: string; clientKey: string; code: string; issuer: string }): Promise<void> {
 		const peer = this.enabled();
 		if (input.issuer !== peer.peerOrigin) throw new GridspaceLinkError('INVALID_CALLBACK');
-		await this.guard.run(user.id, async () => {
+		const prepared = await this.guard.run(user.id, async () => {
 			const sessions = this.db.getRepository(MiGridspaceAuthSession);
-			const session = await sessions.findOneBy({ purpose: 'private', localUserId: user.id, stateHash: gridspaceHash(input.state), clientHash: gridspaceHash(input.clientKey) });
+			const session = await sessions.findOneBy({ purpose: In(['private', 'private-mutual']), localUserId: user.id, stateHash: gridspaceHash(input.state), clientHash: gridspaceHash(input.clientKey) });
 			const link = await this.privateLink(user.id);
 			if (!session || session.completed || link.privateRevocationCipher || session.expiresAt.getTime() < Date.now() || session.linkId !== link.id || session.generation !== link.generation) throw new GridspaceLinkError('INVALID_CALLBACK');
 			if (!session.tokenCipher) {
@@ -343,15 +406,67 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 				await sessions.update(session.id, { tokenCipher: session.tokenCipher });
 			}
 			const accessToken = openGridspaceSecret(peer, session.tokenCipher, session.id);
-			await this.json('/gridspace/v1/private/authorize', { linkId: link.id, generation: link.generation, localUserId: user.id, accessToken });
-			await this.db.getRepository(MiGridspaceLink).update({ id: link.id, generation: link.generation, state: 'active' }, { privateTokenCipher: sealGridspaceSecret(peer, accessToken, `private:${link.id}:${link.generation}`) });
-			await sessions.update(session.id, { completed: true, tokenCipher: null, verifierCipher: '' });
+			return { session, link, accessToken };
 		});
+		const { session, link, accessToken } = prepared;
+		const credential = { linkId: link.id, generation: link.generation, localUserId: user.id, accessToken };
+		if (session.purpose === 'private-mutual') {
+			const probe = session.privateGrant ? null : await this.json<{ revision: number }>('/gridspace/v1/private/mutual-probe', credential);
+			const grant = await this.guard.run(user.id, async () => {
+				const current = await this.privateSession(session);
+				const saved = await this.db.getRepository(MiGridspaceAuthSession).findOneByOrFail({ id: session.id });
+				if (saved.privateGrant) {
+					const token = await this.db.getRepository(MiAccessToken).findOneBy({ id: saved.privateGrant.reverseTokenId, userId: user.id });
+					if (!token || current.privateMutualGrantId !== session.id || current.privateTokenHash !== gridspaceHash(token.token) || this.privateCredential(current).accessToken !== accessToken) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+					return { reverseToken: token.token, expectedRevision: saved.privateGrant.expectedPeerRevision };
+				}
+				if (!probe || !Number.isSafeInteger(probe.revision) || current.privateRevision !== link.privateRevision) throw new GridspaceLinkError('LINK_CONFLICT');
+				const token = randomBytes(32).toString('base64url');
+				const tokenId = this.ids.gen();
+				await this.db.transaction(async manager => {
+					await this.deletePrivateBinding(manager, current);
+					// No MiAuth session: these credentials must never be retrievable anonymously.
+					await manager.getRepository(MiAccessToken).insert({ id: tokenId, userId: user.id, token, hash: token, fetched: true,
+						name: peer.peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH, permission: [GRIDSPACE_PRIVATE_SCOPE] });
+					await manager.getRepository(MiGridspaceLink).update(link.id, { privateMutualGrantId: session.id, privateMutualReady: false, privateTokenHash: gridspaceHash(token), privateRevision: () => '"privateRevision" + 1',
+						privateTokenCipher: sealGridspaceSecret(peer, accessToken, `private:${link.id}:${link.generation}`) });
+					await manager.getRepository(MiGridspaceAuthSession).update(session.id, { privateGrant: { reverseTokenId: tokenId, expectedPeerRevision: probe.revision } });
+				});
+				return { reverseToken: token, expectedRevision: probe.revision };
+			});
+			// Peer calls never hold the local user's guard: simultaneous flows cannot deadlock.
+			await this.json('/gridspace/v1/private/reciprocal', { ...credential, pairId: session.id, ...grant });
+			await this.json('/gridspace/v1/private/pair-check', { ...credential, pairId: session.id });
+		} else {
+			if (link.privateMutualGrantId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			await this.json('/gridspace/v1/private/authorize', credential);
+		}
+		await this.guard.run(user.id, async () => {
+			const current = await this.privateSession(session);
+			if (session.purpose === 'private-mutual') {
+				if (current.privateMutualGrantId !== session.id || this.privateCredential(current).accessToken !== accessToken) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			} else {
+				if (current.privateMutualGrantId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+				await this.db.getRepository(MiGridspaceLink).update(link.id, { privateTokenCipher: sealGridspaceSecret(peer, accessToken, `private:${link.id}:${link.generation}`), privateRevision: () => '"privateRevision" + 1' });
+			}
+			await this.db.transaction(async manager => {
+				const completed = await manager.getRepository(MiGridspaceAuthSession).update({ id: session.id, completed: false }, { completed: true, tokenCipher: null, verifierCipher: '' });
+				if (!completed.affected) throw new GridspaceLinkError('INVALID_CALLBACK');
+				if (session.purpose === 'private-mutual') await manager.getRepository(MiGridspaceLink).update(link.id, { privateMutualReady: true });
+			});
+		});
+	}
+
+	private async privateSession(session: MiGridspaceAuthSession) {
+		const saved = await this.db.getRepository(MiGridspaceAuthSession).findOneBy({ id: session.id, completed: false });
+		const link = await this.privateLink(session.localUserId);
+		if (!saved || saved.expiresAt.getTime() < Date.now() || link.id !== session.linkId || link.generation !== session.generation || link.privateRevocationCipher) throw new GridspaceLinkError('INVALID_CALLBACK');
+		return link;
 	}
 
 	public privateCredential(link: MiGridspaceLink): GridspacePeerLinkRequest {
 		if (!link.privateTokenCipher) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-		return { linkId: link.id, generation: link.generation, localUserId: link.localUserId,
+		return { linkId: link.id, generation: link.generation, localUserId: link.localUserId, ...(link.privateMutualGrantId ? { pairId: link.privateMutualGrantId } : {}),
 			accessToken: openGridspaceSecret(this.enabled(), link.privateTokenCipher, `private:${link.id}:${link.generation}`) };
 	}
 
@@ -362,7 +477,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 
 	public async privateStatus(user: MiLocalUser) {
 		const peer = this.peer;
-		const result = { enabled: !!peer, granted: false, available: true, peerOrigin: peer?.peerOrigin ?? null, authorizationUrl: null as string | null, clientKey: null as string | null };
+		const result = { enabled: !!peer, granted: false, mutual: false, available: true, peerOrigin: peer?.peerOrigin ?? null, authorizationUrl: null as string | null, clientKey: null as string | null };
 		if (!peer) return result;
 		try {
 			const link = await this.privateLink(user.id);
@@ -371,6 +486,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 			await this.json('/gridspace/v1/private/check', this.privateCredential(link));
 			await this.checkPrivateUnchanged(link);
 			result.granted = true;
+			result.mutual = !!link.privateMutualGrantId;
 		} catch (error) {
 			if (!(error instanceof GridspaceLinkError) || error.code === 'PEER_UNAVAILABLE') result.available = false;
 			else result.granted = false;
@@ -379,15 +495,17 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 	}
 
 	public async revokePrivate(user: MiLocalUser) {
-		await this.guard.run(user.id, async () => {
-			await this.db.getRepository(MiGridspaceAuthSession).delete({ localUserId: user.id, purpose: 'private' });
+		const pendingLink = await this.guard.run(user.id, async () => {
+			await this.db.getRepository(MiGridspaceAuthSession).delete({ localUserId: user.id, purpose: In(['private', 'private-mutual']) });
 			const link = await this.privateLink(user.id);
 			const pending = link.privateTokenCipher ?? link.privateRevocationCipher;
-			await this.db.getRepository(MiGridspaceLink).update(link.id, { privateTokenCipher: null, privateRevocationCipher: pending });
-			if (pending) {
-				try { await this.sendPrivateRevocation({ ...link, privateRevocationCipher: pending }); } catch { throw new GridspaceLinkError('REVOKE_PENDING'); }
-			}
+			await this.db.transaction(async manager => {
+				if (link.privateMutualGrantId) await this.deletePrivateBinding(manager, link);
+				await manager.getRepository(MiGridspaceLink).update(link.id, { privateTokenCipher: null, privateRevocationCipher: pending, privateRevision: () => '"privateRevision" + 1', ...(link.privateMutualGrantId ? { privateTokenHash: null } : {}) });
+			});
+			return { ...link, privateRevocationCipher: pending };
 		});
+		try { await this.sendPrivateRevocation(pendingLink); } catch { throw new GridspaceLinkError('REVOKE_PENDING'); }
 	}
 
 	private async sendPrivateRevocation(link: MiGridspaceLink) {

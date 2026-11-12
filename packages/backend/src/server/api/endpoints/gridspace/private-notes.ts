@@ -6,7 +6,7 @@
 import { Injectable } from '@nestjs/common';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { ApiError } from '@/server/api/error.js';
-import { GridspaceLinkError } from '@/core/gridspace/GridspaceLinkService.js';
+import { GridspaceLinkError, GridspaceLinkService } from '@/core/gridspace/GridspaceLinkService.js';
 import { GridspacePrivateService } from '@/core/gridspace/GridspacePrivateService.js';
 import { privateNoteSchema, privateOptionsSchema } from '@/core/gridspace/private-protocol.js';
 
@@ -27,10 +27,13 @@ export const paramDef = {
 
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
-	constructor(private reader: GridspacePrivateService) {
-		super(meta, paramDef, async (ps, me) => {
+	constructor(private reader: GridspacePrivateService, private links: GridspaceLinkService) {
+		super(meta, paramDef, async (ps, me, token) => {
 			const { cursor, limit, ...options } = ps;
-			try { return await this.reader.notes(me, options, limit, cursor); } catch (error) {
+			try {
+				this.links.assertPrivateCaller(token);
+				return await this.reader.notes(me, options, limit, cursor);
+			} catch (error) {
 				if (error instanceof GridspaceLinkError) throw new ApiError(meta.errors.unavailable, { reason: error.code });
 				throw error;
 			}

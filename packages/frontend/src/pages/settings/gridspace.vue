@@ -30,7 +30,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<section v-if="status.state === 'active'" class="_gaps_s">
 				<h2>{{ i18n.ts._gridspace.privateTitle }}</h2>
 				<p>{{ i18n.ts._gridspace.privateConsent }}</p>
-				<MkInfo v-if="readGrant?.granted">{{ i18n.ts._gridspace.privateGranted }}</MkInfo>
+				<MkInfo v-if="readGrant && !readGrant.available" warn>{{ i18n.ts._gridspace.connectionError }}</MkInfo>
+				<MkInfo v-else-if="readGrant?.granted">{{ readGrant.mutual ? i18n.ts._gridspace.privateMutualGranted : i18n.ts._gridspace.privateLegacyGrant }}</MkInfo>
 				<div class="_buttons">
 					<MkButton :disabled="busy" @click="startPrivate">{{ i18n.ts._gridspace.privateAuthorize }}</MkButton>
 					<MkButton v-if="readGrant?.granted" danger :disabled="busy" @click="revokePrivate">{{ i18n.ts._gridspace.privateRevoke }}</MkButton>

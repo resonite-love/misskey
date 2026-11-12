@@ -50,6 +50,7 @@ export const followersVisibilities = ['public', 'followers', 'private'] as const
 export const permissions = [
 	'read:account',
 	'read:gridspace-private',
+	'read:gridspace-private-reciprocal',
 	'write:account',
 	'read:blocks',
 	'write:blocks',

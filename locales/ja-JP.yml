@@ -2517,6 +2517,7 @@ _2fa:
 _permissions:
   "read:account": "アカウントの情報を見る"
   "read:gridspace-private": "連携したアカウントの権限で限定投稿と添付ファイルを閲覧・検索する"
+  "read:gridspace-private-reciprocal": "連携した両アカウントから、お互いの権限で限定投稿を閲覧・検索できるようにする"
   "write:account": "アカウントの情報を変更する"
   "read:blocks": "ブロックを見る"
   "write:blocks": "ブロックを操作する"
@@ -3662,9 +3663,11 @@ _autoTranslation:
   failed: "翻訳できなかったため、原文を表示しています。"
 _gridspace:
   privateTitle: "連携先の権限で読む投稿"
-  privateConsent: "連携先のアカウントが読める限定公開の投稿と添付ファイルを、このアカウントから閲覧・検索できるようにします。追加の認可が必要です。投稿や返信の権限は含みません。"
-  privateAuthorize: "連携先で閲覧を許可する"
+  privateConsent: "一度の許可で、連携した両アカウントからお互いの権限で限定投稿と添付ファイルを閲覧・検索できるようにします。対象は連携した本人のアカウントだけです。投稿や返信の権限は含みません。解除すると両方向の閲覧が止まります。"
+  privateAuthorize: "両アカウントでの閲覧を許可する"
   privateGranted: "限定投稿の閲覧が許可されています。"
+  privateMutualGranted: "両アカウントからの閲覧が許可されています。"
+  privateLegacyGrant: "現在の許可は片方向です。両アカウントでの閲覧を許可すると、連携先からも読めるようになります。"
   privateRevoke: "限定投稿の閲覧を解除する"
   privateHome: "連携先の限定投稿を読む"
   privateScope: "連携先のアカウントで読める限定投稿です。本文・CWを検索でき、添付ファイルも閲覧できます。表示中の投稿は定期的に権限を確認します。"

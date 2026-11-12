@@ -15,7 +15,7 @@ export const meta = {
 	limit: { duration: 60000, max: 30 },
 	errors: { unavailable: { message: 'Private reading authorization is unavailable.', code: 'GRIDSPACE_PRIVATE_UNAVAILABLE', id: 'b5a87ddd-39f1-4e4c-a962-eacbbdb045bf' } },
 	res: { type: 'object', optional: false, nullable: false, properties: {
-		enabled: flag, granted: flag, available: flag, peerOrigin: text, authorizationUrl: text, clientKey: text,
+		enabled: flag, granted: flag, mutual: flag, available: flag, peerOrigin: text, authorizationUrl: text, clientKey: text,
 	} },
 } as const;
 export const paramDef = {
@@ -32,7 +32,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		super(meta, paramDef, async (ps, me) => {
 			try {
 				let authorization: { authorizationUrl: string; clientKey: string } | null = null;
-				if (ps.action === 'start') authorization = await this.links.start(me, 'private');
+				if (ps.action === 'start') authorization = await this.links.start(me, 'private-mutual');
 				if (ps.action === 'finish') {
 					if (!ps.state || !ps.code || !ps.issuer || !ps.clientKey) throw new GridspaceLinkError('INVALID_CALLBACK');
 					await this.links.finishPrivate(me, { state: ps.state, code: ps.code, issuer: ps.issuer, clientKey: ps.clientKey });

@@ -27,6 +27,9 @@ export class MiGridspaceLink {
 	@Column('text', { nullable: true }) public privateTokenCipher: string | null;
 	@Column('text', { nullable: true }) public privateRevocationCipher: string | null;
 	@Column('varchar', { length: 64, nullable: true }) public privateTokenHash: string | null;
+	@Column('uuid', { nullable: true }) public privateMutualGrantId: string | null;
+	@Column('integer', { default: 0 }) public privateRevision: number;
+	@Column('boolean', { default: false }) public privateMutualReady: boolean;
 	@Column('jsonb', { nullable: true }) public snapshot: GridspaceSnapshotItem[] | null;
 	@Column('timestamp with time zone', { nullable: true }) public snapshotAt: Date | null;
 	@Column('timestamp with time zone') public createdAt: Date;
@@ -36,7 +39,8 @@ export class MiGridspaceLink {
 @Entity('gridspace_auth_session')
 export class MiGridspaceAuthSession {
 	@PrimaryColumn('uuid') public id: string;
-	@Column('varchar', { length: 16, default: 'link' }) public purpose: 'link' | 'private';
+	@Column('varchar', { length: 16, default: 'link' }) public purpose: 'link' | 'private' | 'private-mutual';
+	@Column('jsonb', { nullable: true }) public privateGrant: { reverseTokenId: string; expectedPeerRevision: number } | null;
 	@Index() @Column(id()) public localUserId: string;
 	@ManyToOne(() => MiUser, { onDelete: 'CASCADE' }) @JoinColumn() public localUser: MiUser | null;
 	@Index({ unique: true }) @Column('varchar', { length: 64 }) public stateHash: string;

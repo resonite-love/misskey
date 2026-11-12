@@ -31,6 +31,7 @@ if (phase === 'prepare') {
 } else {
 	await eventually('Peer recovery', async () => { try { await api(r, 'ping'); return true; } catch { return false; } }, 60000);
 	await denied(read());
+	assert.equal((await api(r, 'gridspace/private-grant', {}, fixture.resonite.token)).granted, false);
 	let started;
 	await eventually('Queued grant revocation delivered', async () => {
 		try { started = await api(g, 'gridspace/private-grant', { action: 'start' }, fixture.grid.token); return true; } catch { return false; }
@@ -42,6 +43,7 @@ if (phase === 'prepare') {
 	assert.equal(response.status, 302); const callback = new URL(response.headers.get('location'));
 	await api(g, 'gridspace/private-grant', { action: 'finish', code: callback.searchParams.get('code'), state: callback.searchParams.get('state'), issuer: callback.searchParams.get('iss'), clientKey: started.clientKey }, fixture.grid.token);
 	assert.ok((await read()).notes.length);
+	assert.equal((await api(r, 'gridspace/private-grant', {}, fixture.resonite.token)).mutual, true);
 	await denied(read({ cursor: JSON.parse(readFileSync(statePath, 'utf8')).cursor }));
 	console.log('Recovery delivers pending revocation; only fresh consent enables reads, and the old cursor stays invalid PASS');
 }

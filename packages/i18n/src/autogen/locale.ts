@@ -9573,6 +9573,10 @@ export interface Locale extends ILocale {
          */
         "read:gridspace-private": string;
         /**
+         * 連携した両アカウントから、お互いの権限で限定投稿を閲覧・検索できるようにする
+         */
+        "read:gridspace-private-reciprocal": string;
+        /**
          * アカウントの情報を変更する
          */
         "write:account": string;
@@ -13684,17 +13688,25 @@ export interface Locale extends ILocale {
          */
         "privateTitle": string;
         /**
-         * 連携先のアカウントが読める限定公開の投稿と添付ファイルを、このアカウントから閲覧・検索できるようにします。追加の認可が必要です。投稿や返信の権限は含みません。
+         * 一度の許可で、連携した両アカウントからお互いの権限で限定投稿と添付ファイルを閲覧・検索できるようにします。対象は連携した本人のアカウントだけです。投稿や返信の権限は含みません。解除すると両方向の閲覧が止まります。
          */
         "privateConsent": string;
         /**
-         * 連携先で閲覧を許可する
+         * 両アカウントでの閲覧を許可する
          */
         "privateAuthorize": string;
         /**
          * 限定投稿の閲覧が許可されています。
          */
         "privateGranted": string;
+        /**
+         * 両アカウントからの閲覧が許可されています。
+         */
+        "privateMutualGranted": string;
+        /**
+         * 現在の許可は片方向です。両アカウントでの閲覧を許可すると、連携先からも読めるようになります。
+         */
+        "privateLegacyGrant": string;
         /**
          * 限定投稿の閲覧を解除する
          */

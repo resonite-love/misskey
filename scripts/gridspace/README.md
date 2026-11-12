@@ -148,10 +148,13 @@ node scripts/gridspace/test-search-ui.mjs
 
 ```powershell
 node scripts/gridspace/test-private.mjs
+node scripts/gridspace/test-mutual.mjs
 node scripts/gridspace/test-private-ui.mjs
 ```
 
 実 OAuth で追加認可し、フォロワー限定・宛先限定の閲覧と検索、呼び出し元のスコープ、本文・CW・添付、解除・失効、両方向の取得を確かめる。専用アカウントと履歴行を作り、一時ロールは終了時に削除する。認証情報は Git 管理外の `.config/gridspace-private-test-accounts.json` に保存する。画面試験は Chrome を使い、画像を `.config/private-search-*.png` に保存する。
+
+`test-mutual.mjs` は直前に作った専用アカウントを使う。一度の認可での両方向の許可、通信境界の保存状態からの再試行、解除後の遅延要求、両側からの同時認可、通常のトークン削除を確認する。テスト中はそのアカウントの認可状態を変更し、終了時に新しい相互認可を残す。
 
 実際の停止・復旧は `node scripts/gridspace/test-private-outage.mjs prepare`、R の Misskey プロセスを停止して `during`、再起動して `after` の順に行う。停止中の閲覧拒否と許可取り消し、復旧後の失効通知の再送を確認する。最後にテストアカウントだけを再認可する。DB・Redis・トンネルは停止しない。
 

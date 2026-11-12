@@ -86,8 +86,8 @@ try {
 	await api(g, 'gridspace/private-grant', flow, gu.token);
 	await denied(api(g, 'gridspace/private-grant', flow, gu.token));
 	assert.equal((await api(g, 'gridspace/private-grant', {}, gu.token)).granted, true);
-	assert.equal((await api(r, 'gridspace/private-grant', {}, ru.token)).granted, false, 'Consent leaked into the reverse direction');
-	console.log('Additional OAuth consent, browser/user/issuer binding, replay and independent directions PASS');
+	assert.equal((await api(r, 'gridspace/private-grant', {}, ru.token)).mutual, true, 'One consent must also grant reverse reading');
+	console.log('Additional OAuth consent, browser/user/issuer binding, replay and reciprocal consent PASS');
 
 	const seen = []; let page = await read(gu, { limit: 3 }); const cursor = page.cursor;
 	assert.ok(cursor);
@@ -193,14 +193,15 @@ try {
 	await api(g, 'gridspace/private-grant', { action: 'revoke' }, gu.token);
 	await denied(api(g, 'gridspace/private-grant', pending, gu.token));
 	await denied(read(gu));
+	assert.equal((await api(r, 'gridspace/private-grant', {}, ru.token)).granted, false);
 	assert.equal((await api(g, 'gridspace/link', {}, gu.token)).state, 'active');
 	await consent(g, r, gu, ru, 'gridspace/private-grant');
 	await denied(read(gu, { cursor }));
 	await r.db.query('DELETE FROM access_token WHERE "userId"=$1 AND name=$2', [ru.id, `${g.origin}/gridspace/v1/private-oauth-client`]);
 	await denied(read(gu));
+	assert.equal((await api(r, 'gridspace/private-grant', {}, ru.token)).granted, false);
 	await consent(g, r, gu, ru, 'gridspace/private-grant');
 	const reverse = await post(g, gu, { visibility: 'specified', visibleUserIds: [gu.id], text: `${query} reverse` });
-	await consent(r, g, ru, gu, 'gridspace/private-grant');
 	assert.equal((await api(r, 'gridspace/private-notes', { mode: 'show', noteId: reverse.id }, ru.token)).notes[0].id, reverse.id);
 	console.log('Read-only revocation, pending callback/cursor invalidation, provider token revocation and reverse reads PASS');
 	const stale = await consent(g, r, gu, ru, 'gridspace/private-grant', false);
@@ -209,7 +210,6 @@ try {
 	await denied(read(gu));
 	assert.equal((await api(r, 'gridspace/private-grant', {}, ru.token)).granted, false);
 	await consent(g, r, gu, ru, 'gridspace/private-grant');
-	await consent(r, g, ru, gu, 'gridspace/private-grant');
 	console.log('Link generation change invalidates both read grants and pending consent PASS');
 
 	// Leave a usable authorized fixture for browser verification and manual checks.

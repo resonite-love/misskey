@@ -25062,6 +25062,7 @@ export interface operations {
                     'application/json': {
                         enabled: boolean;
                         granted: boolean;
+                        mutual: boolean;
                         available: boolean;
                         peerOrigin: string | null;
                         authorizationUrl: string | null;
