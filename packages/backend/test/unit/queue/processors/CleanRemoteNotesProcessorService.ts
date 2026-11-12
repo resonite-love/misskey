@@ -81,6 +81,7 @@ describe('CleanRemoteNotesProcessorService', () => {
 				text: `note_${id}`,
 				userId: user.id,
 				userHost: user.host,
+				uri: user.host ? `https://${user.host}/notes/${id}` : null,
 				visibility: 'public',
 				...data,
 			})
@@ -234,6 +235,14 @@ describe('CleanRemoteNotesProcessorService', () => {
 	});
 
 	describe('advanced', () => {
+		test('preserves source originals by remote authors while deleting remote cache', async () => {
+			const time = Date.now() - ms(`${meta.remoteNotesCleaningExpiryDaysForEachNotes} days`) - 1000;
+			const original = await createNote({ uri: null, localOnly: true }, bob, time);
+			const cached = await createNote({}, bob, time - 1000);
+			await service.process(createMockJob() as any);
+			expect(await notesRepository.findOneBy({ id: original.id })).not.toBeNull();
+			expect(await notesRepository.findOneBy({ id: cached.id })).toBeNull();
+		});
 		// お気に入り
 		test('should not delete note that is favorited by any user', async () => {
 			const job = createMockJob();

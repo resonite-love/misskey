@@ -31,7 +31,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<section v-if="status.state === 'active'" class="_gaps_s">
 				<h2>{{ i18n.ts._gridspace.linkPermissions }}</h2>
 				<MkInfo v-if="readGrant && !readGrant.available" warn>{{ i18n.ts._gridspace.connectionError }}</MkInfo>
-				<MkInfo v-else-if="readGrant?.granted && readGrant.canReply && readGrant.canInteract && readGrant.canReadNotifications">{{ i18n.ts._gridspace.allGranted }}</MkInfo>
+				<MkInfo v-else-if="readGrant?.granted && readGrant.canReply && readGrant.canInteract && readGrant.canReadNotifications && readGrant.canWriteChannels">{{ i18n.ts._gridspace.allGranted }}</MkInfo>
 				<MkInfo v-else>{{ i18n.ts._gridspace.upgradePermissions }}</MkInfo>
 				<MkButton v-if="!status.initiator" :disabled="busy" @click="startPrivate">{{ i18n.ts._gridspace.authorizeAll }}</MkButton>
 				<MkInfo v-if="paletteCopied">{{ i18n.ts._gridspace.paletteCopied }}</MkInfo>

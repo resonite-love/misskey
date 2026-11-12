@@ -45,8 +45,8 @@ export class ExtendedReactionService {
 	}
 
 	/** The caller must hold the ordinary reaction lock; peer access is checked by GridspaceReactionService. */
-	public async createUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false) {
-		if (user.host !== null || (note.userHost !== null && !allowPeerNote)) throw new IdentifiableError('extended-local-only');
+	public async createUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false, allowChannelActor = false) {
+		if ((user.host !== null && !(allowChannelActor && note.channelId)) || (note.userHost !== null && !allowPeerNote && !(allowChannelActor && note.channelId))) throw new IdentifiableError('extended-local-only');
 		const reaction = await this.reactionService.resolveReaction(user, note, input);
 		const primary = await this.db.getRepository(MiNoteReaction).findOneBy({ userId: user.id, noteId: note.id });
 		const repository = this.db.getRepository(MiExtendedNoteReaction);
@@ -71,8 +71,8 @@ export class ExtendedReactionService {
 	}
 
 	/** The caller must hold the ordinary reaction lock. */
-	public async deleteUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false) {
-		if (user.host !== null || (note.userHost !== null && !allowPeerNote)) throw new IdentifiableError('extended-local-only');
+	public async deleteUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false, allowChannelActor = false) {
+		if ((user.host !== null && !(allowChannelActor && note.channelId)) || (note.userHost !== null && !allowPeerNote && !(allowChannelActor && note.channelId))) throw new IdentifiableError('extended-local-only');
 		if (!await this.noteEntityService.isVisibleForMe(note, user.id)) {
 			throw new IdentifiableError('68e9d2d1-48bf-42c2-b90a-b20e09fd3d48');
 		}

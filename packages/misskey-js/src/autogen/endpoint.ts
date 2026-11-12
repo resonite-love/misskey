@@ -406,6 +406,12 @@ import type {
 	GalleryPostsUpdateResponse,
 	GetAvatarDecorationsResponse,
 	GetOnlineUsersCountResponse,
+	GridspaceChannelDeleteRequest,
+	GridspaceChannelDeleteResponse,
+	GridspaceChannelPostRequest,
+	GridspaceChannelPostResponse,
+	GridspaceChannelsRequest,
+	GridspaceChannelsResponse,
 	GridspaceHistoryRequest,
 	GridspaceHistoryResponse,
 	GridspaceLinkRequest,
@@ -981,6 +987,9 @@ export type Endpoints = {
 	'gallery/posts/update': { req: GalleryPostsUpdateRequest; res: GalleryPostsUpdateResponse };
 	'get-avatar-decorations': { req: EmptyRequest; res: GetAvatarDecorationsResponse };
 	'get-online-users-count': { req: EmptyRequest; res: GetOnlineUsersCountResponse };
+	'gridspace/channel-delete': { req: GridspaceChannelDeleteRequest; res: GridspaceChannelDeleteResponse };
+	'gridspace/channel-post': { req: GridspaceChannelPostRequest; res: GridspaceChannelPostResponse };
+	'gridspace/channels': { req: GridspaceChannelsRequest; res: GridspaceChannelsResponse };
 	'gridspace/history': { req: GridspaceHistoryRequest; res: GridspaceHistoryResponse };
 	'gridspace/link': { req: GridspaceLinkRequest; res: GridspaceLinkResponse };
 	'gridspace/member': { req: GridspaceMemberRequest; res: GridspaceMemberResponse };

@@ -81,7 +81,7 @@ export class GridspaceSearchService {
 		return query.orderBy('user.id', 'DESC');
 	}
 
-	public noteQuery(viewer: { id: string } | null, options: SearchOptions, source: boolean, authenticated = viewer != null) {
+	public noteQuery(viewer: { id: string } | null, options: SearchOptions, source: boolean, authenticated = viewer != null, channelId?: string) {
 		const query = this.db.getRepository(MiNote).createQueryBuilder('note')
 			.innerJoinAndSelect('note.user', 'user')
 			.leftJoinAndSelect('note.channel', 'channel')
@@ -101,12 +101,14 @@ export class GridspaceSearchService {
 			// a recipient of a specified note and must not reveal a search match.
 			query.andWhere("(note.visibility != 'specified' OR note.userId = :privacyViewer OR :privacyViewer = ANY(note.visibleUserIds))");
 			if (!viewer) this.queries.generateUgcVisibilityQueryForVisitor(query);
-			query.andWhere('(note.channelId IS NULL OR channel.isSensitive = false OR note.userId = :channelAuthor)', { channelAuthor: viewer?.id ?? null });
+			if (channelId) query.andWhere('note.channelId = :openedChannel', { openedChannel: channelId });
+			else query.andWhere('(note.channelId IS NULL OR channel.isSensitive = false OR note.userId = :channelAuthor)', { channelAuthor: viewer?.id ?? null });
 		}
 		if (viewer) {
 			query.andWhere(`NOT EXISTS (SELECT 1 FROM blocking b WHERE b."blockerId" = :viewer
 				AND b."blockeeId" IN (note."userId", note."replyUserId", note."renoteUserId", renote."userId", renote."replyUserId", renote."renoteUserId"))`, { viewer: viewer.id });
 			query.andWhere(`NOT EXISTS (SELECT 1 FROM channel_muting cm WHERE cm."userId" = :viewer
+				${channelId ? 'AND cm."channelId" != :openedChannel' : ''}
 				AND cm."channelId" IN (note."channelId", note."renoteChannelId")
 				AND (cm."expiresAt" IS NULL OR cm."expiresAt" > CURRENT_TIMESTAMP))`);
 		}

@@ -36,6 +36,7 @@ export class CleanRemoteFilesProcessorService {
 
 		const total = await this.driveFilesRepository.countBy({
 			userHost: Not(IsNull()),
+			uri: Not(IsNull()),
 			isLink: false,
 		});
 
@@ -43,6 +44,7 @@ export class CleanRemoteFilesProcessorService {
 			const files = await this.driveFilesRepository.find({
 				where: {
 					userHost: Not(IsNull()),
+					uri: Not(IsNull()),
 					isLink: false,
 					...(cursor ? { id: MoreThan(cursor) } : {}),
 				},

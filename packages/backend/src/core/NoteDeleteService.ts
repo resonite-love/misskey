@@ -6,7 +6,7 @@
 import { canonicalGridspaceNoteUri } from '@/core/gridspace/note-protocol.js';
 import { randomUUID } from 'node:crypto';
 import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone } from '@/models/Gridspace.js';
-import { DataSource, Brackets, In, IsNull, Not } from 'typeorm';
+import { DataSource, Brackets, In, IsNull, Not, type EntityManager } from 'typeorm';
 import { Injectable, Inject } from '@nestjs/common';
 import type { MiUser, MiLocalUser, MiRemoteUser } from '@/models/User.js';
 import { MiNote, type IMentionedRemoteUsers } from '@/models/Note.js';
@@ -64,7 +64,23 @@ export class NoteDeleteService {
 	 * @param user 投稿者
 	 * @param note 投稿
 	 */
-	async delete(user: { id: MiUser['id']; uri: MiUser['uri']; host: MiUser['host']; isBot: MiUser['isBot']; }, note: MiNote, quiet = false, deleter?: MiUser) {
+	async delete(user: { id: MiUser['id']; uri: MiUser['uri']; host: MiUser['host']; isBot: MiUser['isBot']; }, note: MiNote, quiet = false, deleter?: MiUser, beforeDelete?: (manager: EntityManager) => Promise<void>) {
+		const remove = () => this.db.transaction(async manager => {
+			await beforeDelete?.(manager);
+			const current = await manager.findOne(MiNote, { where: { id: note.id, userId: user.id }, lock: { mode: 'pessimistic_write' } });
+			if (!current) return false;
+			if (current.gridspaceShared && user.host == null && this.config.gridspace?.peerUrl) {
+				await manager.upsert(MiGridspaceNoteDelivery, { noteId: note.id, version: randomUUID(), peerOrigin: new URL(this.config.gridspace.peerUrl).origin, retryAt: new Date(), attempts: 0 }, ['noteId']);
+			}
+			if (current.gridspaceShared && current.uri) {
+				await manager.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', ['gridspace-note:' + canonicalGridspaceNoteUri(current.uri, this.config.gridspace?.peerUrl)]);
+				await manager.upsert(MiGridspaceNoteTombstone, { uri: canonicalGridspaceNoteUri(current.uri, this.config.gridspace?.peerUrl) }, ['uri']);
+			}
+			await manager.delete(MiNote, { id: note.id, userId: user.id });
+			return true;
+		});
+		// Channel authorization is locked through deletion; publish effects only after commit.
+		if (beforeDelete && !await remove()) return;
 		const deletedAt = new Date();
 
 		if (note.replyId) {
@@ -114,18 +130,7 @@ export class NoteDeleteService {
 
 		this.searchService.unindexNote(note);
 
-		await this.db.transaction(async manager => {
-			const current = await manager.findOne(MiNote, { where: { id: note.id, userId: user.id }, lock: { mode: 'pessimistic_write' } });
-			if (!current) return;
-			if (current.gridspaceShared && user.host == null && this.config.gridspace?.peerUrl) {
-				await manager.upsert(MiGridspaceNoteDelivery, { noteId: note.id, version: randomUUID(), peerOrigin: new URL(this.config.gridspace.peerUrl).origin, retryAt: new Date(), attempts: 0 }, ['noteId']);
-			}
-			if (current.gridspaceShared && current.uri) {
-				await manager.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', ['gridspace-note:' + canonicalGridspaceNoteUri(current.uri, this.config.gridspace?.peerUrl)]);
-				await manager.upsert(MiGridspaceNoteTombstone, { uri: canonicalGridspaceNoteUri(current.uri, this.config.gridspace?.peerUrl) }, ['uri']);
-			}
-			await manager.delete(MiNote, { id: note.id, userId: user.id });
-		});
+		if (!beforeDelete) await remove();
 
 		if (deleter && (note.userId !== deleter.id)) {
 			const user = await this.usersRepository.findOneByOrFail({ id: note.userId });

@@ -39,7 +39,7 @@ for (const [index, repo] of repos.entries()) {
 		proxyRemoteFiles: true,
 		trustProxy: ['127.0.0.1/32', '::1/128'],
 		...(index === 2 ? {} : {
-			gridspace: { enabled: true, communityId: 'gridspace-lab', peerUrl: origins[1 - index], keyId: 'lab-v1', secretEnv: 'GRIDSPACE_LAB_PEER_KEY' },
+			gridspace: { enabled: true, communityId: 'gridspace-lab', peerUrl: origins[1 - index], keyId: 'lab-v1', secretEnv: 'GRIDSPACE_LAB_PEER_KEY', channelRole: index === 0 ? 'client' : 'source' },
 		}),
 	};
 	mkdirSync(join(repo, '.config'), { recursive: true });

@@ -16,6 +16,8 @@ import { GridspaceIdentityService } from './gridspace/GridspaceIdentityService.j
 import { GridspaceFollowExpansionService } from './gridspace/GridspaceFollowExpansionService.js';
 import { GridspaceAdminService } from './gridspace/GridspaceAdminService.js';
 import { GridspaceLinkService } from './gridspace/GridspaceLinkService.js';
+import { GridspaceChannelAuthService } from './gridspace/GridspaceChannelAuthService.js';
+import { GridspaceChannelService } from './gridspace/GridspaceChannelService.js';
 import { GridspaceFollowGuardService } from './gridspace/GridspaceFollowGuardService.js';
 import { FanoutTimelineEndpointService } from '@/core/FanoutTimelineEndpointService.js';
 import { AbuseReportService } from '@/core/AbuseReportService.js';
@@ -334,6 +336,8 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 	],
 	providers: [
 		GridspaceLinkService,
+		GridspaceChannelService,
+		GridspaceChannelAuthService,
 		GridspaceAdminService,
 		GridspaceFollowExpansionService,
 		GridspaceNoteService,
@@ -656,6 +660,8 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 	],
 	exports: [
 		GridspaceLinkService,
+		GridspaceChannelService,
+		GridspaceChannelAuthService,
 		GridspaceAdminService,
 		GridspaceFollowExpansionService,
 		GridspaceNoteService,

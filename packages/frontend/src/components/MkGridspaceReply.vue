@@ -9,7 +9,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<MkInfo v-if="error" warn role="alert">{{ error }}</MkInfo>
 	<template v-if="info && !createdId">
 		<strong>{{ i18n.tsx._gridspace.replyIdentity({ account: `@${info.account.username}@${info.account.host}` }) }}</strong>
-		<p>{{ info.visibility === 'specified' ? i18n.ts._gridspace.replySpecified : i18n.ts._gridspace.replyFollowers }}</p>
+		<p>{{ channelId ? i18n.ts._gridspace.channelPostAudience : info.visibility === 'specified' ? i18n.ts._gridspace.replySpecified : i18n.ts._gridspace.replyFollowers }}</p>
 		<div v-if="info.recipients.length">{{ i18n.ts._gridspace.replyRecipients }}: {{ info.recipients.map(person => `@${person.username}@${person.host}`).join(', ') }}</div>
 		<div v-if="info.localOnly"><i class="ti ti-rocket-off" aria-hidden="true"></i> {{ i18n.ts._gridspace.replyLocalOnly }}</div>
 		<template v-if="info.canReply">
@@ -31,17 +31,17 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</template>
 			<p v-else>{{ i18n.ts._gridspace.replyPending }}</p>
 			<MkButton v-if="pending" primary :disabled="sending" @click="send">{{ pending.action === 'status' ? i18n.ts._gridspace.replyCheck : i18n.ts._gridspace.replyRetry }}</MkButton>
-			<MkButton v-else primary :disabled="sending || (!text.trim() && !attachments.length) || Array.from(text).length > info.maxTextLength" @click="send">{{ i18n.ts._gridspace.replySend }}</MkButton>
+			<MkButton v-else primary :disabled="sending || (!text.trim() && !attachments.length) || Array.from(text).length > info.maxTextLength" @click="send">{{ channelId ? i18n.ts._gridspace.channelPostSend : i18n.ts._gridspace.replySend }}</MkButton>
 			<MkButton v-if="pending" :disabled="sending" @click="discard">{{ i18n.ts._gridspace.replyDiscard }}</MkButton>
 		</template>
 		<template v-else>
-			<p>{{ i18n.ts._gridspace.replyConsent }}</p>
+			<p>{{ channelId ? i18n.ts._gridspace.channelPostUnavailable : i18n.ts._gridspace.replyConsent }}</p>
 			<MkA to="/settings/gridspace">{{ i18n.ts._gridspace.replyAuthorize }}</MkA>
 		</template>
 	</template>
 	<template v-if="createdId">
-		<p role="status">{{ i18n.ts._gridspace.replySent }}</p>
-		<MkA :to="`/gridspace/private?noteId=${createdId}`">{{ i18n.ts._gridspace.replyOpen }}</MkA>
+		<p role="status">{{ channelId ? i18n.ts._gridspace.channelPostSent : i18n.ts._gridspace.replySent }}</p>
+		<MkA :to="`/gridspace/private?noteId=${createdId}${channelId ? `&channelId=${channelId}` : ''}`">{{ i18n.ts._gridspace.replyOpen }}</MkA>
 	</template>
 	<MkButton v-if="!info && !loading" @click="load">{{ i18n.ts.retry }}</MkButton>
 	<MkButton :disabled="sending" @click="close">{{ i18n.ts.close }}</MkButton>
@@ -60,9 +60,9 @@ import { $i } from '@/i.js';
 import { pendingReplyRequest, rememberReplyRequest, forgetReplyRequest } from '@/utility/gridspace-reply-request.js';
 import * as os from '@/os.js';
 
-const props = defineProps<{ noteId: string }>();
+const props = defineProps<{ noteId?: string; channelId?: string }>();
 const accountId = $i?.id ?? 'storybook';
-const emit = defineEmits<{ (event: 'close'): void }>();
+const emit = defineEmits<{ (event: 'close'): void; (event: 'sent'): void }>();
 const info = shallowRef<entities.GridspacePrivateReplyResponse | null>(null);
 const loading = ref(false);
 const sending = ref(false);
@@ -71,7 +71,17 @@ const text = ref('');
 const cw = ref('');
 const attachments = ref<{ file: File; comment: string; isSensitive: boolean; id?: string }[]>([]);
 const createdId = ref<string | null>(null);
-const pending = shallowRef<entities.GridspacePrivateReplyRequest | null>(null);
+type PostRequest = Omit<entities.GridspacePrivateReplyRequest, 'noteId'> & { noteId?: string; channelId?: string };
+const pending = shallowRef<PostRequest | null>(null);
+const target = () => ({ noteId: props.noteId, channelId: props.channelId });
+const operationKey = () => props.channelId ? `channel:${props.channelId}:${props.noteId ?? 'new'}` : props.noteId!;
+
+function request(input: PostRequest) {
+	return props.channelId
+		? misskeyApi('gridspace/channel-post', { ...input, channelId: props.channelId }, undefined, signal())
+		: misskeyApi('gridspace/private-reply', { ...input, noteId: props.noteId! }, undefined, signal());
+}
+
 let generation = 0;
 let controller = new AbortController();
 const signal = () => AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
@@ -85,9 +95,9 @@ async function load() {
 	clear(); error.value = ''; loading.value = true;
 	const current = generation;
 	try {
-		const requestId = pendingReplyRequest(accountId, props.noteId);
-		if (requestId) pending.value = { action: 'status', noteId: props.noteId, requestId };
-		const result = await misskeyApi('gridspace/private-reply', { action: 'prepare', noteId: props.noteId }, undefined, signal());
+		const requestId = pendingReplyRequest(accountId, operationKey());
+		if (requestId) pending.value = { action: 'status', ...target(), requestId };
+		const result = await request({ action: 'prepare', ...target() });
 		if (generation === current) info.value = result;
 	} catch { if (generation === current) error.value = i18n.ts._gridspace.replyUnavailable; } finally { if (generation === current) loading.value = false; }
 }
@@ -100,7 +110,10 @@ async function send() {
 			for (const attachment of attachments.value) {
 				if (attachment.id) continue;
 				const form = new FormData();
-				form.set('i', $i!.token); form.set('noteId', props.noteId); form.set('name', attachment.file.name);
+				form.set('i', $i!.token); form.set('name', attachment.file.name);
+				if (props.noteId) form.set('noteId', props.noteId);
+				if (props.channelId) form.set('channelId', props.channelId);
+				form.set('expectedActorUri', info.value.account.uri);
 				form.set('comment', attachment.comment); form.set('isSensitive', String(attachment.isSensitive)); form.set('file', attachment.file);
 				const response = await window.fetch(`${apiUrl}/gridspace/private-upload`, { method: 'POST', body: form, credentials: 'omit', cache: 'no-store', signal: signal() });
 				if (!response.ok) throw new Error('upload');
@@ -109,22 +122,23 @@ async function send() {
 				attachment.id = result.id;
 			}
 			const fresh = crypto.randomUUID();
-			const requestId = rememberReplyRequest(accountId, props.noteId, fresh);
+			const requestId = rememberReplyRequest(accountId, operationKey(), fresh);
 			pending.value = requestId === fresh
-				? { action: 'send', noteId: props.noteId, requestId, text: text.value, cw: cw.value || null, fileIds: attachments.value.map(file => file.id!) }
-				: { action: 'status', noteId: props.noteId, requestId };
+				? { action: 'send', ...target(), expectedActorUri: info.value.account.uri, requestId, text: text.value, cw: cw.value || null, fileIds: attachments.value.map(file => file.id!) }
+				: { action: 'status', ...target(), requestId };
 		}
-		const result = await misskeyApi('gridspace/private-reply', pending.value, undefined, signal());
+		const result = await request(pending.value);
 		if (generation !== current) return;
 		if (!result.createdNoteId) { error.value = i18n.ts._gridspace.replyPending; return; }
-		forgetReplyRequest(accountId, props.noteId, pending.value.requestId!);
+		forgetReplyRequest(accountId, operationKey(), pending.value.requestId!);
 		createdId.value = result.createdNoteId; pending.value = null; text.value = ''; cw.value = ''; attachments.value = [];
+		emit('sent');
 	} catch (err) {
 		if (generation !== current) return;
 		if (!pending.value) { error.value = i18n.ts._gridspace.replyUploadFailed; return; }
 		const reason = (err as { info?: { reason?: string } }).info?.reason;
 		if (reason === 'REPLY_REJECTED' || reason === 'RATE_LIMITED') {
-			if (pending.value?.requestId) forgetReplyRequest(accountId, props.noteId, pending.value.requestId);
+			if (pending.value?.requestId) forgetReplyRequest(accountId, operationKey(), pending.value.requestId);
 			pending.value = null; error.value = i18n.ts._gridspace.replyRejected;
 		} else { error.value = i18n.ts._gridspace.replyUncertain; }
 	} finally { if (generation === current) sending.value = false; }
@@ -150,14 +164,14 @@ async function discard() {
 	if (sending.value || !pending.value?.requestId) return;
 	const request = pending.value;
 	if ((await os.confirm({ type: 'warning', text: i18n.ts._gridspace.replyCloseUncertain })).canceled) return;
-	forgetReplyRequest(accountId, request.noteId, request.requestId!);
+	forgetReplyRequest(accountId, operationKey(), request.requestId!);
 	await load();
 }
 
 function visibility() { if (window.document.hidden) { clear(); emit('close'); } }
 
 window.document.addEventListener('visibilitychange', visibility);
-watch(() => props.noteId, load, { immediate: true });
+watch(() => [props.noteId, props.channelId], load, { immediate: true });
 onDeactivated(clear);
 onBeforeUnmount(() => { clear(); window.document.removeEventListener('visibilitychange', visibility); });
 </script>

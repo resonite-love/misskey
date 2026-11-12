@@ -4,10 +4,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<section v-if="enabled || alwaysShow" class="_panel _gaps_s" :class="$style.root" data-gridspace-private :aria-label="i18n.ts._gridspace.privateTitle">
-	<div :class="$style.heading" class="_gaps_s">
-		<h2 :class="$style.title"><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateTitle }}</h2>
-		<p>{{ i18n.ts._gridspace.privateScope }}</p>
+<section v-if="enabled || alwaysShow" class="_panel _gaps_s" :class="$style.root" data-gridspace-private :aria-label="params.channelId ? i18n.ts.channel : i18n.ts._gridspace.privateTitle">
+	<div v-if="!plain || !enabled" :class="$style.heading" class="_gaps_s">
+		<h2 v-if="!plain" :class="$style.title"><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateTitle }}</h2>
+		<p v-if="!plain">{{ i18n.ts._gridspace.privateScope }}</p>
 		<MkA v-if="!enabled" to="/settings/gridspace">{{ i18n.ts._gridspace.privateAuthorize }}</MkA>
 	</div>
 	<template v-if="enabled">
@@ -33,7 +33,7 @@ import { i18n } from '@/i18n.js';
 import { $i } from '@/i.js';
 import { checkTextWordMute } from '@/utility/check-word-mute.js';
 
-const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; alwaysShow?: boolean }>();
+const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; alwaysShow?: boolean; plain?: boolean }>();
 type Note = entities.GridspacePrivateNotesResponse['notes'][number];
 const enabled = ref(false);
 const notes = ref<Note[]>([]);
@@ -68,6 +68,7 @@ async function reload() {
 	notes.value = []; cursor = undefined; hasMore.value = false; error.value = false; loading.value = false;
 	if (!$i || window.document.hidden || !active) return;
 	try {
+		if (props.params.channelId) { enabled.value = true; hasMore.value = true; await load(); return; }
 		const status = await misskeyApi('gridspace/private-grant', { action: 'status' }, undefined, AbortSignal.timeout(15000));
 		if (current !== generation) return;
 		if (!status.available) { if (status.granted || enabled.value || props.alwaysShow) { enabled.value = true; fail(); } return; }
@@ -88,8 +89,11 @@ async function revalidate() {
 	try {
 		const allowed = new Map<string, Note>();
 		if (snapshot.length === 0) {
-			const status = await misskeyApi('gridspace/private-grant', { action: 'status' }, undefined, AbortSignal.timeout(15000));
-			if (!status.granted || !status.available) throw new Error('Unavailable');
+			if (props.params.channelId) await misskeyApi('gridspace/channels', { channelId: props.params.channelId }, undefined, AbortSignal.timeout(15000));
+			else {
+				const status = await misskeyApi('gridspace/private-grant', { action: 'status' }, undefined, AbortSignal.timeout(15000));
+				if (!status.granted || !status.available) throw new Error('Unavailable');
+			}
 		}
 		for (let index = 0; index < snapshot.length; index += 100) {
 			const result = await misskeyApi('gridspace/private-notes', { ...props.params, mode: 'validate', contextMode: props.params.mode === 'validate' ? undefined : props.params.mode,
@@ -100,6 +104,18 @@ async function revalidate() {
 		if (current !== generation) return;
 		const previousIds = new Set(snapshot.map(note => note.id));
 		notes.value = notes.value.flatMap(note => previousIds.has(note.id) ? allowed.has(note.id) ? [allowed.get(note.id)!] : [] : [note]);
+		if (props.params.mode === 'channel' && !loading.value) {
+			const head = await misskeyApi('gridspace/private-notes', { ...props.params, limit: 10 }, undefined, AbortSignal.timeout(15000));
+			if (current !== generation || loading.value) return;
+			const existing = new Set(notes.value.map(note => note.id));
+			if (head.notes.some(note => existing.has(note.id))) {
+				notes.value = [...head.notes.filter(note => !existing.has(note.id)), ...notes.value];
+			} else {
+				// A busy channel may have advanced beyond the loaded head. Restart
+				// pagination at the new head instead of silently skipping that gap.
+				notes.value = head.notes; cursor = head.cursor ?? undefined; hasMore.value = head.cursor != null;
+			}
+		}
 	} catch { if (current === generation) fail(); } finally { checking = false; }
 }
 

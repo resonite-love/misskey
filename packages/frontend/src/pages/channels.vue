@@ -6,6 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <PageWithHeader v-model:tab="tab" :actions="headerActions" :tabs="headerTabs" :swipable="true">
 	<div class="_spacer" style="--MI_SPACER-w: 1200px;">
+		<MkA v-if="peerChannels" to="/gridspace/channels" :class="$style.peerChannels"><i class="ti ti-device-tv" aria-hidden="true"></i> {{ i18n.ts._gridspace.channels }}</MkA>
 		<div v-if="tab === 'search'" :class="$style.searchRoot">
 			<div class="_gaps">
 				<MkInput v-model="searchQuery" :large="true" :autofocus="true" type="search" @enter="search">
@@ -75,8 +76,17 @@ import { i18n } from '@/i18n.js';
 import { useRouter } from '@/router.js';
 import { Paginator } from '@/utility/paginator.js';
 import { $i } from '@/i.js';
+import { misskeyApi } from '@/utility/misskey-api.js';
 
 const router = useRouter();
+const peerChannels = ref(false);
+onMounted(async () => {
+	if (!$i) return;
+	try {
+		const status = await misskeyApi('gridspace/link', {}, undefined, AbortSignal.timeout(10000));
+		peerChannels.value = status.channelsEnabled;
+	} catch { /* The local channel list remains usable during a peer outage. */ }
+});
 
 type SearchType = 'nameAndDescription' | 'nameOnly';
 
@@ -165,6 +175,7 @@ definePage(() => ({
 </script>
 
 <style lang="scss" module>
+.peerChannels { display: block; padding: var(--MI-margin); margin-bottom: var(--MI-margin); background: var(--MI_THEME-panel); border-radius: var(--MI-radius); }
 .searchRoot {
 	width: 100%;
 	max-width: 700px;

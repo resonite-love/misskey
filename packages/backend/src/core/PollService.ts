@@ -56,7 +56,8 @@ export class PollService {
 
 	/** Local votes share one transactional path, including delegated old-account votes. */
 	@bindThis
-	public async castVote(user: MiLocalUser, note: MiNote, choice: number, beforeInsert?: (manager: EntityManager) => Promise<void>) {
+	public async castVote(user: MiLocalUser | MiRemoteUser, note: MiNote, choice: number, beforeInsert?: (manager: EntityManager) => Promise<void>) {
+		if (user.host !== null && !note.channelId) throw new PollVoteError('noSuchNote');
 		if (!await this.noteEntityService.isVisibleForMe(note, user.id)) throw new PollVoteError('noSuchNote');
 		if (!note.hasPoll) throw new PollVoteError('noPoll');
 		if (note.userId !== user.id && await this.userBlockingService.checkBlocked(note.userId, user.id)) throw new PollVoteError('youHaveBeenBlocked');
@@ -75,7 +76,7 @@ export class PollService {
 			return { vote, poll };
 		});
 		this.globalEventService.publishNoteStream(note, 'pollVoted', { choice, userId: user.id });
-		if (note.userHost != null) {
+		if (note.userHost != null && !note.channelId && user.host === null) {
 			const owner = await this.usersRepository.findOneByOrFail({ id: note.userId }) as MiRemoteUser;
 			this.queueService.deliver(user, this.apRendererService.addContext(await this.apRendererService.renderVote(user, result.vote, note, result.poll, owner)), owner.inbox, false);
 		}

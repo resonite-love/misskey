@@ -82,7 +82,8 @@ async function act(options: Omit<entities.GridspacePrivateActionRequest, 'noteId
 	const current = generation;
 	busy.value = true; error.value = false;
 	try {
-		const result = await misskeyApi('gridspace/private-action', { ...options, noteId: props.note.id }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
+		const result = await misskeyApi('gridspace/private-action', { ...options, noteId: props.note.id, channelId: props.note.channelId ?? undefined,
+			expectedActorUri: ['prepare', 'reaction-list'].includes(options.action ?? 'prepare') ? undefined : info.value?.account.uri }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
 		if (current !== generation) return;
 		info.value = result;
 		if (options.action === 'reaction-list') {

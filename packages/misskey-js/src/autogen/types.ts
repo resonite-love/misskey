@@ -2397,6 +2397,34 @@ export type paths = {
          */
         post: operations['get-online-users-count'];
     };
+    '/gridspace/channel-delete': {
+        /**
+         * gridspace/channel-delete
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___channel-delete'];
+    };
+    '/gridspace/channel-post': {
+        /**
+         * gridspace/channel-post
+         * @description No description provided.
+         *
+         *     **Credential required**: *Yes* / **Permission**: *write:gridspace-channel*
+         */
+        post: operations['gridspace___channel-post'];
+    };
+    '/gridspace/channels': {
+        /**
+         * gridspace/channels
+         * @description No description provided.
+         *
+         *     **Credential required**: *Yes* / **Permission**: *read:gridspace-private*
+         */
+        post: operations['gridspace___channels'];
+    };
     '/gridspace/history': {
         /**
          * gridspace/history
@@ -25159,6 +25187,286 @@ export interface operations {
             };
         };
     };
+    'gridspace___channel-delete': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    noteId: string;
+                    channelId: string;
+                    /** @default false */
+                    asCurrentAccount?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        deleted: boolean;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___channel-post': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default prepare
+                     * @enum {string}
+                     */
+                    action?: 'prepare' | 'send' | 'status';
+                    noteId?: string;
+                    channelId: string;
+                    expectedActorUri?: string;
+                    requestId?: string;
+                    text?: string;
+                    fileIds?: string[];
+                    cw?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        canAttach: boolean;
+                        canReply: boolean;
+                        account: {
+                            name: string | null;
+                            username: string;
+                            host: string;
+                            uri: string;
+                            avatarUrl: string;
+                        };
+                        /** @enum {string} */
+                        visibility: 'followers' | 'specified' | 'public';
+                        localOnly: boolean;
+                        recipients: {
+                            name: string | null;
+                            username: string;
+                            host: string;
+                            uri: string;
+                            avatarUrl: string;
+                        }[];
+                        maxTextLength: number;
+                        createdNoteId: string | null;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    gridspace___channels: {
+        requestBody: {
+            content: {
+                'application/json': {
+                    channelId?: string;
+                    query?: string;
+                    /** @default false */
+                    followed?: boolean;
+                    before?: string;
+                    /** @default 12 */
+                    limit?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        origin: string;
+                        next: string | null;
+                        channels: {
+                            id: string;
+                            name: string;
+                            description: string | null;
+                            bannerUrl: string | null;
+                            color: string;
+                            isArchived: boolean;
+                            isSensitive: boolean;
+                            isFollowing: boolean;
+                            notesCount: number;
+                        }[];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
     gridspace___history: {
         requestBody: {
             content: {
@@ -25273,6 +25581,7 @@ export interface operations {
                 content: {
                     'application/json': {
                         enabled: boolean;
+                        channelsEnabled: boolean;
                         peerOrigin: string | null;
                         state: string;
                         peerUsername: string | null;
@@ -25492,6 +25801,8 @@ export interface operations {
                                 cw: string | null;
                                 visibility: string;
                                 localOnly: boolean;
+                                channelId?: string | null;
+                                canDelete?: boolean;
                                 author: {
                                     name: string | null;
                                     username: string;
@@ -25766,6 +26077,8 @@ export interface operations {
                      */
                     action?: 'prepare' | 'react' | 'vote' | 'add-reaction' | 'remove-reaction' | 'reaction-list';
                     noteId: string;
+                    channelId?: string;
+                    expectedActorUri?: string;
                     reaction?: string | null;
                     choice?: number;
                     untilId?: string;
@@ -25798,6 +26111,8 @@ export interface operations {
                             cw: string | null;
                             visibility: string;
                             localOnly: boolean;
+                            channelId?: string | null;
+                            canDelete?: boolean;
                             author: {
                                 name: string | null;
                                 username: string;
@@ -25913,6 +26228,7 @@ export interface operations {
                 'application/json': {
                     noteId: string;
                     fileId: string;
+                    channelId?: string;
                 };
             };
         };
@@ -26021,6 +26337,7 @@ export interface operations {
                         canReply: boolean;
                         canInteract: boolean;
                         canReadNotifications: boolean;
+                        canWriteChannels: boolean;
                         available: boolean;
                         peerOrigin: string | null;
                         authorizationUrl: string | null;
@@ -26092,9 +26409,10 @@ export interface operations {
                      * @default home
                      * @enum {string}
                      */
-                    mode?: 'home' | 'search' | 'profile' | 'show' | 'validate';
+                    mode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'validate';
                     /** @enum {string} */
-                    contextMode?: 'home' | 'search' | 'profile' | 'show';
+                    contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel';
+                    channelId?: string;
                     query?: string;
                     /** Format: misskey:id */
                     userId?: string;
@@ -26133,6 +26451,8 @@ export interface operations {
                             cw: string | null;
                             visibility: string;
                             localOnly: boolean;
+                            channelId?: string | null;
+                            canDelete?: boolean;
                             author: {
                                 name: string | null;
                                 username: string;
@@ -26244,6 +26564,8 @@ export interface operations {
                      */
                     action?: 'prepare' | 'send' | 'status';
                     noteId: string;
+                    channelId?: string;
+                    expectedActorUri?: string;
                     requestId?: string;
                     text?: string;
                     fileIds?: string[];
@@ -26269,7 +26591,7 @@ export interface operations {
                             avatarUrl: string;
                         };
                         /** @enum {string} */
-                        visibility: 'followers' | 'specified';
+                        visibility: 'followers' | 'specified' | 'public';
                         localOnly: boolean;
                         recipients: {
                             name: string | null;
@@ -26343,7 +26665,9 @@ export interface operations {
         requestBody: {
             content: {
                 'multipart/form-data': {
-                    noteId: string;
+                    noteId?: string;
+                    channelId?: string;
+                    expectedActorUri?: string;
                     name: string;
                     comment?: string | null;
                     /** @default false */
@@ -26353,7 +26677,7 @@ export interface operations {
                      * @description The file contents.
                      */
                     file: Blob;
-                };
+                } | unknown | unknown;
             };
         };
         responses: {

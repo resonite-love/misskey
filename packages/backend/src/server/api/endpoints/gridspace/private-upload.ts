@@ -16,7 +16,7 @@ export const meta = {
 	errors: { unavailable: { message: 'Linked account operation is unavailable.', code: 'GRIDSPACE_ACTION_UNAVAILABLE', id: '8b1ea7b7-8c25-4188-a4f7-550d96a0d349' } },
 	res: uploadResultSchema,
 } as const;
-export const paramDef = { type: 'object', properties: uploadOptionsSchema, required: ['noteId', 'name'] } as const;
+export const paramDef = { type: 'object', properties: uploadOptionsSchema, required: ['name'], anyOf: [{ required: ['noteId'] }, { required: ['channelId'] }] } as const;
 
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export

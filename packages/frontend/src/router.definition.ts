@@ -266,7 +266,11 @@ export const ROUTE_DEF = [{
 	path: '/gridspace/private',
 	component: page(() => import('@/pages/gridspace-private.vue')),
 	loginRequired: true,
-	query: { noteId: 'noteId' },
+	query: { noteId: 'noteId', channelId: 'channelId' },
+}, {
+	path: '/gridspace/channels/:channelId?',
+	component: page(() => import('@/pages/gridspace-channels.vue')),
+	loginRequired: true,
 }, {
 	// Legacy Compatibility
 	path: '/authorize-follow',

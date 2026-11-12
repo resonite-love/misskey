@@ -21,6 +21,7 @@ import { GridspaceActionService } from './GridspaceActionService.js';
 import type { GridspaceLinkService } from './GridspaceLinkService.js';
 import type { GridspacePrivateService } from './GridspacePrivateService.js';
 import type { GridspaceReactionService } from './GridspaceReactionService.js';
+import type { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
 import type { ActionOptions } from './action-protocol.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
 
@@ -47,11 +48,25 @@ function fixture() {
 	const paired = mockDeep<GridspaceReactionService>();
 	paired.prepareMutation.mockImplementation(async (_user, note) => note);
 	const service = new GridspaceActionService(db, { url: 'https://r.example', maxFileSize: 1024 } as Config, links, reader,
-		reactions, mockDeep<PollService>(), drive, files, mockDeep<UserEntityService>(), extended, paired);
+		reactions, mockDeep<PollService>(), drive, files, mockDeep<UserEntityService>(), extended, paired, mockDeep<GridspaceChannelAuthService>());
 	return { service, db, links, reader, drive, user, reactions, extended };
 }
 
 describe('delegated actions', () => {
+	test('channel extra reactions use the old local identity and require channel permission', async () => {
+		const f = fixture();
+		const input = { action: 'remove-reaction' as const, noteId: 'note', channelId: 'channel', reaction: '🎉' };
+		f.reader.readableSourceNote.mockResolvedValue({ id: 'note', channelId: 'channel', userHost: null } as MiNote);
+		f.links.hasChannelScope.mockResolvedValue(false);
+		await expect(f.service.peerAction(input, async () => {})).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+		expect(f.extended.deleteUnlocked).not.toHaveBeenCalled();
+		f.links.hasChannelScope.mockResolvedValue(true);
+		await f.service.peerAction(input, async () => {});
+		expect(f.extended.deleteUnlocked).toHaveBeenCalledWith(f.user, expect.objectContaining({ channelId: 'channel' }), '🎉', false, false);
+		f.links.authorizePrivate.mockResolvedValue({ localUserId: f.user.id, initiator: true } as MiGridspaceLink);
+		await expect(f.service.peerAction(input, async () => {})).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+		expect(f.extended.deleteUnlocked).toHaveBeenCalledTimes(1);
+	});
 	test.each(['add-reaction', 'remove-reaction'] as const)('%s requires explicit scope and source visibility under the lock', async action => {
 		const f = fixture(); const input = { action, noteId: 'note', reaction: '👍' };
 		f.links.hasActionScope.mockResolvedValue(false);
@@ -67,17 +82,17 @@ describe('delegated actions', () => {
 		const f = fixture();
 		f.extended.createUnlocked.mockRejectedValue(new IdentifiableError('51c42bb4-931a-456b-bff7-e5a8a70dd298'));
 		await f.service.peerAction({ action: 'add-reaction', noteId: 'note', reaction: '👍' }, async () => {});
-		expect(f.extended.createUnlocked).toHaveBeenCalledWith(f.user, expect.objectContaining({ id: 'note' }), '👍', false);
+		expect(f.extended.createUnlocked).toHaveBeenCalledWith(f.user, expect.objectContaining({ id: 'note' }), '👍', false, false);
 		f.extended.deleteUnlocked.mockRejectedValue(new IdentifiableError('60527ec9-b4cb-4a88-a6bd-32d3ad26817d'));
 		await f.service.peerAction({ action: 'remove-reaction', noteId: 'note', reaction: '👍' }, async () => {});
-		expect(f.extended.deleteUnlocked).toHaveBeenCalledWith(f.user, expect.objectContaining({ id: 'note' }), '👍', false);
+		expect(f.extended.deleteUnlocked).toHaveBeenCalledWith(f.user, expect.objectContaining({ id: 'note' }), '👍', false, false);
 		f.extended.createUnlocked.mockRejectedValue(new IdentifiableError('extended-reaction-limit'));
 		await expect(f.service.peerAction({ action: 'add-reaction', noteId: 'note', reaction: '👍' }, async () => {})).rejects.toMatchObject({ code: 'ACTION_REJECTED' });
 	});
 	test('forwards only action parameters and uses server-held credentials', async () => {
 		const f = fixture();
 		await f.service.action(f.user, { action: 'react', noteId: 'note', reaction: '👍', i: 'session-secret', accessToken: 'attacker', localUserId: 'other' } as ActionOptions);
-		expect(f.links.json).toHaveBeenCalledWith('/gridspace/v1/private/action', { action: 'react', noteId: 'note', reaction: '👍', choice: undefined, untilId: undefined, limit: undefined, accessToken: 'peer-secret', linkId: 'link' });
+		expect(f.links.json).toHaveBeenCalledWith('/gridspace/v1/private/action', { action: 'react', noteId: 'note', channelId: undefined, reaction: '👍', choice: undefined, untilId: undefined, limit: undefined, accessToken: 'peer-secret', linkId: 'link' });
 		expect(f.links.checkPrivateUnchanged).toHaveBeenCalled();
 	});
 	test('does not send an operation when the destination blocks the note', async () => {

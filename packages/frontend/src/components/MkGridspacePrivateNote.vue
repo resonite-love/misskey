@@ -4,14 +4,15 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<article :class="$style.note" data-gridspace-private-note>
+<article v-if="!deleted" :class="$style.note" data-gridspace-private-note>
 	<MkA :to="authorPage" :class="$style.avatar" :aria-label="note.author.name || note.author.username"><img :src="avatarUrl" alt="" loading="lazy" decoding="async"></MkA>
 	<div :class="$style.content">
 	<header :class="$style.header">
 		<MkA :to="authorPage"><strong>{{ note.author.name || note.author.username }}</strong></MkA>
 		<span :class="$style.account">@{{ note.author.username }}@{{ note.author.host }}</span>
-		<MkA :to="`/gridspace/private?noteId=${note.id}`"><MkTime :time="note.createdAt"/></MkA>
-		<span><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateProtected }}</span>
+		<MkA :to="noteLink(note.id)"><MkTime :time="note.createdAt"/></MkA>
+		<span v-if="note.channelId"><i class="ti ti-device-tv" aria-hidden="true"></i> {{ i18n.ts.channel }}</span>
+		<span v-else><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateProtected }}</span>
 	</header>
 	<details v-if="note.cw != null" :class="$style.body" :open="expanded" @toggle="toggleContent">
 		<summary><Mfm :text="note.cw || i18n.ts._gridspace.privateContentWarning" :author="note.author" :emojiUrls="note.emojis ?? {}" :plain="true" :enableEmojiMenu="false"/></summary>
@@ -35,11 +36,13 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</div>
 	<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateFileError }}</p>
 	<footer class="_buttons">
-		<MkButton v-if="!replying" small @click="replying = true"><i class="ti ti-arrow-back-up" aria-hidden="true"></i> {{ i18n.ts._gridspace.replyAction }}</MkButton>
-		<MkA v-if="note.replyId" :to="`/gridspace/private?noteId=${note.replyId}`">{{ i18n.ts._gridspace.privateReply }}</MkA>
-		<MkA v-if="note.renoteId" :to="`/gridspace/private?noteId=${note.renoteId}`">{{ i18n.ts._gridspace.privateRenote }}</MkA>
+		<MkButton v-if="note.channelId && (note.canDelete || isOwnGridNote)" small danger :disabled="deleting" @click="deleteNote">{{ i18n.ts.delete }}</MkButton>
+		<MkButton v-if="!replying" small @click="replying = true"><i class="ti ti-arrow-back-up" aria-hidden="true"></i> {{ note.channelId ? i18n.ts.reply : i18n.ts._gridspace.replyAction }}</MkButton>
+		<MkA v-if="note.replyId" :to="noteLink(note.replyId)">{{ i18n.ts._gridspace.privateReply }}</MkA>
+		<MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA>
 	</footer>
-	<MkGridspaceReply v-if="replying" :noteId="note.id" @close="replying = false"/>
+	<p v-if="deleteError" role="alert">{{ i18n.ts._gridspace.channelDeleteFailed }}</p>
+	<MkGridspaceReply v-if="replying" :noteId="note.id" :channelId="note.channelId ?? undefined" @close="replying = false"/>
 	</div>
 </article>
 </template>
@@ -54,6 +57,9 @@ import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 import { prefer } from '@/preferences.js';
 import { getStaticImageUrl } from '@/utility/media-proxy.js';
+import { url } from '@@/js/config.js';
+import { $i } from '@/i.js';
+import * as os from '@/os.js';
 
 const props = defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number] }>();
 const updated = ref<entities.GridspacePrivateNotesResponse['notes'][number] | null>(null);
@@ -63,12 +69,31 @@ const emit = defineEmits<{ (event: 'unavailable'): void }>();
 const authorPage = computed(() => `/@${props.note.author.username}@${props.note.author.host}`);
 const avatarUrl = computed(() => prefer.s.disableShowingAnimatedImages || prefer.s.dataSaver.avatar ? getStaticImageUrl(props.note.author.avatarUrl) : props.note.author.avatarUrl);
 const expanded = ref(false);
+const deleted = ref(false);
+const deleting = ref(false);
+const deleteError = ref(false);
+const isOwnGridNote = computed(() => !!$i && props.note.author.uri === `${url}/users/${$i.id}`);
 const replying = ref(false);
 const blobs = ref<Record<string, string>>({});
 const loading = ref<string | null>(null);
 const error = ref(false);
 const imageTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'];
 let generation = 0;
+
+async function deleteNote() {
+	if (deleting.value || !props.note.channelId) return;
+	const target = { noteId: props.note.id, channelId: props.note.channelId, asCurrentAccount: isOwnGridNote.value };
+	if ((await os.confirm({ type: 'warning', text: i18n.ts._gridspace.channelDeleteConfirm })).canceled) return;
+	deleting.value = true; deleteError.value = false;
+	try {
+		await misskeyApi('gridspace/channel-delete', target, undefined, AbortSignal.timeout(15000));
+		clear(); deleted.value = true;
+	} catch { deleteError.value = true; } finally { deleting.value = false; }
+}
+
+function noteLink(id: string) {
+	return `/gridspace/private?noteId=${id}${props.note.channelId ? `&channelId=${props.note.channelId}` : ''}`;
+}
 
 function clearFile(id: string) {
 	if (blobs.value[id]) URL.revokeObjectURL(blobs.value[id]);
@@ -93,7 +118,7 @@ async function loadFile(fileId: string) {
 	loading.value = fileId;
 	error.value = false;
 	try {
-		const result = await misskeyApi('gridspace/private-file', { noteId: props.note.id, fileId }, undefined, AbortSignal.timeout(15000));
+		const result = await misskeyApi('gridspace/private-file', { noteId: props.note.id, fileId, channelId: props.note.channelId ?? undefined }, undefined, AbortSignal.timeout(15000));
 		if (current !== generation) return;
 		const data = Uint8Array.from(atob(result.data), character => character.charCodeAt(0));
 		const type = imageTypes.includes(result.type) || /^(?:video|audio)\//.test(result.type) ? result.type : 'application/octet-stream';

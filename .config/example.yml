@@ -91,6 +91,7 @@ url: https://example.tld/
 #  # TLS must validate peerUrl's hostname; never disable certificate validation.
 #  peerTransportUrl: https://192.168.10.10:3443
 #  peerTlsCaFile: /misskey/.config/gridspace-peer-ca.pem
+#  channelRole: client # client: view/post on peer channels; source: host them
 #  keyId: first
 #  secretEnv: GRIDSPACE_PEER_KEY
 

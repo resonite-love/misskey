@@ -11,8 +11,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<template #label>{{ i18n.ts.search }}</template>
 		</MkInput>
 		<MkButton v-if="!noteId" @click="search = query.trim()">{{ i18n.ts.search }}</MkButton>
-		<MkA v-if="noteId" to="/gridspace/private">{{ i18n.ts._gridspace.privateHome }}</MkA>
-		<MkGridspacePrivateNotes :params="noteId ? { mode: 'show', noteId } : search ? { mode: 'search', query: search } : { mode: 'home' }" :alwaysShow="true"/>
+		<MkA v-if="channelId" :to="`/gridspace/channels/${channelId}`">{{ i18n.ts.channel }}</MkA>
+		<MkA v-else-if="noteId" to="/gridspace/private">{{ i18n.ts._gridspace.privateHome }}</MkA>
+		<MkGridspacePrivateNotes :params="noteId ? { mode: 'show', noteId, channelId } : search ? { mode: 'search', query: search } : { mode: 'home' }" :plain="!!channelId" :alwaysShow="true"/>
 	</div>
 </PageWithHeader>
 </template>
@@ -25,8 +26,8 @@ import MkButton from '@/components/MkButton.vue';
 import { i18n } from '@/i18n.js';
 import { definePage } from '@/page.js';
 
-defineProps<{ noteId?: string }>();
+const props = defineProps<{ noteId?: string; channelId?: string }>();
 const query = ref('');
 const search = ref('');
-definePage(() => ({ title: i18n.ts._gridspace.privateTitle, icon: 'ti ti-lock' }));
+definePage(() => ({ title: props.channelId ? i18n.ts.channel : i18n.ts._gridspace.privateTitle, icon: props.channelId ? 'ti ti-device-tv' : 'ti ti-lock' }));
 </script>

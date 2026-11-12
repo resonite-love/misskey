@@ -53,6 +53,7 @@ export const permissions = [
 	'read:gridspace-private',
 	'read:gridspace-private-reciprocal',
 	'write:gridspace-reply',
+	'write:gridspace-channel',
 	'write:gridspace-actions',
 	'read:gridspace-notifications',
 	'write:gridspace-notifications',

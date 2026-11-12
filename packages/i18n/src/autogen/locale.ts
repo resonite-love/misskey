@@ -9684,6 +9684,10 @@ export interface Locale extends ILocale {
          */
         "write:gridspace-reply": string;
         /**
+         * 連携先から、このアカウントの名義でチャンネルへ投稿する
+         */
+        "write:gridspace-channel": string;
+        /**
          * アカウントの情報を変更する
          */
         "write:account": string;
@@ -13799,6 +13803,62 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * 連携先のチャンネル
+         */
+        "channels": string;
+        /**
+         * フォロー中のチャンネルだけ表示
+         */
+        "channelsFollowed": string;
+        /**
+         * この投稿を連携先のチャンネルから削除しますか？
+         */
+        "channelDeleteConfirm": string;
+        /**
+         * 投稿を削除できませんでした。時間をおいて再試行してください。
+         */
+        "channelDeleteFailed": string;
+        /**
+         * チャンネルを取得できませんでした。連携の権限と接続状況を確認してください。
+         */
+        "channelsUnavailable": string;
+        /**
+         * このチャンネルはアーカイブされています。過去の投稿を閲覧できます。
+         */
+        "channelArchived": string;
+        /**
+         * センシティブなチャンネル
+         */
+        "channelSensitive": string;
+        /**
+         * センシティブなチャンネルの投稿を表示する
+         */
+        "channelShowSensitive": string;
+        /**
+         * {count} ノート
+         */
+        "channelNoteCount": ParameterizedString<"count">;
+        /**
+         * このチャンネルに投稿する
+         */
+        "channelPost": string;
+        /**
+         * 連携先のチャンネルに投稿します。チャンネルを閲覧できる人に公開され、外部サーバーには連合しません。
+         */
+        "channelPostAudience": string;
+        /**
+         * この名義で投稿する
+         */
+        "channelPostSend": string;
+        /**
+         * チャンネルに投稿しました。
+         */
+        "channelPostSent": string;
+        /**
+         * チャンネルに投稿できません。アーカイブされていないか確認し、必要なら連携の権限を更新してください。
+         */
+        "channelPostUnavailable": string;
+        /**
          * 連携の権限
          */
         "linkPermissions": string;
@@ -13807,7 +13867,7 @@ export interface Locale extends ILocale {
          */
         "authorizeAll": string;
         /**
-         * 限定投稿の閲覧・検索、通知、連携先のアカウント名義での返信・リアクション・投票・添付を利用できます。
+         * 限定投稿の閲覧・検索、通知、連携先のアカウント名義での返信・リアクション・投票・添付を利用できます。ぐりすぺからは、れぞらぶのチャンネルも閲覧・投稿できます。
          */
         "allGranted": string;
         /**
@@ -13867,11 +13927,11 @@ export interface Locale extends ILocale {
          */
         "actionVoted": string;
         /**
-         * 返信に添付するファイル
+         * 添付するファイル
          */
         "replyAttachment": string;
         /**
-         * 1ファイル16MiBまで、16個まで添付できます。ファイルは連携先のドライブに保存され、返信を取りやめても残ります。
+         * 1ファイル16MiBまで、16個まで添付できます。ファイルは投稿するアカウントのドライブに保存され、投稿を取りやめても残ります。
          */
         "replyAttachmentHint": string;
         /**

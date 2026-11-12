@@ -19,6 +19,8 @@ export type GridspaceConfigSource = {
 	peerTransportUrl?: string;
 	/** CA certificate file for the private transport (never disables TLS verification). */
 	peerTlsCaFile?: string;
+	/** One-way channel access. Source hosts channels; client accepts its local users. */
+	channelRole?: 'source' | 'client';
 	keyId: string;
 	secretEnv: string;
 };
@@ -44,6 +46,7 @@ function httpsOrigin(value: string): string {
 export function resolveGridspaceConfig(source: GridspaceConfigSource | undefined, ownUrl: string, env: NodeJS.ProcessEnv): GridspacePeerConfig | null {
 	if (source?.enabled == null || source.enabled === false) return null;
 	if (source.enabled !== true) throw new Error('GridSpace enabled must be a boolean.');
+	if (source.channelRole !== undefined && !['source', 'client'].includes(source.channelRole)) throw new Error('Invalid GridSpace channel role.');
 	if (typeof source.communityId !== 'string' || typeof source.keyId !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(source.communityId) || !/^[a-zA-Z0-9_-]{1,64}$/.test(source.keyId)) {
 		throw new Error('GridSpace communityId and keyId must be 1 to 64 ASCII letters, digits, underscores or hyphens.');
 	}

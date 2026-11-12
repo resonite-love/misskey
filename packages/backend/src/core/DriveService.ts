@@ -414,6 +414,8 @@ export class DriveService {
 	private async expireOldFile(user: MiRemoteUser, driveCapacity: number) {
 		const q = this.driveFilesRepository.createQueryBuilder('file')
 			.where('file.userId = :userId', { userId: user.id })
+			// A file without a remote source URI is an original, not a cache.
+			.andWhere('file.uri IS NOT NULL')
 			.andWhere('file.isLink = FALSE');
 
 		if (user.avatarId) {
@@ -754,6 +756,7 @@ export class DriveService {
 
 	@bindThis
 	public async deleteFile(file: MiDriveFile, isExpired = false, deleter?: MiUser) {
+		if (isExpired && file.uri == null) return;
 		if (file.storedInternal) {
 			this.internalStorageService.del(file.accessKey!);
 
@@ -781,6 +784,7 @@ export class DriveService {
 
 	@bindThis
 	public async deleteFileSync(file: MiDriveFile, isExpired = false, deleter?: MiUser) {
+		if (isExpired && file.uri == null) return;
 		if (file.storedInternal) {
 			this.internalStorageService.del(file.accessKey!);
 

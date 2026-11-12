@@ -6,8 +6,9 @@
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 
 export type PrivateOptions = {
-	mode: 'home' | 'search' | 'profile' | 'show' | 'validate';
-	contextMode?: 'home' | 'search' | 'profile' | 'show';
+	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'validate';
+	contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel';
+	channelId?: string;
 	query?: string; userId?: string; noteId?: string; ids?: string[];
 	rangeStartAt?: number; rangeEndAt?: number;
 	withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean; withChannelNotes?: boolean;
@@ -19,6 +20,8 @@ export type PrivateActor = { name: string | null; username: string; host: string
 export type PrivateNote = {
 	id: string; uri: string; createdAt: string; origin: string; text: string | null; cw: string | null;
 	visibility: string; localOnly: boolean; author: PrivateActor & { avatarUrl: string };
+	channelId?: string | null;
+	canDelete?: boolean;
 	emojis?: Record<string, string>; reactions?: Record<string, number>; reactionEmojis?: Record<string, string>; myReaction?: string | null;
 	myReactions?: string[]; extendedReactions?: boolean;
 	replyId: string | null; renoteId: string | null;
@@ -39,6 +42,8 @@ const integer = { type: 'integer', optional: false, nullable: false } as const;
 export const privateNoteSchema = {
 	type: 'object', optional: false, nullable: false, properties: {
 		id: text, uri: text, createdAt: text, origin: text, text: nullableText, cw: nullableText, visibility: text, localOnly: flag,
+		channelId: { ...nullableText, optional: true },
+		canDelete: { ...flag, optional: true },
 		author: { type: 'object', optional: false, nullable: false, properties: { name: nullableText, username: text, host: text, uri: text, avatarUrl: text } },
 		emojis: { type: 'object', optional: true, nullable: false, additionalProperties: text },
 		reactions: { type: 'object', optional: true, nullable: false, additionalProperties: integer },
@@ -58,8 +63,9 @@ export const privateNoteSchema = {
 } as const;
 
 export const privateOptionsSchema = {
-	mode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'validate'], default: 'home' },
-	contextMode: { type: 'string', enum: ['home', 'search', 'profile', 'show'] },
+	mode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'validate'], default: 'home' },
+	contextMode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel'] },
+	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	query: { type: 'string', minLength: 1, maxLength: 200 },
 	userId: { type: 'string', format: 'misskey:id', maxLength: 32 },
 	noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },

@@ -19,6 +19,7 @@ export const meta = {
 } as const;
 export const paramDef = { type: 'object', properties: {
 	noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, fileId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 }, required: ['noteId', 'fileId'] } as const;
 
 @Injectable()
@@ -27,7 +28,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		super(meta, paramDef, async (ps, me, token) => {
 			try {
 				this.links.assertPrivateCaller(token);
-				return await this.reader.file(me, ps.noteId, ps.fileId);
+				return await this.reader.file(me, ps.noteId, ps.fileId, ps.channelId);
 			} catch (error) {
 				if (error instanceof GridspaceLinkError) throw new ApiError(meta.errors.unavailable, { reason: error.code });
 				throw error;

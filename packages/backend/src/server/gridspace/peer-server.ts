@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { channelOptionsSchema, type ChannelPeerRequest } from '@/core/gridspace/channel-protocol.js';
 import { GRIDSPACE_NOTE_BATCH_LIMIT } from '@/core/gridspace/note-protocol.js';
 import { GRIDSPACE_NONCE_TTL_MS, GRIDSPACE_PROTOCOL_VERSION, verifyGridspaceRequest } from '@/core/gridspace/peer-protocol.js';
 import type { GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
@@ -20,7 +21,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 export type ClaimGridspaceNonce = (key: string, ttlMs: number) => Promise<boolean>;
 
 /** Mounted under /gridspace/v1; independent from user-authorized /api endpoints. */
-export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>): void {
+export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>, channels?: (input: ChannelPeerRequest) => Promise<object>, channelDelete?: (input: GridspacePeerLinkRequest & { noteId: string; channelId: string }) => Promise<object>): void {
 	if (config === null) return;
 	// Preserve wire bytes for the signature without changing other server plugins' parsers.
 	const parseJson = fastify.getDefaultJsonParser('error', 'error');
@@ -67,6 +68,30 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			features: [...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : []), ...(readNotes ? ['community-note-batch'] : []), ...(history ? ['member-history'] : []), ...(search ? ['community-search'] : []), ...(privateAction ? ['private-note-read'] : []), ...(notifications ? ['linked-notifications'] : []), ...(reactions ? ['community-reactions'] : []), ...(reactionUpdates ? ['community-reaction-updates'] : [])],
 		};
 	});
+	if (channels) {
+		fastify.post<{ Body: ChannelPeerRequest }>('/private/channels', {
+			bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
+			schema: { body: { type: 'object', additionalProperties: false, allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId'] }] }], properties: {
+				...channelOptionsSchema,
+				channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
+				generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+			} } },
+		}, async (request, reply) => {
+			try { return await channels(request.body); } catch { return reply.code(403).send({ error: 'AUTHORIZATION_REVOKED' }); }
+		});
+	}
+	if (channelDelete) {
+		fastify.post<{ Body: GridspacePeerLinkRequest & { noteId: string; channelId: string } }>('/private/channel-delete', {
+			bodyLimit: 4096, config: { rawBody: true }, preHandler: authenticate,
+			schema: { body: { type: 'object', additionalProperties: false, required: ['noteId', 'channelId'], properties: {
+				noteId: channelOptionsSchema.channelId, channelId: channelOptionsSchema.channelId, channelActorId: channelOptionsSchema.channelId,
+				accessToken: { type: 'string', maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
+				generation: { type: 'integer', minimum: 1 }, localUserId: channelOptionsSchema.channelId,
+			} } },
+		}, async (request, reply) => {
+			try { return await channelDelete(request.body); } catch { return reply.code(403).send({ error: 'AUTHORIZATION_REVOKED' }); }
+		});
+	}
 	if (reactionUpdates) {
 		fastify.post<{ Body: ReactionUpdate }>('/reactions/updated', {
 			bodyLimit: 65536, config: { rawBody: true }, preHandler: authenticate,
@@ -161,7 +186,7 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 				schema: { body: { type: 'object', additionalProperties: false,
 					required: ['accessToken', 'linkId', 'generation', 'localUserId', ...(name === 'read' ? ['ids'] : [])], properties: {
 						...notificationOptionsSchema,
-						accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
+						channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
 						generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 					} } },
 			}, async (request, reply) => {
@@ -175,9 +200,9 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 	if (interact) {
 		fastify.post<{ Body: ActionPeerRequest }>('/private/action', {
 			bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
-			schema: { body: { type: 'object', additionalProperties: false, required: ['accessToken', 'linkId', 'generation', 'localUserId', 'noteId'], properties: {
+			schema: { body: { type: 'object', additionalProperties: false, required: ['noteId'], allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId', 'channelId'] }] }], properties: {
 				...actionOptionsSchema,
-				accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
+				channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
 				generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 			} } },
 		}, async (request, reply) => {
@@ -191,9 +216,9 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 	if (upload) {
 		fastify.post<{ Body: UploadPeerRequest }>('/private/upload', {
 			bodyLimit: 24 * 1024 * 1024, config: { rawBody: true }, preHandler: authenticate,
-			schema: { body: { type: 'object', additionalProperties: false, required: ['accessToken', 'linkId', 'generation', 'localUserId', 'noteId', 'name', 'data'], properties: {
+			schema: { body: { type: 'object', additionalProperties: false, required: ['name', 'data'], allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId', 'channelId'] }] }], anyOf: [{ required: ['noteId'] }, { required: ['channelId'] }], properties: {
 				...uploadWireSchema,
-				accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
+				channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
 				generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 			} } },
 		}, async (request, reply) => {
@@ -207,9 +232,9 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 	if (replyAction) {
 		fastify.post<{ Body: ReplyPeerRequest }>('/private/reply', {
 			bodyLimit: 32768, config: { rawBody: true }, preHandler: authenticate,
-			schema: { body: { type: 'object', additionalProperties: false, required: ['accessToken', 'linkId', 'generation', 'localUserId', 'noteId'], properties: {
+			schema: { body: { type: 'object', additionalProperties: false, allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId'] }] }], anyOf: [{ required: ['noteId'] }, { required: ['channelId'] }], properties: {
 				...replyOptionsSchema,
-				accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
+				channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
 				generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 			} } },
 		}, async (request, reply) => {
@@ -229,9 +254,9 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			const { userId: _userId, ...readOptions } = privateOptionsSchema;
 			fastify.post<{ Body: PrivatePeerRequest }>(`/private/${name}`, {
 				bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
-				schema: { body: { type: 'object', additionalProperties: false, required: ['accessToken', 'linkId', 'generation', 'localUserId'], properties: {
+				schema: { body: { type: 'object', additionalProperties: false, allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId'] }] }], properties: {
 					...readOptions,
-					accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' },
+					channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' },
 					pairId: { type: 'string', format: 'uuid' }, expectedRevision: { type: 'integer', minimum: 0, maximum: 2147483647 },
 					reverseToken: { type: 'string', minLength: 1, maxLength: 512 },
 					generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
@@ -262,7 +287,7 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 				body: {
 					type: 'object', additionalProperties: false,
 					properties: {
-						accessToken: { type: 'string', minLength: 1, maxLength: 512 },
+						channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 },
 						linkId: { type: 'string', format: 'uuid' },
 						generation: { type: 'integer', minimum: 1, maximum: 2147483647 },
 						localUserId: { type: 'string', minLength: 1, maxLength: 32 },

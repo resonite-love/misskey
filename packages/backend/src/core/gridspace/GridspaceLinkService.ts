@@ -24,7 +24,7 @@ import { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
 import { GridspaceFollowGuardService } from './GridspaceFollowGuardService.js';
 import { gridspacePeerTransport } from './peer-client.js';
 import { createGridspaceHeaders, resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
-import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH, GRIDSPACE_LINK_SCOPES, GRIDSPACE_ALL_SCOPES, GRIDSPACE_PRIVATE_SCOPES, GRIDSPACE_PRIVATE_CLIENT_PATH, GRIDSPACE_PRIVATE_SCOPE, GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE, GRIDSPACE_REPLY_SCOPE, GRIDSPACE_ACTION_SCOPE, GRIDSPACE_NOTIFICATION_SCOPE, GRIDSPACE_NOTIFICATION_WRITE_SCOPE, gridspaceChallenge, gridspaceHash, openGridspaceSecret, sealGridspaceSecret } from './link-crypto.js';
+import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH, GRIDSPACE_LINK_SCOPES, GRIDSPACE_ALL_SCOPES, GRIDSPACE_PRIVATE_SCOPES, GRIDSPACE_CHANNEL_SCOPE, GRIDSPACE_PRIVATE_CLIENT_PATH, GRIDSPACE_PRIVATE_SCOPE, GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE, GRIDSPACE_REPLY_SCOPE, GRIDSPACE_ACTION_SCOPE, GRIDSPACE_NOTIFICATION_SCOPE, GRIDSPACE_NOTIFICATION_WRITE_SCOPE, gridspaceChallenge, gridspaceHash, openGridspaceSecret, sealGridspaceSecret } from './link-crypto.js';
 
 const isLinkPurpose = (purpose: MiGridspaceAuthSession['purpose']) => purpose === 'link' || purpose === 'link-all';
 
@@ -32,7 +32,7 @@ export class GridspaceLinkError extends Error {
 	constructor(public code: string) { super(code); }
 }
 
-export type GridspacePeerLinkRequest = { accessToken?: string; linkId?: string; generation?: number; localUserId?: string; localUsername?: string; pairId?: string; expectedRevision?: number; reverseToken?: string };
+export type GridspacePeerLinkRequest = { channelActorId?: string; accessToken?: string; linkId?: string; generation?: number; localUserId?: string; localUsername?: string; pairId?: string; expectedRevision?: number; reverseToken?: string };
 
 @Injectable()
 export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown {
@@ -112,7 +112,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		const url = new URL('/oauth/authorize', peer.peerOrigin);
 		url.search = new URLSearchParams({
 			response_type: 'code', client_id: peer.origin + (!isLinkPurpose(purpose) ? GRIDSPACE_PRIVATE_CLIENT_PATH : GRIDSPACE_CLIENT_PATH),
-			redirect_uri: peer.origin + GRIDSPACE_CALLBACK_PATH, scope: purpose === 'link-all' ? GRIDSPACE_ALL_SCOPES.join(' ') : purpose === 'private-all' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_REPLY_SCOPE} ${GRIDSPACE_ACTION_SCOPE} ${GRIDSPACE_NOTIFICATION_SCOPE} ${GRIDSPACE_NOTIFICATION_WRITE_SCOPE}` : purpose === 'private-actions' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_REPLY_SCOPE} ${GRIDSPACE_ACTION_SCOPE}` : purpose === 'private-full' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_REPLY_SCOPE} ${GRIDSPACE_NOTIFICATION_SCOPE} ${GRIDSPACE_NOTIFICATION_WRITE_SCOPE}` : purpose === 'private-notify' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_NOTIFICATION_SCOPE} ${GRIDSPACE_NOTIFICATION_WRITE_SCOPE}` : purpose === 'private-reply' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_REPLY_SCOPE}` : purpose === 'private-mutual' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE}` : purpose === 'private' ? GRIDSPACE_PRIVATE_SCOPE : GRIDSPACE_LINK_SCOPES.join(' '),
+			redirect_uri: peer.origin + GRIDSPACE_CALLBACK_PATH, scope: purpose === 'link-all' ? GRIDSPACE_ALL_SCOPES.join(' ') : purpose === 'private-all' ? GRIDSPACE_PRIVATE_SCOPES.join(' ') : purpose === 'private-actions' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_REPLY_SCOPE} ${GRIDSPACE_ACTION_SCOPE}` : purpose === 'private-full' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_REPLY_SCOPE} ${GRIDSPACE_NOTIFICATION_SCOPE} ${GRIDSPACE_NOTIFICATION_WRITE_SCOPE}` : purpose === 'private-notify' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_NOTIFICATION_SCOPE} ${GRIDSPACE_NOTIFICATION_WRITE_SCOPE}` : purpose === 'private-reply' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_REPLY_SCOPE}` : purpose === 'private-mutual' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE}` : purpose === 'private' ? GRIDSPACE_PRIVATE_SCOPE : GRIDSPACE_LINK_SCOPES.join(' '),
 			state, code_challenge: gridspaceChallenge(verifier), code_challenge_method: 'S256'
 		}).toString();
 		return { authorizationUrl: url.href, clientKey };
@@ -298,7 +298,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 			state: item.state === 'requested' && item.targetUserId ? following.has(item.targetUserId) ? 'done' : requested.has(item.targetUserId) ? 'requested' : 'cancelled' : item.state, reason: item.reason
 		}));
 		return {
-			enabled: !!this.peer, peerOrigin: this.peer?.peerOrigin ?? null, state: link?.state ?? 'unlinked', peerUsername: link?.peerUsername ?? null,
+			enabled: !!this.peer, channelsEnabled: !!this.peer && this.config.gridspace?.channelRole === 'client', peerOrigin: this.peer?.peerOrigin ?? null, state: link?.state ?? 'unlinked', peerUsername: link?.peerUsername ?? null,
 			peerUserId: link?.peerUserId ?? null, initiator: link?.initiator ?? false, lastError: link?.lastError ?? null,
 			total: items.length, pending: packed.filter(item => item.state === 'pending').length, done: packed.filter(item => item.state === 'done').length,
 			requested: packed.filter(item => item.state === 'requested').length, failed: packed.filter(item => item.state === 'failed').length,
@@ -379,6 +379,12 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		return token?.permission.includes(GRIDSPACE_ACTION_SCOPE) === true;
 	}
 
+	public async hasChannelScope(input: GridspacePeerLinkRequest, manager = this.db.manager): Promise<boolean> {
+		if (!input.accessToken) return false;
+		const token = await manager.getRepository(MiAccessToken).findOneBy({ token: input.accessToken, name: In([this.enabled().peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH, this.enabled().peerOrigin + GRIDSPACE_CLIENT_PATH]) });
+		return token?.permission.includes(GRIDSPACE_CHANNEL_SCOPE) === true;
+	}
+
 	public async hasNotificationScope(input: GridspacePeerLinkRequest): Promise<boolean> {
 		if (!input.accessToken) return false;
 		const token = await this.db.getRepository(MiAccessToken).findOneBy({ token: input.accessToken, name: In([this.enabled().peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH, this.enabled().peerOrigin + GRIDSPACE_CLIENT_PATH]) });
@@ -397,7 +403,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 	}
 
 	public async peerPrivateGrant(action: string, input: GridspacePeerLinkRequest) {
-		if (action === 'check') { await this.authorizePrivate(input); return { ok: true, canReply: await this.hasReplyScope(input), canReadNotifications: await this.hasNotificationScope(input), canInteract: await this.hasActionScope(input) }; }
+		if (action === 'check') { await this.authorizePrivate(input); return { ok: true, canReply: await this.hasReplyScope(input), canReadNotifications: await this.hasNotificationScope(input), canInteract: await this.hasActionScope(input), canWriteChannels: await this.hasChannelScope(input) }; }
 		if (action === 'pair-check') {
 			const link = await this.authorizePrivateLocal(input);
 			if (!input.pairId || !link.privateTokenCipher) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
@@ -411,7 +417,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 			if (action === 'mutual-probe' || action === 'reciprocal') {
 				const token = await tokens.findOneByOrFail({ token: input.accessToken! });
 				if (!token.permission.includes(GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE) || current.privateRevocationCipher) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-				if (action === 'mutual-probe') return { revision: current.privateRevision, canReply: token.permission.includes(GRIDSPACE_REPLY_SCOPE), canReadNotifications: await this.hasNotificationScope(input), canInteract: await this.hasActionScope(input) };
+				if (action === 'mutual-probe') return { revision: current.privateRevision, canReply: token.permission.includes(GRIDSPACE_REPLY_SCOPE), canReadNotifications: await this.hasNotificationScope(input), canInteract: await this.hasActionScope(input), canWriteChannels: await this.hasChannelScope(input) };
 				if (!input.pairId || !input.reverseToken || input.expectedRevision === undefined) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 				if (current.privateMutualGrantId === input.pairId) {
 					// An idempotent retry can confirm a live grant, never resurrect a revoked one.
@@ -477,8 +483,9 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		const { session, link, accessToken } = prepared;
 		const credential = { linkId: link.id, generation: link.generation, localUserId: user.id, accessToken };
 		if (session.purpose !== 'private') {
-			const probe = session.privateGrant ? null : await this.json<{ revision: number; canReply?: boolean; canReadNotifications?: boolean; canInteract?: boolean }>('/gridspace/v1/private/mutual-probe', credential);
+			const probe = session.privateGrant ? null : await this.json<{ revision: number; canReply?: boolean; canReadNotifications?: boolean; canInteract?: boolean; canWriteChannels?: boolean }>('/gridspace/v1/private/mutual-probe', credential);
 			if (probe && ['link-all', 'private-reply', 'private-full', 'private-actions', 'private-all'].includes(session.purpose) && !probe.canReply) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			if (probe && ['link-all', 'private-all'].includes(session.purpose) && !probe.canWriteChannels) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 			if (probe && ['link-all', 'private-actions', 'private-all'].includes(session.purpose) && !probe.canInteract) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 			if (probe && ['link-all', 'private-notify', 'private-full', 'private-all'].includes(session.purpose) && !probe.canReadNotifications) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 			const grant = await this.guard.run(user.id, async () => {
@@ -546,18 +553,19 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 
 	public async privateStatus(user: MiLocalUser) {
 		const peer = this.peer;
-		const result = { enabled: !!peer, granted: false, mutual: false, canReply: false, canReadNotifications: false, canInteract: false, available: true, peerOrigin: peer?.peerOrigin ?? null, authorizationUrl: null as string | null, clientKey: null as string | null };
+		const result = { enabled: !!peer, granted: false, mutual: false, canReply: false, canReadNotifications: false, canInteract: false, canWriteChannels: false, available: true, peerOrigin: peer?.peerOrigin ?? null, authorizationUrl: null as string | null, clientKey: null as string | null };
 		if (!peer) return result;
 		try {
 			const link = await this.privateLink(user.id);
 			if (!link.privateTokenCipher) return result;
 			result.granted = true;
-			const checked = await this.json<{ canReply?: boolean; canReadNotifications?: boolean; canInteract?: boolean }>('/gridspace/v1/private/check', this.privateCredential(link));
+			const checked = await this.json<{ canReply?: boolean; canReadNotifications?: boolean; canInteract?: boolean; canWriteChannels?: boolean }>('/gridspace/v1/private/check', this.privateCredential(link));
 			await this.checkPrivateUnchanged(link);
 			result.granted = true;
 			result.mutual = !!link.privateMutualGrantId;
 			result.canReply = checked.canReply === true;
 			result.canInteract = checked.canInteract === true;
+			result.canWriteChannels = checked.canWriteChannels === true;
 			result.canReadNotifications = checked.canReadNotifications === true;
 		} catch (error) {
 			if (!(error instanceof GridspaceLinkError) || error.code === 'PEER_UNAVAILABLE') result.available = false;
