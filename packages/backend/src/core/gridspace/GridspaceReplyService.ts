@@ -109,7 +109,9 @@ export class GridspaceReplyService {
 	}
 
 	public async reply(viewer: MiLocalUser, input: ReplyOptions, channelPost = false) {
-		const channel = channelPost ? await this.channelAuth.destination(viewer) : null;
+		// Channel authorship belongs to the signed-in G account, even when an
+		// old R account is linked for reading. Never silently switch that author.
+		const channel = channelPost ? await this.channelAuth.destination(viewer, true) : null;
 		const link = channel ? null : await this.links.privateLink(viewer.id);
 		if (channelPost ? !input.channelId : input.channelId || !input.noteId) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
 		// Apply destination blocks/mutes as well as source readability before sending.

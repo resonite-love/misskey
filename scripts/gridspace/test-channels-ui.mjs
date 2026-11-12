@@ -102,7 +102,7 @@ try {
 
 	await page.getByRole('button', { name: /チャンネルに投稿/ }).click();
 	const composer = page.locator('[data-gridspace-post-form]._popup');
-	await expect(composer.getByText(`@${fixture.resonite.username}@${new URL(r.origin).host}`, { exact: true })).toBeVisible();
+	await expect(composer.getByText(`@${fixture.grid.username}@${new URL(g.origin).host}`, { exact: true })).toBeVisible();
 	const body = `UI channel ${randomUUID()}`;
 	const contentWarning = `UI channel CW ${randomUUID()}`;
 	await composer.getByRole('button', { name: '内容を隠す', exact: true }).click();
@@ -114,6 +114,9 @@ try {
 	await composer.getByTestId('post-form-submit').click();
 	await expect(composer).toHaveCount(0);
 	const posted = root.locator('[data-gridspace-private-note]').filter({ hasText: contentWarning });
+	await expect(posted).toBeVisible();
+	const actual = (await api(g, 'gridspace/private-notes', { mode: 'channel', channelId: fixture.channel.id, limit: 20 }, fixture.grid.token)).notes.find(note => note.cw === contentWarning);
+	assert.equal(actual?.author.uri, `${g.origin}/users/${fixture.grid.id}`);
 	// The ordinary reaction picker also works before opening a CW.
 	await posted.getByRole('button', { name: 'リアクション', exact: true }).click();
 	const picker = page.locator('.omfetrab');
@@ -134,7 +137,7 @@ try {
 	await page.mouse.move(1, 1);
 	await expect(posted.locator('img[src^="blob:"]')).toBeVisible();
 	await page.screenshot({ path: '.config/channels-desktop.png', fullPage: true });
-	console.log('Old identity, CW, attachment upload and authenticated image display UI PASS');
+	console.log('Linked G identity, CW, attachment upload and authenticated image display UI PASS');
 	const row = posted.locator('..');
 	const beforeHeight = await row.evaluate(el => { window.channelAnchor = el; return el.getBoundingClientRect().height; });
 	const rootCount = await root.locator('[data-gridspace-private-row]').count();
@@ -170,10 +173,11 @@ try {
 	const replyNotes = await api(r, 'channels/timeline', { channelId: fixture.channel.id, limit: 100 }, fixture.resonite.token);
 	const sourceReply = replyNotes.find(note => note.text === replyBody);
 	assert.equal(sourceReply.replyId, replyNotes.find(note => note.text === body).id);
-	assert.equal(sourceReply.userId, fixture.resonite.id);
+	assert.equal(sourceReply.user.username, fixture.grid.username);
+	assert.equal(sourceReply.user.host, new URL(g.origin).host);
 	const replyCard = root.locator('[data-gridspace-private-note]').filter({ has: page.locator(`a[href="/gridspace/private?noteId=${sourceReply.id}&channelId=${fixture.channel.id}"]`) });
 	await expect(replyCard.locator(`a[href="/gridspace/private?noteId=${sourceReply.replyId}&channelId=${fixture.channel.id}"]`)).toBeVisible();
-	console.log('Standard reply dialog, Ctrl+Enter, original identity and parent navigation PASS');
+	console.log('Standard reply dialog, Ctrl+Enter, G identity and parent navigation PASS');
 
 	await page.getByRole('button', { name: /チャンネルに投稿/ }).click();
 	await composer.getByRole('button', { name: 'アンケート', exact: true }).click();

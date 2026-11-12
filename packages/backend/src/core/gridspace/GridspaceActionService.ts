@@ -215,7 +215,8 @@ export class GridspaceActionService {
 	}
 
 	public async upload(viewer: MiLocalUser, input: UploadOptions, path: string) {
-		const channel = input.channelId ? await this.channelAuth.destination(viewer) : null;
+		// Use the same author as channel-post; the original stays in their G Drive.
+		const channel = input.channelId ? await this.channelAuth.destination(viewer, true) : null;
 		const link = channel ? null : await this.links.privateLink(viewer.id);
 		if (!input.noteId && !input.channelId) throw new GridspaceLinkError('ACTION_REJECTED');
 		if (input.noteId && !(await this.reader.notes(viewer, { mode: 'show', noteId: input.noteId, channelId: input.channelId }, 1)).notes.length) throw new GridspaceLinkError('ACTION_REJECTED');

@@ -26,7 +26,7 @@ const denied = promise => assert.rejects(promise, error => /GRIDSPACE_|PERMISSIO
 assert.equal((await api(g, 'gridspace/link', {}, guest.token)).state, 'unlinked');
 assert.equal((await api(g, 'gridspace/link', {}, guest.token)).channelsEnabled, true);
 assert.ok((await api(g, 'gridspace/channels', { channelId }, guest.token)).channels.length);
-assert.ok((await notes({})).notes.some(note => note.id === fixture.parent.id));
+assert.ok((await notes({ mode: 'show', noteId: fixture.parent.id })).notes.some(note => note.id === fixture.parent.id));
 assert.equal((await notes({ channelId: fixture.sensitive.id })).notes[0].id, fixture.secret.id);
 const prepared = await post({});
 assert.equal(prepared.account.uri, `${g.origin}/users/${guest.id}`);
@@ -43,7 +43,7 @@ assert.equal(source.localOnly, true); assert.equal(source.channel.id, channelId)
 assert.equal((await fetch(`${r.origin}/notes/${posted.createdNoteId}`, { headers: { accept: 'application/activity+json' } })).status, 404);
 await denied(post({ ...input, requestId: randomUUID(), expectedActorUri: `${g.origin}/users/${other.id}` }));
 await denied(api(g, 'gridspace/private-notes', { mode: 'home' }, guest.token));
-assert.equal((await notes({})).notes.find(note => note.id === posted.createdNoteId).canDelete, true);
+assert.equal((await notes({ mode: 'show', noteId: posted.createdNoteId })).notes.find(note => note.id === posted.createdNoteId).canDelete, true);
 console.log('Unlinked member reads channels and posts as the actual G account; identity mismatch rejected PASS');
 const pollRequest = { action: 'send', requestId: randomUUID(), expectedActorUri: prepared.account.uri, poll: { choices: ['Guest A', 'Guest B'], multiple: false, expiresAt: null } };
 const pollId = (await post(pollRequest)).createdNoteId;
@@ -82,7 +82,7 @@ await denied(api(g, 'gridspace/channel-post', { channelId, action: 'send', reque
 console.log('Guest reply, multiple reactions, exact removal, vote, own attachment and cross-user file denial PASS');
 
 await api(r, 'blocking/create', { userId: targetUser.id }, fixture.author.token);
-assert.ok(!(await notes({})).notes.some(note => note.id === fixture.parent.id));
+assert.ok(!(await notes({ mode: 'show', noteId: fixture.parent.id })).notes.some(note => note.id === fixture.parent.id));
 await denied(post({ action: 'send', requestId: randomUUID(), noteId: fixture.parent.id, text: 'Blocked reply' }));
 await api(r, 'blocking/delete', { userId: targetUser.id }, fixture.author.token);
 await api(r, 'admin/suspend-user', { userId: targetUser.id }, r.accounts.admin.token);
@@ -91,7 +91,7 @@ await api(r, 'admin/unsuspend-user', { userId: targetUser.id }, r.accounts.admin
 await denied(api(g, 'gridspace/channel-delete', { channelId, noteId: posted.createdNoteId, asCurrentAccount: true }, other.token));
 await api(g, 'gridspace/channel-delete', { channelId, noteId: posted.createdNoteId, asCurrentAccount: true }, guest.token);
 await api(g, 'gridspace/channel-delete', { channelId, noteId: posted.createdNoteId, asCurrentAccount: true }, guest.token);
-assert.ok(!(await notes({})).notes.some(note => note.id === posted.createdNoteId));
+assert.ok(!(await notes({ mode: 'show', noteId: posted.createdNoteId })).notes.some(note => note.id === posted.createdNoteId));
 await api(r, 'notes/delete', { noteId: attachment.createdNoteId }, r.accounts.admin.token);
 assert.ok(!(await notes({})).notes.some(note => note.id === attachment.createdNoteId));
 console.log('Source block, suspension, owner-only idempotent deletion and source moderator deletion PASS');
