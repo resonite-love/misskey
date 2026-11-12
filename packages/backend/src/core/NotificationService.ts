@@ -15,6 +15,7 @@ import type { MiNotification } from '@/models/Notification.js';
 import { bindThis } from '@/decorators.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { PushNotificationService } from '@/core/PushNotificationService.js';
+import { NotificationReadService } from './NotificationReadService.js';
 import { NotificationEntityService } from '@/core/entities/NotificationEntityService.js';
 import { IdService } from '@/core/IdService.js';
 import { CacheService } from '@/core/CacheService.js';
@@ -38,6 +39,7 @@ export class NotificationService implements OnApplicationShutdown {
 		@Inject(DI.usersRepository)
 		private usersRepository: UsersRepository,
 
+		private reads: NotificationReadService,
 		private notificationEntityService: NotificationEntityService,
 		private idService: IdService,
 		private globalEventService: GlobalEventService,
@@ -52,22 +54,15 @@ export class NotificationService implements OnApplicationShutdown {
 		userId: MiUser['id'],
 		force = false,
 	) {
-		const latestReadNotificationId = await this.redisClient.get(`latestReadNotification:${userId}`);
+		await this.reads.state(userId, [], 'all');
+		return this.postReadAllNotifications(userId);
+	}
 
-		const latestNotificationIdsRes = await this.redisClient.xrevrange(
-			`notificationTimeline:${userId}`,
-			'+',
-			'-',
-			'COUNT', 1);
-		const latestNotificationId = latestNotificationIdsRes[0]?.[0];
-
-		if (latestNotificationId == null) return;
-
-		this.redisClient.set(`latestReadNotification:${userId}`, latestNotificationId);
-
-		if (force || latestReadNotificationId == null || (latestReadNotificationId < latestNotificationId)) {
-			return this.postReadAllNotifications(userId);
-		}
+	public async readNotifications(userId: string, ids: string[]) {
+		const state = await this.reads.state(userId, ids, 'read');
+		this.globalEventService.publishMainStream(userId, 'notificationRead', { unreadCount: state.unreadCount });
+		if (state.unreadCount === 0) this.postReadAllNotifications(userId);
+		return state;
 	}
 
 	@bindThis
@@ -189,8 +184,7 @@ export class NotificationService implements OnApplicationShutdown {
 		// テスト通知の場合は即時発行
 		const interval = notification.type === 'test' ? 0 : 2000;
 		setTimeout(interval, 'unread notification', { signal: this.#shutdownController.signal }).then(async () => {
-			const latestReadNotificationId = await this.redisClient.get(`latestReadNotification:${notifieeId}`);
-			if (latestReadNotificationId && (latestReadNotificationId >= redisId)) return;
+			if ((await this.reads.state(notifieeId, [notification.id])).isRead[0]) return;
 
 			this.globalEventService.publishMainStream(notifieeId, 'unreadNotification', packed);
 			this.pushNotificationService.pushNotification(notifieeId, 'notification', packed);
@@ -238,6 +232,7 @@ export class NotificationService implements OnApplicationShutdown {
 		await Promise.all([
 			this.redisClient.del(`notificationTimeline:${userId}`),
 			this.redisClient.del(`latestReadNotification:${userId}`),
+			this.redisClient.del(`readNotifications:${userId}`),
 		]);
 		this.globalEventService.publishMainStream(userId, 'notificationFlushed');
 	}
@@ -251,6 +246,13 @@ export class NotificationService implements OnApplicationShutdown {
 		const { date, additional } = this.idService.parseFull(id);
 		// Redis Stream sequenceはunit64制約があるため、収まらない場合は下位64bitを取る
 		return date.toString() + '-' + BigInt.asUintN(64, additional).toString();
+	}
+
+	@bindThis
+	public async getNotification(userId: string, id: string): Promise<MiNotification | null> {
+		const streamId = this.toXListId(id);
+		const rows = await this.redisClient.xrange(`notificationTimeline:${userId}`, streamId, streamId);
+		return rows[0] ? JSON.parse(rows[0][1][1]) as MiNotification : null;
 	}
 
 	@bindThis

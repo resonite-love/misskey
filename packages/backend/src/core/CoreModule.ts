@@ -8,6 +8,7 @@ import { GridspaceNoteService } from './gridspace/GridspaceNoteService.js';
 import { GridspaceHistoryService } from './gridspace/GridspaceHistoryService.js';
 import { GridspaceSearchService } from './gridspace/GridspaceSearchService.js';
 import { GridspacePrivateService } from './gridspace/GridspacePrivateService.js';
+import { GridspaceNotificationService } from './gridspace/GridspaceNotificationService.js';
 import { GridspaceReplyService } from './gridspace/GridspaceReplyService.js';
 import { GridspaceIdentityService } from './gridspace/GridspaceIdentityService.js';
 import { GridspaceLinkService } from './gridspace/GridspaceLinkService.js';
@@ -53,6 +54,7 @@ import { NoteCreateService } from './NoteCreateService.js';
 import { NoteDeleteService } from './NoteDeleteService.js';
 import { NotePiningService } from './NotePiningService.js';
 import { NoteDraftService } from './NoteDraftService.js';
+import { NotificationReadService } from './NotificationReadService.js';
 import { NotificationService } from './NotificationService.js';
 import { PollService } from './PollService.js';
 import { PushNotificationService } from './PushNotificationService.js';
@@ -333,6 +335,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceSearchService,
 		GridspacePrivateService,
 		GridspaceReplyService,
+		GridspaceNotificationService,
 		GridspaceFollowGuardService,
 		VmimiRelayTimelineService,
 		LoggerService,
@@ -367,6 +370,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		NotePiningService,
 		NoteDraftService,
 		NotificationService,
+		NotificationReadService,
 		PollService,
 		SystemAccountService,
 		PushNotificationService,
@@ -648,6 +652,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceSearchService,
 		GridspacePrivateService,
 		GridspaceReplyService,
+		GridspaceNotificationService,
 		GridspaceFollowGuardService,
 		VmimiRelayTimelineService,
 		QueueModule,
@@ -683,6 +688,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		NotePiningService,
 		NoteDraftService,
 		NotificationService,
+		NotificationReadService,
 		PollService,
 		SystemAccountService,
 		PushNotificationService,

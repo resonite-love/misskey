@@ -2385,6 +2385,26 @@ export type paths = {
          */
         post: operations['gridspace___member'];
     };
+    '/gridspace/notifications': {
+        /**
+         * gridspace/notifications
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___notifications'];
+    };
+    '/gridspace/notifications/read': {
+        /**
+         * gridspace/notifications/read
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___notifications___read'];
+    };
     '/gridspace/private-file': {
         /**
          * gridspace/private-file
@@ -24967,6 +24987,235 @@ export interface operations {
             };
         };
     };
+    gridspace___notifications: {
+        requestBody: {
+            content: {
+                'application/json': {
+                    before?: string;
+                    since?: string;
+                    ids?: string[];
+                    excludeTypes?: string[];
+                    /** @default 20 */
+                    limit?: number;
+                    /** @default false */
+                    countOnly?: boolean;
+                    /**
+                     * @default local
+                     * @enum {string}
+                     */
+                    source?: 'local' | 'peer';
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        origin: string;
+                        recipientId: string;
+                        next: string | null;
+                        newest: string | null;
+                        boundary: string | null;
+                        unreadCount: number;
+                        local: {
+                            id: string;
+                            createdAt: string;
+                            isRead: boolean;
+                            notification: components['schemas']['Notification'];
+                        }[];
+                        remote: {
+                            id: string;
+                            createdAt: string;
+                            type: string;
+                            isRead: boolean;
+                            user: {
+                                name: string | null;
+                                username: string;
+                                host: string;
+                                uri: string;
+                            } | null;
+                            note: {
+                                id: string;
+                                uri: string;
+                                createdAt: string;
+                                origin: string;
+                                text: string | null;
+                                cw: string | null;
+                                visibility: string;
+                                localOnly: boolean;
+                                author: {
+                                    name: string | null;
+                                    username: string;
+                                    host: string;
+                                    uri: string;
+                                    avatarUrl: string;
+                                };
+                                replyId: string | null;
+                                renoteId: string | null;
+                                files: {
+                                    id: string;
+                                    name: string;
+                                    type: string;
+                                    size: number;
+                                    comment: string | null;
+                                    isSensitive: boolean;
+                                }[];
+                                poll: {
+                                    choices: {
+                                        text: string;
+                                        votes: number;
+                                    }[];
+                                    expiresAt: string | null;
+                                    multiple: boolean;
+                                } | null;
+                            } | null;
+                            body: string | null;
+                            reaction: string | null;
+                        }[];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    gridspace___notifications___read: {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default local
+                     * @enum {string}
+                     */
+                    source?: 'local' | 'peer';
+                    ids: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        unreadCount: number;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
     'gridspace___private-file': {
         requestBody: {
             content: {
@@ -25055,6 +25304,8 @@ export interface operations {
                      */
                     action?: 'status' | 'start' | 'finish' | 'revoke';
                     /** @default false */
+                    withNotifications?: boolean;
+                    /** @default false */
                     withReply?: boolean;
                     state?: string;
                     clientKey?: string;
@@ -25075,6 +25326,7 @@ export interface operations {
                         granted: boolean;
                         mutual: boolean;
                         canReply: boolean;
+                        canReadNotifications: boolean;
                         available: boolean;
                         peerOrigin: string | null;
                         authorizationUrl: string | null;

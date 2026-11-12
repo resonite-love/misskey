@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { startLinkedNotificationCounts } from '@/utility/gridspace-notification-state.js';
 import { createApp, defineAsyncComponent, markRaw } from 'vue';
 import { ui, version } from '@@/js/config.js';
 import * as Misskey from 'misskey-js';
@@ -320,6 +321,7 @@ export async function mainBoot() {
 			});
 		}
 
+		startLinkedNotificationCounts();
 		if (store.s.realtimeMode) {
 			const stream = useStream();
 
@@ -361,6 +363,10 @@ export async function mainBoot() {
 			// 自分の情報が更新されたとき
 			main.on('meUpdated', i => {
 				updateCurrentAccountPartial(i);
+			});
+
+			main.on('notificationRead', ({ unreadCount }) => {
+				updateCurrentAccountPartial({ hasUnreadNotification: unreadCount > 0, unreadNotificationsCount: unreadCount });
 			});
 
 			main.on('readAllNotifications', () => {

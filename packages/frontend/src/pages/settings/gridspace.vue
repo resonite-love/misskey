@@ -36,6 +36,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 					<MkButton :disabled="busy" @click="startPrivate(false)">{{ i18n.ts._gridspace.privateAuthorize }}</MkButton>
 					<MkButton v-if="readGrant?.granted" danger :disabled="busy" @click="revokePrivate">{{ readGrant.canReply ? i18n.ts._gridspace.replyRevoke : i18n.ts._gridspace.privateRevoke }}</MkButton>
 				</div>
+				<p>{{ i18n.ts._gridspace.notificationConsent }}</p>
+				<MkInfo v-if="readGrant?.canReadNotifications && readGrant.available">{{ i18n.ts._gridspace.notificationGranted }}</MkInfo>
+				<MkButton :disabled="busy" @click="startPrivate(false, true)">{{ i18n.ts._gridspace.notificationAuthorize }}</MkButton>
 				<MkA to="/gridspace/private">{{ i18n.ts._gridspace.privateHome }}</MkA>
 				<p>{{ i18n.ts._gridspace.replyConsent }}</p>
 				<MkInfo v-if="readGrant?.canReply && readGrant.available">{{ i18n.ts._gridspace.replyGranted }}</MkInfo>
@@ -122,9 +125,9 @@ async function start() {
 	});
 }
 
-async function startPrivate(withReply = false) {
+async function startPrivate(withReply = false, withNotifications = false) {
 	await perform(async () => {
-		const result = await misskeyApi('gridspace/private-grant', { action: 'start', withReply });
+		const result = await misskeyApi('gridspace/private-grant', { action: 'start', withReply, withNotifications });
 		if (!result.authorizationUrl || !result.clientKey) throw new Error('Missing authorization URL');
 		sessionStorage.setItem(storageKey, result.clientKey);
 		sessionStorage.setItem(`${storageKey}:purpose`, 'private');

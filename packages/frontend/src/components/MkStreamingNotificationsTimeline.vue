@@ -4,7 +4,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" :refresher="() => reload()">
+<MkLoading v-if="!linkedNotifications.checked"/>
+<MkGridspaceNotifications v-else-if="linkedNotifications.enabled" ref="linkedTimeline" :excludeTypes="excludeTypes"/>
+<component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" v-else :refresher="() => reload()">
 	<MkLoading v-if="paginator.fetching.value"/>
 
 	<MkError v-else-if="paginator.error.value" @retry="paginator.init()"/>
@@ -48,6 +50,8 @@ import { notificationTypes } from 'misskey-js';
 import { useInterval } from '@@/js/use-interval.js';
 import { useDocumentVisibility } from '@@/js/use-document-visibility.js';
 import { getScrollContainer, scrollToTop } from '@@/js/scroll.js';
+import MkGridspaceNotifications from '@/components/MkGridspaceNotifications.vue';
+import { linkedNotifications, startLinkedNotificationCounts } from '@/utility/gridspace-notification-state.js';
 import XNotification from '@/components/MkNotification.vue';
 import MkNote from '@/components/MkNote.vue';
 import { useStream } from '@/stream.js';
@@ -63,6 +67,8 @@ const props = defineProps<{
 }>();
 
 const rootEl = useTemplateRef('rootEl');
+const linkedTimeline = useTemplateRef('linkedTimeline');
+startLinkedNotificationCounts();
 
 const paginator = prefer.s.useGroupedNotifications ? markRaw(new Paginator('i/notifications-grouped', {
 	limit: 20,
@@ -85,6 +91,7 @@ const POLLING_INTERVAL =
 
 if (!store.s.realtimeMode) {
 	useInterval(async () => {
+		if (linkedNotifications.enabled || !linkedNotifications.checked) return;
 		paginator.fetchNewer({
 			toQueue: false,
 		});
@@ -127,6 +134,7 @@ const visibility = useDocumentVisibility();
 let isPausingUpdate = false;
 
 watch(visibility, () => {
+	if (linkedNotifications.enabled || !linkedNotifications.checked) return;
 	if (visibility.value === 'hidden') {
 		isPausingUpdate = true;
 	} else { // 'visible'
@@ -138,6 +146,7 @@ watch(visibility, () => {
 });
 
 function onNotification(notification: Misskey.entities.Notification) {
+	if (linkedNotifications.enabled || !linkedNotifications.checked) return;
 	const isMuted = props.excludeTypes ? props.excludeTypes.includes(notification.type as typeof notificationTypes[number]) : false;
 	if (isMuted || window.document.visibilityState === 'visible') {
 		if (store.s.realtimeMode) {
@@ -155,17 +164,19 @@ function onNotification(notification: Misskey.entities.Notification) {
 }
 
 function reload() {
-	return paginator.reload();
+	return linkedNotifications.enabled ? linkedTimeline.value?.reload() : paginator.reload();
 }
 
 let connection: Misskey.IChannelConnection<Misskey.Channels['main']> | null = null;
 
 onMounted(() => {
-	paginator.init();
+	watch(() => [linkedNotifications.checked, linkedNotifications.enabled], () => {
+		if (linkedNotifications.checked && !linkedNotifications.enabled) void paginator.init();
+	}, { immediate: true });
 
 	if (paginator.computedParams) {
 		watch(paginator.computedParams, () => {
-			paginator.reload();
+			if (!linkedNotifications.enabled) paginator.reload();
 		}, { immediate: false, deep: true });
 	}
 
@@ -185,6 +196,7 @@ onUnmounted(() => {
 
 defineExpose({
 	reload,
+	markDisplayed: () => linkedTimeline.value?.markDisplayed(),
 });
 </script>
 

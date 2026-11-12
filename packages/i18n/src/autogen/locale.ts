@@ -9577,6 +9577,14 @@ export interface Locale extends ILocale {
          */
         "read:gridspace-private-reciprocal": string;
         /**
+         * 連携先でこのアカウントの通知を読む
+         */
+        "read:gridspace-notifications": string;
+        /**
+         * 連携先で表示したこのアカウントの通知を既読にする
+         */
+        "write:gridspace-notifications": string;
+        /**
          * 連携先から、このアカウントの名義で限定公開の返信を投稿する
          */
         "write:gridspace-reply": string;
@@ -13687,6 +13695,34 @@ export interface Locale extends ILocale {
         "failed": string;
     };
     "_gridspace": {
+        /**
+         * 連携先の通知をこのサーバーの通知欄にまとめて表示します。表示した通知は、連携先でも既読になります。
+         */
+        "notificationConsent": string;
+        /**
+         * 連携先の通知も表示します。
+         */
+        "notificationGranted": string;
+        /**
+         * 連携先の通知を表示する
+         */
+        "notificationAuthorize": string;
+        /**
+         * 一部の通知を取得できません。取得できた通知を表示しています。
+         */
+        "notificationUnavailable": string;
+        /**
+         * {host} のアカウント宛て
+         */
+        "notificationRecipient": ParameterizedString<"host">;
+        /**
+         * 受信先で開く
+         */
+        "notificationOpenSource": string;
+        /**
+         * 表示した通知を既読にする
+         */
+        "notificationMarkDisplayed": string;
         /**
          * 連携先の権限で読む投稿
          */

@@ -67,6 +67,7 @@ export interface MainEventTypes {
 		file: Packed<'DriveFile'>;
 	};
 	readAllNotifications: undefined;
+	notificationRead: { unreadCount: number };
 	notificationFlushed: undefined;
 	unreadNotification: Packed<'Notification'>;
 	unreadAntenna: MiAntenna;

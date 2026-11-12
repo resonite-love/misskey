@@ -14,6 +14,7 @@ import { GridspaceLinkError, GridspaceLinkService } from '@/core/gridspace/Grids
 import { GridspaceHistoryService } from '@/core/gridspace/GridspaceHistoryService.js';
 import { GridspaceSearchService } from '@/core/gridspace/GridspaceSearchService.js';
 import { GridspacePrivateService } from '@/core/gridspace/GridspacePrivateService.js';
+import { GridspaceNotificationService } from '@/core/gridspace/GridspaceNotificationService.js';
 import { GridspaceReplyService } from '@/core/gridspace/GridspaceReplyService.js';
 import { RoleService } from '@/core/RoleService.js';
 import { RateLimiterService } from '@/server/api/RateLimiterService.js';
@@ -34,6 +35,7 @@ export class GridSpaceServerService {
 		private search: GridspaceSearchService,
 		private privateNotes: GridspacePrivateService,
 		private replies: GridspaceReplyService,
+		private notifications: GridspaceNotificationService,
 		private roles: RoleService,
 		private limiter: RateLimiterService,
 	) {
@@ -49,7 +51,7 @@ export class GridSpaceServerService {
 		input => this.replies.peerReply(input, async userId => {
 			const factor = (await this.roles.getUserPolicies(userId)).rateLimitFactor;
 			if (factor > 0 && await this.limiter.limit({ key: 'notes/create', duration: 3600000, max: 300 }, userId, factor)) throw new GridspaceLinkError('RATE_LIMITED');
-		}));
+		}), (action, input) => this.notifications.peer(action, input));
 		done();
 	}
 }

@@ -47,6 +47,7 @@ export type Channels = {
 			pageEvent: (payload: PageEvent) => void;
 			urlUploadFinished: (payload: { marker: string; file: DriveFile; }) => void;
 			readAllNotifications: () => void;
+			notificationRead: (payload: { unreadCount: number }) => void;
 			unreadNotification: (payload: Notification) => void;
 			notificationFlushed: () => void;
 			unreadAntenna: (payload: Antenna) => void;

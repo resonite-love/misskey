@@ -20,8 +20,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<button :class="$style.item" class="_button" @click="mainRouter.push('/my/notifications')">
 		<div :class="$style.itemInner">
 			<i :class="$style.itemIcon" class="ti ti-bell"></i>
-			<span v-if="$i?.hasUnreadNotification" :class="$style.itemIndicator" class="_blink">
-				<span class="_indicateCounter" :class="$style.itemIndicateValueIcon">{{ $i.unreadNotificationsCount > 99 ? '99+' : $i.unreadNotificationsCount }}</span>
+			<span v-if="notificationIndicator" :class="$style.itemIndicator" class="_blink">
+				<span class="_indicateCounter" :class="$style.itemIndicateValueIcon">{{ notificationBadge }}</span>
 			</span>
 		</div>
 	</button>
@@ -41,6 +41,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
+import { notificationIndicator, notificationBadge } from '@/utility/gridspace-notification-state.js';
 import { computed, ref, useTemplateRef, watch } from 'vue';
 import { $i } from '@/i.js';
 import * as os from '@/os.js';

@@ -8,6 +8,7 @@ import * as Redis from 'ioredis';
 import _Ajv from 'ajv';
 import { ModuleRef } from '@nestjs/core';
 import { In } from 'typeorm';
+import { NotificationReadService } from '@/core/NotificationReadService.js';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import type { Packed } from '@/misc/json-schema.js';
@@ -98,6 +99,7 @@ export class UserEntityService implements OnModuleInit {
 
 	constructor(
 		private moduleRef: ModuleRef,
+		private notificationReads: NotificationReadService,
 
 		@Inject(DI.config)
 		private config: Config,
@@ -335,30 +337,8 @@ export class UserEntityService implements OnModuleInit {
 		hasUnread: boolean;
 		unreadCount: number;
 	}> {
-		const response = {
-			hasUnread: false,
-			unreadCount: 0,
-		};
-
-		const latestReadNotificationId = await this.redisClient.get(`latestReadNotification:${userId}`);
-
-		if (!latestReadNotificationId) {
-			response.unreadCount = await this.redisClient.xlen(`notificationTimeline:${userId}`);
-		} else {
-			const latestNotificationIdsRes = await this.redisClient.xrevrange(
-				`notificationTimeline:${userId}`,
-				'+',
-				latestReadNotificationId,
-			);
-
-			response.unreadCount = (latestNotificationIdsRes.length - 1 >= 0) ? latestNotificationIdsRes.length - 1 : 0;
-		}
-
-		if (response.unreadCount > 0) {
-			response.hasUnread = true;
-		}
-
-		return response;
+		const { unreadCount } = await this.notificationReads.state(userId);
+		return { hasUnread: unreadCount > 0, unreadCount };
 	}
 
 	@bindThis

@@ -39,7 +39,7 @@ export class MiGridspaceLink {
 @Entity('gridspace_auth_session')
 export class MiGridspaceAuthSession {
 	@PrimaryColumn('uuid') public id: string;
-	@Column('varchar', { length: 16, default: 'link' }) public purpose: 'link' | 'private' | 'private-mutual' | 'private-reply';
+	@Column('varchar', { length: 16, default: 'link' }) public purpose: 'link' | 'private' | 'private-mutual' | 'private-reply' | 'private-notify' | 'private-full';
 	@Column('jsonb', { nullable: true }) public privateGrant: { reverseTokenId: string; expectedPeerRevision: number } | null;
 	@Index() @Column(id()) public localUserId: string;
 	@ManyToOne(() => MiUser, { onDelete: 'CASCADE' }) @JoinColumn() public localUser: MiUser | null;

@@ -177,6 +177,17 @@ API 試験で専用アカウントを作り、閲覧専用の許可と返信許�
 
 画面試験は直前の API 試験のアカウントを使い、実 OAuth の追加許可、本文・CW の返信、通信の応答だけを失った場合の結果確認を行う。`.config/reply-desktop.png` と `.config/reply-mobile.png` に画面を保存する。再実行するときは API 試験から順に実行する。
 
+### 通知統合の試験
+
+```powershell
+node scripts/gridspace/test-notifications.mjs
+node scripts/gridspace/test-notifications-ui.mjs
+```
+
+API 試験は専用の G/R 設定を確認して、新しいテストアカウントを作る。追加認可、既存の返信許可の維持、逆向きの権限、85件ずつのページ送り、取得時の未読維持、個別既読、限定投稿の削除と認可解除を確認する。Redis の既読処理も独立したテスト用キーで実行する。
+
+画面試験は `.config/gridspace-notification-test-accounts.json` のアカウントを使い、Chrome で認可・通知一覧・添付画像・更新・解除・通信失敗からの復旧を確認する。グループへの追加と既読は、応答を固定した画面試験でも確認する。画像は `.config/notifications-desktop.png` と `.config/notifications-mobile.png` に保存する。認証情報と画像は Git に追加しない。
+
 ## 停止と再開
 
 試験環境を停止する場合は Misskey 本体とトンネルを停止し、次を実行する。DB のボリュームは保持される。

@@ -405,6 +405,10 @@ import type {
 	GridspaceLinkResponse,
 	GridspaceMemberRequest,
 	GridspaceMemberResponse,
+	GridspaceNotificationsRequest,
+	GridspaceNotificationsResponse,
+	GridspaceNotificationsReadRequest,
+	GridspaceNotificationsReadResponse,
 	GridspacePrivateFileRequest,
 	GridspacePrivateFileResponse,
 	GridspacePrivateGrantRequest,
@@ -964,6 +968,8 @@ export type Endpoints = {
 	'gridspace/history': { req: GridspaceHistoryRequest; res: GridspaceHistoryResponse };
 	'gridspace/link': { req: GridspaceLinkRequest; res: GridspaceLinkResponse };
 	'gridspace/member': { req: GridspaceMemberRequest; res: GridspaceMemberResponse };
+	'gridspace/notifications': { req: GridspaceNotificationsRequest; res: GridspaceNotificationsResponse };
+	'gridspace/notifications/read': { req: GridspaceNotificationsReadRequest; res: GridspaceNotificationsReadResponse };
 	'gridspace/private-file': { req: GridspacePrivateFileRequest; res: GridspacePrivateFileResponse };
 	'gridspace/private-grant': { req: GridspacePrivateGrantRequest; res: GridspacePrivateGrantResponse };
 	'gridspace/private-notes': { req: GridspacePrivateNotesRequest; res: GridspacePrivateNotesResponse };

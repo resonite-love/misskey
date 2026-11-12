@@ -133,14 +133,16 @@ export class GridspacePrivateService {
 			scannedThrough: selected.length ? this.ids.parse(selected.at(-1)!.id).date.toISOString() : null, observedAt };
 	}
 
-	private async localAllows(viewer: MiLocalUser, note: PrivateWireNote, home: boolean, peerUserId: string) {
+	public async localActorAllows(viewer: MiLocalUser, actor: PrivateWireNote['author'] | PrivateWireNote['filterActors'][number]) {
 		const profile = await this.db.getRepository(MiUserProfile).findOneBy({ userId: viewer.id });
-		for (const actor of note.filterActors) {
-			if (this.utility.isBlockedHost(this.meta.blockedHosts, actor.host) || profile?.mutedInstances.includes(actor.host)) return false;
-			const where = actor.uri.startsWith(`${this.peer!.origin}/users/`) ? { id: actor.uri.slice(`${this.peer!.origin}/users/`.length), host: IsNull() } : { uri: actor.uri };
-			const local = await this.db.getRepository(MiUser).findOneBy(where);
-			if (local && !(await this.search.userQuery(viewer).andWhere('user.id = :author', { author: local.id }).getOne())) return false;
-		}
+		if (this.utility.isBlockedHost(this.meta.blockedHosts, actor.host) || profile?.mutedInstances.includes(actor.host)) return false;
+		const where = actor.uri.startsWith(`${this.peer!.origin}/users/`) ? { id: actor.uri.slice(`${this.peer!.origin}/users/`.length), host: IsNull() } : { uri: actor.uri };
+		const local = await this.db.getRepository(MiUser).findOneBy(where);
+		return !local || !!(await this.search.userQuery(viewer).andWhere('user.id = :author', { author: local.id }).getOne());
+	}
+
+	public async localAllows(viewer: MiLocalUser, note: PrivateWireNote, home: boolean, peerUserId: string) {
+		for (const actor of note.filterActors) if (!await this.localActorAllows(viewer, actor)) return false;
 		const uri = note.author.uri;
 		const where = uri.startsWith(`${this.peer!.origin}/users/`) ? { id: uri.slice(`${this.peer!.origin}/users/`.length), host: IsNull() } : { uri };
 		const local = await this.db.getRepository(MiUser).findOneBy(where);

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { notificationIndicator, notificationBadge } from '@/utility/gridspace-notification-state.js';
 import { computed, reactive } from 'vue';
 import { ui } from '@@/js/config.js';
 import { clearCache } from './utility/clear-cache.js';
@@ -30,16 +31,8 @@ export const navbarItemDef = reactive<{
 		title: i18n.ts.notifications,
 		icon: 'ti ti-bell',
 		show: computed(() => $i != null),
-		indicated: computed(() => $i != null && $i.hasUnreadNotification),
-		indicateValue: computed(() => {
-			if (!$i || $i.unreadNotificationsCount === 0) return '';
-
-			if ($i.unreadNotificationsCount > 99) {
-				return '99+';
-			} else {
-				return $i.unreadNotificationsCount.toString();
-			}
-		}),
+		indicated: notificationIndicator,
+		indicateValue: notificationBadge,
 		to: '/my/notifications',
 	},
 	drive: {

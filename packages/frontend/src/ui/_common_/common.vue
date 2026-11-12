@@ -102,6 +102,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
+import { misskeyApi } from '@/utility/misskey-api.js';
 import { defineAsyncComponent, ref, TransitionGroup } from 'vue';
 import * as Misskey from 'misskey-js';
 import { swInject } from './sw-inject.js';
@@ -135,7 +136,7 @@ function onNotification(notification: Misskey.entities.Notification, isClient = 
 		if (!isClient && notification.type !== 'test') {
 			// サーバーサイドのテスト通知の際は自動で既読をつけない（テストできないので）
 			if (store.s.realtimeMode) {
-				useStream().send('readNotification');
+				void misskeyApi('gridspace/notifications/read', { source: 'local', ids: [notification.id] }).catch(() => {});
 			}
 		}
 
