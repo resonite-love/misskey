@@ -108,6 +108,11 @@ const menuDef = computed<SuperMenuDef[]>(() => [{
 		text: i18n.ts.security,
 		to: '/settings/security',
 		active: currentPage.value?.route.name === 'security',
+	}, {
+		icon: 'ti ti-link',
+		text: i18n.ts._gridspace.title,
+		to: '/settings/gridspace',
+		active: currentPage.value?.route.name === 'gridspace',
 	}],
 }, {
 	items: [{

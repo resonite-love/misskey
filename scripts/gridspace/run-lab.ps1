@@ -17,7 +17,12 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
     }
 }
 $env:MISSKEY_CONFIG_YML = 'gridspace-lab.yml'
-$env:NODE_ENV = 'production'
+if ($Action -eq 'build') {
+    # Workspace packages also need declaration outputs for type checking.
+    Remove-Item Env:NODE_ENV -ErrorAction SilentlyContinue
+} else {
+    $env:NODE_ENV = 'production'
+}
 $env:PATH = (Join-Path $repo 'node_modules/.bin') + [IO.Path]::PathSeparator + $env:PATH
 Push-Location $repo
 try {

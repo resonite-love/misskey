@@ -2056,6 +2056,8 @@ declare namespace entities {
         GalleryPostsUpdateResponse,
         GetAvatarDecorationsResponse,
         GetOnlineUsersCountResponse,
+        GridspaceLinkRequest,
+        GridspaceLinkResponse,
         HashtagsListRequest,
         HashtagsListResponse,
         HashtagsSearchRequest,
@@ -2648,6 +2650,12 @@ type GetAvatarDecorationsResponse = operations['get-avatar-decorations']['respon
 
 // @public (undocumented)
 type GetOnlineUsersCountResponse = operations['get-online-users-count']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceLinkRequest = operations['gridspace___link']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceLinkResponse = operations['gridspace___link']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type Hashtag = components['schemas']['Hashtag'];

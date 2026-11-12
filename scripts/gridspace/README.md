@@ -12,7 +12,7 @@
 
 実装済みなのは、明示的に有効化する peer API と署名つきの互換性確認である。`POST /gridspace/v1/handshake` は送信元、宛先、コミュニティ、キー ID、時刻、nonce、メソッド、パス、送信された本文のバイト列を検証する。nonce は Redis で一度だけ受け付ける。Redis が利用できない場合は処理しない。
 
-機能一覧の `features` は現在空である。OAuth による本人連携、フォローの取り込み、共通 LTL、履歴・通知の統合、旧名義での返信は後続の実装となる。サーバー同士が認証できても、利用者の限定投稿へアクセスする許可にはならない。
+機能一覧の `features` は `account-link-follow-copy` を返す。設定の「アカウント連携」で OAuth の本人確認を行い、相手サーバーのフォローを一度だけコピーできる。通常連合で配送される新規投稿は、その後ホームに届く。共通 LTL、履歴・通知の統合、旧名義での返信は後続の実装となる。サーバー同士が認証できても、利用者の限定投稿へアクセスする許可にはならない。
 
 ## 初回の準備
 
@@ -69,7 +69,7 @@ pnpm install --frozen-lockfile
 
 ```powershell
 node scripts/gridspace/probe-peers.mjs
-pnpm --filter backend test --run src/core/gridspace/peer-protocol.test.ts src/server/gridspace/peer-server.test.ts
+pnpm --filter backend test --run src/core/gridspace/peer-protocol.test.ts src/core/gridspace/link-crypto.test.ts src/server/gridspace/peer-server.test.ts
 ```
 
 probe は G→R と R→G の署名つきリクエストが成功し、同じリクエストの再送と不正な署名が拒否されることを確認する。本人のアクセストークンやノート本文は扱わない。単体試験の初回実行前には `.config/test.yml` を試験用の例から作成する。既にある場合は上書きしない。
@@ -88,6 +88,21 @@ node scripts/gridspace/test-lab.mjs ../resonite-love-gridspace ../gridspace-exte
 ログイン用パスワードとトークンは、各リポジトリの `.config/gridspace-lab-accounts.json` に保存する。表示や Git への追加はしない。同じファイルを保持した再実行ではアカウントを再利用する。パスワードを変更した場合は、このファイルも手元で更新してから再実行する。
 
 `test-lab.mjs` はテスト投稿と Follow を作り、HTTPS、WebSocket の新着、3 サイト間の通常配送、ローカル限定の外部配送禁止、鍵アカウントの承認、通知を確認する。テスト投稿は履歴として残る。これは連携機能を追加する前の基準動作であり、本人連携や共通 LTL の受け入れ試験は含まない。
+
+### OAuth 連携と初回コピーの試験
+
+G と R のビルド・migration・起動と、テスト用アカウントの作成が終わった後に実行する。
+
+```powershell
+node scripts/gridspace/test-link.mjs ../resonite-love-gridspace
+node scripts/gridspace/test-migrations.mjs
+```
+
+`test-link.mjs` は毎回専用アカウントを作り、OAuth、初回コピー、ホーム投稿の到着、鍵アカウントの承認待ち、ミュート対象の省略、二重連携の拒否、Follow の独立性、解除と再連携を確認する。専用アカウントは最後に連携済みの状態で残る。認証情報は G の `.config/gridspace-link-test-accounts.json` に保存する。
+
+`test-migrations.mjs` は G の PostgreSQL に一時 DB を作り、新規 migration の up → down → up を確認してその DB を削除する。稼働中の Misskey のテーブルと利用者データは変更しない。
+
+ビルドを更新した後は Misskey のプロセスを再起動し、ブラウザーも再読み込みする。起動中のサーバーは古いアセットの情報を保持するため、ファイルの置き換えだけでは画面を更新できないことがある。
 
 ## 停止と再開
 

@@ -13566,6 +13566,14 @@ export interface Locale extends ILocale {
          */
         "title": string;
         /**
+         * この機能は、Preferred Networksの翻訳モデル「PLaMo Translate」を使用しています。
+         */
+        "providerCredit": string;
+        /**
+         * PLaMo Translateについて
+         */
+        "aboutProvider": string;
+        /**
          * 画面に表示された投稿を指定した言語に翻訳します。同じ言語と判定できた投稿は翻訳しません。原文はいつでも表示できます。設定はアカウントごとに保存されます。
          */
         "description": string;
@@ -13665,5 +13673,127 @@ export interface Locale extends ILocale {
          * 翻訳できなかったため、原文を表示しています。
          */
         "failed": string;
+    };
+    "_gridspace": {
+        /**
+         * アカウント連携
+         */
+        "title": string;
+        /**
+         * 相手サーバーのアカウントを確認し、フォローを一度だけコピーします。以後のフォロー・解除はサーバーごとに独立します。
+         */
+        "description": string;
+        /**
+         * 本人確認、フォロー一覧、ミュート・ブロックの確認を許可します。相手サーバーで投稿する権限は要求しません。
+         */
+        "permissions": string;
+        /**
+         * コピー後の公開・ホーム投稿は通常のホームに届きます。鍵アカウントは新しいアカウントへの承認が必要です。ローカル限定投稿と過去投稿の統合はまだ対象外です。ミュート・ブロック中の相手はコピーを省略します。
+         */
+        "scope": string;
+        /**
+         * このサーバーではアカウント連携が有効になっていません。
+         */
+        "disabled": string;
+        /**
+         * 連携先
+         */
+        "peer": string;
+        /**
+         * 相手サーバーのアカウント
+         */
+        "account": string;
+        /**
+         * 連携してフォローをコピー
+         */
+        "start": string;
+        /**
+         * もう一度認可する
+         */
+        "reauthorize": string;
+        /**
+         * 連携を解除
+         */
+        "revoke": string;
+        /**
+         * 失敗したコピーを再試行
+         */
+        "retry": string;
+        /**
+         * 連携と実行中のコピーを停止します。コピー済みのフォローと、両方のアカウントは残ります。解除しますか？
+         */
+        "revokeConfirm": string;
+        /**
+         * 全{total}件：コピー完了{done}件、処理待ち{pending}件、承認待ち{requested}件、失敗{failed}件、省略・取消{skipped}件
+         */
+        "progress": ParameterizedString<"total" | "done" | "pending" | "requested" | "failed" | "skipped">;
+        /**
+         * 一覧は先頭100件を表示しています。
+         */
+        "firstHundred": string;
+        /**
+         * ホームを開く
+         */
+        "openHome": string;
+        /**
+         * 未連携
+         */
+        "unlinked": string;
+        /**
+         * 連携を準備中
+         */
+        "preparing": string;
+        /**
+         * 連携済み
+         */
+        "active": string;
+        /**
+         * 連携は解除されています。
+         */
+        "revoked": string;
+        /**
+         * 処理待ち
+         */
+        "pending": string;
+        /**
+         * 承認待ち
+         */
+        "requested": string;
+        /**
+         * コピー完了
+         */
+        "done": string;
+        /**
+         * 失敗
+         */
+        "failed": string;
+        /**
+         * 省略
+         */
+        "skipped": string;
+        /**
+         * 取消済み
+         */
+        "cancelled": string;
+        /**
+         * 認可を確認できませんでした。連携先とログイン中のアカウントを確認し、もう一度認可してください。
+         */
+        "authorizationError": string;
+        /**
+         * 連携先との通信に失敗しました。時間をおいて再試行してください。
+         */
+        "connectionError": string;
+        /**
+         * いずれかのアカウントが既に別のアカウントと連携しています。既存の連携を解除してからやり直してください。
+         */
+        "conflict": string;
+        /**
+         * このサーバーでは停止済みです。連携先への解除通知を再試行しています。
+         */
+        "revokePending": string;
+        /**
+         * コピー対象が上限の10000件を超えています。管理者に相談してください。
+         */
+        "tooMany": string;
     };
 }

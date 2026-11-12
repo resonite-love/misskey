@@ -461,3 +461,4 @@ export * as 'auto-translation/translate-note' from './endpoints/auto-translation
 export * as 'admin/auto-translation/get-config' from './endpoints/admin/auto-translation/get-config.js';
 export * as 'admin/auto-translation/update-config' from './endpoints/admin/auto-translation/update-config.js';
 export * as 'admin/auto-translation/test-connection' from './endpoints/admin/auto-translation/test-connection.js';
+export * as 'gridspace/link' from './endpoints/gridspace/link.js';

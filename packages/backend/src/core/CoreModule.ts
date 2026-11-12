@@ -4,6 +4,8 @@
  */
 
 import { Module } from '@nestjs/common';
+import { GridspaceLinkService } from './gridspace/GridspaceLinkService.js';
+import { GridspaceFollowGuardService } from './gridspace/GridspaceFollowGuardService.js';
 import { FanoutTimelineEndpointService } from '@/core/FanoutTimelineEndpointService.js';
 import { AbuseReportService } from '@/core/AbuseReportService.js';
 import { SystemWebhookEntityService } from '@/core/entities/SystemWebhookEntityService.js';
@@ -318,6 +320,8 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		QueueModule,
 	],
 	providers: [
+		GridspaceLinkService,
+		GridspaceFollowGuardService,
 		VmimiRelayTimelineService,
 		LoggerService,
 		AbuseReportService,
@@ -625,6 +629,8 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		//#endregion
 	],
 	exports: [
+		GridspaceLinkService,
+		GridspaceFollowGuardService,
 		VmimiRelayTimelineService,
 		QueueModule,
 		LoggerService,

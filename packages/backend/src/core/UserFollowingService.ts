@@ -29,6 +29,7 @@ import { AccountMoveService } from '@/core/AccountMoveService.js';
 import { UtilityService } from '@/core/UtilityService.js';
 import type { ThinUser } from '@/queue/types.js';
 import Logger from '../logger.js';
+import { GridspaceFollowGuardService } from './gridspace/GridspaceFollowGuardService.js';
 
 const logger = new Logger('following/create');
 
@@ -86,6 +87,7 @@ export class UserFollowingService implements OnModuleInit {
 		private accountMoveService: AccountMoveService,
 		private perUserFollowingChart: PerUserFollowingChart,
 		private instanceChart: InstanceChart,
+		private gridspaceGuard: GridspaceFollowGuardService,
 	) {
 	}
 
@@ -352,6 +354,16 @@ export class UserFollowingService implements OnModuleInit {
 
 	@bindThis
 	public async unfollow(
+		follower: Parameters<UserFollowingService['performUnfollow']>[0],
+		followee: Parameters<UserFollowingService['performUnfollow']>[1],
+		silent = false,
+	): Promise<void> {
+		if (follower.host !== null) return this.performUnfollow(follower, followee, silent);
+		return this.gridspaceGuard.run(follower.id, () => this.performUnfollow(follower, followee, silent), followee.id);
+	}
+
+	@bindThis
+	private async performUnfollow(
 		follower: {
 			id: MiUser['id']; host: MiUser['host']; uri: MiUser['host']; inbox: MiUser['inbox']; sharedInbox: MiUser['sharedInbox'];
 		},
@@ -543,6 +555,15 @@ export class UserFollowingService implements OnModuleInit {
 
 	@bindThis
 	public async cancelFollowRequest(
+		followee: Parameters<UserFollowingService['performCancelFollowRequest']>[0],
+		follower: Parameters<UserFollowingService['performCancelFollowRequest']>[1],
+	): Promise<void> {
+		if (follower.host !== null) return this.performCancelFollowRequest(followee, follower);
+		return this.gridspaceGuard.run(follower.id, () => this.performCancelFollowRequest(followee, follower), followee.id);
+	}
+
+	@bindThis
+	private async performCancelFollowRequest(
 		followee: {
 			id: MiUser['id']; host: MiUser['host']; uri: MiUser['host']; inbox: MiUser['inbox']
 		},

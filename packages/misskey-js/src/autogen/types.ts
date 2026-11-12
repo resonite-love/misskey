@@ -2357,6 +2357,16 @@ export type paths = {
          */
         post: operations['get-online-users-count'];
     };
+    '/gridspace/link': {
+        /**
+         * gridspace/link
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___link'];
+    };
     '/hashtags/list': {
         /**
          * hashtags/list
@@ -24592,6 +24602,110 @@ export interface operations {
             };
             /** @description I'm Ai */
             418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    gridspace___link: {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default status
+                     * @enum {string}
+                     */
+                    action?: 'status' | 'start' | 'finish' | 'revoke' | 'retry';
+                    state?: string;
+                    clientKey?: string;
+                    code?: string;
+                    issuer?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        enabled: boolean;
+                        peerOrigin: string | null;
+                        state: string;
+                        peerUsername: string | null;
+                        peerUserId: string | null;
+                        initiator: boolean;
+                        lastError: string | null;
+                        total: number;
+                        pending: number;
+                        done: number;
+                        requested: number;
+                        failed: number;
+                        skipped: number;
+                        authorizationUrl: string | null;
+                        clientKey: string | null;
+                        items: {
+                            uri: string;
+                            userId: string | null;
+                            state: string;
+                            reason: string | null;
+                        }[];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

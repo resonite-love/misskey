@@ -5,6 +5,7 @@
 
 // https://github.com/typeorm/typeorm/issues/2400
 import pg from 'pg';
+import { MiGridspaceAuthSession, MiGridspaceFollowOverride, MiGridspaceImportItem, MiGridspaceLink } from '@/models/Gridspace.js';
 import { DataSource, Logger, type QueryRunner } from 'typeorm';
 import { entities as charts } from '@/core/chart/entities.js';
 import { Config } from '@/config.js';
@@ -180,6 +181,7 @@ class MyCustomLogger implements Logger {
 }
 
 export const entities = [
+	MiGridspaceAuthSession, MiGridspaceFollowOverride, MiGridspaceImportItem, MiGridspaceLink,
 	MiAnnouncement,
 	MiAnnouncementRead,
 	MiMeta,

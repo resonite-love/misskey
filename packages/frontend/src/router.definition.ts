@@ -193,6 +193,10 @@ export const ROUTE_DEF = [{
 		name: 'profile',
 		component: page(() => import('@/pages/settings/accounts.vue')),
 	}, {
+		path: '/gridspace',
+		name: 'gridspace',
+		component: page(() => import('@/pages/settings/gridspace.vue')),
+	}, {
 		path: '/other',
 		name: 'other',
 		component: page(() => import('@/pages/settings/other.vue')),
