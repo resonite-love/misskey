@@ -47,6 +47,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script lang="ts" setup>
 import { onUnmounted, onMounted, computed, useTemplateRef, TransitionGroup, markRaw, watch } from 'vue';
 import * as Misskey from 'misskey-js';
+import $style from '@/components/notification-timeline.module.scss';
 import { notificationTypes } from 'misskey-js';
 import { useInterval } from '@@/js/use-interval.js';
 import { useDocumentVisibility } from '@@/js/use-document-visibility.js';
@@ -203,67 +204,3 @@ defineExpose({
 });
 </script>
 
-<style lang="scss" module>
-.transition_x_move {
-	transition: transform 0.7s cubic-bezier(0.23, 1, 0.32, 1);
-}
-
-.transition_x_enterActive {
-	transition: transform 0.7s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.7s cubic-bezier(0.23, 1, 0.32, 1);
-
-	&.content,
-	.content {
-		/* Skip Note Rendering有効時、TransitionGroupで通知を追加するときに一瞬がくっとなる問題を抑制する */
-		content-visibility: visible !important;
-	}
-}
-
-.transition_x_leaveActive {
-	transition: height 0.2s cubic-bezier(0,.5,.5,1), opacity 0.2s cubic-bezier(0,.5,.5,1);
-}
-
-.transition_x_enterFrom {
-	opacity: 0;
-	transform: translateY(max(-64px, -100%));
-}
-
-@supports (interpolate-size: allow-keywords) {
-	.transition_x_enterFrom {
-		interpolate-size: allow-keywords; // heightのtransitionを動作させるために必要
-		height: 0;
-	}
-}
-
-.transition_x_leaveTo {
-	opacity: 0;
-}
-
-.notifications {
-	container-type: inline-size;
-	background: var(--MI_THEME-panel);
-}
-
-.item {
-	border-bottom: solid 0.5px var(--MI_THEME-divider);
-}
-
-.date {
-	display: flex;
-	font-size: 85%;
-	align-items: center;
-	justify-content: center;
-	gap: 1em;
-	padding: 8px 8px;
-	margin: 0 auto;
-	border-bottom: solid 0.5px var(--MI_THEME-divider);
-}
-
-.more {
-	display: block;
-	width: 100%;
-	box-sizing: border-box;
-	padding: 16px;
-	background: var(--MI_THEME-panel);
-	border-top: solid 0.5px var(--MI_THEME-divider);
-}
-</style>

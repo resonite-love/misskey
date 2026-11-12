@@ -18,12 +18,16 @@ import { checkNoteWordMute } from '@/composables/use-note.js';
 
 type Page = entities.GridspaceNotificationsResponse;
 type Source = 'local' | 'peer';
-export type NotificationRow = { key: string; origin: string; recipientId: string; source: Source; id: string; createdAt: string; isRead: boolean } &
+export type NotificationRow = { key: string; origin: string; recipientId: string; source: Source; id: string; createdAt: string; isRead: boolean; suspended?: boolean } &
 	({ source: 'local'; local: Page['local'][number]['notification'] } | { source: 'peer'; remote: Page['remote'][number] });
 export type NotificationGroup = NotificationRow & { members: NotificationRow[] };
 const makeState = () => ({ before: undefined as string | undefined, newest: undefined as string | undefined, boundary: Infinity, more: true, busy: false, error: false });
 
-export function useGridspaceNotifications(exclude: ComputedRef<string[]>) {
+export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTop: () => boolean = () => true) {
+	const suspendedRows = shallowRef<NotificationGroup[] | null>(null);
+	const queuedKeys = shallowRef(new Set<string>());
+	const queued = computed(() => [...data.local.value, ...data.peer.value].filter(row => queuedKeys.value.has(row.key)).length);
+	const releaseQueue = () => { if (!suspendedRows.value) queuedKeys.value = new Set(); };
 	const data = { local: shallowRef<NotificationRow[]>([]), peer: shallowRef<NotificationRow[]>([]) };
 	const state = reactive({ local: makeState(), peer: makeState() });
 	const readErrors = reactive({ local: false, peer: false });
@@ -42,13 +46,14 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>) {
 	const individualRows = computed(() => {
 		const boundary = Math.max(...sources.map(s => state[s].error ? -Infinity : state[s].boundary));
 		return sources.flatMap(s => data[s].value).filter(row => {
-			if (Date.parse(row.createdAt) <= boundary) return false;
+			if (Date.parse(row.createdAt) <= boundary || queuedKeys.value.has(row.key)) return false;
 			if (!$i) return true;
-			if (row.source === 'peer') return !checkTextWordMute(`${row.remote.body ?? ''}\n${row.remote.note?.cw ?? ''}\n${row.remote.note?.text ?? ''}`, $i.hardMutedWords);
+			if (row.source === 'peer') return !checkTextWordMute(`${row.remote.body ?? ''}\n${row.remote.note?.cw ?? ''}\n${row.remote.note?.text ?? ''}\n${row.remote.renote?.cw ?? ''}\n${row.remote.renote?.text ?? ''}`, $i.hardMutedWords);
 			return !('note' in row.local) || !checkNoteWordMute(row.local.note, $i, $i.hardMutedWords);
 		}).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.key.localeCompare(b.key));
 	});
 	const rows = computed<NotificationGroup[]>(() => {
+		if (suspendedRows.value) return suspendedRows.value;
 		const result: NotificationGroup[] = [];
 		for (const row of individualRows.value) {
 			const previous = result.at(-1);
@@ -123,6 +128,10 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>) {
 				const { page, revision } = await request(source, newer ? { since: state[source].newest } : { before: state[source].before });
 				if (current !== generation || epoch !== epochs[source] || !usable()) return;
 				state[source].error = false;
+				if (newer && !isAtTop()) {
+					const known = new Set(data[source].value.map(n => n.key));
+					queuedKeys.value = new Set([...queuedKeys.value, ...convert(page, source).filter(n => !known.has(n.key)).map(n => n.key)]);
+				}
 				data[source].value = [...new Map([...data[source].value, ...convert(page, source)].map(n => [n.key, n])).values()];
 				if (revision === readRevisions[source]) count(source, page.unreadCount);
 				if (newer) { if (page.newest) state[source].newest = page.newest; more = page.next != null; } else {
@@ -154,7 +163,7 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>) {
 	}
 
 	async function tick() {
-		if (!usable()) return;
+		if (!usable() || suspendedRows.value) return;
 		await Promise.all(sources.map(async source => {
 			if (state[source].error) { await resetSource(source); return; }
 			await validate(source);
@@ -195,7 +204,7 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>) {
 		} finally { reading[source] = null; completed(); }
 	}
 
-	function seen(row: NotificationGroup) { if (usable()) for (const member of row.members) if (!member.isRead) pending[member.source].add(member.id); }
+	function seen(row: NotificationGroup) { if (usable() && !row.suspended) for (const member of row.members) if (!member.isRead) pending[member.source].add(member.id); }
 
 	async function flushSeen() {
 		if (!usable()) return;
@@ -207,17 +216,43 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>) {
 
 	async function resetSource(source: Source) { epochs[source]++; state[source] = makeState(); data[source].value = []; await load(source); }
 
-	function clear() { generation++; controller.abort(); controller = new AbortController(); data.peer.value = []; pending.local.clear(); pending.peer.clear(); confirmedRead.local.clear(); confirmedRead.peer.clear(); }
+	function clear() { suspendedRows.value = null; queuedKeys.value = new Set(); generation++; controller.abort(); controller = new AbortController(); data.peer.value = []; pending.local.clear(); pending.peer.clear(); confirmedRead.local.clear(); confirmedRead.peer.clear(); }
 
 	async function reload() { clear(); await Promise.all(sources.map(resetSource)); }
 
-	async function older() { await Promise.all(sources.map(s => load(s))); }
+	async function older() { if (suspendedRows.value) return; await Promise.all(sources.map(s => load(s))); }
 
 	async function markDisplayed() { await flushSeen(); }
 
 	async function markAll() { await Promise.all(sources.map(source => read(source, [], true))); }
 
-	function visibility() { if (!window.document.hidden && active) void reload(); else clear(); }
+	function stripped(row: NotificationRow): NotificationRow {
+		if (row.source === 'local') return row;
+		return { key: row.key, origin: row.origin, recipientId: row.recipientId, source: 'peer', id: row.id, createdAt: row.createdAt, isRead: row.isRead, suspended: true,
+			remote: { id: row.id, createdAt: row.createdAt, isRead: row.isRead, type: 'test', note: null, user: null, body: null, reaction: null } };
+	}
+
+	function suspend() {
+		generation++; controller.abort(); controller = new AbortController();
+		suspendedRows.value ??= rows.value.map(row => ({ ...stripped(row), members: row.members.map(stripped) }));
+		data.peer.value = data.peer.value.map(stripped);
+		for (const source of sources) { state[source].busy = false; pending[source].clear(); }
+	}
+
+	async function resume() {
+		if (!usable()) return;
+		const current = generation;
+		await Promise.all(sources.map(async source => {
+			if (state[source].error || !state[source].newest) await resetSource(source);
+			else await validate(source);
+		}));
+		if (current !== generation || !usable()) return;
+		suspendedRows.value = null;
+		if (isAtTop()) releaseQueue();
+		await Promise.all(sources.filter(source => !state[source].error).map(source => load(source, true)));
+	}
+
+	function visibility() { if (!window.document.hidden && active) void resume(); else suspend(); }
 
 	let ticking = false;
 	const stream = store.s.realtimeMode ? useStream().useChannel('main') : null;
@@ -232,9 +267,9 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>) {
 			try { await flushSeen(); if (++elapsed % 10 === 0) await tick(); } finally { ticking = false; }
 		}, 1000);
 	});
-	onActivated(() => { if (!active) { active = true; void reload(); } });
-	onDeactivated(() => { active = false; clear(); });
+	onActivated(() => { if (!active) { active = true; void resume(); } });
+	onDeactivated(() => { active = false; suspend(); });
 	onBeforeUnmount(() => { active = false; clear(); window.clearInterval(timer); stream?.dispose(); window.document.removeEventListener('visibilitychange', visibility); void refreshLinkedNotifications(); });
 	watch(exclude, reload, { deep: true });
-	return { rows, hasMore, busy, error, readError, older, reload, seen, markDisplayed, markAll };
+	return { rows, hasMore, busy, error, readError, older, reload, seen, markDisplayed, markAll, queued, releaseQueue };
 }

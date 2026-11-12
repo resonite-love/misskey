@@ -5,7 +5,7 @@
 
 // https://github.com/typeorm/typeorm/issues/2400
 import pg from 'pg';
-import { MiGridspaceAuthSession, MiGridspaceFollowExpansion, MiGridspaceFollowOverride, MiGridspaceImportItem, MiGridspaceLink, MiGridspaceNoteDelivery, MiGridspaceNoteTombstone, MiGridspaceReplyReceipt, MiGridspaceReactionDelivery } from '@/models/Gridspace.js';
+import { MiGridspaceAuthSession, MiGridspaceFollowExpansion, MiGridspaceFollowOverride, MiGridspaceImportItem, MiGridspaceLink, MiGridspaceNoteDelivery, MiGridspaceNoteTombstone, MiGridspaceReplyReceipt, MiGridspaceReactionDelivery, MiGridspaceFollowDecision } from '@/models/Gridspace.js';
 import { DataSource, Logger, type QueryRunner } from 'typeorm';
 import { entities as charts } from '@/core/chart/entities.js';
 import { Config } from '@/config.js';
@@ -182,7 +182,7 @@ class MyCustomLogger implements Logger {
 
 export const entities = [
 	MiGridspaceAuthSession, MiGridspaceFollowExpansion, MiGridspaceFollowOverride, MiGridspaceImportItem, MiGridspaceLink, MiGridspaceNoteDelivery, MiGridspaceNoteTombstone, MiGridspaceReplyReceipt,
-	MiGridspaceReactionDelivery,
+	MiGridspaceReactionDelivery, MiGridspaceFollowDecision,
 	MiAnnouncement,
 	MiAnnouncementRead,
 	MiMeta,

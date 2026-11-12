@@ -420,6 +420,8 @@ import type {
 	GridspaceMemberResponse,
 	GridspaceNotificationsRequest,
 	GridspaceNotificationsResponse,
+	GridspaceNotificationsFollowRequestRequest,
+	GridspaceNotificationsFollowRequestResponse,
 	GridspaceNotificationsReadRequest,
 	GridspaceNotificationsReadResponse,
 	GridspacePaletteResponse,
@@ -994,6 +996,7 @@ export type Endpoints = {
 	'gridspace/link': { req: GridspaceLinkRequest; res: GridspaceLinkResponse };
 	'gridspace/member': { req: GridspaceMemberRequest; res: GridspaceMemberResponse };
 	'gridspace/notifications': { req: GridspaceNotificationsRequest; res: GridspaceNotificationsResponse };
+	'gridspace/notifications/follow-request': { req: GridspaceNotificationsFollowRequestRequest; res: GridspaceNotificationsFollowRequestResponse };
 	'gridspace/notifications/read': { req: GridspaceNotificationsReadRequest; res: GridspaceNotificationsReadResponse };
 	'gridspace/palette': { req: EmptyRequest; res: GridspacePaletteResponse };
 	'gridspace/private-action': { req: GridspacePrivateActionRequest; res: GridspacePrivateActionResponse };

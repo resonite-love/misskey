@@ -4,8 +4,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div :class="[$style.root, { [$style.contentVisibilityAuto]: contentVisibilityAuto }]">
-	<div :class="$style.head">
+<MkNotificationLayout :contentVisibilityAuto="contentVisibilityAuto" :time="withTime ? notification.createdAt : undefined">
+	<template #head>
 		<MkAvatar v-if="['pollEnded', 'note'].includes(notification.type) && 'note' in notification" :class="$style.icon" :user="notification.note.user" link preview/>
 		<MkAvatar v-else-if="['roleAssigned', 'achievementEarned', 'exportCompleted', 'login', 'createToken', 'scheduledNotePosted', 'scheduledNotePostFailed'].includes(notification.type)" :class="$style.icon" :user="$i" link preview/>
 		<div v-else-if="notification.type === 'reaction:grouped' && notification.note.reactionAcceptance === 'likeOnly'" :class="[$style.icon, $style.icon_reactionGroupHeart]"><i class="ti ti-heart" style="line-height: 1;"></i></div>
@@ -60,9 +60,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 				style="width: 100%; height: 100% !important; object-fit: contain;"
 			/>
 		</div>
-	</div>
-	<div :class="$style.tail">
-		<header :class="$style.header">
+	</template>
+	<template #header>
 			<span v-if="notification.type === 'pollEnded'">{{ i18n.ts._notification.pollEnded }}</span>
 			<span v-else-if="notification.type === 'scheduledNotePosted'">{{ i18n.ts._notification.scheduledNotePosted }}</span>
 			<span v-else-if="notification.type === 'scheduledNotePostFailed'">{{ i18n.ts._notification.scheduledNotePostFailed }}</span>
@@ -79,8 +78,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<span v-else-if="notification.type === 'reaction:grouped'">{{ i18n.tsx._notification.reactedBySomeUsers({ n: getActualReactedUsersCount(notification) }) }}</span>
 			<span v-else-if="notification.type === 'renote:grouped'">{{ i18n.tsx._notification.renotedBySomeUsers({ n: notification.users.length }) }}</span>
 			<span v-else-if="notification.type === 'app'">{{ notification.header }}</span>
-			<MkTime v-if="withTime" :time="notification.createdAt" :class="$style.headerTime"/>
-		</header>
+	</template>
 		<div>
 			<MkA v-if="notification.type === 'reaction' || notification.type === 'reaction:grouped'" :class="$style.text" :to="notePage(notification.note)" :title="getNoteSummary(notification.note)">
 				<i class="ti ti-quote" :class="$style.quote"></i>
@@ -143,8 +141,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<template v-else-if="notification.type === 'receiveFollowRequest'">
 				<span :class="$style.text" style="opacity: 0.6;">{{ i18n.ts.receiveFollowRequest }}</span>
 				<div v-if="full && !followRequestDone" :class="$style.followRequestCommands">
-					<MkButton :class="$style.followRequestCommandButton" rounded primary @click="acceptFollowRequest()"><i class="ti ti-check"></i> {{ i18n.ts.accept }}</MkButton>
-					<MkButton :class="$style.followRequestCommandButton" rounded danger @click="rejectFollowRequest()"><i class="ti ti-x"></i> {{ i18n.ts.reject }}</MkButton>
+					<MkButton :class="$style.followRequestCommandButton" rounded primary :disabled="followRequestBusy" @click="decideFollowRequest(true)"><i class="ti ti-check"></i> {{ i18n.ts.accept }}</MkButton>
+					<MkButton :class="$style.followRequestCommandButton" rounded danger :disabled="followRequestBusy" @click="decideFollowRequest(false)"><i class="ti ti-x"></i> {{ i18n.ts.reject }}</MkButton>
 				</div>
 			</template>
 			<span v-else-if="notification.type === 'test'" :class="$style.text">{{ i18n.ts._notification.notificationWillBeDisplayedLikeThis }}</span>
@@ -171,12 +169,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</div>
 			</div>
 		</div>
-	</div>
-</div>
+</MkNotificationLayout>
 </template>
 
 <script lang="ts" setup>
 import { ref } from 'vue';
+import * as os from '@/os.js';
+import MkNotificationLayout from '@/components/MkNotificationLayout.vue';
+import $style from '@/components/notification.module.scss';
 import * as Misskey from 'misskey-js';
 import MkReactionIcon from '@/components/MkReactionIcon.vue';
 import MkButton from '@/components/MkButton.vue';
@@ -216,17 +216,16 @@ const exportEntityName = {
 
 const followRequestDone = ref(false);
 
-const acceptFollowRequest = () => {
-	if (!('user' in props.notification)) return;
-	followRequestDone.value = true;
-	misskeyApi('following/requests/accept', { userId: props.notification.user.id });
-};
+const followRequestBusy = ref(false);
 
-const rejectFollowRequest = () => {
-	if (!('user' in props.notification)) return;
-	followRequestDone.value = true;
-	misskeyApi('following/requests/reject', { userId: props.notification.user.id });
-};
+async function decideFollowRequest(accept: boolean) {
+	if (!('user' in props.notification) || followRequestBusy.value) return;
+	followRequestBusy.value = true;
+	try {
+		await misskeyApi(accept ? 'following/requests/accept' : 'following/requests/reject', { userId: props.notification.user.id });
+		followRequestDone.value = true;
+	} catch { os.alert({ type: 'error', text: i18n.ts.error }); } finally { followRequestBusy.value = false; }
+}
 
 function getActualReactedUsersCount(notification: Misskey.entities.Notification) {
 	if (notification.type !== 'reaction:grouped') return 0;
@@ -234,266 +233,3 @@ function getActualReactedUsersCount(notification: Misskey.entities.Notification)
 }
 </script>
 
-<style lang="scss" module>
-.root {
-	position: relative;
-	box-sizing: border-box;
-	padding: 24px 32px;
-	font-size: 0.9em;
-	overflow-wrap: break-word;
-	display: flex;
-	contain: content;
-
-	&.contentVisibilityAuto {
-		content-visibility: auto;
-		contain-intrinsic-size: 0 100px;
-	}
-
-	--eventFollow: #36aed2;
-	--eventRenote: #36d298;
-	--eventReply: #007aff;
-	--eventReactionHeart: var(--MI_THEME-love);
-	--eventReaction: #e99a0b;
-	--eventAchievement: #cb9a11;
-	--eventLogin: #007aff;
-	--eventOther: #88a6b7;
-}
-
-.head {
-	position: sticky;
-	top: 0;
-	flex-shrink: 0;
-	width: 42px;
-	height: 42px;
-	margin-right: 8px;
-}
-
-.icon {
-	display: block;
-	width: 100%;
-	height: 100%;
-}
-
-.icon_reactionGroup,
-.icon_reactionGroupHeart,
-.icon_renoteGroup {
-	display: grid;
-	align-items: center;
-	justify-items: center;
-	width: 80%;
-	height: 80%;
-	font-size: 15px;
-	border-radius: 100%;
-	color: #fff;
-}
-
-.icon_reactionGroup {
-	background: var(--eventReaction);
-}
-
-.icon_reactionGroupHeart {
-	background: var(--eventReactionHeart);
-}
-
-.icon_renoteGroup {
-	background: var(--eventRenote);
-}
-
-.icon_app {
-	border-radius: 6px;
-}
-
-.subIcon {
-	position: absolute;
-	z-index: 1;
-	bottom: -2px;
-	right: -2px;
-	width: 20px;
-	height: 20px;
-	line-height: 20px;
-	box-sizing: border-box;
-	border-radius: 100%;
-	background: var(--MI_THEME-panel);
-	box-shadow: 0 0 0 3px var(--MI_THEME-panel);
-	font-size: 11px;
-	text-align: center;
-	color: #fff;
-
-	&:empty {
-		display: none;
-	}
-}
-
-.t_follow, .t_followRequestAccepted, .t_receiveFollowRequest {
-	background: var(--eventFollow);
-	pointer-events: none;
-}
-
-.t_renote {
-	background: var(--eventRenote);
-	pointer-events: none;
-}
-
-.t_quote {
-	background: var(--eventRenote);
-	pointer-events: none;
-}
-
-.t_reply {
-	background: var(--eventReply);
-	pointer-events: none;
-}
-
-.t_mention {
-	background: var(--eventOther);
-	pointer-events: none;
-}
-
-.t_pollEnded {
-	background: var(--eventOther);
-	pointer-events: none;
-}
-
-.t_scheduledNotePosted {
-	background: var(--eventOther);
-	pointer-events: none;
-}
-
-.t_scheduledNotePostFailed {
-	background: var(--eventOther);
-	pointer-events: none;
-}
-
-.t_achievementEarned {
-	background: var(--eventAchievement);
-	pointer-events: none;
-}
-
-.t_exportCompleted {
-	background: var(--eventOther);
-	pointer-events: none;
-}
-
-.t_roleAssigned {
-	background: var(--eventOther);
-	pointer-events: none;
-}
-
-.t_login {
-	background: var(--eventLogin);
-	pointer-events: none;
-}
-
-.t_createToken {
-	background: var(--eventOther);
-	pointer-events: none;
-}
-
-.t_chatRoomInvitationReceived {
-	background: var(--eventOther);
-	pointer-events: none;
-}
-
-.tail {
-	flex: 1;
-	min-width: 0;
-}
-
-.header {
-	display: flex;
-	align-items: baseline;
-	white-space: nowrap;
-}
-
-.headerName {
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	min-width: 0;
-	overflow: hidden;
-}
-
-.headerTime {
-	margin-left: auto;
-	font-size: 0.9em;
-}
-
-.text {
-	display: flex;
-	width: 100%;
-	overflow: clip;
-}
-
-.quote {
-	vertical-align: super;
-	font-size: 50%;
-	opacity: 0.5;
-}
-
-.quote:first-child {
-	margin-right: 4px;
-	position: relative;
-
-	&::before {
-		position: absolute;
-		transform: rotate(180deg);
-	}
-}
-
-.quote:last-child {
-	margin-left: 4px;
-}
-
-.followRequestCommands {
-	display: flex;
-	gap: 8px;
-	max-width: 300px;
-	margin-top: 8px;
-}
-.followRequestCommandButton {
-	flex: 1;
-}
-
-.reactionsItem {
-	display: inline-block;
-	position: relative;
-	width: 38px;
-	height: 38px;
-	margin-top: 8px;
-	margin-right: 8px;
-}
-
-.reactionsItemAvatar {
-	width: 100%;
-	height: 100%;
-}
-
-.reactionsItemReaction {
-	position: absolute;
-	z-index: 1;
-	bottom: -2px;
-	right: -2px;
-	width: 20px;
-	height: 20px;
-	box-sizing: border-box;
-	border-radius: 100%;
-	background: var(--MI_THEME-panel);
-	box-shadow: 0 0 0 3px var(--MI_THEME-panel);
-	font-size: 11px;
-	text-align: center;
-	color: #fff;
-}
-
-@container (max-width: 600px) {
-	.root {
-		padding: 16px;
-		font-size: 0.9em;
-	}
-}
-
-@container (max-width: 500px) {
-	.root {
-		padding: 12px;
-		font-size: 0.85em;
-	}
-}
-</style>

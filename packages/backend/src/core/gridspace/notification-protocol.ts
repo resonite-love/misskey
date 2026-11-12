@@ -8,9 +8,16 @@ import { privateNoteSchema, type PrivateActor, type PrivateNote, type PrivateWir
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 
 export type NotificationOptions = { before?: string; since?: string; ids?: string[]; excludeTypes?: string[]; limit?: number; countOnly?: boolean };
-export type NotificationPeerRequest = GridspacePeerLinkRequest & NotificationOptions;
-export type PeerNotification = { id: string; createdAt: string; type: string; isRead: boolean; user: PrivateActor | null; note: PrivateNote | null; body: string | null; reaction: string | null };
-export type WireNotification = Omit<PeerNotification, 'note'> & { note: PrivateWireNote | null };
+export type NotificationPeerRequest = GridspacePeerLinkRequest & NotificationOptions & { followRequestId?: string };
+export type NotificationPresentation = {
+	user: Packed<'UserLite'> | null; recipient: Packed<'UserLite'>; noteUser: Packed<'UserLite'> | null;
+	header: string | null; icon: string | null; achievement: string | null;
+	roleName: string | null; roleIcon: string | null; roomName: string | null;
+	exportedEntity: string | null; fileId: string | null; reactionUrl: string | null;
+	followRequestId: string | null; canManageFollowRequest: boolean;
+};
+export type PeerNotification = { id: string; createdAt: string; type: string; isRead: boolean; user: PrivateActor | null; note: PrivateNote | null; renote?: PrivateNote | null; body: string | null; reaction: string | null; presentation?: NotificationPresentation };
+export type WireNotification = Omit<PeerNotification, 'note' | 'renote'> & { note: PrivateWireNote | null; renote?: PrivateWireNote | null };
 export type NotificationPage<T> = { items: T[]; next: string | null; newest: string | null; boundary: string | null; unreadCount: number; origin: string; recipientId: string };
 export type LocalNotification = { id: string; createdAt: string; isRead: boolean; notification: Packed<'Notification'> };
 
@@ -20,6 +27,15 @@ export const peerNotificationSchema = { type: 'object', optional: false, nullabl
 	id: text, createdAt: text, type: text, isRead: { type: 'boolean', optional: false, nullable: false },
 	user: { type: 'object', optional: false, nullable: true, properties: { name: nullableText, username: text, host: text, uri: text } },
 	note: { ...privateNoteSchema, nullable: true }, body: nullableText, reaction: nullableText,
+	renote: { ...privateNoteSchema, optional: true, nullable: true },
+	presentation: { type: 'object', optional: true, nullable: false, properties: {
+		user: { type: 'object', optional: false, nullable: true, ref: 'UserLite' },
+		recipient: { type: 'object', optional: false, nullable: false, ref: 'UserLite' },
+		noteUser: { type: 'object', optional: false, nullable: true, ref: 'UserLite' },
+		header: nullableText, icon: nullableText, achievement: nullableText, roleName: nullableText, roleIcon: nullableText,
+		roomName: nullableText, exportedEntity: nullableText, fileId: nullableText, reactionUrl: nullableText,
+		followRequestId: nullableText, canManageFollowRequest: { type: 'boolean', optional: false, nullable: false },
+	} },
 } } as const;
 const id = { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } as const;
 export const notificationOptionsSchema = {

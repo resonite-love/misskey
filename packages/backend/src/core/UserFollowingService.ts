@@ -3,9 +3,14 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, OnApplicationShutdown } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { Brackets, In, IsNull } from 'typeorm';
+import { Brackets, In, IsNull, LessThanOrEqual, type EntityManager } from 'typeorm';
+import { MiUser as UserEntity } from '@/models/User.js';
+import { MiFollowing } from '@/models/Following.js';
+import { MiFollowRequest } from '@/models/FollowRequest.js';
+import { MiBlocking } from '@/models/Blocking.js';
+import { MiGridspaceFollowOverride, MiGridspaceFollowDecision } from '@/models/Gridspace.js';
 import type { MiLocalUser, MiPartialLocalUser, MiPartialRemoteUser, MiRemoteUser, MiUser } from '@/models/User.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
 import { QueueService } from '@/core/QueueService.js';
@@ -48,7 +53,9 @@ type Remote = MiRemoteUser | {
 type Both = Local | Remote;
 
 @Injectable()
-export class UserFollowingService implements OnModuleInit {
+export class UserFollowingService implements OnModuleInit, OnApplicationShutdown {
+	private decisionTimer: ReturnType<typeof setInterval> | undefined;
+	private flushingDecisions = false;
 	private userBlockingService: UserBlockingService;
 
 	constructor(
@@ -94,12 +101,18 @@ export class UserFollowingService implements OnModuleInit {
 
 	onModuleInit() {
 		this.userBlockingService = this.moduleRef.get('UserBlockingService');
+		if (this.config.gridspace?.enabled) {
+			this.decisionTimer = setInterval(() => { void this.flushFollowDecisions(); }, 10000);
+			this.decisionTimer.unref();
+		}
 	}
+
+	public onApplicationShutdown(): void { clearInterval(this.decisionTimer); }
 
 	@bindThis
 	public async deliverAccept(follower: MiRemoteUser, followee: MiPartialLocalUser, requestId?: string) {
 		const content = this.apRendererService.addContext(this.apRendererService.renderAccept(this.apRendererService.renderFollow(follower, followee, requestId), followee));
-		this.queueService.deliver(followee, content, follower.inbox, false);
+		await this.queueService.deliver(followee, content, follower.inbox, false);
 	}
 
 	@bindThis
@@ -290,6 +303,14 @@ export class UserFollowingService implements OnModuleInit {
 
 		if (alreadyFollowed) return;
 
+		await this.publishFollowing(followee, follower, silent, true);
+	}
+
+	private async publishFollowing(
+		followee: Pick<MiUser, 'id' | 'host' | 'uri' | 'inbox' | 'sharedInbox'>,
+		follower: Pick<MiUser, 'id' | 'host' | 'uri' | 'inbox' | 'sharedInbox'>,
+		silent: boolean, updateCounts: boolean,
+	): Promise<void> {
 		// 通知を作成
 		if (follower.host === null) {
 			const profile = await this.cacheService.userProfileCache.fetch(followee.id);
@@ -309,7 +330,7 @@ export class UserFollowingService implements OnModuleInit {
 		// Neither followee nor follower has moved.
 		if (!followeeUser.movedToUri && !followerUser.movedToUri) {
 			//#region Increment counts
-			await Promise.all([
+			if (updateCounts) await Promise.all([
 				this.usersRepository.increment({ id: follower.id }, 'followingCount', 1),
 				this.usersRepository.increment({ id: followee.id }, 'followersCount', 1),
 			]);
@@ -553,6 +574,7 @@ export class UserFollowingService implements OnModuleInit {
 
 			// 通知を作成
 			this.notificationService.createNotification(followee.id, 'receiveFollowRequest', {
+				followRequestId: followRequest.id,
 			}, follower.id);
 		}
 
@@ -634,6 +656,97 @@ export class UserFollowingService implements OnModuleInit {
 		this.userEntityService.pack(followee.id, followee, {
 			schema: 'MeDetailed',
 		}).then(packed => this.globalEventService.publishMainStream(followee.id, 'meUpdated', packed));
+	}
+
+	/** An exact request decision with all authorization and database writes in one transaction. */
+	public async decideAuthorizedFollowRequest(followeeId: string, followerId: string, requestId: string, accept: boolean, authorize: (manager: EntityManager) => Promise<void>): Promise<boolean> {
+		return this.gridspaceGuard.runDecisionPair(followeeId, followerId, () => this.gridspaceGuard.runMany([followeeId, followerId], async () => {
+			const committed = await this.followingsRepository.manager.transaction(async manager => {
+				await authorize(manager);
+				const users = manager.getRepository(UserEntity);
+				const followee = await users.findOne({ where: { id: followeeId, host: IsNull() }, lock: { mode: 'pessimistic_write' } });
+				const follower = await users.findOne({ where: { id: followerId }, lock: { mode: 'pessimistic_write' } });
+				if (!followee || !follower || [followee, follower].some(user => user.isSuspended || user.isDeleted || user.movedToUri)) throw new IdentifiableError('gridspace-follow-decision-rejected', 'Follow request account unavailable');
+				const existingReceipt = await manager.findOneBy(MiGridspaceFollowDecision, { requestId, followeeId, followerId });
+				if (existingReceipt) {
+					if (existingReceipt.accept !== accept) throw new IdentifiableError('gridspace-follow-decision-rejected', 'Request already decided');
+					return { followee: followee as MiLocalUser, follower, inserted: false, receipt: existingReceipt };
+				}
+				const requests = manager.getRepository(MiFollowRequest);
+				const request = await requests.findOne({ where: { id: requestId, followeeId, followerId }, lock: { mode: 'pessimistic_write' } });
+				if (!request) return null;
+				if (await manager.getRepository(MiBlocking).exists({ where: [{ blockerId: followeeId, blockeeId: followerId }, { blockerId: followerId, blockeeId: followeeId }] })) throw new IdentifiableError('gridspace-follow-decision-rejected', 'Follow request blocked');
+				let inserted = false;
+				if (accept) {
+					const result = await manager.getRepository(MiFollowing).createQueryBuilder().insert().values({
+						id: this.idService.gen(), followerId, followeeId, withReplies: request.withReplies,
+						followerHost: follower.host, followerInbox: follower.host ? follower.inbox : null, followerSharedInbox: follower.host ? follower.sharedInbox : null,
+						followeeHost: null, followeeInbox: null, followeeSharedInbox: null,
+					}).orIgnore().returning('id').execute();
+					inserted = result.raw.length > 0;
+					if (inserted) {
+						await users.increment({ id: followerId }, 'followingCount', 1);
+						await users.increment({ id: followeeId }, 'followersCount', 1);
+					}
+				} else if (follower.host === null) {
+					await manager.getRepository(MiGridspaceFollowOverride).upsert({ localUserId: followerId, targetUserId: followeeId, changedAt: new Date() }, ['localUserId', 'targetUserId']);
+				}
+				const following = accept ? await manager.findOneByOrFail(MiFollowing, { followeeId, followerId }) : null;
+				const receipt = manager.create(MiGridspaceFollowDecision, { requestId, followeeId, followerId, accept,
+					activityId: request.requestId, followingId: following?.id ?? null, delivered: follower.host === null, retryAt: new Date() });
+				await manager.insert(MiGridspaceFollowDecision, receipt);
+				await requests.delete(request.id);
+				return { followee: followee as MiLocalUser, follower, inserted, receipt };
+			});
+			if (!committed) return false;
+			const { followee, follower, inserted, receipt } = committed;
+			// Enqueue AP independently of UI/chart effects; a crash leaves the receipt pending.
+			try {
+				await this.cacheService.userFollowingsCache.refresh(follower.id);
+				if (accept && inserted) await this.publishFollowing(followee, follower, false, false);
+				else if (!accept && this.userEntityService.isLocalUser(follower)) await this.publishUnfollow(followee, follower);
+				const packed = await this.userEntityService.pack(followee.id, followee, { schema: 'MeDetailed' });
+				this.globalEventService.publishMainStream(followee.id, 'meUpdated', packed);
+			} catch { logger.warn('Follow decision committed; notification refresh failed'); }
+			await this.deliverFollowDecision(receipt);
+			return true;
+		}));
+	}
+
+	/** Called while holding the same pair/user guards as decisions and blocks. */
+	private async deliverFollowDecision(receipt: MiGridspaceFollowDecision): Promise<void> {
+		if (receipt.delivered) return;
+		const manager = this.followingsRepository.manager;
+		await this.cacheService.userFollowingsCache.refresh(receipt.followerId);
+		const followee = await this.usersRepository.findOneBy({ id: receipt.followeeId, host: IsNull() });
+		const follower = await this.usersRepository.findOneBy({ id: receipt.followerId });
+		const stillFollowing = receipt.accept
+			? receipt.followingId && await this.followingsRepository.existsBy({ id: receipt.followingId })
+			: !await this.followingsRepository.existsBy({ followeeId: receipt.followeeId, followerId: receipt.followerId }) &&
+				!await this.followRequestsRepository.existsBy({ followeeId: receipt.followeeId, followerId: receipt.followerId });
+		if (followee && follower && this.userEntityService.isRemoteUser(follower) && stillFollowing && !followee.isDeleted && !follower.isDeleted) {
+			const follow = this.apRendererService.renderFollow(follower, followee as MiLocalUser, receipt.activityId ?? undefined);
+			const activity = receipt.accept ? this.apRendererService.renderAccept(follow, followee as MiLocalUser) : this.apRendererService.renderReject(follow, followee);
+			activity.id = `${this.config.url}/gridspace/follow-decisions/${receipt.requestId}`;
+			await this.queueService.deliver(followee, this.apRendererService.addContext(activity), follower.inbox, false);
+		}
+		await manager.update(MiGridspaceFollowDecision, { requestId: receipt.requestId }, { delivered: true });
+	}
+
+	public async flushFollowDecisions(): Promise<void> {
+		if (this.flushingDecisions || !this.config.gridspace?.enabled) return;
+		this.flushingDecisions = true;
+		const receipts = this.followingsRepository.manager.getRepository(MiGridspaceFollowDecision);
+		try {
+			const pending = await receipts.find({ where: { delivered: false, retryAt: LessThanOrEqual(new Date()) }, order: { retryAt: 'ASC' }, take: 20 });
+			for (const row of pending) {
+				await this.gridspaceGuard.runDecisionPair(row.followeeId, row.followerId, () => this.gridspaceGuard.runMany([row.followeeId, row.followerId], async () => {
+					const latest = await receipts.findOneBy({ requestId: row.requestId });
+					if (!latest || latest.delivered) return;
+					try { await this.deliverFollowDecision(latest); } catch { await receipts.update({ requestId: row.requestId }, { retryAt: new Date(Date.now() + 60000) }); }
+				}));
+			}
+		} catch { /* Keep committed decisions for recovery after database/queue outages. */ } finally { this.flushingDecisions = false; }
 	}
 
 	@bindThis

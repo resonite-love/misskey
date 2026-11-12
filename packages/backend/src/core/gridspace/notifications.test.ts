@@ -5,6 +5,12 @@
 
 import { describe, expect, test } from 'vitest';
 import { mockDeep } from 'vitest-mock-extended';
+import { UserFollowingService } from '@/core/UserFollowingService.js';
+import type { UserEntityService } from '@/core/entities/UserEntityService.js';
+import type { MiNotification } from '@/models/Notification.js';
+import type { Packed } from '@/misc/json-schema.js';
+import type { PrivateWireNote } from './private-protocol.js';
+import type { ModuleRef } from '@nestjs/core';
 import type { DataSource, EntityManager } from 'typeorm';
 import type { Config } from '@/config.js';
 import type { MiLocalUser } from '@/models/User.js';
@@ -31,8 +37,14 @@ function fixture() {
 	notes.localActorAllows.mockResolvedValue(true); notes.localAllows.mockResolvedValue(true);
 	const db = mockDeep<DataSource>();
 	db.transaction.mockImplementation((async (run: (manager: EntityManager) => Promise<unknown>) => run(db.manager)) as DataSource['transaction']);
-	const service = new GridspaceNotificationService({ url: 'https://g.example' } as Config, db, notifications, reads, packer, links, notes, mockDeep<GridspaceSearchService>());
-	return { service, links, notes, notifications, reads, packer, viewer: { id: 'viewer' } as MiLocalUser };
+	const moduleRef = mockDeep<ModuleRef>();
+	const following = mockDeep<UserFollowingService>();
+	const users = mockDeep<UserEntityService>();
+	moduleRef.get.mockImplementation(((token: unknown) => token === UserFollowingService ? following : users) as ModuleRef['get']);
+	users.pack.mockResolvedValue({ id: 'viewer', username: 'viewer', host: null } as Packed<'UserLite'>);
+	const search = mockDeep<GridspaceSearchService>();
+	const service = new GridspaceNotificationService({ url: 'https://g.example' } as Config, db, notifications, reads, packer, links, notes, search, moduleRef);
+	return { service, following, users, search, db, links, notes, notifications, reads, packer, viewer: { id: 'viewer' } as MiLocalUser };
 }
 
 describe('GridSpace notifications', () => {
@@ -87,5 +99,36 @@ describe('GridSpace notifications', () => {
 		f.links.lockReplyAuthorization.mockRejectedValue(new Error('revoked while waiting'));
 		await expect(f.service.peer('read-all', {})).rejects.toThrow('revoked while waiting');
 		expect(f.notifications.readAllNotification).not.toHaveBeenCalled();
+	});
+	test('binds a decision to the exact received request and write permission', async () => {
+		const f = fixture(); f.links.hasNotificationScope.mockResolvedValue(true);
+		f.notifications.getNotification.mockResolvedValue({ id: 'n', type: 'receiveFollowRequest', notifierId: 'actor', followRequestId: 'original' } as MiNotification);
+		await expect(f.service.peer('accept-follow', { ids: ['n'], followRequestId: 'different' })).rejects.toMatchObject({ code: 'ACTION_REJECTED' });
+		await expect(f.service.peer('accept-follow', { ids: ['n'], followRequestId: 'original' })).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+		expect(f.following.decideAuthorizedFollowRequest).not.toHaveBeenCalled();
+		f.links.hasFollowRequestScope.mockResolvedValue(true);
+		f.following.decideAuthorizedFollowRequest.mockResolvedValue(false);
+		await expect(f.service.peer('accept-follow', { ids: ['n'], followRequestId: 'original' })).rejects.toMatchObject({ code: 'ACTION_REJECTED' });
+		f.following.decideAuthorizedFollowRequest.mockResolvedValue(true);
+		f.reads.state.mockResolvedValue({ unreadCount: 1, changed: false, isRead: [] });
+		await f.service.peer('reject-follow', { ids: ['n'], followRequestId: 'original' });
+		expect(f.following.decideAuthorizedFollowRequest).toHaveBeenLastCalledWith('viewer', 'actor', 'original', false, expect.any(Function));
+		await f.following.decideAuthorizedFollowRequest.mock.calls.at(-1)![4](f.db.manager);
+		expect(f.links.lockReplyAuthorization).toHaveBeenCalledWith(expect.objectContaining({ followRequestId: 'original' }), f.db.manager, 'write:following');
+	});
+	test('validates all 200 note IDs for 100 renotes in bounded batches', async () => {
+		const f = fixture(); f.links.hasNotificationScope.mockResolvedValue(true);
+		const rows = Array.from({ length: 100 }, (_, i) => ({ id: `n${i}`, type: 'renote', noteId: `wrapper${i}`, notifierId: 'actor', createdAt: new Date().toISOString() } as MiNotification));
+		f.notifications.getNotifications.mockResolvedValue(rows);
+		f.packer.packMany.mockResolvedValue(rows.map((n, i) => ({ ...n, user: { id: 'actor' }, note: { id: `wrapper${i}`, renoteId: `target${i}`, user: { id: 'actor' } } })) as Packed<'Notification'>[]);
+		const query = { andWhere: () => query, getOne: async () => ({ id: 'actor', username: 'actor', host: null, uri: null, name: null }) };
+		f.search.userQuery.mockReturnValue(query as unknown as ReturnType<GridspaceSearchService['userQuery']>);
+		f.notes.peerNotes.mockImplementation(async input => ({ notes: input.ids!.map(id => ({ id, renoteId: id.startsWith('wrapper') ? id.replace('wrapper', 'target') : null } as PrivateWireNote)), next: null, head: null, scannedThrough: null, observedAt: new Date().toISOString() }));
+		f.reads.state.mockResolvedValue({ unreadCount: 100, changed: false, isRead: Array(100).fill(false) });
+		const result = await f.service.peer('query', {});
+		expect(f.notes.peerNotes.mock.calls.map(([p]) => p.ids?.length)).toEqual([100, 100]);
+		expect(result.items).toHaveLength(100);
+		expect(result.items.every(n => n.note && n.renote)).toBe(true);
+		expect(f.links.authorizePrivate).toHaveBeenCalledTimes(2);
 	});
 });

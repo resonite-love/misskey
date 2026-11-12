@@ -13875,7 +13875,7 @@ export interface Locale extends ILocale {
          */
         "authorizeAll": string;
         /**
-         * 限定投稿の閲覧・検索、通知、連携先のアカウント名義での返信・リアクション・投票・添付を利用できます。ぐりすぺからは、れぞらぶのチャンネルも閲覧・投稿できます。
+         * 限定投稿の閲覧・検索、通知・フォロー申請の承認と拒否、連携先のアカウント名義での返信・リアクション・投票・添付を利用できます。ぐりすぺからは、れぞらぶのチャンネルも閲覧・投稿できます。
          */
         "allGranted": string;
         /**
@@ -14014,6 +14014,18 @@ export interface Locale extends ILocale {
          * 表示した通知を既読にする
          */
         "notificationMarkDisplayed": string;
+        /**
+         * 新しい通知があります
+         */
+        "notificationNew": string;
+        /**
+         * 連携先のフォロー申請を操作するには、アカウント連携の設定でもう一度認可してください。
+         */
+        "notificationFollowPermission": string;
+        /**
+         * フォロー申請を処理できませんでした。申請の状態と連携の認可を確認して再試行してください。
+         */
+        "notificationFollowFailed": string;
         /**
          * 連携先の権限で読む投稿
          */

@@ -126,3 +126,16 @@ export class MiGridspaceReplyReceipt {
 	@Column('varchar', { length: 64 }) public requestHash: string;
 	@Column(id()) public noteId: string;
 }
+
+/** Exact request receipts keep ActivityPub decisions retryable after committing the follow. */
+@Entity('gridspace_follow_decision')
+export class MiGridspaceFollowDecision {
+	@PrimaryColumn({ ...id(), primaryKeyConstraintName: 'PK_gridspace_follow_decision' }) public requestId: string;
+	@Column(id()) public followeeId: string;
+	@Column(id()) public followerId: string;
+	@Column('text', { nullable: true }) public activityId: string | null;
+	@Column('boolean') public accept: boolean;
+	@Column({ ...id(), nullable: true }) public followingId: string | null;
+	@Column('boolean', { default: false }) public delivered: boolean;
+	@Index('IDX_gridspace_follow_decision_retry', { where: '"delivered" = false' }) @Column('timestamp with time zone') public retryAt: Date;
+}

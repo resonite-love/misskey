@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computed, createApp, nextTick } from 'vue';
 import { useGridspaceNotifications } from '@/utility/use-gridspace-notifications.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
+import { $i } from '@/i.js';
 import { linkedNotifications } from '@/utility/gridspace-notification-state.js';
 
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: vi.fn() }));
@@ -20,7 +21,7 @@ vi.mock('@/utility/gridspace-notification-state.js', () => ({ linkedNotification
 
 const api = vi.mocked(misskeyApi);
 const at = (n: number) => new Date(1700000000000 + n * 1000).toISOString();
-const notice = (n: number, id = String(n), type = 'test') => ({ id, createdAt: at(n), type, isRead: false, note: null as { id: string } | null, user: null, body: null, reaction: null });
+const notice = (n: number, id = String(n), type = 'test') => ({ id, createdAt: at(n), type, isRead: false, note: null as { id: string } | null, user: null, body: null as string | null, reaction: null });
 const page = (source: string, items: ReturnType<typeof notice>[] = [], next: string | null = null, boundary = 0) => ({
 	origin: source === 'peer' ? 'https://r.example' : 'https://g.example', recipientId: source, unreadCount: 5, next, newest: items[0]?.id ?? null, boundary: boundary ? at(boundary) : null,
 	local: source === 'local' ? items.map(n => ({ ...n, notification: n })) : [], remote: source === 'peer' ? items : [],
@@ -28,9 +29,9 @@ const page = (source: string, items: ReturnType<typeof notice>[] = [], next: str
 const settle = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); await nextTick(); };
 let respond: (endpoint: string, params: Record<string, unknown>) => Promise<unknown>;
 let cleanup = () => {};
-function mount() {
+function mount(isAtTop = () => true) {
 	let list!: ReturnType<typeof useGridspaceNotifications>;
-	const app = createApp({ setup() { list = useGridspaceNotifications(computed(() => [])); return () => null; } });
+	const app = createApp({ setup() { list = useGridspaceNotifications(computed(() => []), isAtTop); return () => null; } });
 	app.mount(document.createElement('div')); cleanup = () => app.unmount();
 	return list;
 }
@@ -174,6 +175,40 @@ describe('combined notifications', () => {
 		release({ unreadCount: 4 }); await automatic; await explicit;
 		expect(api.mock.calls.some(([endpoint, p]) => endpoint.endsWith('/read') && (p as { source?: string }).source === 'peer' && (p as { all?: boolean }).all)).toBe(true);
 		expect(linkedNotifications.count).toBe(0);
+	});
+
+	it('preserves older cursors and row keys while removing protected content during tab suspension', async () => {
+		let hidden = false;
+		vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+		respond = async (_, p) => p.source === 'local' ? page('local') : p.ids ? page('peer', (p.ids as string[]).map(id => ({ ...notice(Number(id)), body: 'protected' }))) : p.since ? page('peer') : p.before ? page('peer', [notice(1)]) : page('peer', [{ ...notice(9), body: 'protected' }, notice(4)], '4', 4);
+		const list = mount(); await settle();
+		const keys = list.rows.value.map(n => n.key);
+		hidden = true; document.dispatchEvent(new Event('visibilitychange')); await settle();
+		expect(list.rows.value.map(n => n.key)).toEqual(keys);
+		expect(JSON.stringify(list.rows.value)).not.toContain('protected');
+		expect(list.rows.value.every(n => n.suspended)).toBe(true);
+		hidden = false; document.dispatchEvent(new Event('visibilitychange')); await settle();
+		expect(list.rows.value.map(n => n.key)).toEqual(keys);
+		expect(list.rows.value.some(n => n.suspended)).toBe(false);
+		await list.older();
+		expect(api.mock.calls.some(([, p]) => (p as { before?: string }).before === '4')).toBe(true);
+		expect(list.rows.value.map(n => n.id)).toEqual(['9', '4', '1']);
+	});
+	it('queues arrivals while reading older rows and removes deleted queued notifications', async () => {
+		let arrived = false; let deleted = false;
+		respond = async (_, p) => p.source === 'local' ? page('local') : p.ids ? page('peer', (p.ids as string[]).filter(id => id !== '10' || !deleted).map(id => notice(Number(id)))) : p.since ? page('peer', arrived && !deleted ? [notice(10)] : []) : page('peer', [notice(9)]);
+		const list = mount(() => false); await settle(); arrived = true;
+		await vi.advanceTimersByTimeAsync(10000); await settle();
+		expect(list.queued.value).toBe(1); expect(list.rows.value.map(n => n.id)).toEqual(['9']);
+		deleted = true; await vi.advanceTimersByTimeAsync(10000); await settle();
+		expect(list.queued.value).toBe(0);
+	});
+	it('hard-mutes the original note summary in a peer renote', async () => {
+		$i!.hardMutedWords = [['hiddenphrase']];
+		try {
+			respond = async (_, p) => p.source === 'local' ? page('local') : page('peer', [{ ...notice(9, 'renote', 'renote'), renote: { text: 'hiddenphrase', cw: null } } as ReturnType<typeof notice>]);
+			const list = mount(); await settle(); expect(list.rows.value).toHaveLength(0);
+		} finally { $i!.hardMutedWords = []; }
 	});
 
 });

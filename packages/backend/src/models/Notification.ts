@@ -73,6 +73,7 @@ export type MiNotification = {
 	noteDraftId: MiNoteDraft['id'];
 } | {
 	type: 'receiveFollowRequest';
+	followRequestId?: string;
 	id: string;
 	createdAt: string;
 	notifierId: MiUser['id'];

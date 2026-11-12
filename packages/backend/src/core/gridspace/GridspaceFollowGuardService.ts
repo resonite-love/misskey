@@ -13,13 +13,29 @@ import { MiGridspaceFollowOverride } from '@/models/Gridspace.js';
 @Injectable()
 export class GridspaceFollowGuardService implements OnApplicationShutdown {
 	private locks: pg.Pool | null;
+	private decisionLocks: pg.Pool | null;
 	constructor(@Inject(DI.db) private db: DataSource, @Inject(DI.config) private config: Config) {
 		// Lock waiters must never occupy the pool used by the operations holding those locks.
 		this.locks = config.gridspace?.enabled ? new pg.Pool({ host: config.db.host, port: config.db.port,
 			user: config.db.user, password: config.db.pass, database: config.db.db, ...config.db.extra, max: 2 }) : null;
+		this.decisionLocks = this.locks ? new pg.Pool({ host: config.db.host, port: config.db.port, user: config.db.user, password: config.db.pass, database: config.db.db, ...config.db.extra, max: 2 }) : null;
 	}
 
-	public async onApplicationShutdown(): Promise<void> { await this.locks?.end(); }
+	public async onApplicationShutdown(): Promise<void> { await Promise.all([this.locks?.end(), this.decisionLocks?.end()]); }
+
+	/** Shared by block and delegated decisions, before either acquires following locks. */
+	public async runDecisionPair<T>(a: string, b: string, action: () => Promise<T>): Promise<T> {
+		if (!this.decisionLocks) return action();
+		const connection = await this.decisionLocks.connect();
+		const key = `gridspace-follow-decision:${[a, b].sort().join(':')}`;
+		try {
+			await connection.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [key]);
+			return await action();
+		} finally {
+			let released = false;
+			try { await connection.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [key]); released = true; } finally { connection.release(!released); }
+		}
+	}
 
 	/** A session lock also covers side effects committed by the ordinary following service. */
 	public async run<T>(localUserId: string, action: () => Promise<T>, cancelledTarget?: string): Promise<T> {

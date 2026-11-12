@@ -21,6 +21,7 @@ import { UserWebhookService } from '@/core/UserWebhookService.js';
 import { bindThis } from '@/decorators.js';
 import { CacheService } from '@/core/CacheService.js';
 import { UserFollowingService } from '@/core/UserFollowingService.js';
+import { GridspaceFollowGuardService } from '@/core/gridspace/GridspaceFollowGuardService.js';
 
 @Injectable()
 export class UserBlockingService implements OnModuleInit {
@@ -66,6 +67,10 @@ export class UserBlockingService implements OnModuleInit {
 
 	@bindThis
 	public async block(blocker: MiUser, blockee: MiUser, silent = false) {
+		return this.moduleRef.get(GridspaceFollowGuardService).runDecisionPair(blocker.id, blockee.id, () => this.performBlock(blocker, blockee, silent));
+	}
+
+	private async performBlock(blocker: MiUser, blockee: MiUser, silent: boolean) {
 		await Promise.all([
 			this.cancelRequest(blocker, blockee, silent),
 			this.cancelRequest(blockee, blocker, silent),

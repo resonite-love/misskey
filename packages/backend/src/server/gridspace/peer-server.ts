@@ -181,19 +181,20 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 		}
 	}
 	if (notifications) {
-		for (const name of ['query', 'read', 'read-all']) {
+		for (const name of ['query', 'read', 'read-all', 'accept-follow', 'reject-follow']) {
 			fastify.post<{ Body: NotificationPeerRequest }>(`/notifications/${name}`, {
 				bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
 				schema: { body: { type: 'object', additionalProperties: false,
 					required: ['accessToken', 'linkId', 'generation', 'localUserId', ...(name === 'read' ? ['ids'] : [])], properties: {
 						...notificationOptionsSchema,
+						followRequestId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 						channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
 						generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 					} } },
 			}, async (request, reply) => {
 				try { return await notifications(name, request.body); } catch (error) {
 					const code = error instanceof Error && 'code' in error ? error.code : null;
-					return reply.code(403).send({ error: code === 'AUTHORIZATION_REVOKED' || code === 'LINK_REVOKED' ? code : 'PEER_UNAVAILABLE' });
+					return reply.code(403).send({ error: typeof code === 'string' && ['AUTHORIZATION_REVOKED', 'LINK_REVOKED', 'ACTION_REJECTED', 'INVALID_REQUEST'].includes(code) ? code : 'PEER_UNAVAILABLE' });
 				}
 			});
 		}

@@ -467,6 +467,7 @@ export * as 'gridspace/search' from './endpoints/gridspace/search.js';
 export * as 'gridspace/search-info' from './endpoints/gridspace/search-info.js';
 export * as 'gridspace/notifications' from './endpoints/gridspace/notifications.js';
 export * as 'gridspace/notifications/read' from './endpoints/gridspace/notifications/read.js';
+export * as 'gridspace/notifications/follow-request' from './endpoints/gridspace/notifications/follow-request.js';
 export * as 'gridspace/private-grant' from './endpoints/gridspace/private-grant.js';
 export * as 'gridspace/private-notes' from './endpoints/gridspace/private-notes.js';
 export * as 'gridspace/private-file' from './endpoints/gridspace/private-file.js';

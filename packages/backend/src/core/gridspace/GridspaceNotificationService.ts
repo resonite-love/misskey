@@ -4,6 +4,7 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { DataSource, IsNull } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
@@ -13,6 +14,12 @@ import { NotificationEntityService } from '@/core/entities/NotificationEntitySer
 import { MiUser, type MiLocalUser } from '@/models/User.js';
 import type { MiNotification } from '@/models/Notification.js';
 import type { Packed } from '@/misc/json-schema.js';
+import type { UserEntityService } from '@/core/entities/UserEntityService.js';
+import type { CustomEmojiService } from '@/core/CustomEmojiService.js';
+import { UserFollowingService } from '@/core/UserFollowingService.js';
+import { MiFollowRequest } from '@/models/FollowRequest.js';
+import { IdentifiableError } from '@/misc/identifiable-error.js';
+import { canonicalReaction } from './reaction-protocol.js';
 import { GRIDSPACE_NOTIFICATION_WRITE_SCOPE } from './link-crypto.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
@@ -30,6 +37,7 @@ export class GridspaceNotificationService {
 		private links: GridspaceLinkService,
 		private notes: GridspacePrivateService,
 		private search: GridspaceSearchService,
+		private moduleRef: ModuleRef,
 	) {}
 
 	private async raw(userId: string, input: NotificationOptions) {
@@ -61,6 +69,21 @@ export class GridspaceNotificationService {
 
 	public async peer(action: string, input: NotificationPeerRequest): Promise<NotificationPage<WireNotification>> {
 		const link = await this.authorize(input);
+		if (action === 'accept-follow' || action === 'reject-follow') {
+			if (input.ids?.length !== 1 || !input.followRequestId) throw new GridspaceLinkError('INVALID_REQUEST');
+			const notification = await this.notifications.getNotification(link.localUserId, input.ids[0]);
+			if (notification?.type !== 'receiveFollowRequest' || notification.followRequestId !== input.followRequestId) throw new GridspaceLinkError('ACTION_REJECTED');
+			if (!await this.links.hasFollowRequestScope(input)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			try {
+				const done = await this.moduleRef.get(UserFollowingService).decideAuthorizedFollowRequest(link.localUserId, notification.notifierId, input.followRequestId, action === 'accept-follow', manager => this.links.lockReplyAuthorization(input, manager, 'write:following'));
+				if (!done) throw new GridspaceLinkError('ACTION_REJECTED');
+			} catch (error) {
+				if (error instanceof IdentifiableError && error.id === 'gridspace-follow-decision-rejected') throw new GridspaceLinkError('ACTION_REJECTED');
+				throw error;
+			}
+			const state = await this.reads.state(link.localUserId, []);
+			return this.page([], [], link.localUserId, state.unreadCount, input);
+		}
 		if (action === 'read' || action === 'read-all') {
 			if (action === 'read' && !input.ids?.length) throw new GridspaceLinkError('INVALID_REQUEST');
 			const state = await this.db.transaction(async manager => {
@@ -71,24 +94,57 @@ export class GridspaceNotificationService {
 		}
 		const rows = await this.raw(link.localUserId, input);
 		const valid = await this.packer.packMany(rows.filter(n => !input.excludeTypes?.includes(n.type)), link.localUserId) as unknown as Packed<'Notification'>[];
-		const noteIds = rows.flatMap(n => 'noteId' in n ? [n.noteId] : []);
+		if (valid.length === 0) {
+			const state = await this.reads.state(link.localUserId, []);
+			await this.authorize(input);
+			return this.page(rows, [], link.localUserId, state.unreadCount, input);
+		}
+		const noteIds = [...rows.flatMap(n => 'noteId' in n ? [n.noteId] : []), ...valid.flatMap(n => n.type === 'renote' && n.note.renoteId ? [n.note.renoteId] : [])];
 		const items: WireNotification[] = [];
+		const users = this.moduleRef.get<UserEntityService>('UserEntityService');
+		const host = new URL(this.config.url).host;
+		const displayUser = (user: Packed<'UserLite'>) => ({ ...user, host: user.host ?? host });
+		const recipient = displayUser(await users.pack(link.localUserId, { id: link.localUserId }));
+		const canManageFollowRequest = valid.some(n => n.type === 'receiveFollowRequest') && await this.links.hasFollowRequestScope(input);
 		for (const packed of valid) {
 			const raw = rows.find(n => n.id === packed.id)!;
 			const actor = 'notifierId' in raw ? await this.search.userQuery({ id: link.localUserId }).andWhere('user.id = :id', { id: raw.notifierId }).getOne() : null;
 			if ('notifierId' in raw && !actor) continue;
+			let reactionUrl: string | null = null;
+			if (raw.type === 'reaction' && raw.reaction.startsWith(':')) {
+				const name = raw.reaction.slice(1, -1);
+				const emojis = this.moduleRef.get<CustomEmojiService>('CustomEmojiService');
+				const local = (await emojis.localEmojisCache.fetch()).get(name.replace(/@\.$/, ''));
+				reactionUrl = local?.publicUrl || local?.originalUrl || (await emojis.populateEmojis([name], null))[name] || null;
+			}
 			items.push({ id: raw.id, createdAt: new Date(raw.createdAt).toISOString(), type: raw.type, isRead: false, note: null,
 				user: actor ? { name: actor.name, username: actor.username, host: actor.host ?? new URL(this.config.url).host, uri: actor.uri ?? `${this.config.url}/users/${actor.id}` } : null,
-				body: raw.type === 'app' ? [raw.customHeader, raw.customBody].filter(Boolean).join('\n') : raw.type === 'followRequestAccepted' ? raw.message : null,
-				reaction: raw.type === 'reaction' ? raw.reaction : null });
+				body: raw.type === 'app' ? raw.customBody : raw.type === 'followRequestAccepted' ? raw.message : null,
+				reaction: raw.type === 'reaction' ? canonicalReaction(raw.reaction, this.config.url) : null,
+				presentation: {
+					followRequestId: raw.type === 'receiveFollowRequest' && raw.followRequestId && await this.db.getRepository(MiFollowRequest).existsBy({ id: raw.followRequestId, followeeId: link.localUserId, followerId: raw.notifierId }) ? raw.followRequestId : null,
+					canManageFollowRequest,
+					user: 'user' in packed ? displayUser(packed.user) : null, recipient,
+					noteUser: 'note' in packed ? displayUser(packed.note.user) : null,
+					header: raw.type === 'app' ? raw.customHeader : null, icon: raw.type === 'app' ? raw.customIcon ?? null : null,
+					achievement: raw.type === 'achievementEarned' ? raw.achievement : null,
+					roleName: packed.type === 'roleAssigned' ? packed.role.name : null, roleIcon: packed.type === 'roleAssigned' ? packed.role.iconUrl : null,
+					roomName: packed.type === 'chatRoomInvitationReceived' ? packed.invitation.room.name : null,
+					exportedEntity: raw.type === 'exportCompleted' ? raw.exportedEntity : null, fileId: raw.type === 'exportCompleted' ? raw.fileId : null, reactionUrl,
+				} });
 		}
 		// Pack protected bodies last, after notifier lookups. peerNotes rechecks
 		// the note audience/deletion and grant after its own asynchronous work.
-		const notes = noteIds.length ? (await this.notes.peerNotes({ ...input, mode: 'validate', contextMode: 'show', ids: [...new Set(noteIds)] })).notes : [];
+		const notes: NonNullable<WireNotification['note']>[] = [];
+		const uniqueNoteIds = [...new Set(noteIds)];
+		for (let i = 0; i < uniqueNoteIds.length; i += 100) {
+			notes.push(...(await this.notes.peerNotes({ ...input, mode: 'validate', contextMode: 'show', ids: uniqueNoteIds.slice(i, i + 100) })).notes);
+		}
 		const visible = items.filter(item => {
 			const raw = rows.find(n => n.id === item.id)!;
 			if (!('noteId' in raw)) return true;
 			item.note = notes.find(n => n.id === raw.noteId) ?? null;
+			if (item.type === 'renote' && item.note?.renoteId) item.renote = notes.find(n => n.id === item.note!.renoteId) ?? null;
 			return item.note != null;
 		});
 		await this.authorize(input);
@@ -109,9 +165,18 @@ export class GridspaceNotificationService {
 			if (item.user && !await this.notes.localActorAllows(user, item.user)) continue;
 			if (item.note && !await this.notes.localAllows(user, item.note, false, link.peerUserId)) continue;
 			const note = item.note ? (({ filterActors: _, ...display }) => display)(item.note) : null;
-			items.push({ ...item, note });
+			const renote = item.renote && await this.notes.localAllows(user, item.renote, false, link.peerUserId) ? (({ filterActors: _, ...display }) => display)(item.renote) : null;
+			items.push({ ...item, note, renote });
 		}
 		await this.links.checkPrivateUnchanged(link);
 		return { ...page, items };
+	}
+
+	public async decide(user: MiLocalUser, notificationId: string, followRequestId: string, accept: boolean) {
+		const link = await this.links.privateLink(user.id);
+		const result = await this.links.json<NotificationPage<WireNotification>>(`/gridspace/v1/notifications/${accept ? 'accept-follow' : 'reject-follow'}`, { ids: [notificationId], followRequestId, ...this.links.privateCredential(link) });
+		if (result.origin !== link.peerOrigin || result.recipientId !== link.peerUserId) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		await this.links.checkPrivateUnchanged(link);
+		return { done: true };
 	}
 }

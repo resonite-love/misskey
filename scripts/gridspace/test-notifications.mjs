@@ -82,6 +82,7 @@ try {
 	const grid = await create(g, 'g'); const old = await create(r, 'r'); const author = await create(r, 'a');
 	await consent(grid, old, 'gridspace/link');
 	await eventually('link active', async () => (await api(g, 'gridspace/link', {}, grid.token)).state === 'active');
+	await api(g, 'gridspace/private-grant', { action: 'revoke' }, grid.token);
 	await consent(grid, old, 'gridspace/private-grant', { withReply: true });
 	await denied(api(g, 'gridspace/notifications', { source: 'peer' }, grid.token));
 	const scopes = await consent(grid, old, 'gridspace/private-grant', { withNotifications: true });

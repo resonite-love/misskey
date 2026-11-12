@@ -42,7 +42,7 @@ try {
 		await expect(page.getByText('連携先でこのアカウントの通知を読む', { exact: true })).toBeVisible();
 		await expect(page.getByText('連携先で表示したこのアカウントの通知を既読にする', { exact: true })).toBeVisible();
 		await accept.click(); await page.waitForURL(`${g.origin}/settings/gridspace**`);
-		await expect(page.getByText('限定投稿の閲覧・検索、通知、連携先のアカウント名義での返信・リアクション・投票・添付を利用できます。', { exact: true })).toBeVisible();
+		await expect(page.getByText(/^限定投稿の閲覧・検索、通知/)).toBeVisible();
 	}
 	await consent(); console.log('Browser OAuth notification scopes and callback PASS');
 	// An unknown link state must not fall back to legacy auto-mark-all APIs.
