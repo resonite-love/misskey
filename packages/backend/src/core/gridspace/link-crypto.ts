@@ -10,6 +10,7 @@ export const GRIDSPACE_CLIENT_PATH = '/gridspace/v1/oauth-client';
 export const GRIDSPACE_PRIVATE_CLIENT_PATH = '/gridspace/v1/private-oauth-client';
 export const GRIDSPACE_PRIVATE_SCOPE = 'read:gridspace-private';
 export const GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE = 'read:gridspace-private-reciprocal';
+export const GRIDSPACE_REPLY_SCOPE = 'write:gridspace-reply';
 export const GRIDSPACE_CALLBACK_PATH = '/settings/gridspace';
 export const GRIDSPACE_LINK_SCOPES = ['read:account', 'read:following', 'read:blocks', 'read:mutes'];
 export const gridspaceHash = (value: string): string => createHash('sha256').update(value).digest('hex');

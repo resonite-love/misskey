@@ -11,7 +11,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkA :to="authorPage"><strong>{{ note.author.name || note.author.username }}</strong></MkA>
 		<span :class="$style.account">@{{ note.author.username }}@{{ note.author.host }}</span>
 		<MkA :to="`/gridspace/private?noteId=${note.id}`"><MkTime :time="note.createdAt"/></MkA>
-		<span><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateReadOnly }}</span>
+		<span><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateProtected }}</span>
 	</header>
 	<details v-if="note.cw != null" :class="$style.body" :open="expanded" @toggle="toggleContent">
 		<summary>{{ note.cw || i18n.ts._gridspace.privateContentWarning }}</summary>
@@ -37,9 +37,11 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</div>
 	<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateFileError }}</p>
 	<footer class="_buttons">
+		<MkButton v-if="!replying" small @click="replying = true"><i class="ti ti-arrow-back-up" aria-hidden="true"></i> {{ i18n.ts._gridspace.replyAction }}</MkButton>
 		<MkA v-if="note.replyId" :to="`/gridspace/private?noteId=${note.replyId}`">{{ i18n.ts._gridspace.privateReply }}</MkA>
 		<MkA v-if="note.renoteId" :to="`/gridspace/private?noteId=${note.renoteId}`">{{ i18n.ts._gridspace.privateRenote }}</MkA>
 	</footer>
+	<MkGridspaceReply v-if="replying" :noteId="note.id" @close="replying = false"/>
 	</div>
 </article>
 </template>
@@ -48,6 +50,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 import { computed, onBeforeUnmount, onDeactivated, ref, watch } from 'vue';
 import type { entities } from 'misskey-js';
 import MkButton from '@/components/MkButton.vue';
+import MkGridspaceReply from '@/components/MkGridspaceReply.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 import { prefer } from '@/preferences.js';
@@ -58,6 +61,7 @@ const emit = defineEmits<{ (event: 'unavailable'): void }>();
 const authorPage = computed(() => `/@${props.note.author.username}@${props.note.author.host}`);
 const avatarUrl = computed(() => prefer.s.disableShowingAnimatedImages || prefer.s.dataSaver.avatar ? getStaticImageUrl(props.note.author.avatarUrl) : props.note.author.avatarUrl);
 const expanded = ref(false);
+const replying = ref(false);
 const blobs = ref<Record<string, string>>({});
 const loading = ref<string | null>(null);
 const error = ref(false);

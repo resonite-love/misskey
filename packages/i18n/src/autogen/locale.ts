@@ -9577,6 +9577,10 @@ export interface Locale extends ILocale {
          */
         "read:gridspace-private-reciprocal": string;
         /**
+         * 連携先から、このアカウントの名義で限定公開の返信を投稿する
+         */
+        "write:gridspace-reply": string;
+        /**
          * アカウントの情報を変更する
          */
         "write:account": string;
@@ -13687,6 +13691,98 @@ export interface Locale extends ILocale {
          * 連携先の権限で読む投稿
          */
         "privateTitle": string;
+        /**
+         * 限定投稿
+         */
+        "privateProtected": string;
+        /**
+         * 連携先の名義で返信
+         */
+        "replyAction": string;
+        /**
+         * 内容の注意書き（CW、任意）
+         */
+        "replyCw": string;
+        /**
+         * 限定投稿の閲覧・返信を解除する
+         */
+        "replyRevoke": string;
+        /**
+         * 連携先のアカウント名義で返信するには、投稿の許可が必要です。閲覧の許可だけでは投稿しません。
+         */
+        "replyConsent": string;
+        /**
+         * 連携先の名義での返信を許可する
+         */
+        "replyAuthorize": string;
+        /**
+         * このサーバーから、連携先のアカウント名義で返信できます。
+         */
+        "replyGranted": string;
+        /**
+         * 投稿するアカウント: {account}
+         */
+        "replyIdentity": ParameterizedString<"account">;
+        /**
+         * この返信は、投稿するアカウントのフォロワーに公開されます。
+         */
+        "replyFollowers": string;
+        /**
+         * この返信は、元の会話の参加者だけに公開されます。
+         */
+        "replySpecified": string;
+        /**
+         * 宛先
+         */
+        "replyRecipients": string;
+        /**
+         * 連合なしの返信になります。
+         */
+        "replyLocalOnly": string;
+        /**
+         * この名義で返信する
+         */
+        "replySend": string;
+        /**
+         * 返信を投稿しました。
+         */
+        "replySent": string;
+        /**
+         * 投稿した返信を見る
+         */
+        "replyOpen": string;
+        /**
+         * 返信先か権限を確認できませんでした。時間をおいて再試行してください。
+         */
+        "replyUnavailable": string;
+        /**
+         * 送信結果を確認できませんでした。再試行すると同じ送信を確認します。二重には投稿しません。
+         */
+        "replyUncertain": string;
+        /**
+         * 返信できませんでした。本文と返信先の公開範囲を確認してください。
+         */
+        "replyRejected": string;
+        /**
+         * 同じ送信を再試行する
+         */
+        "replyRetry": string;
+        /**
+         * すでに投稿済みか、処理中の可能性があります。確認をやめて再入力すると二重投稿になることがあります。確認をやめますか？
+         */
+        "replyCloseUncertain": string;
+        /**
+         * 前の送信結果を確認します。結果が見つからなくても、まだ処理中の可能性があります。
+         */
+        "replyPending": string;
+        /**
+         * 送信結果を確認する
+         */
+        "replyCheck": string;
+        /**
+         * この送信の確認をやめる
+         */
+        "replyDiscard": string;
         /**
          * 連携先の限定投稿を取得できませんでした。ほかの投稿は引き続き表示しています。
          */

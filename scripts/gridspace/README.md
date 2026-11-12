@@ -161,6 +161,17 @@ node scripts/gridspace/test-home.mjs
 
 実際の停止・復旧は `node scripts/gridspace/test-private-outage.mjs prepare`、R の Misskey プロセスを停止して `during`、再起動して `after` の順に行う。停止中の閲覧拒否と許可取り消し、復旧後の失効通知の再送を確認する。最後にテストアカウントだけを再認可する。DB・Redis・トンネルは停止しない。
 
+### 旧名義での返信試験
+
+```powershell
+node scripts/gridspace/test-reply.mjs
+node scripts/gridspace/test-reply-ui.mjs
+```
+
+API 試験で専用アカウントを作り、閲覧専用の許可と返信許可を区別して検証する。返信名義・宛先・「連合なし」、同時再試行の重複防止、削除後の再送拒否、権限の解除を確認する。一時ロールは終了時に削除する。認証情報は Git 管理外の `.config/gridspace-reply-test-accounts.json` に保存する。
+
+画面試験は直前の API 試験のアカウントを使い、実 OAuth の追加許可、本文・CW の返信、通信の応答だけを失った場合の結果確認を行う。`.config/reply-desktop.png` と `.config/reply-mobile.png` に画面を保存する。再実行するときは API 試験から順に実行する。
+
 ## 停止と再開
 
 試験環境を停止する場合は Misskey 本体とトンネルを停止し、次を実行する。DB のボリュームは保持される。

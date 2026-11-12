@@ -2949,6 +2949,17 @@ declare module '../api.js' {
     /**
      * No description provided.
      *
+     * **Credential required**: *Yes* / **Permission**: *write:gridspace-reply*
+     */
+    request<E extends 'gridspace/private-reply', P extends Endpoints[E]['req']>(
+      endpoint: E,
+      params: P,
+      credential?: string | null,
+    ): Promise<SwitchCaseResponseType<E, P>>;
+
+    /**
+     * No description provided.
+     *
      * **Credential required**: *No*
      */
     request<E extends 'gridspace/search', P extends Endpoints[E]['req']>(

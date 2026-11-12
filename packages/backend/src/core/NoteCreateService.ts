@@ -4,11 +4,11 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone } from '@/models/Gridspace.js';
+import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone, MiGridspaceReplyReceipt } from '@/models/Gridspace.js';
 import { canShareGridspaceNote, canonicalGridspaceNoteUri, gridspaceNoteUris } from '@/core/gridspace/note-protocol.js';
 import { setImmediate } from 'node:timers/promises';
 import * as mfm from 'mfm-js';
-import { In, DataSource, IsNull, LessThan } from 'typeorm';
+import { In, DataSource, IsNull, LessThan, type EntityManager } from 'typeorm';
 import * as Redis from 'ioredis';
 import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common';
 import { extractMentions } from '@/misc/extract-mentions.js';
@@ -182,6 +182,7 @@ type Option = {
 	localOnly?: boolean | null;
 	gridspaceShared?: boolean;
 	gridspaceHistorical?: boolean;
+	gridspaceReply?: { requestId: string; requestHash: string; beforeInsert: (manager: EntityManager) => Promise<void> };
 	reactionAcceptance?: MiNote['reactionAcceptance'];
 	cw?: string | null;
 	visibility?: string;
@@ -305,6 +306,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 		apMentions?: MinimumUser[] | null;
 		apHashtags?: string[] | null;
 		apEmojis?: string[] | null;
+		gridspaceReply?: Option['gridspaceReply'];
 	}): Promise<MiNote> {
 		const visibleUsers = data.visibleUserIds.length > 0 ? await this.usersRepository.findBy({
 			id: In(data.visibleUserIds),
@@ -444,6 +446,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			apMentions: data.apMentions,
 			apHashtags: data.apHashtags,
 			apEmojis: data.apEmojis,
+			gridspaceReply: data.gridspaceReply,
 		});
 	}
 
@@ -740,9 +743,13 @@ export class NoteCreateService implements OnApplicationShutdown {
 
 		// 投稿を作成
 		try {
-			if (insert.hasPoll || insert.gridspaceShared || insert.uri) {
+			if (insert.hasPoll || insert.gridspaceShared || insert.uri || data.gridspaceReply) {
 				// Persist delivery with the note; tombstones serialize against late/replayed creates.
 				await this.db.transaction(async transactionalEntityManager => {
+					if (data.gridspaceReply) {
+						await data.gridspaceReply.beforeInsert(transactionalEntityManager);
+						await transactionalEntityManager.insert(MiGridspaceReplyReceipt, { userId: user.id, requestId: data.gridspaceReply.requestId, requestHash: data.gridspaceReply.requestHash, noteId: insert.id });
+					}
 					if (insert.uri) {
 						await transactionalEntityManager.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', ['gridspace-note:' + insert.uri]);
 						if (await transactionalEntityManager.existsBy(MiGridspaceNoteTombstone, gridspaceNoteUris(insert.uri, this.config.gridspace?.peerUrl).map(uri => ({ uri })))) throw new Error('GridSpace note was deleted');

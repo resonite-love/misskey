@@ -7,6 +7,7 @@ import { GRIDSPACE_NONCE_TTL_MS, GRIDSPACE_PROTOCOL_VERSION, verifyGridspaceRequ
 import type { GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
 import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH, GRIDSPACE_PRIVATE_CLIENT_PATH } from '@/core/gridspace/link-crypto.js';
 import { privateOptionsSchema, type PrivatePeerRequest } from '@/core/gridspace/private-protocol.js';
+import { replyOptionsSchema, type ReplyPeerRequest } from '@/core/gridspace/reply-protocol.js';
 import type { GridspacePeerLinkRequest } from '@/core/gridspace/GridspaceLinkService.js';
 import type { HistoryPeerRequest } from '@/core/gridspace/history-protocol.js';
 import type { SearchPeerRequest } from '@/core/gridspace/search-protocol.js';
@@ -15,7 +16,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 export type ClaimGridspaceNonce = (key: string, ttlMs: number) => Promise<boolean>;
 
 /** Mounted under /gridspace/v1; independent from user-authorized /api endpoints. */
-export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>): void {
+export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>): void {
 	if (config === null) return;
 	// Preserve wire bytes for the signature without changing other server plugins' parsers.
 	const parseJson = fastify.getDefaultJsonParser('error', 'error');
@@ -111,6 +112,22 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 				}
 			});
 		}
+	}
+	if (replyAction) {
+		fastify.post<{ Body: ReplyPeerRequest }>('/private/reply', {
+			bodyLimit: 32768, config: { rawBody: true }, preHandler: authenticate,
+			schema: { body: { type: 'object', additionalProperties: false, required: ['accessToken', 'linkId', 'generation', 'localUserId', 'noteId'], properties: {
+				...replyOptionsSchema,
+				accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
+				generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+			} } },
+		}, async (request, reply) => {
+			try { return await replyAction(request.body); } catch (error) {
+				const code = error instanceof Error && 'code' in error ? error.code : null;
+				const known = ['AUTHORIZATION_REVOKED', 'LINK_REVOKED', 'REPLY_UNAVAILABLE', 'REPLY_REJECTED', 'REPLY_CONFLICT', 'REPLY_DELETED', 'RATE_LIMITED'];
+				return reply.code(403).send({ error: typeof code === 'string' && known.includes(code) ? code : 'PEER_UNAVAILABLE' });
+			}
+		});
 	}
 	if (privateAction) {
 		fastify.get('/private-oauth-client', async () => ({

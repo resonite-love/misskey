@@ -4,7 +4,7 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
-import { DataSource, In, IsNull } from 'typeorm';
+import { DataSource, In, IsNull, type QueryRunner } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
@@ -79,6 +79,12 @@ export class GridspacePrivateService {
 		if (input.before) query.andWhere('note.id < :before', { before: input.before });
 		if (input.head) query.andWhere('note.id <= :head', { head: input.head });
 		return this.search.read(query.take(input.mode === 'validate' ? 100 : input.mode === 'show' ? 1 : (input.limit ?? 10) + 1));
+	}
+
+	public async readableSourceNote(viewerId: string, noteId: string, runner?: QueryRunner) {
+		const query = this.query(viewerId, { mode: 'show' }).andWhere('note.id = :noteId', { noteId });
+		if (runner) return query.setQueryRunner(runner).getOne();
+		return (await this.search.read(query))[0] ?? null;
 	}
 
 	private actor(user: MiUser) {

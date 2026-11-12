@@ -468,4 +468,5 @@ export * as 'gridspace/search-info' from './endpoints/gridspace/search-info.js';
 export * as 'gridspace/private-grant' from './endpoints/gridspace/private-grant.js';
 export * as 'gridspace/private-notes' from './endpoints/gridspace/private-notes.js';
 export * as 'gridspace/private-file' from './endpoints/gridspace/private-file.js';
+export * as 'gridspace/private-reply' from './endpoints/gridspace/private-reply.js';
 export * as 'gridspace/link' from './endpoints/gridspace/link.js';

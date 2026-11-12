@@ -51,6 +51,7 @@ export const permissions = [
 	'read:account',
 	'read:gridspace-private',
 	'read:gridspace-private-reciprocal',
+	'write:gridspace-reply',
 	'write:account',
 	'read:blocks',
 	'write:blocks',

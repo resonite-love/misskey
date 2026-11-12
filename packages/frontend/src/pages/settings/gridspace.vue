@@ -33,10 +33,13 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<MkInfo v-if="readGrant && !readGrant.available" warn>{{ i18n.ts._gridspace.connectionError }}</MkInfo>
 				<MkInfo v-else-if="readGrant?.granted">{{ readGrant.mutual ? i18n.ts._gridspace.privateMutualGranted : i18n.ts._gridspace.privateLegacyGrant }}</MkInfo>
 				<div class="_buttons">
-					<MkButton :disabled="busy" @click="startPrivate">{{ i18n.ts._gridspace.privateAuthorize }}</MkButton>
-					<MkButton v-if="readGrant?.granted" danger :disabled="busy" @click="revokePrivate">{{ i18n.ts._gridspace.privateRevoke }}</MkButton>
+					<MkButton :disabled="busy" @click="startPrivate(false)">{{ i18n.ts._gridspace.privateAuthorize }}</MkButton>
+					<MkButton v-if="readGrant?.granted" danger :disabled="busy" @click="revokePrivate">{{ readGrant.canReply ? i18n.ts._gridspace.replyRevoke : i18n.ts._gridspace.privateRevoke }}</MkButton>
 				</div>
 				<MkA to="/gridspace/private">{{ i18n.ts._gridspace.privateHome }}</MkA>
+				<p>{{ i18n.ts._gridspace.replyConsent }}</p>
+				<MkInfo v-if="readGrant?.canReply && readGrant.available">{{ i18n.ts._gridspace.replyGranted }}</MkInfo>
+				<MkButton :disabled="busy" @click="startPrivate(true)">{{ i18n.ts._gridspace.replyAuthorize }}</MkButton>
 			</section>
 			<template v-if="status.total">
 				<div aria-live="polite">{{ i18n.tsx._gridspace.progress({ total: status.total, done: status.done, pending: status.pending, requested: status.requested, failed: status.failed, skipped: status.skipped }) }}</div>
@@ -119,9 +122,9 @@ async function start() {
 	});
 }
 
-async function startPrivate() {
+async function startPrivate(withReply = false) {
 	await perform(async () => {
-		const result = await misskeyApi('gridspace/private-grant', { action: 'start' });
+		const result = await misskeyApi('gridspace/private-grant', { action: 'start', withReply });
 		if (!result.authorizationUrl || !result.clientKey) throw new Error('Missing authorization URL');
 		sessionStorage.setItem(storageKey, result.clientKey);
 		sessionStorage.setItem(`${storageKey}:purpose`, 'private');

@@ -2413,6 +2413,15 @@ export type paths = {
          */
         post: operations['gridspace___private-notes'];
     };
+    '/gridspace/private-reply': {
+        /**
+         * gridspace/private-reply
+         * @description No description provided.
+         *
+         *     **Credential required**: *Yes* / **Permission**: *write:gridspace-reply*
+         */
+        post: operations['gridspace___private-reply'];
+    };
     '/gridspace/search': {
         /**
          * gridspace/search
@@ -25045,6 +25054,8 @@ export interface operations {
                      * @enum {string}
                      */
                     action?: 'status' | 'start' | 'finish' | 'revoke';
+                    /** @default false */
+                    withReply?: boolean;
                     state?: string;
                     clientKey?: string;
                     code?: string;
@@ -25063,6 +25074,7 @@ export interface operations {
                         enabled: boolean;
                         granted: boolean;
                         mutual: boolean;
+                        canReply: boolean;
                         available: boolean;
                         peerOrigin: string | null;
                         authorizationUrl: string | null;
@@ -25204,6 +25216,109 @@ export interface operations {
                         cursor: string | null;
                         scannedThrough: string | null;
                         observedAt: string;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___private-reply': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default prepare
+                     * @enum {string}
+                     */
+                    action?: 'prepare' | 'send' | 'status';
+                    noteId: string;
+                    requestId?: string;
+                    text?: string;
+                    cw?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        canReply: boolean;
+                        account: {
+                            name: string | null;
+                            username: string;
+                            host: string;
+                            uri: string;
+                            avatarUrl: string;
+                        };
+                        /** @enum {string} */
+                        visibility: 'followers' | 'specified';
+                        localOnly: boolean;
+                        recipients: {
+                            name: string | null;
+                            username: string;
+                            host: string;
+                            uri: string;
+                            avatarUrl: string;
+                        }[];
+                        maxTextLength: number;
+                        createdNoteId: string | null;
                     };
                 };
             };

@@ -18,7 +18,7 @@ const g = resolveGridspaceConfig(source, 'https://g.example', env)!;
 const r = resolveGridspaceConfig({ ...source, peerUrl: g.origin }, source.peerUrl, env)!;
 const servers: FastifyInstance[] = [];
 
-async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6]) {
+async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8]) {
 	const app = Fastify();
 	servers.push(app);
 	const used = new Set<string>();
@@ -29,7 +29,7 @@ async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Para
 			if (used.has(key)) return false;
 			used.add(key);
 			return true;
-		}), action, notes, history, search);
+		}), action, notes, history, search, undefined, replyAction);
 	}, { prefix: '/gridspace/v1' });
 	return app;
 }
@@ -41,6 +41,33 @@ function request(protocolVersion = 1) {
 
 afterEach(async () => {
 	await Promise.all(servers.splice(0).map(app => app.close()));
+});
+
+describe('GridSpace delegated reply transport', () => {
+	test('requires the signed peer, bounds text and forbids caller-selected audiences or identities', async () => {
+		const received: object[] = [];
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, async body => { received.push(body); return { createdNoteId: 'reply' }; });
+		const url = '/gridspace/v1/private/reply';
+		const input = { accessToken: 'fixture', linkId: '00000000-0000-4000-8000-000000000001', generation: 1, localUserId: 'viewer', noteId: 'parent', action: 'send', requestId: '00000000-0000-4000-8000-000000000002', text: 'reply' };
+		const send = (value: object, signed = true) => {
+			const payload = Buffer.from(JSON.stringify(value));
+			return app.inject({ method: 'POST', url, payload, headers: signed ? createGridspaceHeaders(g, 'POST', url, payload) : { 'content-type': 'application/json' } });
+		};
+		expect((await send(input, false)).statusCode).toBe(403);
+		for (const extra of [{ text: '' }, { text: '  ' }, { text: 'a'.repeat(3001) }, { cw: 'a'.repeat(101) }, { requestId: 'not-a-uuid' }]) {
+			expect((await send({ ...input, ...extra })).statusCode, JSON.stringify(extra)).toBe(400);
+		}
+		// Fastify strips unknown properties; none can reach the posting service.
+		for (const extra of [{ visibility: 'public' }, { visibleUserIds: ['outsider'] }, { userId: 'other' }, { localOnly: false }]) {
+			expect((await send({ ...input, ...extra })).statusCode).toBe(200);
+			expect(received.at(-1)).toEqual(input);
+		}
+		const response = await send(input);
+		expect(response.statusCode).toBe(200);
+		expect(response.headers['cache-control']).toBe('no-store');
+		expect(received).toHaveLength(5);
+		expect((await (await server(false)).inject({ method: 'POST', url, payload: input })).statusCode).toBe(404);
+	});
 });
 
 describe('GridSpace search transport', () => {

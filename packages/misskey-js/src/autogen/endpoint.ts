@@ -411,6 +411,8 @@ import type {
 	GridspacePrivateGrantResponse,
 	GridspacePrivateNotesRequest,
 	GridspacePrivateNotesResponse,
+	GridspacePrivateReplyRequest,
+	GridspacePrivateReplyResponse,
 	GridspaceSearchRequest,
 	GridspaceSearchResponse,
 	GridspaceSearchInfoResponse,
@@ -965,6 +967,7 @@ export type Endpoints = {
 	'gridspace/private-file': { req: GridspacePrivateFileRequest; res: GridspacePrivateFileResponse };
 	'gridspace/private-grant': { req: GridspacePrivateGrantRequest; res: GridspacePrivateGrantResponse };
 	'gridspace/private-notes': { req: GridspacePrivateNotesRequest; res: GridspacePrivateNotesResponse };
+	'gridspace/private-reply': { req: GridspacePrivateReplyRequest; res: GridspacePrivateReplyResponse };
 	'gridspace/search': { req: GridspaceSearchRequest; res: GridspaceSearchResponse };
 	'gridspace/search-info': { req: EmptyRequest; res: GridspaceSearchInfoResponse };
 	'hashtags/list': { req: HashtagsListRequest; res: HashtagsListResponse };
