@@ -22,6 +22,7 @@ import type { MiDriveFile } from './DriveFile.js';
 // Not appending `{ concurrent: true }` to `@Index` will not cause any problem in production,
 
 @Index(['userId', 'id']) // Note: this index is ("userId", "id" DESC) in production, but not in test.
+@Index('IDX_GRIDSPACE_NOTE_CHANNEL_ID_ID', ['channelId', 'id'], { where: '"channelId" IS NOT NULL' })
 @Index('IDX_GRIDSPACE_NOTE_CW_SEARCH', { synchronize: false }) // Optional PGroonga expression index, managed by migration.
 @Entity('note')
 export class MiNote {

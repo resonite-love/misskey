@@ -110,7 +110,10 @@ export class GridspacePrivateService {
 		if (input.mode === 'validate') query.andWhere('note.id IN (:...ids)', { ids: input.ids });
 		if (input.before) query.andWhere('note.id < :before', { before: input.before });
 		if (input.head) query.andWhere('note.id <= :head', { head: input.head });
-		return this.search.read(query.take(input.mode === 'validate' ? 100 : input.mode === 'show' ? 1 : (input.limit ?? 10) + 1));
+		const limit = input.mode === 'validate' ? 100 : input.mode === 'show' ? 1 : (input.limit ?? 10) + 1;
+		return authors && input.mode !== 'validate' && input.mode !== 'show'
+			? this.search.readAuthorPage(query, authors.map(author => author.id), limit)
+			: this.search.read(query.take(limit));
 	}
 
 	public async readableSourceNote(viewerId: string, noteId: string, runner?: QueryRunner, channelId?: string) {

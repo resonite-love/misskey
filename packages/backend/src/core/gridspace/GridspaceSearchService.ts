@@ -79,6 +79,17 @@ export class GridspaceSearchService {
 		}
 	}
 
+	/** Each author uses (userId, id); an IN scan otherwise sorts their entire history. */
+	public async readAuthorPage(query: SelectQueryBuilder<MiNote>, authorIds: string[], limit: number): Promise<MiNote[]> {
+		const authors = [...new Set(authorIds)];
+		if (authors.length <= 1) return this.read(query.take(limit));
+		const rows: MiNote[] = [];
+		for (const authorId of authors) {
+			rows.push(...await this.read(query.clone().andWhere('note.userId = :pageAuthor', { pageAuthor: authorId }).take(limit)));
+		}
+		return rows.sort((a, b) => a.id < b.id ? 1 : a.id > b.id ? -1 : 0).slice(0, limit);
+	}
+
 	public userQuery(viewer: { id: string } | null) {
 		const query = this.db.getRepository(MiUser).createQueryBuilder('user')
 			.where('user.isDeleted = false AND user.isSuspended = false');
@@ -194,7 +205,9 @@ export class GridspaceSearchService {
 		if (position.local) localQuery.andWhere(`${alias}.id < :before`, { before: position.local });
 		if (position.localHead) localQuery.andWhere(`${alias}.id <= :head`, { head: position.localHead });
 		if (cursor && !position.localHead) localQuery.andWhere('1=0');
-		const local = await this.read<MiNote | MiUser>(localQuery.take(limit));
+		const local = kind === 'notes'
+			? await this.readAuthorPage(localQuery as SelectQueryBuilder<MiNote>, authorIds, limit)
+			: await this.read<MiUser>((localQuery as SelectQueryBuilder<MiUser>).take(limit));
 		let peerAvailable = true;
 		let remote = { active: true, items: [] as { id: string; date: number }[] };
 		if (fetchPeer) {
