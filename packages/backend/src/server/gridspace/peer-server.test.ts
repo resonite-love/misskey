@@ -18,7 +18,7 @@ const g = resolveGridspaceConfig(source, 'https://g.example', env)!;
 const r = resolveGridspaceConfig({ ...source, peerUrl: g.origin }, source.peerUrl, env)!;
 const servers: FastifyInstance[] = [];
 
-async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8], reactions?: Parameters<typeof registerGridspacePeer>[12]) {
+async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8], reactions?: Parameters<typeof registerGridspacePeer>[12], reactionUpdates?: Parameters<typeof registerGridspacePeer>[13]) {
 	const app = Fastify();
 	servers.push(app);
 	const used = new Set<string>();
@@ -29,7 +29,7 @@ async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Para
 			if (used.has(key)) return false;
 			used.add(key);
 			return true;
-		}), action, notes, history, search, undefined, replyAction, undefined, undefined, undefined, reactions);
+		}), action, notes, history, search, undefined, replyAction, undefined, undefined, undefined, reactions, reactionUpdates);
 	}, { prefix: '/gridspace/v1' });
 	return app;
 }
@@ -44,6 +44,24 @@ afterEach(async () => {
 });
 
 describe('GridSpace reaction transport', () => {
+	test('authenticates update notifications and bounds them without accepting reaction content', async () => {
+		const received: object[] = [];
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, async input => { received.push(input); return { ok: true }; });
+		const url = '/gridspace/v1/reactions/updated';
+		const input = { uris: [`${r.origin}/notes/abc`] }; const payload = Buffer.from(JSON.stringify(input));
+		const req = { method: 'POST' as const, url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) };
+		expect((await app.inject({ ...req, headers: { 'content-type': 'application/json' } })).statusCode).toBe(403);
+		expect((await app.inject({ ...req, headers: createGridspaceHeaders({ ...g, origin: 'https://outsider.example' }, 'POST', url, payload) })).statusCode).toBe(403);
+		expect((await app.inject(req)).statusCode).toBe(200);
+		expect((await app.inject(req)).statusCode).toBe(409);
+		for (const uris of [[], Array.from({ length: 101 }, (_, i) => `${r.origin}/notes/n${i}`)]) {
+			const body = Buffer.from(JSON.stringify({ uris }));
+			expect((await app.inject({ ...req, payload: body, headers: createGridspaceHeaders(g, 'POST', url, body) })).statusCode).toBe(400);
+		}
+		expect(received).toEqual([input]);
+		expect((await app.inject(request())).json().features).toContain('community-reaction-updates');
+		expect((await (await server(false)).inject(req)).statusCode).toBe(404);
+	});
 	test('requires the exact signed peer, rejects replay and bounds lists', async () => {
 		const received: object[] = [];
 		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, async body => { received.push(body); return []; });

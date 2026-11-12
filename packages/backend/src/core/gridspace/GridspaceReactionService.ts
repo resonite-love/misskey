@@ -19,6 +19,7 @@ import { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
 import type { Packed } from '@/misc/json-schema.js';
 import { GridspaceSearchService } from './GridspaceSearchService.js';
+import { GridspaceReactionDeliveryService } from './GridspaceReactionDeliveryService.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
 import { requestGridspacePeer } from './peer-client.js';
 import { gridspaceNoteId } from './note-protocol.js';
@@ -49,6 +50,7 @@ export class GridspaceReactionService {
 		private ids: IdService,
 		private people: ApPersonService,
 		private users: UserEntityService,
+		private delivery: GridspaceReactionDeliveryService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 		this.reactionTime = searchNoteTimeSql(config.id).replaceAll('note.id', 'r.id');
@@ -65,8 +67,11 @@ export class GridspaceReactionService {
 		// A signed peer can attest a login before its actor has been cached here.
 		// The impossible ID grants no author/follower/recipient privileges.
 		const queryViewer = viewer ?? (authenticated ? { id: '' } : null);
-		return this.search.read(this.search.noteQuery(queryViewer, { query: '' }, false, authenticated)
+		const rows = await this.search.read(this.search.noteQuery(queryViewer, { query: '' }, false, authenticated)
+			.select('note.id').orderBy()
 			.andWhere('note.id IN (:...reactionNotes)', { reactionNotes: notes.map(note => note.id) }));
+		const allowed = new Set(rows.map(note => note.id));
+		return notes.filter(note => allowed.has(note.id));
 	}
 
 	private async snapshot(note: MiNote, input: ReactionPeerRequest): Promise<ReactionSnapshot> {
@@ -150,8 +155,9 @@ export class GridspaceReactionService {
 				reactionEmojis: Object.fromEntries(Object.entries({ ...own.reactionEmojis, ...other?.reactionEmojis }).map(([key, value]) => [localReaction(`:${key}:`, this.peer!.origin).slice(1, -1), value])),
 			});
 		}
+		const push = shared.length > 0 && await this.delivery.supportsPush();
 		const allowed = new Set((await this.visible(shared, me)).map(note => note.id));
-		return result.filter(state => !state.shared || allowed.has(state.noteId));
+		return result.filter(state => !state.shared || allowed.has(state.noteId)).map(state => ({ ...state, push: state.shared && push }));
 	}
 
 	public async prepareMutation(user: MiLocalUser, note: MiNote): Promise<MiNote> {

@@ -16,6 +16,7 @@ import type { UserEntityService } from '@/core/entities/UserEntityService.js';
 import type { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
 import type { GridspaceSearchService } from './GridspaceSearchService.js';
 import { GridspaceReactionService } from './GridspaceReactionService.js';
+import { GridspaceReactionDeliveryService } from './GridspaceReactionDeliveryService.js';
 import { requestGridspacePeer } from './peer-client.js';
 
 vi.mock('./peer-client.js', () => ({ requestGridspacePeer: vi.fn() }));
@@ -27,13 +28,14 @@ function fixture(remote = false) {
 	const viewer = { id: 'viewer', host: null } as MiLocalUser;
 	const db = mockDeep<DataSource>(); const extended = mockDeep<ExtendedReactionService>(); const search = mockDeep<GridspaceSearchService>();
 	const emojis = mockDeep<CustomEmojiService>(); const people = mockDeep<ApPersonService>(); const users = mockDeep<UserEntityService>();
-	const query = mockDeep<SelectQueryBuilder<MiNote>>(); query.andWhere.mockReturnValue(query);
+	const query = mockDeep<SelectQueryBuilder<MiNote>>(); query.andWhere.mockReturnValue(query); query.select.mockReturnValue(query); query.orderBy.mockReturnValue(query);
 	search.noteQuery.mockReturnValue(query); search.read.mockResolvedValue([note]);
 	db.getRepository.mockReturnValue({ findBy: async () => [note], findOneBy: async () => null } as never);
 	db.query.mockResolvedValue([]); emojis.populateEmojis.mockResolvedValue({}); emojis.localEmojisCache.fetch.mockResolvedValue(new Map());
 	extended.show.mockResolvedValue([{ noteId: note.id, reactions: { '👍': 1 }, myReaction: '👍', myReactions: ['👍'], reactionEmojis: {} }]);
 	const config = { url: 'https://g.example', id: 'aidx', gridspace: { enabled: true, communityId: 'reactions', peerUrl: 'https://r.example', keyId: 'v1', secretEnv: 'REACTION_TEST_KEY' } } as Config;
-	const service = new GridspaceReactionService(db, config, extended, search, emojis, mockDeep<IdService>(), people, users);
+	const delivery = mockDeep<GridspaceReactionDeliveryService>(); delivery.supportsPush.mockResolvedValue(true);
+	const service = new GridspaceReactionService(db, config, extended, search, emojis, mockDeep<IdService>(), people, users, delivery);
 	return { service, note, viewer, db, extended, search, people };
 }
 

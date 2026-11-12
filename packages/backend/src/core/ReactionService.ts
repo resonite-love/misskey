@@ -12,7 +12,8 @@ import { IdentifiableError } from '@/misc/identifiable-error.js';
 import type { MiRemoteUser, MiUser } from '@/models/User.js';
 import type { MiNote } from '@/models/Note.js';
 import { IdService } from '@/core/IdService.js';
-import type { MiNoteReaction } from '@/models/NoteReaction.js';
+import { MiNoteReaction } from '@/models/NoteReaction.js';
+import { GridspaceReactionDeliveryService } from '@/core/gridspace/GridspaceReactionDeliveryService.js';
 import { isDuplicateKeyValueError } from '@/misc/is-duplicate-key-value-error.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { NotificationService } from '@/core/NotificationService.js';
@@ -106,6 +107,7 @@ export class ReactionService {
 		private apDeliverManagerService: ApDeliverManagerService,
 		private notificationService: NotificationService,
 		private perUserReactionsChart: PerUserReactionsChart,
+		private reactionDelivery: GridspaceReactionDeliveryService,
 	) {
 	}
 
@@ -210,7 +212,7 @@ export class ReactionService {
 		};
 
 		try {
-			await this.noteReactionsRepository.insert(record);
+			await this.reactionDelivery.mutate(note, manager => manager.insert(MiNoteReaction, record));
 		} catch (e) {
 			if (isDuplicateKeyValueError(e)) {
 				const exists = await this.noteReactionsRepository.findOneByOrFail({
@@ -221,7 +223,7 @@ export class ReactionService {
 				if (exists.reaction !== reaction) {
 					// 別のリアクションがすでにされていたら置き換える
 					await this.deleteUnlocked(user, note);
-					await this.noteReactionsRepository.insert(record);
+					await this.reactionDelivery.mutate(note, manager => manager.insert(MiNoteReaction, record));
 				} else {
 					// 同じリアクションがすでにされていたらエラー
 					throw new IdentifiableError('51c42bb4-931a-456b-bff7-e5a8a70dd298');
@@ -336,7 +338,7 @@ export class ReactionService {
 		}
 
 		// Delete reaction
-		const result = await this.noteReactionsRepository.delete(exist.id);
+		const result = await this.reactionDelivery.mutate(note, manager => manager.delete(MiNoteReaction, exist.id));
 
 		if (result.affected !== 1) {
 			throw new IdentifiableError('60527ec9-b4cb-4a88-a6bd-32d3ad26817d', 'not reacted');

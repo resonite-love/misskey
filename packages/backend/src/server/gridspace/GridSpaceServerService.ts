@@ -17,6 +17,7 @@ import { GridspacePrivateService } from '@/core/gridspace/GridspacePrivateServic
 import { GridspaceNotificationService } from '@/core/gridspace/GridspaceNotificationService.js';
 import { GridspaceActionService } from '@/core/gridspace/GridspaceActionService.js';
 import { GridspaceReactionService } from '@/core/gridspace/GridspaceReactionService.js';
+import { GridspaceReactionDeliveryService } from '@/core/gridspace/GridspaceReactionDeliveryService.js';
 import { GridspaceReplyService } from '@/core/gridspace/GridspaceReplyService.js';
 import { RoleService } from '@/core/RoleService.js';
 import { RateLimiterService } from '@/server/api/RateLimiterService.js';
@@ -39,6 +40,7 @@ export class GridSpaceServerService {
 		private replies: GridspaceReplyService,
 		private actions: GridspaceActionService,
 		private reactions: GridspaceReactionService,
+		private reactionDelivery: GridspaceReactionDeliveryService,
 		private notifications: GridspaceNotificationService,
 		private roles: RoleService,
 		private limiter: RateLimiterService,
@@ -63,7 +65,7 @@ export class GridSpaceServerService {
 		}), (action, input) => this.notifications.peer(action, input),
 		input => this.actions.peerAction(input, userId => this.limitAction(userId, 'gridspace/action', 60)),
 		input => this.actions.peerUpload(input, userId => this.limitAction(userId, 'drive/files/create', 20)),
-		input => this.reactions.peerRead(input));
+		input => this.reactions.peerRead(input), input => this.reactionDelivery.receive(input));
 		done();
 	}
 }

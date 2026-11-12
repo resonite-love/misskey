@@ -180,6 +180,7 @@ function realtimeSubscribe(props: {
 
 	function onStreamConnected() {
 		capture(false);
+		noteEvents.emit(`extendedUpdated:${note.id}`);
 	}
 
 	capture(true);
@@ -238,17 +239,36 @@ export function useNoteCapture(props: {
 	let refreshing = false;
 	let refreshAgain = false;
 	let stopSharedRefresh: (() => void) | undefined;
+	let sharedPush = false;
+	let subscribed = false;
+	let realtime = false;
 	let receivedComplete = false;
 	let lastReactionState = '';
+	let retryTimer: number | undefined;
+	let retryAttempt = 0;
+
+	function retryExtended(): void {
+		if (disposed || retryTimer !== undefined) return;
+		retryTimer = window.setTimeout(() => {
+			retryTimer = undefined;
+			void refreshExtended();
+		}, Math.min(60000, 1000 * 2 ** Math.min(retryAttempt++, 6)));
+	}
 
 	async function refreshExtended(): Promise<void> {
-		if (!$note.extendedReactions || disposed) return;
+		if (!$note.extendedReactions || disposed || (stopSharedRefresh && window.document.hidden)) return;
 		if (refreshing) { refreshAgain = true; return; }
+		window.clearTimeout(retryTimer); retryTimer = undefined;
 		refreshing = true;
 		try {
 			const state = await fetchExtendedReactions(note.id);
 			if (state && !disposed) {
-				if (state.shared && !stopSharedRefresh) stopSharedRefresh = watchSharedReactions(() => { void refreshExtended(); });
+				const push = state.push === true && realtime;
+				if (state.shared && (!stopSharedRefresh || sharedPush !== push)) {
+					stopSharedRefresh?.();
+					sharedPush = push;
+					stopSharedRefresh = watchSharedReactions(() => { void refreshExtended(); }, push);
+				}
 				if (state.complete === false && receivedComplete) {
 					// Keep the peer counts, but apply our own successful changes during an outage.
 					const counts = { ...$note.reactions };
@@ -266,9 +286,11 @@ export function useNoteCapture(props: {
 				$note.myReaction = state.myReaction;
 				const signature = JSON.stringify([$note.reactions, $note.reactionEmojis, $note.myReactions, state.revision]);
 				if (signature !== lastReactionState) { $note.reactionVersion++; lastReactionState = signature; }
+				if (state.complete === false) retryExtended(); else retryAttempt = 0;
 			}
 		} catch {
 			// Keep the previous state on transient network failures.
+			retryExtended();
 		} finally {
 			refreshing = false;
 			if (refreshAgain) { refreshAgain = false; void refreshExtended(); }
@@ -352,12 +374,14 @@ export function useNoteCapture(props: {
 	}
 
 	function subscribe() {
-		if (mock) {
+		if (mock || subscribed) {
 			// モックモードでは購読しない
 			return;
 		}
+		subscribed = true;
 
 		if ($i && store.s.realtimeMode) {
+			realtime = true;
 			realtimeSubscribe({
 				note,
 			});
@@ -371,12 +395,17 @@ export function useNoteCapture(props: {
 
 	onUnmounted(() => {
 		disposed = true;
+		window.clearTimeout(retryTimer);
 		stopSharedRefresh?.();
 		noteEvents.off(`extendedUpdated:${note.id}`, refreshExtended);
 		noteEvents.off(`reacted:${note.id}`, onReacted);
 		noteEvents.off(`unreacted:${note.id}`, onUnreacted);
 		noteEvents.off(`pollVoted:${note.id}`, onPollVoted);
 	});
+
+	// Shared reactions can change on the peer even for old posts. Keep the normal
+	// authenticated note subscription so their updates need no periodic peer reads.
+	if (note.gridspaceReactions && $i && store.s.realtimeMode) subscribe();
 
 	// 投稿からある程度経過している(=タイムラインを遡って表示した)ノートは、イベントが発生する可能性が低いためそもそも購読しない
 	// ただし「リノートされたばかりの過去のノート」(= parentNoteが存在し、かつparentNoteの投稿日時が最近)はイベント発生が考えられるため購読する

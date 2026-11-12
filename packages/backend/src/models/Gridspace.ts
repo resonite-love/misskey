@@ -101,6 +101,16 @@ export class MiGridspaceNoteDelivery {
 	@Column('integer', { default: 0 }) public attempts: number;
 }
 
+/** No FK: an in-flight invalidation must survive deletion of its source note. */
+@Entity('gridspace_reaction_delivery')
+export class MiGridspaceReactionDelivery {
+	@PrimaryColumn({ ...id(), primaryKeyConstraintName: 'PK_gridspace_reaction_delivery' }) public noteId: string;
+	@Column('uuid') public version: string;
+	@Column('varchar', { length: 512 }) public peerOrigin: string;
+	@Index('IDX_gridspace_reaction_delivery_retry') @Column('timestamp with time zone') public retryAt: Date;
+	@Column('integer', { default: 0 }) public attempts: number;
+}
+
 /** Permanent tombstones also guard against ordinary ActivityPub replay. */
 @Entity('gridspace_note_tombstone')
 export class MiGridspaceNoteTombstone {

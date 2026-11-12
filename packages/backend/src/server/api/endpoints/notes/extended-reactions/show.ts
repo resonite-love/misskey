@@ -18,6 +18,7 @@ export const meta = {
 			type: 'object', optional: false, nullable: false,
 			properties: {
 				shared: { type: 'boolean', optional: false, nullable: false },
+				push: { type: 'boolean', optional: false, nullable: false },
 				complete: { type: 'boolean', optional: false, nullable: false },
 				revision: { type: 'string', optional: true, nullable: false },
 				noteId: { type: 'string', format: 'id', optional: false, nullable: false },

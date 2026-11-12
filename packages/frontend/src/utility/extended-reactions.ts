@@ -18,22 +18,30 @@ export type ExtendedReactionState = {
 	myReaction: string | null;
 	myReactions: string[];
 	shared?: boolean;
+	push?: boolean;
 	complete?: boolean;
 	revision?: string;
 };
 
-const subscriptions = new Set<() => void>();
+const subscriptions = new Map<() => void, boolean>();
 let refreshTimer: number | undefined;
+const resume = () => {
+	if (!window.document.hidden) for (const callback of subscriptions.keys()) callback();
+};
 
-/** One tick batches every mounted shared note into the existing bulk API. */
-export function watchSharedReactions(refresh: () => void): () => void {
-	subscriptions.add(refresh);
+/** Push-capable peers use note streams; polling remains only for older peers/modes. */
+export function watchSharedReactions(refresh: () => void, push = false): () => void {
+	if (subscriptions.size === 0) window.document.addEventListener('visibilitychange', resume);
+	subscriptions.set(refresh, push);
 	refreshTimer ??= window.setInterval(() => {
-		if (!window.document.hidden) for (const callback of subscriptions) callback();
+		if (!window.document.hidden) for (const [callback, usesPush] of subscriptions) if (!usesPush) callback();
 	}, 10000);
 	return () => {
 		subscriptions.delete(refresh);
-		if (subscriptions.size === 0) { window.clearInterval(refreshTimer); refreshTimer = undefined; }
+		if (subscriptions.size === 0) {
+			window.clearInterval(refreshTimer); refreshTimer = undefined;
+			window.document.removeEventListener('visibilitychange', resume);
+		}
 	};
 }
 

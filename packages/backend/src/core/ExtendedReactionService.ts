@@ -11,6 +11,7 @@ import { MiNoteReaction } from '@/models/NoteReaction.js';
 import { MiNote } from '@/models/Note.js';
 import type { MiUser } from '@/models/User.js';
 import { ReactionService } from '@/core/ReactionService.js';
+import { GridspaceReactionDeliveryService } from '@/core/gridspace/GridspaceReactionDeliveryService.js';
 import { IdService } from '@/core/IdService.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
@@ -35,6 +36,7 @@ export class ExtendedReactionService {
 		private noteReactionEntityService: NoteReactionEntityService,
 		private customEmojiService: CustomEmojiService,
 		private notificationService: NotificationService,
+		private reactionDelivery: GridspaceReactionDeliveryService,
 	) {}
 
 	@bindThis
@@ -57,7 +59,7 @@ export class ExtendedReactionService {
 			// Only the first reaction uses the legacy path and federates.
 			await this.reactionService.createUnlocked(user, note, reaction);
 		} else {
-			await repository.insert({ id: this.idService.gen(), userId: user.id, noteId: note.id, reaction });
+			await this.reactionDelivery.mutate(note, manager => manager.insert(MiExtendedNoteReaction, { id: this.idService.gen(), userId: user.id, noteId: note.id, reaction }));
 			if (note.userHost === null) this.notificationService.createNotification(note.userId, 'reaction', { noteId: note.id, reaction }, user.id);
 		}
 		this.globalEventService.publishNoteStream(note, 'extendedReactionUpdated', {});
@@ -77,7 +79,7 @@ export class ExtendedReactionService {
 		// Deletion must not re-apply current emoji permissions/acceptance.
 		const reaction = input.startsWith(':') ? input.replace('@.:', ':') : this.reactionService.normalize(input);
 		const primary = await this.db.getRepository(MiNoteReaction).findOneBy({ userId: user.id, noteId: note.id, reaction });
-		const result = await this.db.getRepository(MiExtendedNoteReaction).delete({ userId: user.id, noteId: note.id, reaction });
+		const result = await this.reactionDelivery.mutate(note, manager => manager.delete(MiExtendedNoteReaction, { userId: user.id, noteId: note.id, reaction }));
 		if (primary) await this.reactionService.deleteUnlocked(user, note);
 		if (!primary && !result.affected) throw new IdentifiableError('60527ec9-b4cb-4a88-a6bd-32d3ad26817d');
 		this.globalEventService.publishNoteStream(note, 'extendedReactionUpdated', {});

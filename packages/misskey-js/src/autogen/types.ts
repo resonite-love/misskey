@@ -32756,6 +32756,7 @@ export interface operations {
                 content: {
                     'application/json': {
                         shared: boolean;
+                        push: boolean;
                         complete: boolean;
                         revision?: string;
                         /** Format: id */

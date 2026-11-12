@@ -13,6 +13,19 @@ vi.mock('@/composables/use-note-capture.js', () => ({ noteEvents: { emit: vi.fn(
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('paired extended reactions', () => {
+	test('push subscriptions do not poll and resynchronize when the tab becomes visible', async () => {
+		vi.useFakeTimers();
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+		const refresh = vi.fn(); const stop = watchSharedReactions(refresh, true);
+		await vi.advanceTimersByTimeAsync(120000);
+		expect(refresh).not.toHaveBeenCalled();
+		hidden.mockReturnValue(true); document.dispatchEvent(new Event('visibilitychange'));
+		expect(refresh).not.toHaveBeenCalled();
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange'));
+		expect(refresh).toHaveBeenCalledTimes(1);
+		stop(); document.dispatchEvent(new Event('visibilitychange'));
+		expect(refresh).toHaveBeenCalledTimes(1); expect(vi.getTimerCount()).toBe(0);
+	});
 	test('enables only local notes or marked public/home peer notes', () => {
 		const note = { user: { host: null }, visibility: 'public' } as entities.Note;
 		expect(supportsExtendedReactions(note)).toBe(true);

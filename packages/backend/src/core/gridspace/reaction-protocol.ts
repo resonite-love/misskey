@@ -14,6 +14,7 @@ export function supportsGridspaceReactions(note: { userHost: string | null; uri:
 }
 
 export const GRIDSPACE_REACTIONS_PATH = '/gridspace/v1/reactions';
+export type ReactionUpdate = { uris: string[] };
 export type ReactionPosition = { time: number; id: string; origin: string };
 export type ReactionRow = ReactionPosition & { reaction: string; userUri: string };
 export type ReactionPeerRequest = {

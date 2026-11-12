@@ -340,7 +340,9 @@ export class QueryService {
 		if (this.meta.blockedHosts.length === 0) {
 			nonBlockedHostQuery = () => '1=1';
 		} else {
-			nonBlockedHostQuery = (match: string) => `${match} NOT ILIKE ALL(ARRAY[:...blocked])`;
+			// Keep the patterns as one relation. Expanding hundreds of constants makes
+			// PostgreSQL estimate every pattern against host statistics on each read.
+			nonBlockedHostQuery = (match: string) => `NOT EXISTS (SELECT 1 FROM unnest(CAST(:blocked AS text[])) AS blocked_host(pattern) WHERE ${match} ILIKE blocked_host.pattern)`;
 			q.setParameters({ blocked: this.meta.blockedHosts.flatMap(x => [x, `%.${x}`]) });
 		}
 
