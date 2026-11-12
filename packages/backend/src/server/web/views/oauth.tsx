@@ -11,6 +11,7 @@ export function OAuthPage(props: CommonProps<{
 	clientName: string;
 	clientLogo?: string;
 	scope: string[];
+	gridspacePalette?: boolean;
 }>) {
 
 	//- Should be removed by the page when it loads, so that it won't needlessly
@@ -22,6 +23,7 @@ export function OAuthPage(props: CommonProps<{
 				<meta name="misskey:oauth:transaction-id" content={props.transactionId} />
 				<meta name="misskey:oauth:client-name" content={props.clientName} />
 				{props.clientLogo ? <meta name="misskey:oauth:client-logo" content={props.clientLogo} /> : null}
+				{props.gridspacePalette ? <meta name="misskey:oauth:gridspace-palette" content="true" /> : null}
 				<meta name="misskey:oauth:scope" content={props.scope.join(' ')} />
 			</>
 		);

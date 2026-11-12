@@ -23,8 +23,19 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script lang="ts" setup>
 import * as Misskey from 'misskey-js';
+import { useTemplateRef } from 'vue';
+import { host } from '@@/js/config.js';
+import { prefer } from '@/preferences.js';
+import { $i } from '@/i.js';
+import { snapshotGridspacePaletteForAccount } from '@/utility/gridspace-palette.js';
+import type { GridspacePaletteSnapshot } from '@/utility/gridspace-palette.js';
+import { isSameScope } from '@/preferences/manager.js';
+import { misskeyApi } from '@/utility/misskey-api.js';
 import { definePage } from '@/page.js';
 import MkAuthConfirm from '@/components/MkAuthConfirm.vue';
+
+const authRoot = useTemplateRef('authRoot');
+const exportPalette = window.document.querySelector<HTMLMetaElement>('meta[name="misskey:oauth:gridspace-palette"]')?.content === 'true';
 
 const transactionIdMeta = window.document.querySelector<HTMLMetaElement>('meta[name="misskey:oauth:transaction-id"]');
 if (transactionIdMeta) {
@@ -35,7 +46,7 @@ const name = window.document.querySelector<HTMLMetaElement>('meta[name="misskey:
 const logo = window.document.querySelector<HTMLMetaElement>('meta[name="misskey:oauth:client-logo"]')?.content;
 const permissions = window.document.querySelector<HTMLMetaElement>('meta[name="misskey:oauth:scope"]')?.content.split(' ').filter((p): p is typeof Misskey.permissions[number] => (Misskey.permissions as readonly string[]).includes(p)) ?? [];
 
-function doPost(token: string, decision: 'accept' | 'deny') {
+function doPost(token: string, decision: 'accept' | 'deny', palette?: GridspacePaletteSnapshot) {
 	const form = window.document.createElement('form');
 	form.action = '/oauth/decision';
 	form.method = 'post';
@@ -53,6 +64,14 @@ function doPost(token: string, decision: 'accept' | 'deny') {
 	transactionId.value = transactionIdMeta?.content ?? '';
 	form.appendChild(transactionId);
 
+	if (palette) {
+		const field = window.document.createElement('input');
+		field.type = 'hidden';
+		field.name = 'gridspace_palette';
+		field.value = JSON.stringify(palette);
+		form.appendChild(field);
+	}
+
 	if (decision === 'deny') {
 		const cancel = window.document.createElement('input');
 		cancel.type = 'hidden';
@@ -65,8 +84,22 @@ function doPost(token: string, decision: 'accept' | 'deny') {
 	form.submit();
 }
 
-function onAccept(token: string) {
-	doPost(token, 'accept');
+async function onAccept(token: string, userId: string) {
+	try {
+		const palette = exportPalette ? await snapshotGridspacePaletteForAccount(prefer.profile, host, userId, $i?.id, async (key, scope) => {
+			try {
+				const values = await misskeyApi('i/registry/get', { scope: ['client', 'preferences', 'sync'], key: `default:${key}` }, token) as [typeof scope, unknown][];
+				const target = values.find(([candidate]) => isSameScope(candidate, scope));
+				return target ? { value: target[1] } : null;
+			} catch (err) {
+				if ((err as { code?: string }).code === 'NO_SUCH_KEY') return null;
+				throw err;
+			}
+		}) : undefined;
+		doPost(token, 'accept', palette);
+	} catch {
+		authRoot.value?.showUI('failed');
+	}
 }
 
 function onDeny(token: string) {

@@ -419,6 +419,7 @@ export type GridspaceNotificationsRequest = operations['gridspace___notification
 export type GridspaceNotificationsResponse = operations['gridspace___notifications']['responses']['200']['content']['application/json'];
 export type GridspaceNotificationsReadRequest = operations['gridspace___notifications___read']['requestBody']['content']['application/json'];
 export type GridspaceNotificationsReadResponse = operations['gridspace___notifications___read']['responses']['200']['content']['application/json'];
+export type GridspacePaletteResponse = operations['gridspace___palette']['responses']['200']['content']['application/json'];
 export type GridspacePrivateActionRequest = operations['gridspace___private-action']['requestBody']['content']['application/json'];
 export type GridspacePrivateActionResponse = operations['gridspace___private-action']['responses']['200']['content']['application/json'];
 export type GridspacePrivateFileRequest = operations['gridspace___private-file']['requestBody']['content']['application/json'];

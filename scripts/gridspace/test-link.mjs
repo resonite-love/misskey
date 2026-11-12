@@ -5,15 +5,17 @@
 
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { api, eventually, loadSite, savePrivateJson } from './lab.mjs';
+import { createGridspaceHeaders, resolveGridspaceConfig } from '../../packages/backend/src/core/gridspace/peer-protocol.ts';
 
 const grid = loadSite('.', 0);
 const resonite = loadSite(process.argv[2] ?? '../resonite-love-gridspace', 1);
 for (const site of [grid, resonite]) site.accounts = JSON.parse(readFileSync(site.accountsPath, 'utf8')).accounts;
 const suffix = randomBytes(5).toString('hex');
+const palette = { version: 1, palettes: [{ id: 'source-palette', name: 'いつもの', emojis: ['😀', ':resonite:'] }], forMain: 'source-palette', forReaction: null };
 
 async function account(site, label = '') {
 	const username = `link_${label}${suffix}`;
@@ -32,15 +34,46 @@ async function authorize(gridToken = g.token) {
 	const response = await fetch(started.authorizationUrl, { redirect: 'error', signal: AbortSignal.timeout(15000) });
 	assert.equal(response.status, 200, 'Authorization page failed');
 	const html = await response.text();
+	assert.match(html, /name="misskey:oauth:gridspace-palette" content="true"/);
+	for (const scope of ['read:gridspace-palette', 'read:gridspace-private', 'write:gridspace-reply', 'write:gridspace-actions', 'read:gridspace-notifications', 'write:gridspace-notifications']) assert.ok(new URL(started.authorizationUrl).searchParams.get('scope').split(' ').includes(scope));
 	const transaction = html.match(/name="misskey:oauth:transaction-id" content="([^"]+)"/);
 	assert.ok(transaction, 'Authorization transaction missing');
 	const decision = await fetch(`${resonite.origin}/oauth/decision`, { method: 'POST', redirect: 'manual',
 		headers: { 'content-type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({ transaction_id: transaction[1], login_token: r.token }), signal: AbortSignal.timeout(15000) });
+		body: new URLSearchParams({ transaction_id: transaction[1], login_token: r.token, gridspace_palette: JSON.stringify(palette) }), signal: AbortSignal.timeout(15000) });
 	assert.equal(decision.status, 302);
 	const callback = new URL(decision.headers.get('location'));
 	assert.equal(callback.origin, grid.origin);
 	return { action: 'finish', code: callback.searchParams.get('code'), state: callback.searchParams.get('state'), issuer: callback.searchParams.get('iss'), clientKey: started.clientKey };
+}
+
+async function boundCredential() {
+	const { Client } = createRequire(resolve('packages/backend/package.json'))('pg');
+	const env = Object.fromEntries(readFileSync(resolve(resonite.repo, '.config/gridspace-lab.env'), 'utf8').trim().split(/\r?\n/).map(line => {
+		const index = line.indexOf('='); return [line.slice(0, index), line.slice(index + 1)];
+	}));
+	const connection = new Client({ ...resonite.config.db, database: resonite.config.db.db, password: env.GRIDSPACE_LAB_DB_PASSWORD });
+	await connection.connect();
+	try {
+		const row = (await connection.query(`SELECT l.id, l.generation, t.token FROM gridspace_link l JOIN access_token t ON t."userId"=l."localUserId"
+			AND encode(sha256(convert_to(t.token,'UTF8')),'hex')=l."privateTokenHash" WHERE l."localUserId"=$1 AND l.state='active'`, [r.id])).rows[0];
+		assert.ok(row);
+		return { linkId: row.id, generation: row.generation, localUserId: g.id, accessToken: row.token };
+	} finally { await connection.end(); }
+}
+
+async function assertCannotRebind(credential) {
+	const env = Object.fromEntries(readFileSync(resolve(grid.repo, '.config/gridspace-lab.env'), 'utf8').trim().split(/\r?\n/).map(line => {
+		const index = line.indexOf('='); return [line.slice(0, index), line.slice(index + 1)];
+	}));
+	const peer = resolveGridspaceConfig(grid.config.gridspace, grid.origin, env);
+	for (const action of ['mutual-probe', 'reciprocal']) {
+		const path = `/gridspace/v1/private/${action}`;
+		const body = Buffer.from(JSON.stringify({ ...credential, pairId: randomUUID(), expectedRevision: 0, reverseToken: randomBytes(32).toString('base64url') }));
+		const response = await fetch(resonite.origin + path, { method: 'POST', body, headers: createGridspaceHeaders(peer, 'POST', path, body), signal: AbortSignal.timeout(15000) });
+		assert.equal(response.ok, false);
+		assert.equal((await response.json()).error, 'AUTHORIZATION_REVOKED');
+	}
 }
 
 for (const name of ['author', 'locked', 'reader']) {
@@ -54,6 +87,11 @@ await assert.rejects(api(grid, 'gridspace/link', { ...flow, clientKey: 'wrong' }
 await assert.rejects(api(grid, 'gridspace/link', flow, grid.accounts.reader.token), error => error.code === 'GRIDSPACE_LINK_FAILED');
 await assert.rejects(api(grid, 'gridspace/link', { ...flow, issuer: grid.origin }, g.token), error => error.code === 'GRIDSPACE_LINK_FAILED');
 await api(grid, 'gridspace/link', flow, g.token);
+const initialGrant = await api(grid, 'gridspace/private-grant', {}, g.token);
+for (const key of ['granted', 'mutual', 'canReply', 'canInteract', 'canReadNotifications', 'available']) assert.equal(initialGrant[key], true, key);
+assert.deepEqual((await api(grid, 'gridspace/palette', {}, g.token)).palette, palette);
+await assert.rejects(api(grid, 'gridspace/palette', {}, grid.accounts.reader.token));
+console.log('Single OAuth consent grants every bridge feature and transfers the selected palette PASS');
 await assert.rejects(api(grid, 'gridspace/link', flow, g.token), error => error.code === 'GRIDSPACE_LINK_FAILED');
 await eventually('Initial follow copy', async () => (await status()).pending === 0, 60000);
 let state = await status();
@@ -111,7 +149,9 @@ try {
 	assert.equal((await db.query('SELECT 1 FROM follow_request WHERE "followerId"=$1 AND "followeeId"=ANY($2::varchar[])', [g.id, [author.id, locked.id]])).rowCount, 0);
 } finally { await db.end(); }
 console.log('Pending initial-copy replay preserves unfollow/cancel and the frozen source snapshot PASS');
+const replacedCredential = await boundCredential();
 await api(grid, 'gridspace/link', await authorize(), g.token);
+await assertCannotRebind({ ...replacedCredential, generation: (await boundCredential()).generation });
 state = await status();
 assert.equal(state.total, 3, 'Reauthorization refreshed the frozen snapshot');
 assert.equal((await user(grid, resonite.accounts.author.username, new URL(resonite.origin).host, g.token)).isFollowing, false, 'Reauthorization resurrected an unfollow');
@@ -120,6 +160,17 @@ assert.equal((await user(grid, resonite.accounts.locked.username, new URL(resoni
 assert.equal(state.requested, 0);
 console.log('Follow changes remain independent; reauthorization never recopies or resurrects PASS');
 
+for (const [site, token] of [[grid, g.token], [resonite, r.token]]) {
+	const credential = await boundCredential();
+	await api(site, 'gridspace/private-grant', { action: 'revoke' }, token);
+	assert.equal((await api(grid, 'gridspace/private-grant', {}, g.token)).granted, false);
+	assert.equal((await api(resonite, 'gridspace/private-grant', {}, r.token)).granted, false);
+	assert.equal((await status()).state, 'active');
+	assert.deepEqual((await api(grid, 'gridspace/palette', {}, g.token)).palette, palette, 'Revoking private access must preserve the linking credential');
+	await assertCannotRebind(credential);
+	await api(grid, 'gridspace/link', await authorize(), g.token);
+}
+console.log('Both directions of revocation and reauthorization reject old private grants; linking/palette scopes survive PASS');
 const oldFlow = await authorize();
 await api(resonite, 'gridspace/link', { action: 'revoke' }, r.token);
 await eventually('Remote unlink reaches G', async () => (await status()).state === 'revoked', 30000);

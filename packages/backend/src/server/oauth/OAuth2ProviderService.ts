@@ -34,6 +34,10 @@ import { LoggerService } from '@/core/LoggerService.js';
 import Logger from '@/logger.js';
 import { StatusError } from '@/misc/status-error.js';
 import { HtmlTemplateService } from '@/server/web/HtmlTemplateService.js';
+import { RegistryApiService } from '@/core/RegistryApiService.js';
+import { resolveGridspaceConfig } from '@/core/gridspace/peer-protocol.js';
+import { GRIDSPACE_CLIENT_PATH } from '@/core/gridspace/link-crypto.js';
+import { GRIDSPACE_PALETTE_SCOPE, GRIDSPACE_PALETTE_REGISTRY_SCOPE, GRIDSPACE_PALETTE_REGISTRY_KEY, parseGridspacePalette } from '@/core/gridspace/palette-protocol.js';
 import { OAuthPage } from '@/server/web/views/oauth.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 
@@ -413,10 +417,16 @@ export class OAuth2ProviderService implements OnApplicationShutdown {
 		private cacheService: CacheService,
 		private htmlTemplateService: HtmlTemplateService,
 		loggerService: LoggerService,
+		private registryApiService: RegistryApiService,
 	) {
 		this.#authorizationTransactionCache = new MemoryKVCache<AuthorizationTransaction>(1000 * 60 * 5);
 		this.#grantCodeCache = new MemoryKVCache<AuthorizationCodeGrant>(1000 * 60 * 5);
 		this.#logger = loggerService.getLogger('oauth');
+	}
+
+	#isGridspacePaletteClient(clientId: string, scopes: string[]): boolean {
+		const peer = resolveGridspaceConfig(this.config.gridspace, this.config.url, process.env);
+		return peer !== null && clientId === peer.peerOrigin + GRIDSPACE_CLIENT_PATH && scopes.includes(GRIDSPACE_PALETTE_SCOPE);
 	}
 
 	async #resolveAuthorizationRequest(params: OAuthRequestParameters): Promise<AuthorizationRequestSeed> {
@@ -569,6 +579,7 @@ export class OAuth2ProviderService implements OnApplicationShutdown {
 					clientName: clientInfo.name,
 					clientLogo: clientInfo.logo ?? undefined,
 					scope: authorizationRequest.scopes,
+					gridspacePalette: this.#isGridspacePaletteClient(clientInfo.id, authorizationRequest.scopes),
 				}));
 			} catch (error) {
 				const OAuthProviderError = normalizeOAuthProviderError(error);
@@ -615,6 +626,14 @@ export class OAuth2ProviderService implements OnApplicationShutdown {
 
 				this.#logger.info(`Checking the user before sending authorization code to ${transaction.client.id}`);
 				const user = await this.#findUserByLoginToken(loginToken);
+				const rawPalette = firstValue(body.gridspace_palette);
+				if (rawPalette && this.#isGridspacePaletteClient(transaction.client.id, transaction.request.scopes)) {
+					let value: unknown;
+					try { value = JSON.parse(rawPalette); } catch { throw new InvalidRequestError('Invalid emoji palette'); }
+					const palette = parseGridspacePalette(value);
+					if (!palette) throw new InvalidRequestError('Invalid emoji palette');
+					await this.registryApiService.set(user.id, null, GRIDSPACE_PALETTE_REGISTRY_SCOPE, GRIDSPACE_PALETTE_REGISTRY_KEY, palette);
+				}
 
 				this.#logger.info(`Sending authorization code on behalf of user ${user.id} to ${transaction.client.id} through ${transaction.request.redirectUri}, with scope: [${transaction.request.scopes}]`);
 

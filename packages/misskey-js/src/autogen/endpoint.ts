@@ -416,6 +416,7 @@ import type {
 	GridspaceNotificationsResponse,
 	GridspaceNotificationsReadRequest,
 	GridspaceNotificationsReadResponse,
+	GridspacePaletteResponse,
 	GridspacePrivateActionRequest,
 	GridspacePrivateActionResponse,
 	GridspacePrivateFileRequest,
@@ -985,6 +986,7 @@ export type Endpoints = {
 	'gridspace/member': { req: GridspaceMemberRequest; res: GridspaceMemberResponse };
 	'gridspace/notifications': { req: GridspaceNotificationsRequest; res: GridspaceNotificationsResponse };
 	'gridspace/notifications/read': { req: GridspaceNotificationsReadRequest; res: GridspaceNotificationsReadResponse };
+	'gridspace/palette': { req: EmptyRequest; res: GridspacePaletteResponse };
 	'gridspace/private-action': { req: GridspacePrivateActionRequest; res: GridspacePrivateActionResponse };
 	'gridspace/private-file': { req: GridspacePrivateFileRequest; res: GridspacePrivateFileResponse };
 	'gridspace/private-grant': { req: GridspacePrivateGrantRequest; res: GridspacePrivateGrantResponse };

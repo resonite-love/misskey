@@ -134,7 +134,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-	(ev: 'accept', token: string): void;
+	(ev: 'accept', token: string, userId: string): void;
 	(ev: 'deny', token: string): void;
 }>();
 
@@ -247,7 +247,7 @@ async function clickAccept() {
 	const token = user.token;
 
 	waiting.value = true;
-	emit('accept', token);
+	emit('accept', token, user.id);
 }
 
 function showUI(state: 'success' | 'denied' | 'failed') {

@@ -102,6 +102,15 @@ export const PREF_DEF = definePreferences({
 		default: [] as DeckProfile[],
 	},
 
+	gridspacePaletteImports: {
+		accountDependent: true,
+		default: [] as string[],
+	},
+	gridspacePaletteImportPending: {
+		accountDependent: true,
+		default: false,
+	},
+
 	emojiPalettes: {
 		serverDependent: true,
 		default: () => [{

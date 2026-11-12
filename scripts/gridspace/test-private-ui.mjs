@@ -37,7 +37,7 @@ try {
 	page.on('pageerror', error => errors.push(error.message));
 	async function consent() {
 		await page.goto(`${g.origin}/settings/gridspace`, { waitUntil: 'domcontentloaded' });
-		await page.getByRole('button', { name: '両アカウントでの閲覧を許可する', exact: true }).click();
+		await page.getByRole('button', { name: '連携の権限をまとめて更新', exact: true }).click();
 		await page.waitForURL(`${r.origin}/oauth/authorize**`);
 		const accept = page.getByRole('button', { name: '許可', exact: true });
 		await expect(accept.or(page.getByRole('button', { name: '続ける', exact: false }))).toBeVisible({ timeout: 30000 });
@@ -49,7 +49,7 @@ try {
 		await expect(page.getByText('連携した両アカウントから、お互いの権限で限定投稿を閲覧・検索できるようにする', { exact: true })).toBeVisible();
 		await accept.click();
 		await page.waitForURL(`${g.origin}/settings/gridspace**`);
-		await expect(page.getByText('両アカウントからの閲覧が許可されています。', { exact: true })).toBeVisible({ timeout: 30000 });
+		await expect(page.getByText('限定投稿の閲覧・検索、通知、連携先のアカウント名義での返信・リアクション・投票・添付を利用できます。', { exact: true })).toBeVisible({ timeout: 30000 });
 	}
 	await consent();
 	assert.equal((await api(r, 'gridspace/private-grant', {}, fixture.resonite.token)).mutual, true);
@@ -60,7 +60,7 @@ try {
 	await page.reload({ waitUntil: 'domcontentloaded' });
 	await expect(page.getByText('連携先との通信に失敗しました。時間をおいて再試行してください。', { exact: true })).toBeVisible();
 	await expect(page.getByText('現在の許可は片方向です。', { exact: false })).toHaveCount(0);
-	await expect(page.getByRole('button', { name: '限定投稿の閲覧を解除する', exact: true })).toBeEnabled();
+	await expect(page.getByRole('button', { name: '連携を解除', exact: true })).toBeEnabled();
 	await page.unroute('**/api/gridspace/private-grant');
 	console.log('Unavailable grant status preserves revoke access without claiming directional consent PASS');
 	await page.goto(`${g.origin}/search`, { waitUntil: 'domcontentloaded' });

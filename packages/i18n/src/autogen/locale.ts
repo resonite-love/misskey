@@ -9656,6 +9656,10 @@ export interface Locale extends ILocale {
          */
         "read:account": string;
         /**
+         * 連携先へ絵文字パレットを引き継ぐ
+         */
+        "read:gridspace-palette": string;
+        /**
          * 連携したアカウントの権限で限定投稿と添付ファイルを閲覧・検索する
          */
         "read:gridspace-private": string;
@@ -13795,6 +13799,30 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * 連携の権限
+         */
+        "linkPermissions": string;
+        /**
+         * 連携で使う権限をまとめて許可
+         */
+        "authorizeAll": string;
+        /**
+         * 限定投稿の閲覧・検索、通知、連携先のアカウント名義での返信・リアクション・投票・添付を利用できます。
+         */
+        "allGranted": string;
+        /**
+         * 連携の権限をまとめて更新すると、すべての連携機能を利用できます。
+         */
+        "upgradePermissions": string;
+        /**
+         * 絵文字パレットを引き継ぎました。
+         */
+        "paletteCopied": string;
+        /**
+         * アカウント連携は完了しましたが、絵文字パレットを引き継げませんでした。再試行してください。
+         */
+        "paletteCopyFailed": string;
+        /**
          * リアクション・投票
          */
         "actionOpen": string;
@@ -13803,7 +13831,7 @@ export interface Locale extends ILocale {
          */
         "actionIdentity": ParameterizedString<"account">;
         /**
-         * 連携先のアカウント名義でリアクション・投票を行い、返信用のファイルを保存できます。利用するには、連携先で追加の許可が必要です。
+         * 連携先のアカウント名義でリアクション・投票を行い、返信用のファイルを保存できます。利用するには、アカウント連携の権限をまとめて更新してください。
          */
         "actionConsent": string;
         /**
@@ -13855,7 +13883,7 @@ export interface Locale extends ILocale {
          */
         "replySensitive": string;
         /**
-         * 添付ファイルを使うには追加の許可が必要です
+         * 添付ファイルを使うにはアカウント連携の権限を更新してください
          */
         "replyAttachmentAuthorize": string;
         /**
@@ -13871,7 +13899,7 @@ export interface Locale extends ILocale {
          */
         "signupTitle": ParameterizedString<"host">;
         /**
-         * アカウントを連携すると、フォローを一度だけコピーし、両方の投稿をまとめて見られます。フォロー先があとからこのサーバーで連携した場合も、新しいアカウントを自動でフォローします。自分で解除したフォローは復活しません。
+         * アカウントを連携すると、フォローと絵文字パレットを一度だけ引き継ぎ、両方の投稿や通知をまとめて見られます。フォロー先があとからこのサーバーで連携した場合も、新しいアカウントを自動でフォローします。自分で解除したフォローは復活しません。
          */
         "signupDescription": string;
         /**
@@ -14135,11 +14163,11 @@ export interface Locale extends ILocale {
          */
         "description": string;
         /**
-         * 本人確認、フォロー一覧、ミュート・ブロックの確認を許可します。相手サーバーで投稿する権限は要求しません。
+         * 本人確認、フォローと絵文字パレットの引き継ぎ、ミュート・ブロックの確認、限定投稿の閲覧・検索、通知の表示と既読化、連携先の名義での返信・リアクション・投票・添付を、一度の認可でまとめて許可します。
          */
         "permissions": string;
         /**
-         * 連携先の新しい公開投稿は、ローカル限定を含めてLTLに表示されます。ホームにはフォロー先と連携した自分の投稿が届きます。鍵アカウントへのフォローには新しいアカウントの承認が必要です。連携先だけで読める限定投稿は、下の設定で閲覧を許可すると検索やプロフィールから読めます。ミュート・ブロック中の相手はフォローのコピーを省略します。
+         * 連携先の新しい公開投稿は、ローカル限定を含めてLTLに表示されます。ホームにはフォロー先と連携した自分の投稿が届きます。鍵アカウントへのフォローには新しいアカウントの承認が必要です。連携先だけで読める限定投稿もホーム・検索・プロフィールで読めます。ミュート・ブロック中の相手はフォローのコピーを省略します。
          */
         "scope": string;
         /**
@@ -14155,11 +14183,11 @@ export interface Locale extends ILocale {
          */
         "account": string;
         /**
-         * 連携してフォローをコピー
+         * 連携して設定を引き継ぐ
          */
         "start": string;
         /**
-         * もう一度認可する
+         * 連携の権限をまとめて更新
          */
         "reauthorize": string;
         /**

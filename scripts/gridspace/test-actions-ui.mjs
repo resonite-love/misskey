@@ -38,7 +38,7 @@ try {
 	const page = await context.newPage(); page.setDefaultTimeout(30000);
 	const errors = []; page.on('pageerror', error => errors.push(error.message));
 	await page.goto(`${g.origin}/settings/gridspace`, { waitUntil: 'domcontentloaded' });
-	await page.getByRole('button', { name: 'リアクション・投票・添付を許可する', exact: true }).click();
+	await page.getByRole('button', { name: '連携の権限をまとめて更新', exact: true }).click();
 	await page.waitForURL(`${r.origin}/oauth/authorize**`);
 	const accept = page.getByRole('button', { name: '許可', exact: true });
 	await expect(accept.or(page.getByRole('button', { name: '続ける', exact: false }))).toBeVisible();
@@ -48,7 +48,7 @@ try {
 	}
 	await expect(page.getByText('連携先から、このアカウントの名義でリアクション・投票を行い、返信用のファイルをドライブへ保存する', { exact: true })).toBeVisible();
 	await accept.click(); await page.waitForURL(`${g.origin}/settings/gridspace**`);
-	await expect(page.getByText('連携先のアカウント名義でリアクション・投票・添付付き返信ができます。', { exact: true })).toBeVisible();
+	await expect(page.getByText('限定投稿の閲覧・検索、通知、連携先のアカウント名義での返信・リアクション・投票・添付を利用できます。', { exact: true })).toBeVisible();
 	console.log('Actual OAuth action consent PASS');
 
 	await page.goto(`${g.origin}/gridspace/private?noteId=${fixture.formatted.id}`, { waitUntil: 'domcontentloaded' });

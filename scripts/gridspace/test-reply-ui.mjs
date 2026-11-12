@@ -41,7 +41,7 @@ try {
 	await expect(form.getByText('連携先の名義での返信を許可する', { exact: true })).toBeVisible();
 	await expect(form.locator('textarea')).toHaveCount(0);
 	await page.goto(`${g.origin}/settings/gridspace`, { waitUntil: 'domcontentloaded' });
-	await page.getByRole('button', { name: '連携先の名義での返信を許可する', exact: true }).click();
+	await page.getByRole('button', { name: '連携の権限をまとめて更新', exact: true }).click();
 	await page.waitForURL(`${r.origin}/oauth/authorize**`);
 	const accept = page.getByRole('button', { name: '許可', exact: true });
 	await expect(accept.or(page.getByRole('button', { name: '続ける', exact: false }))).toBeVisible();
@@ -51,7 +51,7 @@ try {
 	}
 	await expect(page.getByText('連携先から、このアカウントの名義で限定公開の返信を投稿する', { exact: true })).toBeVisible();
 	await accept.click(); await page.waitForURL(`${g.origin}/settings/gridspace**`);
-	await expect(page.getByText('このサーバーから、連携先のアカウント名義で返信できます。', { exact: true })).toBeVisible();
+	await expect(page.getByText('限定投稿の閲覧・検索、通知、連携先のアカウント名義での返信・リアクション・投票・添付を利用できます。', { exact: true })).toBeVisible();
 	console.log('Read-only form and actual browser OAuth write consent PASS');
 
 	await open(fixture.local);

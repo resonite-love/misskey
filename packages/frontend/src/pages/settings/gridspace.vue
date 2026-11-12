@@ -29,24 +29,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</div>
 			<MkInfo v-if="status.lastError" warn>{{ errorLabel(status.lastError) }}</MkInfo>
 			<section v-if="status.state === 'active'" class="_gaps_s">
-				<h2>{{ i18n.ts._gridspace.privateTitle }}</h2>
-				<p>{{ i18n.ts._gridspace.privateConsent }}</p>
+				<h2>{{ i18n.ts._gridspace.linkPermissions }}</h2>
 				<MkInfo v-if="readGrant && !readGrant.available" warn>{{ i18n.ts._gridspace.connectionError }}</MkInfo>
-				<MkInfo v-else-if="readGrant?.granted">{{ readGrant.mutual ? i18n.ts._gridspace.privateMutualGranted : i18n.ts._gridspace.privateLegacyGrant }}</MkInfo>
-				<div class="_buttons">
-					<MkButton :disabled="busy" @click="startPrivate(false)">{{ i18n.ts._gridspace.privateAuthorize }}</MkButton>
-					<MkButton v-if="readGrant?.granted" danger :disabled="busy" @click="revokePrivate">{{ readGrant.canReply ? i18n.ts._gridspace.replyRevoke : i18n.ts._gridspace.privateRevoke }}</MkButton>
-				</div>
-				<p>{{ i18n.ts._gridspace.notificationConsent }}</p>
-				<MkInfo v-if="readGrant?.canReadNotifications && readGrant.available">{{ i18n.ts._gridspace.notificationGranted }}</MkInfo>
-				<MkButton :disabled="busy" @click="startPrivate(false, true)">{{ i18n.ts._gridspace.notificationAuthorize }}</MkButton>
-				<MkA to="/gridspace/private">{{ i18n.ts._gridspace.privateHome }}</MkA>
-				<p>{{ i18n.ts._gridspace.replyConsent }}</p>
-				<MkInfo v-if="readGrant?.canReply && readGrant.available">{{ i18n.ts._gridspace.replyGranted }}</MkInfo>
-				<MkButton :disabled="busy" @click="startPrivate(true)">{{ i18n.ts._gridspace.replyAuthorize }}</MkButton>
-				<p>{{ i18n.ts._gridspace.actionConsent }}</p>
-				<MkInfo v-if="readGrant?.canInteract && readGrant.available">{{ i18n.ts._gridspace.actionGranted }}</MkInfo>
-				<MkButton :disabled="busy" @click="startPrivate(true, false, true)">{{ i18n.ts._gridspace.actionAuthorize }}</MkButton>
+				<MkInfo v-else-if="readGrant?.granted && readGrant.canReply && readGrant.canInteract && readGrant.canReadNotifications">{{ i18n.ts._gridspace.allGranted }}</MkInfo>
+				<MkInfo v-else>{{ i18n.ts._gridspace.upgradePermissions }}</MkInfo>
+				<MkButton v-if="!status.initiator" :disabled="busy" @click="startPrivate">{{ i18n.ts._gridspace.authorizeAll }}</MkButton>
+				<MkInfo v-if="paletteCopied">{{ i18n.ts._gridspace.paletteCopied }}</MkInfo>
+				<MkInfo v-if="paletteError" warn>{{ i18n.ts._gridspace.paletteCopyFailed }}</MkInfo>
+				<MkButton v-if="paletteError" :disabled="busy" @click="retryPalette">{{ i18n.ts.retry }}</MkButton>
 			</section>
 			<template v-if="status.total">
 				<div aria-live="polite">{{ i18n.tsx._gridspace.progress({ total: status.total, done: status.done, pending: status.pending, requested: status.requested, failed: status.failed, skipped: status.skipped }) }}</div>
@@ -70,6 +60,8 @@ import MkInfo from '@/components/MkInfo.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 import { store } from '@/store.js';
+import { prefer } from '@/preferences.js';
+import { gridspacePaletteSource, mergeGridspacePalette } from '@/utility/gridspace-palette.js';
 import { $i } from '@/i.js';
 import { definePage } from '@/page.js';
 import * as os from '@/os.js';
@@ -82,10 +74,13 @@ const status = ref<entities.GridspaceLinkResponse | null>(null);
 const readGrant = ref<entities.GridspacePrivateGrantResponse | null>(null);
 const busy = ref(false);
 const error = ref('');
+const paletteCopied = ref(false);
+const paletteError = ref(false);
 const storageKey = `gridspace-link:${$i?.id}`;
 const query = new URLSearchParams(window.location.search);
 let poll: number | undefined;
 let stopped = false;
+let paletteAttempted = false;
 
 function errorLabel(reason: string): string {
 	if (reason === 'AUTHORIZATION_REVOKED' || reason === 'INVALID_CALLBACK') return i18n.ts._gridspace.authorizationError;
@@ -121,6 +116,7 @@ async function refresh() {
 	await perform(async () => {
 		status.value = await misskeyApi('gridspace/link', { action: 'status' });
 		readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' });
+		if (!paletteAttempted) await resumePalette();
 	});
 }
 
@@ -130,13 +126,15 @@ async function start() {
 		if (!result.authorizationUrl || !result.clientKey) throw new Error('Missing authorization URL');
 		sessionStorage.setItem(storageKey, result.clientKey);
 		sessionStorage.setItem(`${storageKey}:purpose`, 'link');
+		await prefer.cloudReady;
+		prefer.commit('gridspacePaletteImportPending', true);
 		window.location.assign(result.authorizationUrl);
 	});
 }
 
-async function startPrivate(withReply = false, withNotifications = false, withActions = false) {
+async function startPrivate() {
 	await perform(async () => {
-		const result = await misskeyApi('gridspace/private-grant', { action: 'start', withReply, withNotifications, withActions });
+		const result = await misskeyApi('gridspace/private-grant', { action: 'start', withReply: true, withNotifications: true, withActions: true });
 		if (!result.authorizationUrl || !result.clientKey) throw new Error('Missing authorization URL');
 		sessionStorage.setItem(storageKey, result.clientKey);
 		sessionStorage.setItem(`${storageKey}:purpose`, 'private');
@@ -144,10 +142,40 @@ async function startPrivate(withReply = false, withNotifications = false, withAc
 	});
 }
 
-async function revokePrivate() {
-	await perform(async () => {
-		try { readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'revoke' }); } finally { readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' }); }
-	});
+async function copyPalette() {
+	if (!status.value?.initiator || !status.value.peerOrigin || !status.value.peerUserId) return;
+	await prefer.cloudReady;
+	const key = gridspacePaletteSource(status.value.peerOrigin, status.value.peerUserId);
+	if (prefer.s.gridspacePaletteImports.includes(key)) {
+		prefer.commit('gridspacePaletteImportPending', false);
+		return;
+	}
+	const result = await misskeyApi('gridspace/palette', {});
+	if (!result.palette) {
+		prefer.commit('gridspacePaletteImportPending', false);
+		return;
+	}
+	const merged = await mergeGridspacePalette(prefer.s.emojiPalettes, result.palette, result.peerOrigin, result.peerUserId);
+	for (const setting of ['emojiPalettes', 'emojiPaletteForMain', 'emojiPaletteForReaction'] as const) prefer.setAccountOverride(setting);
+	prefer.commit('emojiPalettes', merged.palettes);
+	if (result.palette.palettes.length) {
+		prefer.commit('emojiPaletteForMain', merged.forMain);
+		prefer.commit('emojiPaletteForReaction', merged.forReaction);
+	}
+	prefer.commit('gridspacePaletteImports', [...prefer.s.gridspacePaletteImports, key]);
+	prefer.commit('gridspacePaletteImportPending', false);
+	paletteCopied.value = true;
+}
+
+async function resumePalette() {
+	if (!prefer.s.gridspacePaletteImportPending || status.value?.state !== 'active' || !status.value.initiator) return;
+	paletteAttempted = true;
+	paletteError.value = false;
+	try { await copyPalette(); } catch { paletteError.value = true; }
+}
+
+async function retryPalette() {
+	await perform(resumePalette);
 }
 
 async function revoke() {
@@ -156,6 +184,7 @@ async function revoke() {
 	await perform(async () => {
 		status.value = await misskeyApi('gridspace/link', { action: 'revoke' });
 		sessionStorage.removeItem(storageKey);
+		prefer.commit('gridspacePaletteImportPending', false);
 	});
 }
 
@@ -172,12 +201,17 @@ onMounted(async () => {
 			await perform(async () => {
 				const input = { action: 'finish' as const, state: query.get('state')!, code: query.get('code')!, issuer: query.get('iss')!, clientKey };
 				if (sessionStorage.getItem(`${storageKey}:purpose`) === 'private') readGrant.value = await misskeyApi('gridspace/private-grant', input);
-				else status.value = await misskeyApi('gridspace/link', input);
+				else {
+					status.value = await misskeyApi('gridspace/link', input);
+					prefer.commit('gridspacePaletteImportPending', true);
+					await resumePalette();
+				}
 				sessionStorage.removeItem(storageKey);
 				sessionStorage.removeItem(`${storageKey}:purpose`);
 			});
 		} else {
 			error.value = i18n.ts._gridspace.authorizationError;
+			prefer.commit('gridspacePaletteImportPending', false);
 		}
 	}
 	if (!status.value) {
@@ -186,6 +220,7 @@ onMounted(async () => {
 	if (stopped) return;
 	try { readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' }); } catch { error.value ||= i18n.ts._gridspace.connectionError; }
 	if (stopped) return;
+	if (!paletteAttempted) await resumePalette();
 	poll = window.setInterval(() => { if (status.value?.pending && !busy.value) void refresh(); }, 3000);
 });
 onUnmounted(() => { stopped = true; window.clearInterval(poll); });
