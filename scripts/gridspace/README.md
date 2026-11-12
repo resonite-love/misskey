@@ -121,10 +121,13 @@ DB からの取得を確認する間だけ G のタイムラインキャッシ�
 
 ```powershell
 node scripts/gridspace/test-history.mjs ../resonite-love-gridspace ../gridspace-external-test
+node scripts/gridspace/test-history-visibility.mjs ../resonite-love-gridspace ../gridspace-external-test
 node scripts/gridspace/test-history-ui.mjs
 ```
 
 履歴試験は専用の G/R/E 設定を照合し、新しいテスト用アカウントだけを使う。過去投稿は専用 DB 内にテスト行を作り、新着配送を伴わずに取得する状況を再現する。ページ間の新着、同一 ID・同文の別投稿、過去のローカル限定投稿、返信・引用・画像、ミュート・ブロック・削除・解除を確認する。未ログイン閲覧設定は一時的に変更し、終了時に戻す。
+
+`test-history-visibility.mjs` は保存済みの限定投稿とチャンネル投稿を検証する。G/R 両方向で投稿者・フォロワー・指名先が本文を読めること、第三者・未ログイン・承認待ちの利用者には限定投稿が出ないことを確かめる。ページ間のフォロー解除、ミュート・ブロック、チャンネルミュートの期限切れ、連携先への権限の混同や限定投稿の複製がないことも確認する。認証情報は `.config/gridspace-visibility-test-accounts.json` に保存し、Git に追加しない。
 
 画面試験はインストール済み Chrome と Playwright を使う。履歴試験が作成した `.config/gridspace-history-test-accounts.json` を読み、G/R の両アカウントの初期表示、表示をオフにするボタンがないこと、ページ追加、デスクトップ幅とスマートフォン幅を確認する。画像は `.config/history-*-desktop.png` と `.config/history-*-mobile.png` に保存する。認証情報と画像は Git に追加しない。
 

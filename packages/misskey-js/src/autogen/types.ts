@@ -24654,6 +24654,8 @@ export interface operations {
                     withRenotes?: boolean;
                     /** @default false */
                     withFiles?: boolean;
+                    /** @default true */
+                    withChannelNotes?: boolean;
                 };
             };
         };

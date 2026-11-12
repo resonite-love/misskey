@@ -29,6 +29,7 @@ export const paramDef = {
 		withReplies: { type: 'boolean', default: true },
 		withRenotes: { type: 'boolean', default: true },
 		withFiles: { type: 'boolean', default: false },
+		withChannelNotes: { type: 'boolean', default: true },
 	}, required: ['userId'],
 } as const;
 
@@ -37,7 +38,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 	constructor(private history: GridspaceHistoryService) {
 		super(meta, paramDef, async (ps, me) => {
 			try {
-				return await this.history.history(ps.userId, me, { withReplies: ps.withReplies, withRenotes: ps.withRenotes, withFiles: ps.withFiles }, ps.limit, ps.cursor);
+				return await this.history.history(ps.userId, me, { withReplies: ps.withReplies, withRenotes: ps.withRenotes, withFiles: ps.withFiles, withChannelNotes: ps.withChannelNotes }, ps.limit, ps.cursor);
 			} catch (error) {
 				if (error instanceof GridspaceHistoryError) throw new ApiError(meta.errors.historyUnavailable, { reason: error.code });
 				throw error;

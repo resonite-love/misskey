@@ -34,7 +34,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</MkTab>
 	</template>
 	<MkNotesTimeline v-if="tab === 'featured'" :noGap="true" :paginator="featuredPaginator" :pullToRefresh="false" :class="$style.tl"/>
-	<XLinkedHistory v-else-if="member?.available && member.linked" ref="linkedHistory" :userId="user.id" :withReplies="tab === 'all'" :withRenotes="tab === 'all'" :withFiles="tab === 'files'" @unavailable="loadMember"/>
+	<XLinkedHistory v-else-if="member?.available && member.linked" ref="linkedHistory" :userId="user.id" :withReplies="tab === 'all'" :withRenotes="tab === 'all'" :withFiles="tab === 'files'" :withChannelNotes="tab === 'all'" @unavailable="loadMember"/>
 	<MkNotesTimeline v-else :noGap="true" :paginator="notesPaginator" :pullToRefresh="false" :class="$style.tl"/>
 </MkStickyContainer>
 </template>

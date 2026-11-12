@@ -4,7 +4,7 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { Brackets, DataSource } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import type { MiLocalUser } from '@/models/User.js';
@@ -20,7 +20,7 @@ import { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
 import { GridspaceNoteService } from './GridspaceNoteService.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
 import { requestGridspacePeer } from './peer-client.js';
-import { decodeHistoryCursor, encodeHistoryCursor, mergeHistory, validateHistoryPage, type HistoryOptions, type HistoryPeerRequest } from './history-protocol.js';
+import { decodeHistoryCursor, encodeHistoryCursor, mergeHistory, validateHistoryPage, type HistoryOptions, type HistoryPeerRequest, type HistoryViewOptions } from './history-protocol.js';
 
 export class GridspaceHistoryError extends Error {
 	constructor(public readonly code: 'LINK_UNAVAILABLE' | 'INVALID_CURSOR' | 'PEER_UNAVAILABLE') { super(code); }
@@ -55,7 +55,7 @@ export class GridspaceHistoryService {
 
 	private input(link: MiGridspaceLink, viewer: MiLocalUser | null, options: HistoryOptions, limit: number, before?: string): HistoryPeerRequest {
 		return { userId: link.peerUserId, counterpartId: link.localUserId, linkId: link.id, generation: link.generation,
-			viewerId: viewer?.id, ...options, limit, before };
+			viewerId: viewer?.id, withReplies: options.withReplies, withRenotes: options.withRenotes, withFiles: options.withFiles, limit, before };
 	}
 
 	private async remote(input: HistoryPeerRequest) {
@@ -86,26 +86,57 @@ export class GridspaceHistoryService {
 		return this.db.getRepository(MiGridspaceLink).existsBy({ id: link.id, generation: link.generation, state: 'active' });
 	}
 
-	private query(userId: string, viewer: { id: string } | null, options: HistoryOptions, before?: string, head?: string) {
+	private baseQuery(viewer: { id: string } | null, options: HistoryOptions) {
 		const query = this.db.getRepository(MiNote).createQueryBuilder('note')
-			.where('note.userId = :author', { author: userId })
-			.andWhere('note.channelId IS NULL')
-			.andWhere('note.visibility IN (:...visibility)', { visibility: ['public', 'home'] })
 			.innerJoinAndSelect('note.user', 'user')
+			.leftJoinAndSelect('note.channel', 'channel')
 			.leftJoinAndSelect('note.reply', 'reply').leftJoinAndSelect('reply.user', 'replyUser')
 			.leftJoinAndSelect('note.renote', 'renote').leftJoinAndSelect('renote.user', 'renoteUser');
-		if (before) query.andWhere('note.id < :before', { before });
-		if (head) query.andWhere('note.id <= :head', { head });
 		if (!options.withReplies) query.andWhere('note.replyId IS NULL');
 		if (!options.withRenotes) query.andWhere('(note.renoteId IS NULL OR note.text IS NOT NULL OR note.fileIds != \'{}\' OR note.hasPoll = true)');
 		if (options.withFiles) query.andWhere('note.fileIds != \'{}\'');
-		// The explicit public/home predicate above is the visibility boundary. Visitor policy is
-		// applied by each caller so authenticated, uncached peer visitors do not become anonymous.
 		this.queries.generateBaseNoteFilteringQuery(query, viewer);
 		if (viewer) {
 			query.andWhere('NOT EXISTS (SELECT 1 FROM blocking b WHERE b."blockerId" = :viewer AND b."blockeeId" = note."userId")', { viewer: viewer.id });
 		}
 		return query.orderBy('note.id', 'DESC');
+	}
+
+	private query(userId: string, viewer: { id: string } | null, options: HistoryOptions, before?: string, head?: string) {
+		// Only public/home posts cross the peer API, even when its authenticated visitor is unknown here.
+		const query = this.baseQuery(viewer, options)
+			.andWhere('note.userId = :author', { author: userId })
+			.andWhere('note.channelId IS NULL')
+			.andWhere('note.visibility IN (:...visibility)', { visibility: ['public', 'home'] });
+		if (before) query.andWhere('note.id < :before', { before });
+		if (head) query.andWhere('note.id <= :head', { head });
+		return query;
+	}
+
+	private viewerQuery(link: MiGridspaceLink, viewer: MiLocalUser | null, options: HistoryViewOptions, includePeerPublic = false) {
+		const query = this.baseQuery(viewer, options).andWhere(new Brackets(authors => {
+			authors.where('note.userId = :localAuthor', { localAuthor: link.localUserId })
+				.orWhere(new Brackets(peer => {
+					peer.where('user.uri = :peerAuthor', { peerAuthor: `${this.peer!.peerOrigin}/users/${link.peerUserId}` });
+					// Public peer posts have their own source keyset. Only already-delivered restricted
+					// posts join this server's keyset; linking never delegates the peer account's rights.
+					if (!includePeerPublic) peer.andWhere("(note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL)");
+				}));
+		}));
+		this.queries.generateVisibilityQuery(query, viewer);
+		if (!viewer) this.queries.generateUgcVisibilityQueryForVisitor(query);
+		if (!options.withChannelNotes) {
+			query.andWhere('note.channelId IS NULL');
+		} else {
+			// Match profile timelines: sensitive channel posts are shown only to their author.
+			query.andWhere('(note.channelId IS NULL OR channel.isSensitive = false OR note.userId = :channelAuthor)', { channelAuthor: viewer?.id ?? null });
+		}
+		if (viewer) {
+			query.andWhere(`NOT EXISTS (SELECT 1 FROM channel_muting cm WHERE cm."userId" = :channelViewer
+				AND (cm."channelId" = note."channelId" OR cm."channelId" = note."renoteChannelId")
+				AND (cm."expiresAt" IS NULL OR cm."expiresAt" > CURRENT_TIMESTAMP))`, { channelViewer: viewer.id });
+		}
+		return query;
 	}
 
 	/** Only public/home source records cross this endpoint; a linked identity grants no private access. */
@@ -124,10 +155,10 @@ export class GridspaceHistoryService {
 		return { active: true, items: notes.map(note => ({ id: note.id, date: this.ids.parse(note.id).date.getTime() })) };
 	}
 
-	public async history(userId: string, viewer: MiLocalUser | null, options: HistoryOptions, limit: number, cursor?: string) {
+	public async history(userId: string, viewer: MiLocalUser | null, options: HistoryViewOptions, limit: number, cursor?: string) {
 		const link = await this.findLink(userId);
 		if (!link || !this.peer) throw new GridspaceHistoryError('LINK_UNAVAILABLE');
-		const context = JSON.stringify([userId, viewer?.id ?? null, link.id, link.generation, options]);
+		const context = JSON.stringify(['viewer-history-v2', userId, viewer?.id ?? null, link.id, link.generation, options]);
 		let position = { local: null as string | null, remote: null as string | null, localHead: null as string | null, remoteHead: null as string | null, expires: Date.now() + 3600000 };
 		if (cursor) {
 			try { position = decodeHistoryCursor(this.peer, cursor, context); } catch { throw new GridspaceHistoryError('INVALID_CURSOR'); }
@@ -135,9 +166,10 @@ export class GridspaceHistoryService {
 		// Do not advance either keyset on peer failure; a retry must not leave a gap in the merged order.
 		const remote = await this.remote({ ...this.input(link, viewer, options, cursor && position.remoteHead == null ? 0 : limit, position.remote ?? undefined), head: position.remoteHead ?? undefined });
 		if (!remote.active) throw new GridspaceHistoryError('LINK_UNAVAILABLE');
-		const localQuery = this.query(link.localUserId, viewer, options, position.local ?? undefined, position.localHead ?? undefined);
+		const localQuery = this.viewerQuery(link, viewer, options);
+		if (position.local) localQuery.andWhere('note.id < :before', { before: position.local });
+		if (position.localHead) localQuery.andWhere('note.id <= :head', { head: position.localHead });
 		if (cursor && position.localHead == null) localQuery.andWhere('1=0');
-		if (!viewer) this.queries.generateUgcVisibilityQueryForVisitor(localQuery);
 		const local = await localQuery.take(limit).getMany();
 		const remoteItems = !viewer && this.meta.ugcVisibilityForVisitor !== 'all' ? [] : remote.items;
 		if (!cursor) {
@@ -158,12 +190,10 @@ export class GridspaceHistoryService {
 			}
 		} catch { throw new GridspaceHistoryError('PEER_UNAVAILABLE'); }
 		if (!await this.active(link)) throw new GridspaceHistoryError('LINK_UNAVAILABLE');
-		const other = await this.db.getRepository(MiUser).findOneBy({ uri: `${this.peer.peerOrigin}/users/${link.peerUserId}` });
 		const allowed = new Map<string, MiNote>();
-		for (const author of [link.localUserId, other?.id].filter((id): id is string => id != null)) {
-			if (mapped.size === 0) break;
-			const query = this.query(author, viewer, options).andWhere('note.id IN (:...ids)', { ids: [...mapped.values()] });
-			if (!viewer) this.queries.generateUgcVisibilityQueryForVisitor(query);
+		if (mapped.size > 0) {
+			// Recheck current permissions and mutes after asynchronous imports, before packing any body.
+			const query = this.viewerQuery(link, viewer, options, true).andWhere('note.id IN (:...ids)', { ids: [...mapped.values()] });
 			for (const note of await query.getMany()) allowed.set(note.id, note);
 		}
 		const result: MiNote[] = [];

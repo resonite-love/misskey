@@ -13684,7 +13684,7 @@ export interface Locale extends ILocale {
          */
         "showLinkedHistory": string;
         /**
-         * 両アカウントの公開・ホームの過去の投稿をまとめて表示します。
+         * 両アカウントの投稿をまとめて表示します。このサーバーに届いている限定公開の投稿も、今のアカウントで読める範囲で表示します。
          */
         "historyScope": string;
         /**

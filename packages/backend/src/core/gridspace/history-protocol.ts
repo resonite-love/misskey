@@ -9,6 +9,7 @@ import type { GridspacePeerConfig } from './peer-protocol.js';
 
 export type HistoryItem = { id: string; date: number };
 export type HistoryOptions = { withReplies: boolean; withRenotes: boolean; withFiles: boolean };
+export type HistoryViewOptions = HistoryOptions & { withChannelNotes: boolean };
 export type HistoryPeerRequest = HistoryOptions & {
 	userId: string; counterpartId: string; linkId: string; generation: number;
 	viewerId?: string; before?: string; head?: string; limit: number;

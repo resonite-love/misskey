@@ -39,6 +39,7 @@ const props = defineProps<{
 	withReplies: boolean;
 	withRenotes: boolean;
 	withFiles: boolean;
+	withChannelNotes: boolean;
 }>();
 const emit = defineEmits<{ (event: 'unavailable'): void }>();
 
@@ -82,7 +83,7 @@ async function reload() {
 	await load();
 }
 
-watch(() => [props.userId, props.withReplies, props.withRenotes, props.withFiles], reload, { immediate: true });
+watch(() => [props.userId, props.withReplies, props.withRenotes, props.withFiles, props.withChannelNotes], reload, { immediate: true });
 watch([sentinel, prefer.r.enableInfiniteScroll], ([element, enabled]) => {
 	observer?.disconnect();
 	if (!element || !enabled) return;
