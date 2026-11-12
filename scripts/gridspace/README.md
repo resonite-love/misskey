@@ -194,6 +194,10 @@ G のリポジトリから `node scripts/gridspace/test-actions.mjs` を実行�
 
 専用アカウントは Git 管理外の `.config/gridspace-actions-test-accounts.json` に保存する。画像は `.config/actions-mfm.png`、`.config/actions-mobile.png`、`.config/actions-signup.png` に保存する。ビルドとサーバーの再起動を済ませてから実行し、画面試験中はフロントエンドを再ビルドしない。
 
+## 連携先の自動フォロー
+
+両サーバーのビルド・migration・再起動後、G のリポジトリで `node scripts/gridspace/test-follow-expansion.mjs` を実行する。専用アカウントで、連携する順序、通常ホームへの配信、鍵付きアカウント、解除・却下、ミュート・ブロック、認可失効からの再開を確認する。テスト用ロールは終了時に削除する。認証情報は Git 管理外の `.config/gridspace-follow-expansion-test-accounts.json` に保存する。
+
 ## 停止と再開
 
 試験環境を停止する場合は Misskey 本体とトンネルを停止し、次を実行する。DB のボリュームは保持される。

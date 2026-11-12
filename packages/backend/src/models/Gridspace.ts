@@ -78,6 +78,19 @@ export class MiGridspaceFollowOverride {
 	@Column('timestamp with time zone') public changedAt: Date;
 }
 
+/** Receipts survive unlink/relink, unfollow and rejected requests. */
+@Entity('gridspace_follow_expansion')
+export class MiGridspaceFollowExpansion {
+	@PrimaryColumn(id()) public followerId: string;
+	@ManyToOne(() => MiUser, { onDelete: 'CASCADE' }) @JoinColumn() public follower: MiUser | null;
+	@PrimaryColumn(id()) public targetId: string;
+	@ManyToOne(() => MiUser, { onDelete: 'CASCADE' }) @JoinColumn() public target: MiUser | null;
+	@Column('varchar', { length: 16 }) public state: 'pending' | 'done' | 'skipped';
+	@Column('varchar', { length: 64, nullable: true }) public reason: string | null;
+	@Column('timestamp with time zone') public retryAt: Date;
+	@Column('integer', { default: 0 }) public attempts: number;
+}
+
 /** No FK: deletion of the source note must not remove its pending delivery. */
 @Entity('gridspace_note_delivery')
 export class MiGridspaceNoteDelivery {

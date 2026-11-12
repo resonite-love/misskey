@@ -24,17 +24,33 @@ export class GridspaceFollowGuardService implements OnApplicationShutdown {
 	/** A session lock also covers side effects committed by the ordinary following service. */
 	public async run<T>(localUserId: string, action: () => Promise<T>, cancelledTarget?: string): Promise<T> {
 		if (!this.locks) return action();
-		const connection = await this.locks.connect();
-		const lock = `gridspace-follow:${localUserId}`;
-		try {
-			await connection.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [lock]);
+		return this.runMany([localUserId], async () => {
 			if (cancelledTarget) {
 				// Commit before unfollowing: a crash cannot erase the user's cancellation.
 				await this.db.getRepository(MiGridspaceFollowOverride).upsert({ localUserId, targetUserId: cancelledTarget, changedAt: new Date() }, ['localUserId', 'targetUserId']);
 			}
 			return await action();
+		});
+	}
+
+	/** Sort every acquisition so two linked accounts can be checked without a lock-order cycle. */
+	public async runMany<T>(localUserIds: string[], action: () => Promise<T>): Promise<T> {
+		if (!this.locks) return action();
+		const connection = await this.locks.connect();
+		const acquired: string[] = [];
+		try {
+			for (const userId of [...new Set(localUserIds)].sort()) {
+				const lock = `gridspace-follow:${userId}`;
+				await connection.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [lock]);
+				acquired.push(lock);
+			}
+			return await action();
 		} finally {
-			try { await connection.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [lock]); } finally { connection.release(); }
+			let released = false;
+			try {
+				for (const lock of acquired.reverse()) await connection.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [lock]);
+				released = true;
+			} finally { connection.release(!released); }
 		}
 	}
 }

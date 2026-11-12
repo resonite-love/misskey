@@ -648,15 +648,18 @@ export class UserFollowingService implements OnModuleInit {
 	 */
 	@bindThis
 	public async rejectFollowRequest(user: Local, follower: Both): Promise<void> {
+		if (this.userEntityService.isLocalUser(follower)) {
+			await this.gridspaceGuard.run(follower.id, async () => {
+				await this.removeFollowRequest(user, follower);
+				this.publishUnfollow(user, follower);
+			}, user.id);
+			return;
+		}
 		if (this.userEntityService.isRemoteUser(follower)) {
 			this.deliverReject(user, follower);
 		}
 
 		await this.removeFollowRequest(user, follower);
-
-		if (this.userEntityService.isLocalUser(follower)) {
-			this.publishUnfollow(user, follower);
-		}
 	}
 
 	/**
@@ -664,15 +667,18 @@ export class UserFollowingService implements OnModuleInit {
 	 */
 	@bindThis
 	public async rejectFollow(user: Local, follower: Both): Promise<void> {
+		if (this.userEntityService.isLocalUser(follower)) {
+			await this.gridspaceGuard.run(follower.id, async () => {
+				await this.removeFollow(user, follower);
+				this.publishUnfollow(user, follower);
+			}, user.id);
+			return;
+		}
 		if (this.userEntityService.isRemoteUser(follower)) {
 			this.deliverReject(user, follower);
 		}
 
 		await this.removeFollow(user, follower);
-
-		if (this.userEntityService.isLocalUser(follower)) {
-			this.publishUnfollow(user, follower);
-		}
 	}
 
 	/**
