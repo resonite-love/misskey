@@ -148,6 +148,54 @@ try {
 	assert.equal((await action({ noteId: formatted.id })).note.myReaction, `:${emojiName}@.:`);
 	console.log('Custom source emoji in body/CW/poll and custom reaction PASS');
 
+	await action({ noteId: formatted.id, action: 'add-reaction', reaction: '🎉' });
+	await Promise.all(Array.from({ length: 4 }, () => action({ noteId: formatted.id, action: 'add-reaction', reaction: '👍' })));
+	let multi = (await action({ noteId: formatted.id })).note;
+	assert.equal(multi.extendedReactions, true);
+	assert.deepEqual(new Set(multi.myReactions), new Set([`:${emojiName}@.:`, '🎉', '👍']));
+	assert.equal(multi.reactions['👍'], 1);
+	const reactors = await action({ noteId: formatted.id, action: 'reaction-list', reaction: '👍', limit: 1 });
+	assert.equal(reactors.reactors.length, 1); assert.equal(reactors.reactors[0].account.username, resonite.username);
+	assert.equal((await action({ noteId: formatted.id, action: 'reaction-list', reaction: '👍', untilId: reactors.reactors[0].id })).reactors.length, 0);
+	await Promise.all(Array.from({ length: 3 }, () => action({ noteId: formatted.id, action: 'remove-reaction', reaction: `:${emojiName}@.:` })));
+	multi = (await action({ noteId: formatted.id })).note;
+	assert.equal(multi.myReaction, null); assert.deepEqual(new Set(multi.myReactions), new Set(['🎉', '👍']));
+	assert.equal(multi.reactions[`:${emojiName}@.:`] ?? 0, 0);
+	await denied(action({ noteId: hidden.id, action: 'add-reaction', reaction: '🎉' }));
+	await denied(action({ noteId: hidden.id, action: 'reaction-list', reaction: '🎉' }));
+	console.log('Delegated multiple reactions: source identity, retry-safe add/remove, primary removal, actor paging and hidden-note rejection PASS');
+
+	// The old R account can be a recipient of a G note that the new G account cannot read.
+	const gridAuthor = await account(g, 'b');
+	await api(g, 'admin/roles/assign', { roleId: roles.get(g), userId: gridAuthor.id }, g.accounts.admin.token);
+	const oldOnGrid = await api(g, 'users/show', { username: resonite.username, host: new URL(r.origin).host }, gridAuthor.token);
+	const gridOnlyForOld = (await api(g, 'notes/create', { text: `Old R recipient ${suffix}`, visibility: 'specified', visibleUserIds: [oldOnGrid.id] }, gridAuthor.token)).createdNote;
+	let cachedOnResonite;
+	await eventually('Old account receives G specified note', async () => {
+		cachedOnResonite = (await r.db.query('SELECT id FROM note WHERE uri=$1', [`${g.origin}/notes/${gridOnlyForOld.id}`])).rows[0];
+		return cachedOnResonite;
+	}, 60000);
+	const delegatedGrid = params => action({ noteId: cachedOnResonite.id, ...params });
+	await delegatedGrid({ action: 'add-reaction', reaction: '🎉' });
+	await delegatedGrid({ action: 'add-reaction', reaction: '😆' });
+	assert.deepEqual(new Set((await delegatedGrid({})).note.myReactions), new Set(['🎉', '😆']));
+	assert.deepEqual(await api(g, 'notes/extended-reactions/show', { noteIds: [gridOnlyForOld.id] }, grid.token), []);
+	const delegatedActors = (await delegatedGrid({ action: 'reaction-list', reaction: '😆', limit: 1 })).reactors;
+	assert.equal(delegatedActors[0].account.username, resonite.username);
+	assert.equal((await delegatedGrid({ action: 'reaction-list', reaction: '😆', untilId: delegatedActors[0].id })).reactors.length, 0);
+	const gridEmojiFile = await upload(g, 'drive/files/create', { token: g.accounts.admin.token });
+	await api(g, 'admin/emoji/add', { fileId: gridEmojiFile.id, name: emojiName }, g.accounts.admin.token);
+	await api(g, 'notes/extended-reactions/create', { noteId: gridOnlyForOld.id, reaction: '👍' }, gridAuthor.token);
+	await api(g, 'notes/extended-reactions/create', { noteId: gridOnlyForOld.id, reaction: `:${emojiName}:` }, gridAuthor.token);
+	const fromBoth = (await delegatedGrid({})).note;
+	assert.equal(fromBoth.reactions[`:${emojiName}@${new URL(g.origin).host}:`], 1);
+	assert.ok(fromBoth.reactionEmojis[`${emojiName}@${new URL(g.origin).host}`]?.startsWith('https://'));
+	await delegatedGrid({ action: 'remove-reaction', reaction: '🎉' });
+	assert.deepEqual((await delegatedGrid({})).note.myReactions, ['😆']);
+	await api(g, 'blocking/create', { userId: oldOnGrid.id }, gridAuthor.token);
+	await denied(delegatedGrid({ action: 'add-reaction', reaction: '🙏' }));
+	console.log('Old identity on G-owned specified note, new-identity denial, merged custom emoji, opaque paging and source block PASS');
+
 	await api(r, 'blocking/create', { userId: resonite.id }, author.token);
 	await denied(action({ action: 'react', reaction: '👍' }));
 	await api(r, 'blocking/delete', { userId: resonite.id }, author.token);

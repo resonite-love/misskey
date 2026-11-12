@@ -3302,7 +3302,7 @@ export type paths = {
     '/notes/extended-reactions/create': {
         /**
          * notes/extended-reactions/create
-         * @description Add an instance-local reaction. The first reaction uses the ordinary federated reaction.
+         * @description Add a local or paired-community reaction. The first reaction uses ordinary federation.
          *
          *     **Credential required**: *Yes* / **Permission**: *write:reactions*
          */
@@ -3311,7 +3311,7 @@ export type paths = {
     '/notes/extended-reactions/delete': {
         /**
          * notes/extended-reactions/delete
-         * @description Remove the specified instance-local reaction without promoting another reaction.
+         * @description Remove a local or paired-community reaction without promoting another reaction.
          *
          *     **Credential required**: *Yes* / **Permission**: *write:reactions*
          */
@@ -3320,7 +3320,7 @@ export type paths = {
     '/notes/extended-reactions/list': {
         /**
          * notes/extended-reactions/list
-         * @description List users of ordinary and instance-local reactions on a visible note.
+         * @description List users of ordinary and extended reactions, including the paired community server.
          *
          *     **Credential required**: *No*
          */
@@ -3329,7 +3329,7 @@ export type paths = {
     '/notes/extended-reactions/show': {
         /**
          * notes/extended-reactions/show
-         * @description Get merged ordinary and instance-local reaction counts for visible notes.
+         * @description Get ordinary and extended reaction counts, including the paired community server.
          *
          *     **Credential required**: *No*
          */
@@ -4767,6 +4767,7 @@ export type components = {
                 allowRenoteToExternal: boolean;
                 userId: string | null;
             } | null;
+            gridspaceReactions?: boolean;
             gridspaceShared?: boolean;
             localOnly?: boolean;
             /** @enum {string|null} */
@@ -25498,6 +25499,8 @@ export interface operations {
                                     [key: string]: string;
                                 };
                                 myReaction?: string | null;
+                                myReactions?: string[];
+                                extendedReactions?: boolean;
                                 replyId: string | null;
                                 renoteId: string | null;
                                 files: {
@@ -25671,10 +25674,12 @@ export interface operations {
                      * @default prepare
                      * @enum {string}
                      */
-                    action?: 'prepare' | 'react' | 'vote';
+                    action?: 'prepare' | 'react' | 'vote' | 'add-reaction' | 'remove-reaction' | 'reaction-list';
                     noteId: string;
                     reaction?: string | null;
                     choice?: number;
+                    untilId?: string;
+                    limit?: number;
                 };
             };
         };
@@ -25720,6 +25725,8 @@ export interface operations {
                                 [key: string]: string;
                             };
                             myReaction?: string | null;
+                            myReactions?: string[];
+                            extendedReactions?: boolean;
                             replyId: string | null;
                             renoteId: string | null;
                             files: {
@@ -25740,6 +25747,17 @@ export interface operations {
                                 multiple: boolean;
                             } | null;
                         };
+                        reactors?: {
+                            id: string;
+                            reaction: string;
+                            account: {
+                                name: string | null;
+                                username: string;
+                                host: string;
+                                uri: string;
+                                avatarUrl: string;
+                            };
+                        }[];
                     };
                 };
             };
@@ -26042,6 +26060,8 @@ export interface operations {
                                 [key: string]: string;
                             };
                             myReaction?: string | null;
+                            myReactions?: string[];
+                            extendedReactions?: boolean;
                             replyId: string | null;
                             renoteId: string | null;
                             files: {
@@ -32699,6 +32719,15 @@ export interface operations {
                     'application/json': components['schemas']['Error'];
                 };
             };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -32726,6 +32755,9 @@ export interface operations {
                 };
                 content: {
                     'application/json': {
+                        shared: boolean;
+                        complete: boolean;
+                        revision?: string;
                         /** Format: id */
                         noteId: string;
                         reactions: {
@@ -32768,6 +32800,15 @@ export interface operations {
             };
             /** @description I'm Ai */
             418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

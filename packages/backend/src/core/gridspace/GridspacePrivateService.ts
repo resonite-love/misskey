@@ -12,9 +12,6 @@ import { MiUserProfile } from '@/models/UserProfile.js';
 import { MiNote } from '@/models/Note.js';
 import { MiDriveFile } from '@/models/DriveFile.js';
 import { MiPollVote } from '@/models/PollVote.js';
-import { MiNoteReaction } from '@/models/NoteReaction.js';
-import { ReactionsBufferingService } from '@/core/ReactionsBufferingService.js';
-import { ReactionService } from '@/core/ReactionService.js';
 import { CustomEmojiService } from '@/core/CustomEmojiService.js';
 import { MiPoll } from '@/models/Poll.js';
 import { MiFollowing } from '@/models/Following.js';
@@ -28,6 +25,8 @@ import { InternalStorageService } from '@/core/InternalStorageService.js';
 import { UserEntityService } from '@/core/entities/UserEntityService.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspaceSearchService } from './GridspaceSearchService.js';
+import { GridspaceReactionService } from './GridspaceReactionService.js';
+import { supportsGridspaceReactions } from './reaction-protocol.js';
 import { GridspaceHistoryService } from './GridspaceHistoryService.js';
 import { decodeHistoryCursor, encodeHistoryCursor } from './history-protocol.js';
 import { gridspaceHash } from './link-crypto.js';
@@ -53,8 +52,7 @@ export class GridspacePrivateService {
 		private storage: InternalStorageService,
 		private users: UserEntityService,
 		private emojis: CustomEmojiService,
-		private reactionService: ReactionService,
-		private reactionBuffer: ReactionsBufferingService,
+		private extendedReactions: GridspaceReactionService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 		this.noteTime = searchNoteTimeSql(config.id);
@@ -110,22 +108,21 @@ export class GridspacePrivateService {
 		return result;
 	}
 
-	private async pack(note: MiNote, viewerId: string, readableRelated: Set<string>): Promise<PrivateWireNote> {
+	private async pack(note: MiNote, viewerId: string, readableRelated: Set<string>, reactionState: Awaited<ReturnType<GridspaceReactionService['show']>>[number] | undefined): Promise<PrivateWireNote> {
 		const files = note.fileIds.length ? await this.db.getRepository(MiDriveFile).findBy({ id: In(note.fileIds) }) : [];
 		const poll = note.hasPoll ? await this.db.getRepository(MiPoll).findOneBy({ noteId: note.id }) : null;
 		const votes = poll ? await this.db.getRepository(MiPollVote).findBy({ noteId: note.id, userId: viewerId }) : [];
-		const reaction = await this.db.getRepository(MiNoteReaction).findOneBy({ noteId: note.id, userId: viewerId });
 		const emojiUrls = await this.emojiUrls(note.emojis, note.userHost);
-		const buffered = this.meta.enableReactionsBuffering ? await this.reactionBuffer.get(note.id) : { deltas: {} };
-		const reactions = this.reactionService.convertLegacyReactions(this.reactionBuffer.mergeReactions(note.reactions, buffered.deltas ?? {}));
-		const reactionEmojis = await this.emojiUrls(Object.keys(reactions).map(value => value.replace(/^:|:$/g, '')), note.userHost);
+		if (!reactionState) throw new GridspaceLinkError('UNAVAILABLE');
+		const { reactions, myReaction, myReactions } = reactionState;
+		const reactionEmojis = { ...reactionState.reactionEmojis, ...await this.emojiUrls(Object.keys(reactions).map(value => value.replace(/^:|:$/g, '')), note.userHost) };
 
 		const actorIds = [note.userId, note.replyUserId, note.renoteUserId, note.renote?.replyUserId, note.renote?.renoteUserId].filter((id): id is string => !!id);
 		const actors = await this.db.getRepository(MiUser).findBy({ id: In(actorIds) });
 		return {
 			id: note.id, uri: note.uri ?? `${this.peer!.origin}/notes/${note.id}`, origin: this.peer!.origin, createdAt: this.ids.parse(note.id).date.toISOString(), text: note.text, cw: note.cw,
 			visibility: note.visibility, localOnly: note.localOnly, emojis: emojiUrls,
-			reactions, reactionEmojis, myReaction: reaction ? Object.keys(this.reactionService.convertLegacyReactions({ [reaction.reaction]: 1 }))[0] : null,
+			reactions, reactionEmojis, myReaction, myReactions, extendedReactions: supportsGridspaceReactions(note, this.peer),
 			author: { ...this.actor(note.user!), avatarUrl: (note.user!.avatarId == null ? null : note.user!.avatarUrl) ?? this.users.getIdenticonUrl(note.user!) }, filterActors: actors.map(user => this.actor(user)),
 			replyId: note.replyId && readableRelated.has(note.replyId) ? note.replyId : null,
 			renoteId: note.renoteId && readableRelated.has(note.renoteId) ? note.renoteId : null,
@@ -144,7 +141,8 @@ export class GridspacePrivateService {
 		const selected = rows.slice(0, limit);
 		const relatedIds = selected.flatMap(note => [note.replyId, note.renoteId]).filter((id): id is string => id != null);
 		const related = relatedIds.length ? await this.search.read(this.query(link.localUserId).andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
-		const packed = await Promise.all(selected.map(note => this.pack(note, link.localUserId, new Set(related.map(item => item.id)))));
+		const reactionStates = new Map((selected.length ? await this.extendedReactions.show(selected.map(note => note.id), { id: link.localUserId }) : []).map(state => [state.noteId, state]));
+		const packed = await Promise.all(selected.map(note => this.pack(note, link.localUserId, new Set(related.map(item => item.id)), reactionStates.get(note.id))));
 		// Recheck after packing attachments/polls, not just before the asynchronous work.
 		await this.links.authorizePrivate(input);
 		const fresh = selected.length ? await this.search.read(this.query(link.localUserId, input).andWhere('note.id IN (:...selected)', { selected: selected.map(note => note.id) })) : [];

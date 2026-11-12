@@ -5,17 +5,21 @@
 
 import { Injectable } from '@nestjs/common';
 import { Endpoint } from '@/server/api/endpoint-base.js';
-import { ExtendedReactionService } from '@/core/ExtendedReactionService.js';
+import { GridspaceReactionService } from '@/core/gridspace/GridspaceReactionService.js';
 
 export const meta = {
-	description: 'Get merged ordinary and instance-local reaction counts for visible notes.',
+	description: 'Get ordinary and extended reaction counts, including the paired community server.',
 	tags: ['reactions', 'notes'],
 	requireCredential: false,
+	limit: { duration: 60000, max: 120 },
 	res: {
 		type: 'array', optional: false, nullable: false,
 		items: {
 			type: 'object', optional: false, nullable: false,
 			properties: {
+				shared: { type: 'boolean', optional: false, nullable: false },
+				complete: { type: 'boolean', optional: false, nullable: false },
+				revision: { type: 'string', optional: true, nullable: false },
 				noteId: { type: 'string', format: 'id', optional: false, nullable: false },
 				reactions: { type: 'object', optional: false, nullable: false, additionalProperties: { type: 'number' } },
 				reactionEmojis: { type: 'object', optional: false, nullable: false, additionalProperties: { type: 'string' } },
@@ -32,7 +36,7 @@ export const paramDef = {
 } as const;
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
-	constructor(private extendedReactionService: ExtendedReactionService) {
+	constructor(private extendedReactionService: GridspaceReactionService) {
 		super(meta, paramDef, async (ps, me) => this.extendedReactionService.show(ps.noteIds, me));
 	}
 }

@@ -5,6 +5,11 @@
 
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { noteEvents } from '@/composables/use-note-capture.js';
+import type { entities } from 'misskey-js';
+
+export function supportsExtendedReactions(note: entities.Note): boolean {
+	return note.user.host == null || note.gridspaceReactions === true || (note.gridspaceShared === true && !note.channel && ['public', 'home'].includes(note.visibility));
+}
 
 export type ExtendedReactionState = {
 	noteId: string;
@@ -12,7 +17,25 @@ export type ExtendedReactionState = {
 	reactionEmojis: Record<string, string>;
 	myReaction: string | null;
 	myReactions: string[];
+	shared?: boolean;
+	complete?: boolean;
+	revision?: string;
 };
+
+const subscriptions = new Set<() => void>();
+let refreshTimer: number | undefined;
+
+/** One tick batches every mounted shared note into the existing bulk API. */
+export function watchSharedReactions(refresh: () => void): () => void {
+	subscriptions.add(refresh);
+	refreshTimer ??= window.setInterval(() => {
+		if (!window.document.hidden) for (const callback of subscriptions) callback();
+	}, 10000);
+	return () => {
+		subscriptions.delete(refresh);
+		if (subscriptions.size === 0) { window.clearInterval(refreshTimer); refreshTimer = undefined; }
+	};
+}
 
 // Batch timeline requests and share each response between repeated note views.
 const pending = new Map<string, { resolve: (state: ExtendedReactionState | undefined) => void; reject: (reason: unknown) => void; }[]>();

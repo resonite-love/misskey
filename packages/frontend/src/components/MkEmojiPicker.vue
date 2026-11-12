@@ -178,7 +178,7 @@ import { checkReactionPermissions } from '@/utility/check-reaction-permissions.j
 import { prefer } from '@/preferences.js';
 import { useRouter } from '@/router.js';
 import { haptic } from '@/utility/haptic.js';
-import { addExtendedReaction } from '@/utility/extended-reactions.js';
+import { addExtendedReaction, supportsExtendedReactions } from '@/utility/extended-reactions.js';
 import { noteEvents } from '@/composables/use-note-capture.js';
 
 const router = useRouter();
@@ -683,14 +683,15 @@ const messageHandler = async (response: MessageEvent) => {
 				if (noteIdEl && noteIdEl.innerText) {
 					const noteId = noteIdEl.innerText;
 					try {
-						await (props.targetNote?.user.host == null && props.targetNote ? addExtendedReaction(noteId, `:${emojiName}:`) : misskeyApi('notes/reactions/create', {
+						const extended = props.targetNote != null && supportsExtendedReactions(props.targetNote);
+						await (extended ? addExtendedReaction(noteId, `:${emojiName}:`) : misskeyApi('notes/reactions/create', {
 							noteId: noteId,
 							reaction: `:${emojiName}:`,
 						}));
 						console.log('Reaction added to note:', noteId);
 
 						// ローカルUIを更新するためにイベントを発火（通常のリアクションと同じ処理）
-						if (props.targetNote?.user.host != null) noteEvents.emit(`reacted:${noteId}`, {
+						if (!extended) noteEvents.emit(`reacted:${noteId}`, {
 							userId: $i!.id,
 							reaction: `:${emojiName}@.:`,
 							emoji: {

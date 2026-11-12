@@ -7,6 +7,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 <button
 	ref="buttonEl"
 	v-ripple="canToggle"
+	:data-reaction="reaction"
+	:aria-pressed="extendedReactions ? (myReactions?.includes(reaction) ?? false) : myReaction === reaction"
 	class="_button"
 	:class="[$style.root, { [$style.reacted]: extendedReactions ? myReactions?.includes(reaction) : myReaction == reaction, [$style.canToggle]: canToggle, [$style.small]: prefer.s.reactionsDisplaySize === 'small', [$style.large]: prefer.s.reactionsDisplaySize === 'large' }]"
 	@click="toggleReaction()"
@@ -263,7 +265,7 @@ watch([() => props.count, () => props.reactionVersion], ([newCount], [oldCount])
 		limit: 10,
 	}).then((reactions) => {
 		users.value = [...new Map(reactions.map(x => [x.user.id, x.user])).values()];
-	});
+	}).catch(() => { /* Keep the last known avatars while the peer is unavailable. */ });
 
 	if (oldCount < newCount) anime();
 });
@@ -275,7 +277,7 @@ onMounted(() => {
 		limit: 10,
 	}).then((reactions) => {
 		users.value = reactions.map(x => x.user);
-	});
+	}).catch(() => { /* A later update or tooltip open can retry the list. */ });
 
 	if (!props.isInitial) anime();
 });
@@ -288,7 +290,8 @@ if (!mock) {
 			noteId: props.noteId,
 			type: props.reaction,
 			limit: 10,
-		});
+		}).catch(() => null);
+		if (!reactions) return;
 
 		const users = [...new Map(reactions.map(x => [x.user.id, x.user])).values()];
 

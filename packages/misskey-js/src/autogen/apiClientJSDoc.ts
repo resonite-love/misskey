@@ -4021,7 +4021,7 @@ declare module '../api.js' {
     ): Promise<SwitchCaseResponseType<E, P>>;
 
     /**
-     * Add an instance-local reaction. The first reaction uses the ordinary federated reaction.
+     * Add a local or paired-community reaction. The first reaction uses ordinary federation.
      * 
      * **Credential required**: *Yes* / **Permission**: *write:reactions*
      */
@@ -4032,7 +4032,7 @@ declare module '../api.js' {
     ): Promise<SwitchCaseResponseType<E, P>>;
 
     /**
-     * Remove the specified instance-local reaction without promoting another reaction.
+     * Remove a local or paired-community reaction without promoting another reaction.
      * 
      * **Credential required**: *Yes* / **Permission**: *write:reactions*
      */
@@ -4043,7 +4043,7 @@ declare module '../api.js' {
     ): Promise<SwitchCaseResponseType<E, P>>;
 
     /**
-     * List users of ordinary and instance-local reactions on a visible note.
+     * List users of ordinary and extended reactions, including the paired community server.
      * 
      * **Credential required**: *No*
      */
@@ -4054,7 +4054,7 @@ declare module '../api.js' {
     ): Promise<SwitchCaseResponseType<E, P>>;
 
     /**
-     * Get merged ordinary and instance-local reaction counts for visible notes.
+     * Get ordinary and extended reaction counts, including the paired community server.
      * 
      * **Credential required**: *No*
      */

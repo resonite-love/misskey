@@ -7,6 +7,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import { EntityNotFoundError, In } from 'typeorm';
 import { ModuleRef } from '@nestjs/core';
 import { DI } from '@/di-symbols.js';
+import type { Config } from '@/config.js';
+import { resolveGridspaceConfig, type GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
+import { supportsGridspaceReactions } from '@/core/gridspace/reaction-protocol.js';
 import type { Packed } from '@/misc/json-schema.js';
 import { awaitAll } from '@/misc/prelude/await-all.js';
 import type { MiUser } from '@/models/User.js';
@@ -62,6 +65,7 @@ async function nullIfEntityNotFound<T>(promise: Promise<T>): Promise<T | null> {
 
 @Injectable()
 export class NoteEntityService implements OnModuleInit {
+	private readonly gridspacePeer: GridspacePeerConfig | null;
 	private userEntityService: UserEntityService;
 	private driveFileEntityService: DriveFileEntityService;
 	private customEmojiService: CustomEmojiService;
@@ -98,6 +102,8 @@ export class NoteEntityService implements OnModuleInit {
 		@Inject(DI.channelsRepository)
 		private channelsRepository: ChannelsRepository,
 
+		@Inject(DI.config) config: Config,
+
 		//private userEntityService: UserEntityService,
 		//private driveFileEntityService: DriveFileEntityService,
 		//private customEmojiService: CustomEmojiService,
@@ -106,6 +112,7 @@ export class NoteEntityService implements OnModuleInit {
 		//private idService: IdService,
 		//private cacheService: CacheService,
 	) {
+		this.gridspacePeer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 	}
 
 	onModuleInit() {
@@ -436,6 +443,7 @@ export class NoteEntityService implements OnModuleInit {
 			visibility: note.visibility,
 			localOnly: note.localOnly,
 			gridspaceShared: note.gridspaceShared,
+			gridspaceReactions: supportsGridspaceReactions(note, this.gridspacePeer),
 			reactionAcceptance: note.reactionAcceptance,
 			visibleUserIds: note.visibility === 'specified' ? note.visibleUserIds : undefined,
 			renoteCount: note.renoteCount,

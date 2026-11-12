@@ -49,6 +49,8 @@ const legacies: Record<string, string> = {
 	'star': '⭐',
 };
 
+export { legacies as legacyReactions };
+
 type DecodedReaction = {
 	/**
 	 * リアクション名 (Unicode Emoji or ':name@hostname' or ':name@.')

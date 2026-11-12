@@ -38,42 +38,48 @@ export class ExtendedReactionService {
 	) {}
 
 	@bindThis
-	public async create(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string) {
-		if (user.host !== null || note.userHost !== null) throw new IdentifiableError('extended-local-only');
-		await this.reactionService.withReactionLock(user.id, note.id, async () => {
-			const reaction = await this.reactionService.resolveReaction(user, note, input);
-			const primary = await this.db.getRepository(MiNoteReaction).findOneBy({ userId: user.id, noteId: note.id });
-			const repository = this.db.getRepository(MiExtendedNoteReaction);
-			const extras = await repository.findBy({ userId: user.id, noteId: note.id });
-			if (primary?.reaction === reaction || extras.some(r => r.reaction === reaction)) {
-				throw new IdentifiableError('51c42bb4-931a-456b-bff7-e5a8a70dd298');
-			}
-			if (extras.length + (primary ? 1 : 0) >= 16) throw new IdentifiableError('extended-reaction-limit');
-			if (!primary && extras.length === 0) {
-				// Only the first reaction uses the legacy path and federates.
-				await this.reactionService.createUnlocked(user, note, reaction);
-			} else {
-				await repository.insert({ id: this.idService.gen(), userId: user.id, noteId: note.id, reaction });
-				this.notificationService.createNotification(note.userId, 'reaction', { noteId: note.id, reaction }, user.id);
-			}
-		});
+	public async create(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false) {
+		await this.reactionService.withReactionLock(user.id, note.id, () => this.createUnlocked(user, note, input, allowPeerNote));
+	}
+
+	/** The caller must hold the ordinary reaction lock; peer access is checked by GridspaceReactionService. */
+	public async createUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false) {
+		if (user.host !== null || (note.userHost !== null && !allowPeerNote)) throw new IdentifiableError('extended-local-only');
+		const reaction = await this.reactionService.resolveReaction(user, note, input);
+		const primary = await this.db.getRepository(MiNoteReaction).findOneBy({ userId: user.id, noteId: note.id });
+		const repository = this.db.getRepository(MiExtendedNoteReaction);
+		const extras = await repository.findBy({ userId: user.id, noteId: note.id });
+		if (primary?.reaction === reaction || extras.some(r => r.reaction === reaction)) {
+			throw new IdentifiableError('51c42bb4-931a-456b-bff7-e5a8a70dd298');
+		}
+		if (extras.length + (primary ? 1 : 0) >= 16) throw new IdentifiableError('extended-reaction-limit');
+		if (!primary && extras.length === 0) {
+			// Only the first reaction uses the legacy path and federates.
+			await this.reactionService.createUnlocked(user, note, reaction);
+		} else {
+			await repository.insert({ id: this.idService.gen(), userId: user.id, noteId: note.id, reaction });
+			if (note.userHost === null) this.notificationService.createNotification(note.userId, 'reaction', { noteId: note.id, reaction }, user.id);
+		}
 		this.globalEventService.publishNoteStream(note, 'extendedReactionUpdated', {});
 	}
 
 	@bindThis
-	public async delete(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string) {
-		if (user.host !== null || note.userHost !== null) throw new IdentifiableError('extended-local-only');
+	public async delete(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false) {
+		await this.reactionService.withReactionLock(user.id, note.id, () => this.deleteUnlocked(user, note, input, allowPeerNote));
+	}
+
+	/** The caller must hold the ordinary reaction lock. */
+	public async deleteUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false) {
+		if (user.host !== null || (note.userHost !== null && !allowPeerNote)) throw new IdentifiableError('extended-local-only');
 		if (!await this.noteEntityService.isVisibleForMe(note, user.id)) {
 			throw new IdentifiableError('68e9d2d1-48bf-42c2-b90a-b20e09fd3d48');
 		}
 		// Deletion must not re-apply current emoji permissions/acceptance.
 		const reaction = input.startsWith(':') ? input.replace('@.:', ':') : this.reactionService.normalize(input);
-		await this.reactionService.withReactionLock(user.id, note.id, async () => {
-			const primary = await this.db.getRepository(MiNoteReaction).findOneBy({ userId: user.id, noteId: note.id, reaction });
-			const result = await this.db.getRepository(MiExtendedNoteReaction).delete({ userId: user.id, noteId: note.id, reaction });
-			if (primary) await this.reactionService.deleteUnlocked(user, note);
-			if (!primary && !result.affected) throw new IdentifiableError('60527ec9-b4cb-4a88-a6bd-32d3ad26817d');
-		});
+		const primary = await this.db.getRepository(MiNoteReaction).findOneBy({ userId: user.id, noteId: note.id, reaction });
+		const result = await this.db.getRepository(MiExtendedNoteReaction).delete({ userId: user.id, noteId: note.id, reaction });
+		if (primary) await this.reactionService.deleteUnlocked(user, note);
+		if (!primary && !result.affected) throw new IdentifiableError('60527ec9-b4cb-4a88-a6bd-32d3ad26817d');
 		this.globalEventService.publishNoteStream(note, 'extendedReactionUpdated', {});
 	}
 

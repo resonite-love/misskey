@@ -18,7 +18,7 @@ const g = resolveGridspaceConfig(source, 'https://g.example', env)!;
 const r = resolveGridspaceConfig({ ...source, peerUrl: g.origin }, source.peerUrl, env)!;
 const servers: FastifyInstance[] = [];
 
-async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8]) {
+async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8], reactions?: Parameters<typeof registerGridspacePeer>[12]) {
 	const app = Fastify();
 	servers.push(app);
 	const used = new Set<string>();
@@ -29,7 +29,7 @@ async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Para
 			if (used.has(key)) return false;
 			used.add(key);
 			return true;
-		}), action, notes, history, search, undefined, replyAction);
+		}), action, notes, history, search, undefined, replyAction, undefined, undefined, undefined, reactions);
 	}, { prefix: '/gridspace/v1' });
 	return app;
 }
@@ -43,6 +43,35 @@ afterEach(async () => {
 	await Promise.all(servers.splice(0).map(app => app.close()));
 });
 
+describe('GridSpace reaction transport', () => {
+	test('requires the exact signed peer, rejects replay and bounds lists', async () => {
+		const received: object[] = [];
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, async body => { received.push(body); return []; });
+		const url = '/gridspace/v1/reactions';
+		const input = { mode: 'show', uris: [`${r.origin}/notes/abc`], viewerId: 'viewer' };
+		const payload = Buffer.from(JSON.stringify(input));
+		const request = { method: 'POST' as const, url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) };
+		expect((await app.inject({ ...request, headers: { 'content-type': 'application/json' } })).statusCode).toBe(403);
+		const outsider = { ...g, origin: 'https://outsider.example' };
+		expect((await app.inject({ ...request, headers: createGridspaceHeaders(outsider, 'POST', url, payload) })).statusCode).toBe(403);
+		expect((await app.inject(request)).statusCode).toBe(200);
+		expect((await app.inject(request)).statusCode).toBe(409);
+		for (const extra of [{ limit: 101 }, { viewerId: '../escape' }, { uris: [] }, { mode: 'list', uris: [input.uris[0], `${r.origin}/notes/def`] }, { before: { time: 1, id: 'abc', origin: outsider.origin } }]) {
+			const body = Buffer.from(JSON.stringify({ ...input, ...extra }));
+			expect((await app.inject({ ...request, payload: body, headers: createGridspaceHeaders(g, 'POST', url, body) })).statusCode).toBe(400);
+		}
+		expect(received).toEqual([input]);
+	});
+	test('returns no-store failures without exposing details and is absent when disabled', async () => {
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, async () => { throw new Error('synthetic secret'); });
+		const url = '/gridspace/v1/reactions'; const payload = Buffer.from(JSON.stringify({ mode: 'show', uris: [`${r.origin}/notes/abc`] }));
+		const response = await app.inject({ method: 'POST', url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) });
+		expect(response.statusCode).toBe(503); expect(response.headers['cache-control']).toBe('no-store');
+		expect(response.json()).toEqual({ error: 'PEER_REACTIONS_UNAVAILABLE' });
+		expect((await (await server(false)).inject({ method: 'POST', url, payload })).statusCode).toBe(404);
+	});
+});
+
 describe('GridSpace delegated reply transport', () => {
 	test('requires the signed peer, bounds text and forbids caller-selected audiences or identities', async () => {
 		const received: object[] = [];
@@ -54,7 +83,9 @@ describe('GridSpace delegated reply transport', () => {
 			return app.inject({ method: 'POST', url, payload, headers: signed ? createGridspaceHeaders(g, 'POST', url, payload) : { 'content-type': 'application/json' } });
 		};
 		expect((await send(input, false)).statusCode).toBe(403);
-		for (const extra of [{ text: '' }, { text: '  ' }, { text: 'a'.repeat(3001) }, { cw: 'a'.repeat(101) }, { requestId: 'not-a-uuid' }]) {
+		// Empty text is valid transport for attachment-only replies; the service
+		// checks the combined text/file content after authorization.
+		for (const extra of [{ text: 'a'.repeat(3001) }, { cw: 'a'.repeat(101) }, { requestId: 'not-a-uuid' }]) {
 			expect((await send({ ...input, ...extra })).statusCode, JSON.stringify(extra)).toBe(400);
 		}
 		// Fastify strips unknown properties; none can reach the posting service.

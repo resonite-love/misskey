@@ -14,7 +14,7 @@ import { $i } from '@/i.js';
 import { store } from '@/store.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { prefer } from '@/preferences.js';
-import { fetchExtendedReactions } from '@/utility/extended-reactions.js';
+import { fetchExtendedReactions, watchSharedReactions, supportsExtendedReactions } from '@/utility/extended-reactions.js';
 import { globalEvents } from '@/events.js';
 
 export const noteEvents = new EventEmitter<{
@@ -229,7 +229,7 @@ export function useNoteCapture(props: {
 		reactionEmojis: note.reactionEmojis,
 		myReaction: note.myReaction,
 		myReactions: note.myReaction ? [note.myReaction] : [],
-		extendedReactions: !mock && note.user.host == null,
+		extendedReactions: !mock && supportsExtendedReactions(note),
 		reactionVersion: 0,
 		pollChoices: note.poll?.choices ?? [],
 	});
@@ -237,6 +237,9 @@ export function useNoteCapture(props: {
 	let disposed = false;
 	let refreshing = false;
 	let refreshAgain = false;
+	let stopSharedRefresh: (() => void) | undefined;
+	let receivedComplete = false;
+	let lastReactionState = '';
 
 	async function refreshExtended(): Promise<void> {
 		if (!$note.extendedReactions || disposed) return;
@@ -245,12 +248,24 @@ export function useNoteCapture(props: {
 		try {
 			const state = await fetchExtendedReactions(note.id);
 			if (state && !disposed) {
-				$note.reactions = state.reactions;
-				$note.reactionCount = Object.values(state.reactions).reduce((sum, count) => sum + count, 0);
-				$note.reactionEmojis = state.reactionEmojis;
+				if (state.shared && !stopSharedRefresh) stopSharedRefresh = watchSharedReactions(() => { void refreshExtended(); });
+				if (state.complete === false && receivedComplete) {
+					// Keep the peer counts, but apply our own successful changes during an outage.
+					const counts = { ...$note.reactions };
+					for (const reaction of $note.myReactions) counts[reaction] = Math.max(0, (counts[reaction] ?? 0) - 1);
+					for (const reaction of state.myReactions) counts[reaction] = (counts[reaction] ?? 0) + 1;
+					$note.reactions = Object.fromEntries(Object.entries(counts).filter(([, count]) => count > 0));
+					$note.reactionEmojis = { ...$note.reactionEmojis, ...state.reactionEmojis };
+				} else {
+					if (state.complete !== false) receivedComplete = true;
+					$note.reactions = state.reactions;
+					$note.reactionEmojis = state.reactionEmojis;
+				}
+				$note.reactionCount = Object.values($note.reactions).reduce((sum, count) => sum + count, 0);
 				$note.myReactions = state.myReactions;
 				$note.myReaction = state.myReaction;
-				$note.reactionVersion++;
+				const signature = JSON.stringify([$note.reactions, $note.reactionEmojis, $note.myReactions, state.revision]);
+				if (signature !== lastReactionState) { $note.reactionVersion++; lastReactionState = signature; }
 			}
 		} catch {
 			// Keep the previous state on transient network failures.
@@ -356,6 +371,7 @@ export function useNoteCapture(props: {
 
 	onUnmounted(() => {
 		disposed = true;
+		stopSharedRefresh?.();
 		noteEvents.off(`extendedUpdated:${note.id}`, refreshExtended);
 		noteEvents.off(`reacted:${note.id}`, onReacted);
 		noteEvents.off(`unreacted:${note.id}`, onUnreacted);

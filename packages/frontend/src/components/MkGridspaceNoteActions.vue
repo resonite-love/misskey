@@ -13,9 +13,13 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</li>
 	</ul>
 	<div v-if="Object.keys(note.reactions ?? {}).length" class="_buttons">
-		<span v-for="(count, reactionKey) in note.reactions" :key="reactionKey" :class="$style.reaction">
+		<button v-for="(count, reactionKey) in note.reactions" :key="reactionKey" type="button" class="_button" :class="[$style.reaction, { [$style.selected]: note.myReactions?.includes(String(reactionKey)) }]" :disabled="busy" @click="showReactors(String(reactionKey))">
 			<MkReactionIcon :reaction="String(reactionKey)" :emojiUrl="note.reactionEmojis?.[String(reactionKey).replace(/^:|:$/g, '')]"/> {{ count }}
-		</span>
+		</button>
+	</div>
+	<div v-if="selectedReaction" class="_gaps_s">
+		<div v-for="reactor in reactors" :key="reactor.id"><a :href="reactor.account.uri" target="_blank" rel="noopener noreferrer">{{ reactor.account.name || reactor.account.username }} <span>@{{ reactor.account.username }}@{{ reactor.account.host }}</span></a></div>
+		<MkButton v-if="moreReactors" small :disabled="busy" @click="showReactors(selectedReaction, true)">{{ i18n.ts.more }}</MkButton>
 	</div>
 	<MkButton v-if="!opened" small @click="openActions">{{ i18n.ts._gridspace.actionOpen }}</MkButton>
 	<template v-else>
@@ -25,13 +29,15 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<strong>{{ i18n.tsx._gridspace.actionIdentity({ account: `@${info.account.username}@${info.account.host}` }) }}</strong>
 			<template v-if="info.canInteract">
 				<div class="_buttons">
-					<MkButton v-for="emoji in quickReactions" :key="emoji" small :disabled="busy" @click="act({ action: 'react', reaction: emoji })">{{ emoji }}</MkButton>
+					<MkButton v-for="emoji in quickReactions" :key="emoji" small :disabled="busy" @click="addReaction(emoji)">{{ emoji }}</MkButton>
 				</div>
-				<form :class="$style.form" @submit.prevent="act({ action: 'react', reaction: reaction.trim() })">
+				<form :class="$style.form" @submit.prevent="addReaction(reaction.trim())">
 					<label>{{ i18n.ts._gridspace.actionReaction }}<input v-model="reaction" :disabled="busy" maxlength="128" :placeholder="i18n.ts._gridspace.actionReactionHint" autocomplete="off"></label>
 					<MkButton type="submit" small :disabled="busy || !reaction.trim()">{{ i18n.ts._gridspace.actionReact }}</MkButton>
 				</form>
-				<MkButton v-if="note.myReaction" small :disabled="busy" @click="act({ action: 'react', reaction: null })">{{ i18n.ts._gridspace.actionUnreact }} <MkReactionIcon :reaction="note.myReaction" :emojiUrl="note.reactionEmojis?.[note.myReaction.replace(/^:|:$/g, '')]"/></MkButton>
+				<div class="_buttons">
+					<MkButton v-for="ownReaction in note.myReactions ?? (note.myReaction ? [note.myReaction] : [])" :key="ownReaction" small :disabled="busy" @click="act({ action: note.extendedReactions ? 'remove-reaction' : 'react', reaction: note.extendedReactions ? ownReaction : null })">{{ i18n.ts._gridspace.actionUnreact }} <MkReactionIcon :reaction="ownReaction" :emojiUrl="note.reactionEmojis?.[ownReaction.replace(/^:|:$/g, '')]"/></MkButton>
+				</div>
 			</template>
 			<template v-else><p>{{ i18n.ts._gridspace.actionConsent }}</p><MkA to="/settings/gridspace">{{ i18n.ts._gridspace.actionAuthorize }}</MkA></template>
 		</template>
@@ -55,6 +61,9 @@ const opened = ref(false);
 const busy = ref(false);
 const error = ref(false);
 const reaction = ref('');
+const selectedReaction = ref<string | null>(null);
+const reactors = ref<NonNullable<entities.GridspacePrivateActionResponse['reactors']>>([]);
+const moreReactors = ref(false);
 const now = ref(Date.now());
 const quickReactions = ['👍', '❤', '🎉', '😆', '🙏'];
 let controller = new AbortController();
@@ -66,8 +75,8 @@ function canVote(index: number) {
 	return !!poll && !(poll.expiresAt && Date.parse(poll.expiresAt) <= now.value) && !poll.choices[index].isVoted && (poll.multiple || !poll.choices.some(choice => choice.isVoted));
 }
 
-async function act(options: { action: 'prepare' | 'react' | 'vote'; reaction?: string | null; choice?: number }) {
-	if (busy.value || (options.action !== 'prepare' && !info.value?.canInteract)) return;
+async function act(options: Omit<entities.GridspacePrivateActionRequest, 'noteId'>) {
+	if (busy.value || (!['prepare', 'reaction-list'].includes(options.action ?? 'prepare') && !info.value?.canInteract)) return;
 	if (options.action === 'vote' && (options.choice === undefined || !canVote(options.choice))) return;
 	if (options.action === 'react' && options.reaction !== null && !options.reaction?.trim()) return;
 	const current = generation;
@@ -76,6 +85,13 @@ async function act(options: { action: 'prepare' | 'react' | 'vote'; reaction?: s
 		const result = await misskeyApi('gridspace/private-action', { ...options, noteId: props.note.id }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
 		if (current !== generation) return;
 		info.value = result;
+		if (options.action === 'reaction-list') {
+			const rows = result.reactors ?? [];
+			reactors.value = options.untilId ? [...reactors.value, ...rows] : rows;
+			moreReactors.value = rows.length === 10;
+		} else if (options.action !== 'prepare') {
+			selectedReaction.value = null; reactors.value = []; moreReactors.value = false;
+		}
 		emit('changed', result.note);
 	} catch (err) {
 		if (current !== generation) return;
@@ -87,7 +103,16 @@ async function act(options: { action: 'prepare' | 'react' | 'vote'; reaction?: s
 
 function openActions() { opened.value = true; void act({ action: 'prepare' }); }
 
-function closeActions() { generation++; controller.abort(); controller = new AbortController(); opened.value = false; info.value = null; busy.value = false; reaction.value = ''; error.value = false; }
+function addReaction(value: string) { if (value.trim()) void act({ action: props.note.extendedReactions ? 'add-reaction' : 'react', reaction: value.trim() }); }
+
+function showReactors(value: string, more = false) {
+	if (busy.value) return;
+	if (!more) { reactors.value = []; moreReactors.value = false; }
+	selectedReaction.value = value; opened.value = true;
+	void act({ action: 'reaction-list', reaction: value, limit: 10, untilId: more ? reactors.value.at(-1)?.id : undefined });
+}
+
+function closeActions() { generation++; controller.abort(); controller = new AbortController(); opened.value = false; info.value = null; busy.value = false; reaction.value = ''; selectedReaction.value = null; reactors.value = []; moreReactors.value = false; error.value = false; }
 
 function visibility() { if (window.document.hidden) closeActions(); }
 
@@ -100,5 +125,6 @@ onBeforeUnmount(() => { closeActions(); window.clearInterval(timer); window.docu
 <style lang="scss" module>
 .choices { padding-inline-start: 20px; li { margin-block: 8px; } }
 .reaction { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px; background: var(--MI_THEME-buttonBg); }
+.selected { box-shadow: inset 0 0 0 1px var(--MI_THEME-accent); }
 .form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; label { display: grid; gap: 6px; } input { color: var(--MI_THEME-fg); background: var(--MI_THEME-panel); border: 1px solid var(--MI_THEME-divider); border-radius: 6px; padding: 8px; font: inherit; } }
 </style>
