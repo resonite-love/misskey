@@ -40,6 +40,23 @@ function fixture(remote = false) {
 }
 
 describe('paired reaction authorization and failures', () => {
+	test('omits a newly added emoji preview when its count snapshot predates the insert', async () => {
+		const f = fixture();
+		const actor = { id: 'actor', username: 'actor', host: null, name: null, avatarId: 'avatar', avatarUrl: 'https://g.example/avatar.png', uri: null };
+		f.db.getRepository.mockReturnValue({ findBy: async () => [f.note, actor], findOneBy: async () => null } as never);
+		f.db.query.mockResolvedValueOnce([{ reaction: '👍', count: '1', revision: 'a'.repeat(32) }]).mockResolvedValueOnce([{ reaction: '🎉', userId: actor.id }]);
+		const result = await f.service.peerRead({ mode: 'show', uris: ['https://g.example/notes/note'], withPreviews: true });
+		expect(result[0].previews).toEqual([]);
+		expect(result[0].reactions).toEqual({ '👍': 1 });
+	});
+	test('drops a populated preview batch when note access changes during packing', async () => {
+		const f = fixture();
+		const actor = { id: 'actor', username: 'actor', host: null, name: null, avatarId: 'avatar', avatarUrl: 'https://g.example/avatar.png', uri: null };
+		f.db.getRepository.mockReturnValue({ findBy: async () => [f.note, actor], findOneBy: async () => null } as never);
+		f.search.read.mockResolvedValueOnce([f.note]).mockResolvedValueOnce([]);
+		f.db.query.mockResolvedValueOnce([{ reaction: '👍', count: '1', revision: 'a'.repeat(32) }]).mockResolvedValueOnce([{ reaction: '👍', userId: actor.id }]);
+		expect(await f.service.peerRead({ mode: 'show', uris: ['https://g.example/notes/note'], withPreviews: true })).toEqual([]);
+	});
 	test('returns an explicitly incomplete local snapshot on peer failure', async () => {
 		const f = fixture(); vi.mocked(requestGridspacePeer).mockRejectedValue(new Error('offline'));
 		expect(await f.service.show([f.note.id], f.viewer)).toEqual([expect.objectContaining({ complete: false, shared: true, myReactions: ['👍'] })]);

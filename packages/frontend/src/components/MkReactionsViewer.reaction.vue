@@ -20,11 +20,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<div v-for="u in users" :key="u.id" :class="$style.avatars" style="height: 42px; width: auto">
 		<MkAvatar :class="$style.avatar" :user="u"/>
 	</div>
+	<div v-for="u in remoteUsers" :key="u.uri" :class="$style.avatars" style="height: 42px; width: auto">
+		<img :class="[$style.avatar, $style.remoteAvatar]" :src="actorAvatar(u)" :alt="u.name || u.username" :title="`@${u.username}@${u.host}`">
+	</div>
 </button>
 </template>
 
 <script lang="ts" setup>
-import { computed, inject, onMounted, useTemplateRef, watch, ref } from 'vue';
+import { computed, inject, onActivated, onBeforeUnmount, onDeactivated, onMounted, useTemplateRef, watch, ref } from 'vue';
 import * as Misskey from 'misskey-js';
 import { getUnicodeEmojiOrNull } from '@@/js/emojilist.js';
 import { getEmojiNameFromReaction, isLocalCustomEmojiReaction } from '@@/js/emoji-name.js';
@@ -49,6 +52,8 @@ import { mute as muteEmoji, unmute as unmuteEmoji, checkMuted as isEmojiMuted } 
 import { addToEmojiPalette } from '@/utility/emoji-palette.js';
 import { addExtendedReaction, deleteExtendedReaction, fetchReactionUsers } from '@/utility/extended-reactions.js';
 import { haptic } from '@/utility/haptic.js';
+import type { ReactionActor, ReactionTransport } from '@/utility/reaction-transport.js';
+import { getStaticImageUrl } from '@/utility/media-proxy.js';
 
 const props = defineProps<{
 	noteId: Misskey.entities.Note['id'];
@@ -60,6 +65,7 @@ const props = defineProps<{
 	reactionVersion?: string | number;
 	count: number;
 	isInitial: boolean;
+	transport?: ReactionTransport;
 }>();
 
 const mock = inject(DI.mock, false);
@@ -75,6 +81,7 @@ const emojiName = computed(() => getEmojiNameFromReaction(props.reaction));
 const isLocalCustomEmoji = computed(() => isLocalCustomEmojiReaction(props.reaction));
 
 const canToggle = computed(() => {
+	if (props.transport) return props.transport.canToggle();
 	const emoji = isLocalCustomEmoji.value ? customEmojisMap.get(emojiName.value) : getUnicodeEmojiOrNull(props.reaction);
 
 	// TODO
@@ -83,9 +90,12 @@ const canToggle = computed(() => {
 });
 
 const users = ref<Misskey.entities.UserLite[]>([]);
+const remoteUsers = ref<ReactionActor[]>([]);
+const actorAvatar = (actor: ReactionActor) => prefer.s.disableShowingAnimatedImages || prefer.s.dataSaver.avatar ? getStaticImageUrl(actor.avatarUrl) : actor.avatarUrl;
 
 async function toggleReaction() {
 	if (!canToggle.value) return;
+	if (props.transport) { await props.transport.toggle(props.reaction); return; }
 	if ($i == null) return;
 
 	if (props.extendedReactions && !mock) {
@@ -187,6 +197,7 @@ async function toggleReaction() {
 
 async function menu(ev: PointerEvent) {
 	let menuItems: MenuItem[] = [];
+	if (props.transport) menuItems.push({ text: i18n.ts.more, icon: 'ti ti-users', action: () => props.transport?.showUsers(props.reaction) });
 
 	if (isLocalCustomEmoji.value) {
 		menuItems.push({
@@ -259,18 +270,35 @@ function anime() {
 }
 
 function fetchUsers() {
+	if (props.transport) return Promise.resolve([]);
 	return fetchReactionUsers(props.noteId, props.reaction, props.extendedReactions ?? false, props.count, props.reactionVersion);
 }
 
 let usersRequest = 0;
+let active = true;
+let disposeRemoteDetails: (() => void) | undefined;
 
 async function refreshUsers() {
+	disposeRemoteDetails?.(); disposeRemoteDetails = undefined;
 	const request = ++usersRequest;
 	try {
+		if (props.transport) {
+			const actors = active && !window.document.hidden ? props.transport.previews(props.reaction) : [];
+			remoteUsers.value = [...new Map(actors.map(actor => [actor.uri, actor])).values()].slice(0, 10);
+			return;
+		}
 		const reactions = await fetchUsers();
 		if (request === usersRequest) users.value = [...new Map(reactions.map(x => [x.user.id, x.user])).values()];
-	} catch { /* Retain the last avatars; the next update/hover can retry. */ }
+	} catch { if (props.transport) remoteUsers.value = []; }
 }
+
+function visibility() { if (props.transport) { usersRequest++; remoteUsers.value = []; disposeRemoteDetails?.(); if (!window.document.hidden) void refreshUsers(); } }
+
+window.document.addEventListener('visibilitychange', visibility);
+onBeforeUnmount(() => { active = false; usersRequest++; window.document.removeEventListener('visibilitychange', visibility); remoteUsers.value = []; disposeRemoteDetails?.(); });
+onDeactivated(() => { active = false; if (props.transport) { usersRequest++; remoteUsers.value = []; disposeRemoteDetails?.(); } });
+onActivated(() => { active = true; if (props.transport) void refreshUsers(); });
+watch([() => props.noteId, () => props.transport], () => { usersRequest++; remoteUsers.value = []; void refreshUsers(); });
 
 watch([() => props.count, () => props.reactionVersion], ([newCount], [oldCount]) => {
 	void refreshUsers();
@@ -285,6 +313,16 @@ onMounted(() => {
 if (!mock) {
 	useTooltip(buttonEl, async (showing) => {
 		if (buttonEl.value == null) return;
+		if (props.transport) {
+			if (!active || window.document.hidden) return;
+			const current = usersRequest;
+			const actors = await props.transport.users(props.reaction).catch(() => null);
+			if (!actors || !active || current !== usersRequest || window.document.hidden || !showing.value) return;
+			disposeRemoteDetails?.();
+			const { dispose } = os.popup(XDetails, { showing, reaction: props.reaction, emojiUrl: props.reactionEmojis[emojiName.value], users: [], actors, count: props.count, anchorElement: buttonEl.value }, { closed: () => dispose() });
+			disposeRemoteDetails = dispose;
+			return;
+		}
 
 		const reactions = await fetchUsers().catch(() => null);
 		if (!reactions) return;
@@ -294,6 +332,7 @@ if (!mock) {
 		const { dispose } = os.popup(XDetails, {
 			showing,
 			reaction: props.reaction,
+			emojiUrl: props.reactionEmojis[emojiName.value],
 			users,
 			count: props.count,
 			anchorElement: buttonEl.value,
@@ -305,6 +344,7 @@ if (!mock) {
 </script>
 
 <style lang="scss" module>
+.remoteAvatar { border-radius: 100%; object-fit: cover; }
 .avatars {
 	display: flex;
 	align-items: center;

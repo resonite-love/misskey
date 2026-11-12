@@ -7,12 +7,16 @@ SPDX-License-Identifier: AGPL-3.0-only
 <MkTooltip ref="tooltip" :showing="showing" :anchorElement="anchorElement" :maxWidth="340" @closed="emit('closed')">
 	<div :class="$style.root">
 		<div :class="$style.reaction">
-			<MkReactionIcon :reaction="reaction" :class="$style.reactionIcon" :noStyle="true"/>
+			<MkReactionIcon :reaction="reaction" :emojiUrl="emojiUrl" :class="$style.reactionIcon" :noStyle="true"/>
 			<div :class="$style.reactionName">{{ getReactionName(reaction) }}</div>
 		</div>
 		<div :class="$style.users">
 			<div v-for="u in users" :key="u.id" :class="$style.user">
 				<MkAvatar :class="$style.avatar" :user="u"/>
+				<MkUserName :user="u" :nowrap="true"/>
+			</div>
+			<div v-for="u in actors" :key="u.uri" :class="$style.user">
+				<img :class="$style.avatar" :src="prefer.s.disableShowingAnimatedImages || prefer.s.dataSaver.avatar ? getStaticImageUrl(u.avatarUrl) : u.avatarUrl" alt="">
 				<MkUserName :user="u" :nowrap="true"/>
 			</div>
 			<div v-if="count > 10" :class="$style.more">+{{ count - 10 }}</div>
@@ -27,11 +31,16 @@ import * as Misskey from 'misskey-js';
 import { getEmojiName } from '@@/js/emojilist.js';
 import MkTooltip from './MkTooltip.vue';
 import MkReactionIcon from '@/components/MkReactionIcon.vue';
+import type { ReactionActor } from '@/utility/reaction-transport.js';
+import { prefer } from '@/preferences.js';
+import { getStaticImageUrl } from '@/utility/media-proxy.js';
 
 defineProps<{
 	showing: boolean;
 	reaction: string;
+	emojiUrl?: string;
 	users: Misskey.entities.UserLite[];
+	actors?: ReactionActor[];
 	count: number;
 	anchorElement: HTMLElement;
 }>();

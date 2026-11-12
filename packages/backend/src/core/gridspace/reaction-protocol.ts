@@ -19,11 +19,14 @@ export type ReactionPosition = { time: number; id: string; origin: string };
 export type ReactionRow = ReactionPosition & { reaction: string; userUri: string };
 export type ReactionPeerRequest = {
 	mode: 'show' | 'list'; uris: string[]; viewerId?: string;
+	withPreviews?: boolean;
 	type?: string | null; limit?: number; before?: ReactionPosition; after?: ReactionPosition;
 };
+export type ReactionPreview = { reaction: string; account: { uri: string; username: string; host: string; name: string | null; avatarUrl: string } };
 export type ReactionSnapshot = {
 	uri: string; reactions: Record<string, number>; reactionEmojis: Record<string, string>;
 	reactionAcceptance: string | null; revision: string; reactionVersions?: Record<string, string>; rows?: ReactionRow[];
+	previews?: ReactionPreview[];
 };
 
 export function canonicalReaction(reaction: string, origin: string): string {
@@ -61,6 +64,15 @@ export function validateReactionSnapshots(value: unknown, input: ReactionPeerReq
 		if (Object.entries(item.reactions).some(([key, count]) => key.length > 260 || !Number.isSafeInteger(count) || count < 0)) throw new Error('Invalid reaction count');
 		if (item.reactionVersions != null && (typeof item.reactionVersions !== 'object' || Array.isArray(item.reactionVersions) || Object.keys(item.reactions).some(key => !Object.hasOwn(item.reactionVersions!, key)) || Object.entries(item.reactionVersions).some(([key, version]) => !(key in item.reactions) || typeof version !== 'string' || !/^[0-9a-f]{32}$/.test(version)))) throw new Error('Invalid reaction versions');
 		if (Object.values(item.reactionEmojis).some(url => typeof url !== 'string' || !/^https?:\/\//.test(url))) throw new Error('Invalid reaction emoji');
+		if (item.previews != null) {
+			if (!input.withPreviews || !Array.isArray(item.previews) || item.previews.length > 20) throw new Error('Invalid reaction previews');
+			for (const preview of item.previews) {
+				const actor = preview?.account;
+				if (!actor || typeof preview.reaction !== 'string' || !Object.hasOwn(item.reactions, preview.reaction) ||
+					typeof actor.uri !== 'string' || !/^https?:\/\//.test(actor.uri) || typeof actor.avatarUrl !== 'string' || !/^https?:\/\//.test(actor.avatarUrl) ||
+					typeof actor.username !== 'string' || typeof actor.host !== 'string' || (actor.name !== null && typeof actor.name !== 'string')) throw new Error('Invalid preview actor');
+			}
+		}
 		if (![null, 'likeOnly', 'likeOnlyForRemote', 'nonSensitiveOnly', 'nonSensitiveOnlyForLocalLikeOnlyForRemote'].includes(item.reactionAcceptance)) throw new Error('Invalid reaction policy');
 		if (input.mode === 'list' && (!Array.isArray(item.rows) || item.rows.length > (input.limit ?? 10))) throw new Error('Invalid reaction list');
 		const ids = new Set<string>();

@@ -34,6 +34,10 @@ try {
 	}, { origin: g.origin, account });
 	const page = await context.newPage(); page.setDefaultTimeout(30000);
 	const errors = []; page.on('pageerror', error => errors.push(error.message));
+	const reactionLists = [];
+	page.on('request', request => {
+		if (request.url().endsWith('/api/gridspace/private-action') && request.postDataJSON()?.action === 'reaction-list') reactionLists.push(request.url());
+	});
 	const url = `${g.origin}/gridspace/channels/${fixture.channel.id}`;
 	await page.goto(`${g.origin}/channels`);
 	const combined = page.locator('[data-combined-channels]');
@@ -117,7 +121,16 @@ try {
 	await picker.locator('.result button').first().click();
 	await expect(picker).toHaveCount(0);
 	await expect(posted.locator('[data-gridspace-note-actions] button')).toHaveCount(1);
+	const reactionButton = posted.locator('button[data-reaction="👍"]');
+	await expect(reactionButton.locator('img').last()).toHaveAttribute('title', `@${fixture.resonite.username}@${new URL(r.origin).host}`);
+	assert.equal(reactionLists.length, 0, 'Actor previews must not issue per-button action requests');
 	await posted.getByRole('button', { name: /もっと見る/ }).click(); await expect(posted.getByText(body, { exact: true })).toBeVisible();
+	await expect(posted.locator('img[src^="blob:"]')).toBeVisible();
+	await expect.poll(() => posted.locator('img[src^="blob:"]').evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true);
+	await reactionButton.hover();
+	await expect(page.locator('._acrylic._shadow').filter({ hasText: fixture.resonite.username })).toBeVisible();
+	assert.equal(reactionLists.length, 1, 'Only an explicit hover loads the complete actor tooltip');
+	await page.mouse.move(1, 1);
 	await expect(posted.locator('img[src^="blob:"]')).toBeVisible();
 	await page.screenshot({ path: '.config/channels-desktop.png', fullPage: true });
 	console.log('Old identity, CW, attachment upload and authenticated image display UI PASS');
@@ -176,16 +189,14 @@ try {
 	await page.screenshot({ path: '.config/channels-mobile.png', fullPage: true });
 	assert.equal(await root.evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
 	await page.goto(`${g.origin}/gridspace/channels/${fixture.sensitive.id}`);
-	await expect(root.getByRole('button', { name: 'センシティブなチャンネルの投稿を表示する', exact: true })).toBeVisible();
-	await expect(root.locator('[data-gridspace-private-note]')).toHaveCount(0);
-	await root.getByRole('button', { name: 'センシティブなチャンネルの投稿を表示する', exact: true }).click();
+	await expect(root.getByRole('button', { name: 'センシティブなチャンネルの投稿を表示する', exact: true })).toHaveCount(0);
 	await expect(root.getByText(`Sensitive body ${fixture.suffix}`, { exact: true })).toBeVisible();
 	await page.goto(url);
 	await expect(root.getByText(uncertain, { exact: true })).toBeVisible();
 	await api(g, 'gridspace/private-grant', { action: 'revoke' }, fixture.grid.token);
 	await expect(root.locator('[data-gridspace-private-note]')).toHaveCount(0, { timeout: 40000 });
 	await expect(root.getByText('チャンネルの投稿を取得できませんでした。接続と閲覧の許可を確認して再試行してください。', { exact: true })).toBeVisible();
-	console.log('Mobile width, sensitive reveal and live revocation clear PASS');
+	console.log('Mobile width, ordinary sensitive-channel entry and live revocation clear PASS');
 	assert.deepEqual(errors, []);
 } finally {
 	await browser.close();

@@ -77,6 +77,10 @@ try {
 		await r.db.query('INSERT INTO note SELECT (jsonb_populate_record(NULL::note, to_jsonb(n) || $1::jsonb)).* FROM note n WHERE n.id=$2', [JSON.stringify({ id, text: `${query} historical ${n}` }), first.id]);
 		history.push(id);
 	}
+	// Initial linking now grants all requested scopes together. Explicitly revoke
+	// reading before testing the separate consent/replay rejection paths.
+	assert.equal((await api(g, 'gridspace/private-grant', {}, gu.token)).granted, true);
+	await api(g, 'gridspace/private-grant', { action: 'revoke' }, gu.token);
 	await denied(read(gu));
 	await denied(read(viewer));
 	const flow = await consent(g, r, gu, ru, 'gridspace/private-grant', false);
@@ -118,6 +122,16 @@ try {
 	assert.equal((await read(gu, { mode: 'home', query: undefined })).notes.length, 0);
 	assert.ok((await read(gu)).notes.length, 'G unfollow revoked the independent old read permission');
 	console.log('Old-only followers/specified notes, CW, historical paging, profile, validation and hidden-match exclusion PASS');
+
+	const cutoffPost = await post(r, ru, { visibility: 'public', text: `${query} cutoff-policy` });
+	for (const cutoff of [Math.ceil(Date.now() / 1000) + 30, -1]) {
+		await api(r, 'i/update', { makeNotesFollowersOnlyBefore: cutoff }, ru.token);
+		await eventually('Selected linked author preserves protected public notes', async () => (await read(gu, { userId: gu.id, query: 'cutoff-policy' })).notes.some(note => note.id === cutoffPost.id));
+	}
+	await api(r, 'i/update', { makeNotesFollowersOnlyBefore: null }, ru.token);
+	assert.equal((await read(gu, { userId: gu.id, query: 'cutoff-policy' })).notes.length, 0);
+	await api(r, 'notes/delete', { noteId: cutoffPost.id }, ru.token);
+	console.log('Mixed linked-author absolute/relative follower-only policy remains searchable PASS');
 
 	const weak = await api(g, 'miauth/gen-token', { session: null, permission: ['read:account'], name: `weak-${suffix}` }, gu.token);
 	await denied(api(g, 'gridspace/private-notes', { mode: 'search', query }, weak.token));
@@ -207,10 +221,10 @@ try {
 	const stale = await consent(g, r, gu, ru, 'gridspace/private-grant', false);
 	await consent(g, r, gu, ru, 'gridspace/link');
 	await denied(api(g, 'gridspace/private-grant', stale, gu.token));
-	await denied(read(gu));
-	assert.equal((await api(r, 'gridspace/private-grant', {}, ru.token)).granted, false);
-	await consent(g, r, gu, ru, 'gridspace/private-grant');
-	console.log('Link generation change invalidates both read grants and pending consent PASS');
+	await denied(read(gu, { cursor }));
+	assert.equal((await api(g, 'gridspace/private-grant', {}, gu.token)).granted, true);
+	assert.equal((await api(r, 'gridspace/private-grant', {}, ru.token)).granted, true);
+	console.log('Relinking replaces both read grants while invalidating old cursors and pending consent PASS');
 
 	// Leave a usable authorized fixture for browser verification and manual checks.
 	await api(r, 'following/create', { userId: author.id }, ru.token);

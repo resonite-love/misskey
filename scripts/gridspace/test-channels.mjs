@@ -132,6 +132,10 @@ try {
 	const action = options => api(g, 'gridspace/private-action', { noteId: parent.id, channelId: channel.id, ...options }, grid.token);
 	await action({ action: 'add-reaction', reaction: '👍' }); await action({ action: 'add-reaction', reaction: '🎉' });
 	assert.deepEqual(new Set((await action({})).note.myReactions), new Set(['👍', '🎉']));
+	const previews = (await action({})).note.reactionPreviews;
+	assert.ok(previews.some(row => row.reaction === '👍' && row.account.username === resonite.username));
+	assert.ok(previews.some(row => row.reaction === '🎉' && row.account.username === resonite.username));
+	assert.equal(new Set(previews.map(row => `${row.reaction}:${row.account.uri}`)).size, previews.length);
 	await action({ action: 'remove-reaction', reaction: '🎉' });
 	assert.deepEqual((await action({})).note.myReactions, ['👍']);
 	assert.equal((await action({ action: 'reaction-list', reaction: '👍' })).reactors[0].account.username, resonite.username);

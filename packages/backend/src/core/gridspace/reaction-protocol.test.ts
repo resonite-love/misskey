@@ -13,6 +13,15 @@ const uri = `${r}/notes/abc`;
 const snapshot: ReactionSnapshot = { uri, reactions: { '👍': 2 }, reactionEmojis: {}, reactionAcceptance: null, revision: 'a'.repeat(64), rows: [] };
 
 describe('paired reaction wire contract', () => {
+	test('bounds and validates authorized batch actor previews', () => {
+		const input = { mode: 'show' as const, uris: [uri], withPreviews: true };
+		const preview = { reaction: '👍', account: { uri: `${r}/users/u`, username: 'u', host: 'r.example', name: null, avatarUrl: `${r}/avatar.png` } };
+		expect(validateReactionSnapshots([{ ...snapshot, previews: [preview] }], input, r)[0].previews).toEqual([preview]);
+		for (const previews of [[...Array(21).fill(preview)], [{ ...preview, reaction: 'missing' }], [{ ...preview, account: { ...preview.account, avatarUrl: 'javascript:bad' } }]]) {
+			expect(() => validateReactionSnapshots([{ ...snapshot, previews }], input, r)).toThrow();
+		}
+		expect(() => validateReactionSnapshots([{ ...snapshot, previews: [preview] }], { ...input, withPreviews: false }, r)).toThrow();
+	});
 	test('uses only the exact peer origin and excludes channels without widening note sharing', () => {
 		const peer = { origin: g, peerOrigin: r } as GridspacePeerConfig;
 		const note = { userHost: 'r.example', uri, channelId: null };

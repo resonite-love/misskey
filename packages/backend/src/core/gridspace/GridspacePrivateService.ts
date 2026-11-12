@@ -68,16 +68,20 @@ export class GridspacePrivateService {
 		return { localUserId: (await this.channelAuth.source(input.channelActorId)).id, initiator: false };
 	}
 
-	private query(viewerId: string, input: Partial<PrivatePeerRequest> = {}) {
+	private query(viewerId: string, input: Partial<PrivatePeerRequest> = {}, authors?: Pick<MiUser, 'id' | 'makeNotesFollowersOnlyBefore'>[]) {
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
 		if ((mode === 'channel' && !input.channelId) || (input.channelId && mode !== 'channel' && mode !== 'show')) throw new GridspaceLinkError('INVALID_REQUEST');
-		const query = this.search.noteQuery({ id: viewerId }, { query: input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId);
-		if (mode && mode !== 'show' && mode !== 'channel') {
+		const query = this.search.noteQuery({ id: viewerId }, { query: input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length);
+		if (mode && mode !== 'show' && mode !== 'channel' && authors?.every(author => author.makeNotesFollowersOnlyBefore == null)) {
+			query.andWhere("note.visibility IN ('followers', 'specified')");
+		} else if (mode && mode !== 'show' && mode !== 'channel') {
 			query.andWhere(`(note.visibility IN ('followers', 'specified') OR ("user"."makeNotesFollowersOnlyBefore" IS NOT NULL
 				AND ${this.noteTime} <= CASE WHEN "user"."makeNotesFollowersOnlyBefore" > 0 THEN "user"."makeNotesFollowersOnlyBefore"::bigint * 1000
 				ELSE :nowMs::bigint + "user"."makeNotesFollowersOnlyBefore"::bigint * 1000 END))`);
 		}
-		if (input.targetUris) query.andWhere('(COALESCE(user.uri, :origin || \'/users/\' || user.id) IN (:...targets))', { origin: this.peer!.origin, targets: input.targetUris });
+		if (input.targetUris) query.andWhere(`note.userId IN (SELECT target.id FROM "user" target
+			WHERE target.uri IN (:...targets) OR (target.host IS NULL AND :origin || '/users/' || target.id IN (:...targets)))`, { origin: this.peer!.origin, targets: input.targetUris });
+		if (authors) query.andWhere('note.userId IN (:...resolvedAuthors)', { resolvedAuthors: authors.map(author => author.id) });
 		// Home subscriptions belong to the destination account. The source checks
 		// readability; localAllows checks current follows/requests after retrieval.
 		if (input.withReplies === false) query.andWhere(mode === 'home'
@@ -90,7 +94,18 @@ export class GridspacePrivateService {
 	}
 
 	private async sourceNotes(viewerId: string, input: PrivatePeerRequest) {
-		const query = this.query(viewerId, input);
+		let authors: Pick<MiUser, 'id' | 'makeNotesFollowersOnlyBefore'>[] | undefined;
+		if (input.targetUris) {
+			const prefix = `${this.peer!.origin}/users/`;
+			authors = await this.db.getRepository(MiUser).find({
+				select: { id: true, makeNotesFollowersOnlyBefore: true },
+				where: [{ uri: In(input.targetUris) }, { host: IsNull(), id: In(input.targetUris.filter(uri => uri.startsWith(prefix)).map(uri => uri.slice(prefix.length))) }],
+			});
+			if (!authors.length) return [];
+		}
+		// Resolve author policies before planning the scan. The final body packing
+		// still rechecks current visibility and authorization without this shortcut.
+		const query = this.query(viewerId, input, authors);
 		if (input.mode === 'show') query.andWhere('note.id = :noteId', { noteId: input.noteId });
 		if (input.mode === 'validate') query.andWhere('note.id IN (:...ids)', { ids: input.ids });
 		if (input.before) query.andWhere('note.id < :before', { before: input.before });
@@ -135,6 +150,7 @@ export class GridspacePrivateService {
 			visibility: note.visibility, localOnly: note.localOnly, emojis: emojiUrls,
 			channelId: note.channelId, canDelete: !!note.channelId && note.userId === viewerId,
 			reactions, reactionEmojis, myReaction, myReactions, extendedReactions: !!note.channelId || supportsGridspaceReactions(note, this.peer),
+			reactionPreviews: reactionState.reactionPreviews?.filter(row => Object.keys(reactions).some(reaction => reaction.replace('@.:', ':') === row.reaction.replace('@.:', ':'))),
 			author: { ...this.actor(note.user!), avatarUrl: (note.user!.avatarId == null ? null : note.user!.avatarUrl) ?? this.users.getIdenticonUrl(note.user!) }, filterActors: actors.map(user => this.actor(user)),
 			replyId: note.replyId && readableRelated.has(note.replyId) ? note.replyId : null,
 			renoteId: note.renoteId && readableRelated.has(note.renoteId) ? note.renoteId : null,
@@ -155,7 +171,7 @@ export class GridspacePrivateService {
 		const selected = rows.slice(0, limit);
 		const relatedIds = selected.flatMap(note => [note.replyId, note.renoteId]).filter((id): id is string => id != null);
 		const related = relatedIds.length ? await this.search.read(this.query(link.localUserId, { mode: 'show', channelId: input.channelId, withChannelNotes: !link.initiator }).andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
-		const reactionStates = new Map((selected.length ? await this.extendedReactions.show(selected.map(note => note.id), { id: link.localUserId }) : []).map(state => [state.noteId, state]));
+		const reactionStates = new Map((selected.length ? await this.extendedReactions.show(selected.map(note => note.id), { id: link.localUserId }, true) : []).map(state => [state.noteId, state]));
 		const packed = await Promise.all(selected.map(note => this.pack(note, link.localUserId, new Set(related.map(item => item.id)), reactionStates.get(note.id))));
 		// Recheck after packing attachments/polls, not just before the asynchronous work.
 		await this.authorizeRead(input);

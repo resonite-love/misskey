@@ -12,7 +12,7 @@ import { } from 'vue';
 import * as Misskey from 'misskey-js';
 
 const props = withDefaults(defineProps<{
-	user: Misskey.entities.User;
+	user: Pick<Misskey.entities.UserLite, 'name' | 'username' | 'host'> & Partial<Pick<Misskey.entities.UserLite, 'emojis'>>;
 	nowrap?: boolean;
 }>(), {
 	nowrap: true,

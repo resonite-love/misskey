@@ -25838,6 +25838,16 @@ export interface operations {
                                 };
                                 myReaction?: string | null;
                                 myReactions?: string[];
+                                reactionPreviews?: {
+                                    reaction: string;
+                                    account: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                    };
+                                }[];
                                 extendedReactions?: boolean;
                                 replyId: string | null;
                                 renoteId: string | null;
@@ -26148,6 +26158,16 @@ export interface operations {
                             };
                             myReaction?: string | null;
                             myReactions?: string[];
+                            reactionPreviews?: {
+                                reaction: string;
+                                account: {
+                                    name: string | null;
+                                    username: string;
+                                    host: string;
+                                    uri: string;
+                                    avatarUrl: string;
+                                };
+                            }[];
                             extendedReactions?: boolean;
                             replyId: string | null;
                             renoteId: string | null;
@@ -26488,6 +26508,16 @@ export interface operations {
                             };
                             myReaction?: string | null;
                             myReactions?: string[];
+                            reactionPreviews?: {
+                                reaction: string;
+                                account: {
+                                    name: string | null;
+                                    username: string;
+                                    host: string;
+                                    uri: string;
+                                    avatarUrl: string;
+                                };
+                            }[];
                             extendedReactions?: boolean;
                             replyId: string | null;
                             renoteId: string | null;

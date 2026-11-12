@@ -4,6 +4,7 @@
  */
 
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
+import type { ReactionPreview } from './reaction-protocol.js';
 
 export type PrivateOptions = {
 	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'validate';
@@ -24,6 +25,7 @@ export type PrivateNote = {
 	canDelete?: boolean;
 	emojis?: Record<string, string>; reactions?: Record<string, number>; reactionEmojis?: Record<string, string>; myReaction?: string | null;
 	myReactions?: string[]; extendedReactions?: boolean;
+	reactionPreviews?: ReactionPreview[];
 	replyId: string | null; renoteId: string | null;
 	files: { id: string; name: string; type: string; size: number; comment: string | null; isSensitive: boolean }[];
 	poll: { choices: { text: string; votes: number; isVoted?: boolean }[]; expiresAt: string | null; multiple: boolean } | null;
@@ -50,6 +52,9 @@ export const privateNoteSchema = {
 		reactionEmojis: { type: 'object', optional: true, nullable: false, additionalProperties: text },
 		myReaction: { ...nullableText, optional: true },
 		myReactions: { type: 'array', optional: true, nullable: false, items: text },
+		reactionPreviews: { type: 'array', optional: true, nullable: false, items: { type: 'object', optional: false, nullable: false, properties: {
+			reaction: text, account: { type: 'object', optional: false, nullable: false, properties: { name: nullableText, username: text, host: text, uri: text, avatarUrl: text } },
+		} } },
 		extendedReactions: { ...flag, optional: true },
 		replyId: nullableText, renoteId: nullableText,
 		files: { type: 'array', optional: false, nullable: false, items: { type: 'object', optional: false, nullable: false, properties: {

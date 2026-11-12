@@ -59,7 +59,18 @@ export class GridspaceSearchService {
 		try {
 			await runner.startTransaction();
 			await runner.query("SET LOCAL statement_timeout = '3s'");
-			const rows = await query.setQueryRunner(runner).getMany();
+			if (query.getParameters().gridspaceAuthorScoped === true) {
+				// Keep the author scan ordered; a bitmap plan must collect and sort
+				// all matches, even though this page only needs a handful of notes.
+				await runner.query('SET LOCAL enable_bitmapscan = off');
+			}
+			// These queries join only to-one relations. TypeORM's take() pagination
+			// otherwise DISTINCT-sorts every matching wide row before applying LIMIT.
+			const bounded = query.clone();
+			if (bounded.expressionMap.take != null) {
+				bounded.limit(bounded.expressionMap.take).take(undefined);
+			}
+			const rows = await bounded.setQueryRunner(runner).getMany();
 			await runner.commitTransaction();
 			return rows;
 		} finally {
@@ -81,14 +92,19 @@ export class GridspaceSearchService {
 		return query.orderBy('user.id', 'DESC');
 	}
 
-	public noteQuery(viewer: { id: string } | null, options: SearchOptions, source: boolean, authenticated = viewer != null, channelId?: string) {
+	public noteQuery(viewer: { id: string } | null, options: SearchOptions, source: boolean, authenticated = viewer != null, channelId?: string, authorScoped = options.userId != null) {
 		const query = this.db.getRepository(MiNote).createQueryBuilder('note')
 			.innerJoinAndSelect('note.user', 'user')
 			.leftJoinAndSelect('note.channel', 'channel')
 			.leftJoinAndSelect('note.reply', 'reply').leftJoinAndSelect('reply.user', 'replyUser')
 			.leftJoinAndSelect('note.renote', 'renote').leftJoinAndSelect('renote.user', 'renoteUser')
-			.where('user.isDeleted = false');
-		if (options.query) query.andWhere('(note.text ILIKE :q OR (note.cw IS NOT NULL AND note.cw::text ILIKE :q))', { q: `%${sqlLikeEscape(options.query)}%` });
+			.where('user.isDeleted = false')
+			.setParameter('gridspaceAuthorScoped', authorScoped);
+		// For an explicit author, use the author index before matching text. Common
+		// one-character terms can otherwise materialize millions of PGroonga hits.
+		if (options.query) query.andWhere(authorScoped
+			? "((note.text || '') ILIKE :q OR (note.cw || '') ILIKE :q)"
+			: '(note.text ILIKE :q OR (note.cw IS NOT NULL AND note.cw::text ILIKE :q))', { q: `%${sqlLikeEscape(options.query)}%` });
 		this.queries.generateBaseNoteFilteringQuery(query, viewer);
 		// These settings can hide an otherwise public note. Filter before matching/paging,
 		// so neither an ID nor a continuation token reveals a match in hidden text.
@@ -126,7 +142,7 @@ export class GridspaceSearchService {
 		if (input.link && !await this.db.getRepository(MiGridspaceLink).existsBy({ id: input.link.id, generation: input.link.generation,
 			localUserId: input.targetId, peerUserId: input.link.counterpartId, peerOrigin: this.peer.peerOrigin, state: 'active' })) return { active: false, items: [] };
 		if (!input.viewerId && this.meta.ugcVisibilityForVisitor === 'none') return { active: true, items: [] };
-		const query = input.kind === 'notes' ? this.noteQuery(viewer, input, true, input.viewerId != null) : this.userQuery(viewer).andWhere('user.host IS NULL');
+		const query = input.kind === 'notes' ? this.noteQuery(viewer, input, true, input.viewerId != null, undefined, input.targetId != null) : this.userQuery(viewer).andWhere('user.host IS NULL');
 		const alias = input.kind === 'notes' ? 'note' : 'user';
 		if (input.kind === 'users' && !input.ids) query.andWhere('(user.name ILIKE :q OR user.username ILIKE :q)', { q: `%${sqlLikeEscape(input.query.replace(/^@/, ''))}%` });
 		if (input.targetId) query.andWhere(`${input.kind === 'notes' ? 'note.userId' : 'user.id'} = :author`, { author: input.targetId });

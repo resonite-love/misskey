@@ -132,6 +132,12 @@ try {
 	assert.ok(filtered.some(note => note.userId === gu.id) && filtered.some(note => note.userId === remote.id));
 	const peerSelected = (await collect(g, viewer.token, { userId: remote.id, rangeStartAt: start, rangeEndAt: start + 6000 })).notes;
 	assert.deepEqual(peerSelected.map(note => uri(g, note)), filtered.map(note => uri(g, note)));
+	for (const term of ['a', 'A']) {
+		const short = (await collect(g, viewer.token, { query: term, userId: gu.id, rangeStartAt: start, rangeEndAt: start + 6000, limit: 2 })).notes;
+		assert.deepEqual(short.map(note => uri(g, note)), filtered.map(note => uri(g, note)));
+	}
+	assert.equal((await collect(g, viewer.token, { query: `absent-${suffix}`, userId: gu.id })).notes.length, 0);
+	console.log('Selected-author a/A, CW match, multiple pages and absent term PASS');
 	for (const change of [{ query: 'different' }, { userId: gu.id }, { rangeEndAt: start }, { kind: 'users' }]) {
 		await assert.rejects(api(g, 'gridspace/search', { query, cursor: first.cursor, ...change }, viewer.token), err => err.code === 'GRIDSPACE_SEARCH_UNAVAILABLE');
 	}

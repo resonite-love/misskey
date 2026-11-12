@@ -25,6 +25,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		:myReactions="props.myReactions"
 		:extendedReactions="props.extendedReactions"
 		:reactionVersion="typeof props.reactionVersion === 'object' ? props.reactionVersion[reaction] : props.reactionVersion"
+		:transport="transport"
 		@reactionToggled="onMockToggleReaction"
 	/>
 	<slot v-if="hasMoreReactions" name="more"></slot>
@@ -42,6 +43,7 @@ import { $i } from '@/i.js';
 import { prefer } from '@/preferences.js';
 import { customEmojisMap } from '@/custom-emojis.js';
 import { DI } from '@/di.js';
+import type { ReactionTransport } from '@/utility/reaction-transport.js';
 
 const props = withDefaults(defineProps<{
 	noteId: Misskey.entities.Note['id'];
@@ -52,6 +54,7 @@ const props = withDefaults(defineProps<{
 	extendedReactions?: boolean;
 	reactionVersion?: number | Record<string, string>;
 	maxNumber?: number;
+	transport?: ReactionTransport;
 }>(), {
 	maxNumber: Infinity,
 });

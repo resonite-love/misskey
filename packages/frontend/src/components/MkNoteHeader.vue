@@ -20,7 +20,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div v-if="mock">
 			<MkTime :time="note.createdAt" colored/>
 		</div>
-		<MkA v-else :to="notePage(note)">
+		<MkA v-else :to="noteUrl ?? notePage(note)">
 			<MkTime :time="note.createdAt" colored/>
 		</MkA>
 		<span v-if="note.visibility !== 'public'" style="margin-left: 0.5em;" :title="i18n.ts._visibility[note.visibility]">
@@ -43,7 +43,11 @@ import { userPage } from '@@/js/user.js';
 import { DI } from '@/di.js';
 
 defineProps<{
-	note: Misskey.entities.Note;
+	note: Pick<Misskey.entities.Note, 'id' | 'createdAt' | 'visibility' | 'localOnly'> & {
+		user: Pick<Misskey.entities.UserLite, 'name' | 'username' | 'host'> & Partial<Pick<Misskey.entities.UserLite, 'id' | 'emojis' | 'isBot' | 'badgeRoles'>>;
+		channel?: { name: string } | null;
+	};
+	noteUrl?: string;
 }>();
 
 const mock = inject(DI.mock, false);

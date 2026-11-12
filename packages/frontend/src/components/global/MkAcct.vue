@@ -16,7 +16,7 @@ import { toUnicode } from 'punycode.js';
 import { host as hostRaw } from '@@/js/config.js';
 
 defineProps<{
-	user: Misskey.entities.UserLite;
+	user: Pick<Misskey.entities.UserLite, 'username' | 'host'>;
 	detail?: boolean;
 }>();
 

@@ -24,7 +24,7 @@ import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protoco
 import { requestGridspacePeer } from './peer-client.js';
 import { gridspaceNoteId } from './note-protocol.js';
 import { searchNoteTimeSql } from './search-visibility.js';
-import { canonicalReaction, localReaction, compareReactionRows, encodeReactionPosition, reactionPosition, validateReactionSnapshots, supportsGridspaceReactions, GRIDSPACE_REACTIONS_PATH, type ReactionPeerRequest, type ReactionPosition, type ReactionRow, type ReactionSnapshot } from './reaction-protocol.js';
+import { canonicalReaction, localReaction, compareReactionRows, encodeReactionPosition, reactionPosition, validateReactionSnapshots, supportsGridspaceReactions, GRIDSPACE_REACTIONS_PATH, type ReactionPeerRequest, type ReactionPosition, type ReactionRow, type ReactionSnapshot, type ReactionPreview } from './reaction-protocol.js';
 
 // A reactor's home server owns its complete set. Do not add a peer's replicated
 // ActivityPub primary reaction a second time, or resurrect it after cancellation.
@@ -62,6 +62,25 @@ export class GridspaceReactionService {
 		return supportsGridspaceReactions(note, this.peer);
 	}
 
+	/** Bounded display data travels with the authorized note batch, never per-button polling. */
+	private async previews(note: MiNote, shared: boolean): Promise<ReactionPreview[]> {
+		const allRows = `SELECT DISTINCT ON ("userId", reaction) * FROM (
+			SELECT id, "userId", ${normalizedReaction} AS reaction FROM note_reaction WHERE "noteId" = $1
+			UNION ALL SELECT id, "userId", ${normalizedReaction} AS reaction FROM extended_note_reaction WHERE "noteId" = $1
+		) r ORDER BY "userId", reaction, id`;
+		const rows: { reaction: string; userId: string }[] = await this.db.query(`SELECT r.reaction, r."userId" FROM (${shared ? ownedRows : allRows}) r ORDER BY r.id DESC LIMIT 20`,
+			shared ? [note.id, note.userHost !== null, new URL(this.peer!.peerOrigin).host] : [note.id]);
+		if (!rows.length) return [];
+		const users = new Map((await this.db.getRepository(MiUser).findBy({ id: In(rows.map(row => row.userId)) })).map(user => [user.id, user]));
+		return rows.flatMap(row => {
+			const user = users.get(row.userId);
+			return user ? [{ reaction: canonicalReaction(row.reaction, this.peer!.origin), account: {
+				uri: user.uri ?? `${this.peer!.origin}/users/${user.id}`, username: user.username, name: user.name,
+				host: user.host ?? new URL(this.peer!.origin).host, avatarUrl: (user.avatarId == null ? null : user.avatarUrl) ?? this.users.getIdenticonUrl(user),
+			} }] : [];
+		});
+	}
+
 	private async visible(notes: MiNote[], viewer: { id: string } | null, authenticated = viewer != null): Promise<MiNote[]> {
 		if (!notes.length) return [];
 		// A signed peer can attest a login before its actor has been cached here.
@@ -92,6 +111,7 @@ export class GridspaceReactionService {
 		const revision = createHash('sha256').update(JSON.stringify(counts)).digest('hex');
 		const reactionVersions = Object.fromEntries(counts.map(row => [canonicalReaction(row.reaction, peer.origin), row.revision]));
 		const result: ReactionSnapshot = { uri: this.uri(note), reactions, reactionEmojis, revision, reactionVersions, reactionAcceptance: note.reactionAcceptance };
+		if (input.withPreviews && input.mode === 'show') result.previews = (await this.previews(note, true)).filter(row => Object.hasOwn(reactions, row.reaction));
 		if (input.mode === 'list') {
 			const rows: { id: string; userId: string; userUri: string | null; userHost: string | null; reaction: string; time: string }[] = await this.db.query(`
 				SELECT r.*, ${this.reactionTime} AS time FROM (${ownedRows}) r
@@ -134,19 +154,19 @@ export class GridspaceReactionService {
 		return validateReactionSnapshots(result, input, this.peer!.peerOrigin);
 	}
 
-	public async show(noteIds: string[], me: { id: string } | null) {
+	public async show(noteIds: string[], me: { id: string } | null, withPreviews = false) {
 		const notes = await this.db.getRepository(MiNote).findBy({ id: In(noteIds) });
 		const shared = (await this.visible(notes.filter(note => this.shared(note)), me));
-		const input: ReactionPeerRequest = { mode: 'show', uris: shared.map(note => this.uri(note)), viewerId: me?.id };
+		const input: ReactionPeerRequest = { mode: 'show', uris: shared.map(note => this.uri(note)), viewerId: me?.id, ...(withPreviews ? { withPreviews: true } : {}) };
 		let remote: ReactionSnapshot[] | null = [];
 		if (shared.length) { try { remote = await this.remote(input); } catch { remote = null; } }
 		const base = await this.extended.show(noteIds, me, new Set(remote === null ? [] : shared.map(note => note.id)));
 		const result = [];
 		for (const state of base) {
 			const note = notes.find(item => item.id === state.noteId)!;
-			if (!this.shared(note)) { result.push({ ...state, shared: false, complete: true }); continue; }
+			if (!this.shared(note)) { result.push({ ...state, shared: false, complete: true, reactionPreviews: withPreviews ? (await this.previews(note, false)).map(row => ({ ...row, reaction: localReaction(row.reaction, this.peer!.origin) })) : undefined }); continue; }
 			if (!shared.some(item => item.id === note.id)) continue;
-			if (remote === null) { result.push({ ...state, shared: true, complete: false }); continue; }
+			if (remote === null) { result.push({ ...state, shared: true, complete: false, reactionPreviews: undefined }); continue; }
 			const other = remote.find(item => item.uri === this.uri(note));
 			if (note.userHost !== null && !other) continue;
 			const own = await this.snapshot(note, input);
@@ -156,6 +176,7 @@ export class GridspaceReactionService {
 			const reactionVersions = !other || other.reactionVersions ? Object.fromEntries(Object.keys(reactions).map(key =>
 				[localReaction(key, this.peer!.origin), `${own.reactionVersions?.[key] ?? ''}:${other?.reactionVersions?.[key] ?? ''}`])) : undefined;
 			result.push({ ...state, shared: true, complete: true, reactionVersions, revision: own.revision + (other?.revision ?? ''),
+				reactionPreviews: withPreviews ? [...own.previews ?? [], ...other?.previews ?? []].slice(0, 20).map(row => ({ ...row, reaction: localReaction(row.reaction, this.peer!.origin) })) : undefined,
 				reactions: Object.fromEntries(Object.entries(reactions).map(([key, value]) => [localReaction(key, this.peer!.origin), value])),
 				reactionEmojis: Object.fromEntries(Object.entries({ ...own.reactionEmojis, ...other?.reactionEmojis }).map(([key, value]) => [localReaction(`:${key}:`, this.peer!.origin).slice(1, -1), value])),
 			});

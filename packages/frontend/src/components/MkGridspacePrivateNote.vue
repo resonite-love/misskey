@@ -7,13 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <article v-if="!deleted" ref="article" :class="$style.note" data-gridspace-private-note>
 	<MkA :to="authorPage" :class="$style.avatar" :aria-label="note.author.name || note.author.username"><img :src="avatarUrl" alt="" loading="lazy" decoding="async"></MkA>
 	<div :class="$style.content">
-	<header :class="$style.header">
-		<MkA :to="authorPage"><strong>{{ note.author.name || note.author.username }}</strong></MkA>
-		<span :class="$style.account">@{{ note.author.username }}@{{ note.author.host }}</span>
-		<MkA :to="noteLink(note.id)"><MkTime :time="note.createdAt"/></MkA>
-		<span v-if="note.channelId"><i class="ti ti-device-tv" aria-hidden="true"></i> {{ i18n.ts.channel }}</span>
-		<span v-else><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateProtected }}</span>
-	</header>
+	<MkNoteHeader :note="headerNote" :noteUrl="noteLink(note.id)"/>
 	<div v-if="note.channelId && (note.replyId || note.renoteId)" :class="$style.parentLinks"><MkA v-if="note.replyId" :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA><MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA></div>
 	<template v-if="note.channelId && note.cw != null">
 		<div :class="$style.body"><Mfm :text="note.cw || i18n.ts._gridspace.privateContentWarning" :author="note.author" :emojiUrls="note.emojis ?? {}" :plain="true"/><MkCwButton v-model="expanded" :text="note.text" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/></div>
@@ -65,6 +59,7 @@ import MkGridspaceNoteActions from '@/components/MkGridspaceNoteActions.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkGridspaceReply from '@/components/MkGridspaceReply.vue';
 import MkCwButton from '@/components/MkCwButton.vue';
+import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import { gridspacePost } from '@/utility/gridspace-post.js';
 import { copyToClipboard } from '@/utility/copy-to-clipboard.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
@@ -78,6 +73,7 @@ import * as os from '@/os.js';
 const props = defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number] }>();
 const updated = ref<entities.GridspacePrivateNotesResponse['notes'][number] | null>(null);
 const note = computed(() => updated.value ?? props.note);
+const headerNote = computed(() => ({ id: note.value.id, createdAt: note.value.createdAt, user: note.value.author, visibility: (['public', 'home', 'followers', 'specified'].includes(note.value.visibility) ? note.value.visibility : 'specified') as entities.Note['visibility'], localOnly: note.value.localOnly, channel: note.value.channelId ? { name: i18n.ts.channel } : null }));
 watch(() => props.note, () => { updated.value = null; });
 const emit = defineEmits<{ (event: 'unavailable'): void; (event: 'replied'): void }>();
 const actions = useTemplateRef('actions');

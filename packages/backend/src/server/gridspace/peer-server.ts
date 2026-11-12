@@ -110,6 +110,7 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			bodyLimit: 32768, config: { rawBody: true }, preHandler: authenticate,
 			schema: { body: { type: 'object', additionalProperties: false, required: ['mode', 'uris'], properties: {
 				mode: { type: 'string', enum: ['show', 'list'] }, uris: { type: 'array', minItems: 1, maxItems: 100, uniqueItems: true, items: { type: 'string', maxLength: 512 } },
+				withPreviews: { type: 'boolean' },
 				viewerId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, type: { type: 'string', nullable: true, maxLength: 260 },
 				limit: { type: 'integer', minimum: 1, maximum: 100 }, before: position, after: position,
 			} } },
