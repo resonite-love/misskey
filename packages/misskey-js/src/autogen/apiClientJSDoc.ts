@@ -594,7 +594,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
      * **Credential required**: *Yes*
      */
@@ -606,7 +606,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
      * **Credential required**: *Yes*
      */
@@ -618,7 +618,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
      * **Credential required**: *Yes*
      */
@@ -630,7 +630,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
      * **Credential required**: *Yes*
      */
@@ -2939,7 +2939,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
      * **Credential required**: *Yes*
      */
@@ -2951,7 +2951,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Credential required**: *No*
      */
     request<E extends 'gridspace/member', P extends Endpoints[E]['req']>(
@@ -2962,7 +2962,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
      * **Credential required**: *Yes*
      */
@@ -2974,7 +2974,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
      * **Credential required**: *Yes*
      */
@@ -2986,7 +2986,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
      * **Credential required**: *Yes*
      */
@@ -2998,7 +2998,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Credential required**: *Yes* / **Permission**: *read:gridspace-private*
      */
     request<E extends 'gridspace/private-file', P extends Endpoints[E]['req']>(
@@ -3009,7 +3009,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
      * **Credential required**: *Yes*
      */
@@ -3021,7 +3021,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Credential required**: *Yes* / **Permission**: *read:gridspace-private*
      */
     request<E extends 'gridspace/private-notes', P extends Endpoints[E]['req']>(
@@ -3032,7 +3032,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Credential required**: *Yes* / **Permission**: *write:gridspace-reply*
      */
     request<E extends 'gridspace/private-reply', P extends Endpoints[E]['req']>(
@@ -3043,7 +3043,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
      * **Credential required**: *Yes*
      */
@@ -3055,7 +3055,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Credential required**: *No*
      */
     request<E extends 'gridspace/search', P extends Endpoints[E]['req']>(
@@ -3066,7 +3066,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Credential required**: *No*
      */
     request<E extends 'gridspace/search-info', P extends Endpoints[E]['req']>(
@@ -3077,7 +3077,7 @@ declare module '../api.js' {
 
     /**
      * No description provided.
-     *
+     * 
      * **Credential required**: *No*
      */
     request<E extends 'hashtags/list', P extends Endpoints[E]['req']>(

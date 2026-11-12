@@ -43,7 +43,7 @@ import MkTab from '@/components/MkTab.vue';
 import MkButton from '@/components/MkButton.vue';
 import XLinkedHistory from './linked-history.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
-import { userPage } from '@/filters/user.js';
+import { userPage } from '@@/js/user.js';
 import { i18n } from '@/i18n.js';
 import { Paginator } from '@/utility/paginator.js';
 

@@ -108,6 +108,15 @@ try {
 	const sourceFollows = (await r.db.query('SELECT COUNT(*)::int AS count FROM following WHERE "followerId"=$1', [a.r.id])).rows[0].count;
 	assert.equal(sourceFollows, 8, 'Mirrored links added follows to the source account');
 	console.log('Reauthorization preserves unfollows; existing links catch up; source changes stay independent PASS');
+	const young = await pair('young');
+	await api(g, 'i/update', { followApprovalLocalSeconds: 3600 }, young.g.token);
+	await link(young);
+	await followOld(young);
+	await eventually('account-age approval remains pending', async () => (await state(young)).hasPendingFollowRequestFromYou);
+	assert.equal((await state(young)).isFollowing, false, 'Automatic follow bypassed account-age approval');
+	await api(g, 'following/requests/accept', { userId: a.g.id }, young.g.token);
+	await follows(young);
+	console.log('Account-age approval applies to automatic follows and manual acceptance completes them PASS');
 	await link(pairs.repair);
 	// Revoke only this disposable fixture's source OAuth grant. The local worker
 	// must not turn stale link metadata into authorization, then must recover.

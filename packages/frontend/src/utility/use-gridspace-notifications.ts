@@ -9,7 +9,7 @@ import type { entities } from 'misskey-js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { linkedNotifications, refreshLinkedNotifications, setLinkedNotificationCount } from '@/utility/gridspace-notification-state.js';
 import { $i } from '@/i.js';
-import { updateCurrentAccountPartial } from '@/accounts.js';
+import { updateCurrentAccount } from '@/accounts.js';
 import { useStream } from '@/stream.js';
 import { store } from '@/store.js';
 import { prefer } from '@/preferences.js';
@@ -78,7 +78,7 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>) {
 	const readError = computed(() => sources.some(s => readErrors[s]));
 
 	function count(source: Source, value: number) {
-		if (source === 'peer') { setLinkedNotificationCount(value); } else updateCurrentAccountPartial({ unreadNotificationsCount: value, hasUnreadNotification: value > 0 });
+		if (source === 'peer') { setLinkedNotificationCount(value); } else updateCurrentAccount({ unreadNotificationsCount: value, hasUnreadNotification: value > 0 });
 	}
 
 	function convert(page: Page, source: Source): NotificationRow[] {

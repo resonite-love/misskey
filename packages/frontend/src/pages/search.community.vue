@@ -35,7 +35,7 @@ import MkButton from '@/components/MkButton.vue';
 import MkGridspaceNoteList from '@/components/MkGridspaceNoteList.vue';
 import { i18n } from '@/i18n.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
-import { userPage } from '@/filters/user.js';
+import { userPage } from '@@/js/user.js';
 
 const props = defineProps<{ params: Misskey.entities.GridspaceSearchRequest }>();
 type UserResult = Misskey.entities.GridspaceSearchResponse['users'][number];

@@ -26,7 +26,7 @@ if ($Action -eq 'build') {
 $env:PATH = (Join-Path $repo 'node_modules/.bin') + [IO.Path]::PathSeparator + $env:PATH
 Push-Location $repo
 try {
-    & node (Join-Path $repo 'node_modules/pnpm/bin/pnpm.cjs') $Action
+    & pnpm $Action
     if ($LASTEXITCODE -ne 0) { throw ('Misskey {0} failed ({1}).' -f $Action, $LASTEXITCODE) }
 } finally {
     Pop-Location

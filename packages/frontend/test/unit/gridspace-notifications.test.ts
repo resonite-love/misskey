@@ -11,7 +11,7 @@ import { linkedNotifications } from '@/utility/gridspace-notification-state.js';
 
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: vi.fn() }));
 vi.mock('@/i.js', () => ({ $i: { id: 'viewer', hardMutedWords: [] } }));
-vi.mock('@/accounts.js', () => ({ updateCurrentAccountPartial: vi.fn() }));
+vi.mock('@/accounts.js', () => ({ updateCurrentAccount: vi.fn() }));
 vi.mock('@/composables/use-note.js', () => ({ checkNoteWordMute: () => false }));
 vi.mock('@/preferences.js', () => ({ prefer: { s: { useGroupedNotifications: true } } }));
 vi.mock('@/store.js', () => ({ store: { s: { realtimeMode: false } } }));
