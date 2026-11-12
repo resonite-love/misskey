@@ -17,10 +17,21 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<label :class="$style.field"><span>{{ i18n.ts._gridspace.replyCw }}</span><input v-model="cw" :disabled="!!pending || sending" maxlength="100" autocomplete="off"></label>
 				<label :class="$style.field"><span>{{ i18n.ts.text }}</span><textarea v-model="text" :disabled="!!pending || sending" rows="5" autocomplete="off"></textarea></label>
 				<div>{{ Array.from(text).length }} / {{ info.maxTextLength }}</div>
+				<template v-if="info.canAttach">
+					<label :class="$style.field"><span>{{ i18n.ts._gridspace.replyAttachment }}</span><input type="file" multiple :disabled="!!pending || sending" @change="selectFiles"></label>
+					<p>{{ i18n.ts._gridspace.replyAttachmentHint }}</p>
+					<div v-for="(attachment, index) in attachments" :key="index" class="_gaps_s">
+						<span>{{ attachment.file.name }}</span>
+						<label :class="$style.field">{{ i18n.ts._gridspace.replyAlt }}<input v-model="attachment.comment" :disabled="!!pending || sending || !!attachment.id" maxlength="500"></label>
+						<label><input v-model="attachment.isSensitive" type="checkbox" :disabled="!!pending || sending || !!attachment.id">{{ i18n.ts._gridspace.replySensitive }}</label>
+						<MkButton small :disabled="!!pending || sending" @click="attachments.splice(index, 1)">{{ i18n.ts.remove }}</MkButton>
+					</div>
+				</template>
+				<MkA v-else to="/settings/gridspace">{{ i18n.ts._gridspace.replyAttachmentAuthorize }}</MkA>
 			</template>
 			<p v-else>{{ i18n.ts._gridspace.replyPending }}</p>
 			<MkButton v-if="pending" primary :disabled="sending" @click="send">{{ pending.action === 'status' ? i18n.ts._gridspace.replyCheck : i18n.ts._gridspace.replyRetry }}</MkButton>
-			<MkButton v-else primary :disabled="sending || !text.trim() || Array.from(text).length > info.maxTextLength" @click="send">{{ i18n.ts._gridspace.replySend }}</MkButton>
+			<MkButton v-else primary :disabled="sending || (!text.trim() && !attachments.length) || Array.from(text).length > info.maxTextLength" @click="send">{{ i18n.ts._gridspace.replySend }}</MkButton>
 			<MkButton v-if="pending" :disabled="sending" @click="discard">{{ i18n.ts._gridspace.replyDiscard }}</MkButton>
 		</template>
 		<template v-else>
@@ -39,6 +50,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script setup lang="ts">
 import { onBeforeUnmount, onDeactivated, ref, shallowRef, watch } from 'vue';
+import { apiUrl } from '@@/js/config.js';
 import type { entities } from 'misskey-js';
 import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
@@ -57,6 +69,7 @@ const sending = ref(false);
 const error = ref('');
 const text = ref('');
 const cw = ref('');
+const attachments = ref<{ file: File; comment: string; isSensitive: boolean; id?: string }[]>([]);
 const createdId = ref<string | null>(null);
 const pending = shallowRef<entities.GridspacePrivateReplyRequest | null>(null);
 let generation = 0;
@@ -65,7 +78,7 @@ const signal = () => AbortSignal.any([controller.signal, AbortSignal.timeout(150
 
 function clear() {
 	generation++; controller.abort(); controller = new AbortController();
-	info.value = null; pending.value = null; text.value = ''; cw.value = ''; createdId.value = null; loading.value = false; sending.value = false;
+	info.value = null; pending.value = null; text.value = ''; cw.value = ''; attachments.value = []; createdId.value = null; loading.value = false; sending.value = false;
 }
 
 async function load() {
@@ -80,29 +93,52 @@ async function load() {
 }
 
 async function send() {
-	if (sending.value || !info.value?.canReply || (!pending.value && (!text.value.trim() || Array.from(text.value).length > info.value.maxTextLength))) return;
+	if (sending.value || !info.value?.canReply || (!pending.value && ((!text.value.trim() && !attachments.value.length) || Array.from(text.value).length > info.value.maxTextLength))) return;
 	const current = generation; sending.value = true; error.value = '';
 	try {
 		if (!pending.value) {
+			for (const attachment of attachments.value) {
+				if (attachment.id) continue;
+				const form = new FormData();
+				form.set('i', $i!.token); form.set('noteId', props.noteId); form.set('name', attachment.file.name);
+				form.set('comment', attachment.comment); form.set('isSensitive', String(attachment.isSensitive)); form.set('file', attachment.file);
+				const response = await window.fetch(`${apiUrl}/gridspace/private-upload`, { method: 'POST', body: form, credentials: 'omit', cache: 'no-store', signal: signal() });
+				if (!response.ok) throw new Error('upload');
+				const result = await response.json() as entities.GridspacePrivateUploadResponse;
+				if (generation !== current) return;
+				attachment.id = result.id;
+			}
 			const fresh = crypto.randomUUID();
 			const requestId = rememberReplyRequest(accountId, props.noteId, fresh);
 			pending.value = requestId === fresh
-				? { action: 'send', noteId: props.noteId, requestId, text: text.value, cw: cw.value || null }
+				? { action: 'send', noteId: props.noteId, requestId, text: text.value, cw: cw.value || null, fileIds: attachments.value.map(file => file.id!) }
 				: { action: 'status', noteId: props.noteId, requestId };
 		}
 		const result = await misskeyApi('gridspace/private-reply', pending.value, undefined, signal());
 		if (generation !== current) return;
 		if (!result.createdNoteId) { error.value = i18n.ts._gridspace.replyPending; return; }
 		forgetReplyRequest(accountId, props.noteId, pending.value.requestId!);
-		createdId.value = result.createdNoteId; pending.value = null; text.value = ''; cw.value = '';
+		createdId.value = result.createdNoteId; pending.value = null; text.value = ''; cw.value = ''; attachments.value = [];
 	} catch (err) {
 		if (generation !== current) return;
+		if (!pending.value) { error.value = i18n.ts._gridspace.replyUploadFailed; return; }
 		const reason = (err as { info?: { reason?: string } }).info?.reason;
 		if (reason === 'REPLY_REJECTED' || reason === 'RATE_LIMITED') {
 			if (pending.value?.requestId) forgetReplyRequest(accountId, props.noteId, pending.value.requestId);
 			pending.value = null; error.value = i18n.ts._gridspace.replyRejected;
 		} else { error.value = i18n.ts._gridspace.replyUncertain; }
 	} finally { if (generation === current) sending.value = false; }
+}
+
+function selectFiles(event: Event) {
+	const input = event.target as HTMLInputElement;
+	const files = Array.from(input.files ?? []);
+	input.value = '';
+	if (sending.value || pending.value) return;
+	if (attachments.value.length + files.length > 16 || files.some(file => !file.size || file.size > 16 * 1024 * 1024)) {
+		error.value = i18n.ts._gridspace.replyAttachmentHint; return;
+	}
+	attachments.value.push(...files.map(file => ({ file, comment: '', isSensitive: false })));
 }
 
 async function close() {

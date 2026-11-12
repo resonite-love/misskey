@@ -12,6 +12,7 @@ export const GRIDSPACE_PRIVATE_SCOPE = 'read:gridspace-private';
 export const GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE = 'read:gridspace-private-reciprocal';
 export const GRIDSPACE_NOTIFICATION_SCOPE = 'read:gridspace-notifications';
 export const GRIDSPACE_NOTIFICATION_WRITE_SCOPE = 'write:gridspace-notifications';
+export const GRIDSPACE_ACTION_SCOPE = 'write:gridspace-actions';
 export const GRIDSPACE_REPLY_SCOPE = 'write:gridspace-reply';
 export const GRIDSPACE_CALLBACK_PATH = '/settings/gridspace';
 export const GRIDSPACE_LINK_SCOPES = ['read:account', 'read:following', 'read:blocks', 'read:mutes'];

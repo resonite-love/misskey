@@ -14,10 +14,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<span><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateProtected }}</span>
 	</header>
 	<details v-if="note.cw != null" :class="$style.body" :open="expanded" @toggle="toggleContent">
-		<summary>{{ note.cw || i18n.ts._gridspace.privateContentWarning }}</summary>
-		<div :class="$style.text">{{ note.text }}</div>
+		<summary><Mfm :text="note.cw || i18n.ts._gridspace.privateContentWarning" :author="note.author" :emojiUrls="note.emojis ?? {}" :plain="true" :enableEmojiMenu="false"/></summary>
+		<div :class="$style.text"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false"/></div>
 	</details>
-	<div v-else :class="[$style.body, $style.text]">{{ note.text }}</div>
+	<div v-else :class="[$style.body, $style.text]"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false"/></div>
 	<div v-if="note.cw == null || expanded" class="_gaps_s">
 		<div v-for="file in note.files" :key="file.id" class="_gaps_s">
 			<MkButton v-if="!blobs[file.id]" small :disabled="loading === file.id" @click="loadFile(file.id)">
@@ -31,9 +31,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<MkButton small @click="clearFile(file.id)">{{ i18n.ts.hide }}</MkButton>
 			</template>
 		</div>
-		<ul v-if="note.poll">
-			<li v-for="(choice, index) in note.poll.choices" :key="index">{{ choice.text }} — {{ choice.votes }}</li>
-		</ul>
+		<MkGridspaceNoteActions :note="note" @changed="updated = $event" @unavailable="emit('unavailable')"/>
 	</div>
 	<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateFileError }}</p>
 	<footer class="_buttons">
@@ -49,6 +47,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onDeactivated, ref, watch } from 'vue';
 import type { entities } from 'misskey-js';
+import MkGridspaceNoteActions from '@/components/MkGridspaceNoteActions.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkGridspaceReply from '@/components/MkGridspaceReply.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
@@ -57,6 +56,9 @@ import { prefer } from '@/preferences.js';
 import { getStaticImageUrl } from '@/utility/media-proxy.js';
 
 const props = defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number] }>();
+const updated = ref<entities.GridspacePrivateNotesResponse['notes'][number] | null>(null);
+const note = computed(() => updated.value ?? props.note);
+watch(() => props.note, () => { updated.value = null; });
 const emit = defineEmits<{ (event: 'unavailable'): void }>();
 const authorPage = computed(() => `/@${props.note.author.username}@${props.note.author.host}`);
 const avatarUrl = computed(() => prefer.s.disableShowingAnimatedImages || prefer.s.dataSaver.avatar ? getStaticImageUrl(props.note.author.avatarUrl) : props.note.author.avatarUrl);
@@ -75,6 +77,7 @@ function clearFile(id: string) {
 
 function clear() {
 	generation++;
+	updated.value = null;
 	for (const id of Object.keys(blobs.value)) clearFile(id);
 	loading.value = null;
 }
@@ -119,7 +122,7 @@ onDeactivated(clear);
 .header { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
 .account { color: var(--MI_THEME-fgTransparentWeak); font-size: 0.85em; }
 .body { margin-block: 12px; }
-.text { white-space: pre-wrap; }
+.text { overflow-wrap: anywhere; }
 .media { display: block; max-width: 100%; max-height: 420px; }
 @container (max-width: 500px) {
 	.note { gap: 12px; padding: 20px 16px; }

@@ -35,3 +35,8 @@ export const FileUnavailable = {
 	...Attachment,
 	parameters: { msw: { handlers: [http.post('/api/gridspace/private-file', () => HttpResponse.json({ error: { code: 'GRIDSPACE_PRIVATE_UNAVAILABLE' } }, { status: 403 }))] } },
 } satisfies StoryObj<typeof MkGridspacePrivateNote>;
+
+export const Formatted = {
+	...Default,
+	args: { note: { ...Default.args.note, text: '**MFM** :example: @kokoa', cw: 'CW :example:', emojis: { example: '/static-assets/avatar.png' } } },
+} satisfies StoryObj<typeof MkGridspacePrivateNote>;

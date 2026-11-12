@@ -42,7 +42,7 @@ type MfmProps = {
 	text: string;
 	plain?: boolean;
 	nowrap?: boolean;
-	author?: Misskey.entities.UserLite;
+	author?: Pick<Misskey.entities.UserLite, 'host' | 'isCat'>;
 	isNote?: boolean;
 	emojiUrls?: Record<string, string>;
 	rootScale?: number;

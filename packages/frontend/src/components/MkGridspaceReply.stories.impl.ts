@@ -9,7 +9,7 @@ import { HttpResponse, http } from 'msw';
 import MkGridspaceReply from './MkGridspaceReply.vue';
 
 const account = { name: 'ここあ', username: 'kokoa', host: 'peer.example', uri: 'https://peer.example/users/old', avatarUrl: '/static-assets/avatar.png' };
-const prepared = { account, canReply: true, visibility: 'followers', localOnly: true, recipients: [], maxTextLength: 3000, createdNoteId: null };
+const prepared = { account, canReply: true, canAttach: true, visibility: 'followers', localOnly: true, recipients: [], maxTextLength: 3000, createdNoteId: null };
 export const Default = {
 	render: args => ({ components: { MkGridspaceReply }, setup: () => ({ args }), template: '<MkGridspaceReply v-bind="args" />' }),
 	args: { noteId: 'private1' },

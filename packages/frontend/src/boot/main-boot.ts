@@ -129,7 +129,7 @@ export async function mainBoot() {
 
 	if ($i) {
 		store.loaded.then(async () => {
-			if (store.s.accountSetupWizard !== -1) {
+			if (store.s.accountSetupWizard !== -1 && window.location.pathname !== '/settings/gridspace') {
 				const { dispose } = popup(defineAsyncComponent(() => import('@/components/MkUserSetupDialog.vue')), {}, {
 					closed: () => dispose(),
 				});

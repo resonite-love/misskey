@@ -409,6 +409,8 @@ import type {
 	GridspaceNotificationsResponse,
 	GridspaceNotificationsReadRequest,
 	GridspaceNotificationsReadResponse,
+	GridspacePrivateActionRequest,
+	GridspacePrivateActionResponse,
 	GridspacePrivateFileRequest,
 	GridspacePrivateFileResponse,
 	GridspacePrivateGrantRequest,
@@ -417,6 +419,8 @@ import type {
 	GridspacePrivateNotesResponse,
 	GridspacePrivateReplyRequest,
 	GridspacePrivateReplyResponse,
+	GridspacePrivateUploadRequest,
+	GridspacePrivateUploadResponse,
 	GridspaceSearchRequest,
 	GridspaceSearchResponse,
 	GridspaceSearchInfoResponse,
@@ -970,10 +974,12 @@ export type Endpoints = {
 	'gridspace/member': { req: GridspaceMemberRequest; res: GridspaceMemberResponse };
 	'gridspace/notifications': { req: GridspaceNotificationsRequest; res: GridspaceNotificationsResponse };
 	'gridspace/notifications/read': { req: GridspaceNotificationsReadRequest; res: GridspaceNotificationsReadResponse };
+	'gridspace/private-action': { req: GridspacePrivateActionRequest; res: GridspacePrivateActionResponse };
 	'gridspace/private-file': { req: GridspacePrivateFileRequest; res: GridspacePrivateFileResponse };
 	'gridspace/private-grant': { req: GridspacePrivateGrantRequest; res: GridspacePrivateGrantResponse };
 	'gridspace/private-notes': { req: GridspacePrivateNotesRequest; res: GridspacePrivateNotesResponse };
 	'gridspace/private-reply': { req: GridspacePrivateReplyRequest; res: GridspacePrivateReplyResponse };
+	'gridspace/private-upload': { req: GridspacePrivateUploadRequest; res: GridspacePrivateUploadResponse };
 	'gridspace/search': { req: GridspaceSearchRequest; res: GridspaceSearchResponse };
 	'gridspace/search-info': { req: EmptyRequest; res: GridspaceSearchInfoResponse };
 	'hashtags/list': { req: HashtagsListRequest; res: HashtagsListResponse };
@@ -1172,4 +1178,5 @@ export type Endpoints = {
  */
 export const endpointReqTypes = {
 	'drive/files/create': 'multipart/form-data',
+	'gridspace/private-upload': 'multipart/form-data',
 } as const satisfies { [K in keyof Endpoints]?: 'multipart/form-data'; };

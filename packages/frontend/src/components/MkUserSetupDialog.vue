@@ -38,6 +38,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 							<i class="ti ti-confetti" style="display: block; margin: auto; font-size: 3em; color: var(--MI_THEME-accent);"></i>
 							<div style="font-size: 120%;">{{ i18n.ts._initialAccountSetting.accountCreated }}</div>
 							<div>{{ i18n.ts._initialAccountSetting.letsStartAccountSetup }}</div>
+							<MkGridspaceSignupGuide @link="linkAccount"/>
 							<MkButton primary rounded gradate style="margin: 16px auto 0 auto;" data-testid="user-setup-continue" @click="page++">{{ i18n.ts._initialAccountSetting.profileSetting }} <i class="ti ti-arrow-right"></i></MkButton>
 							<MkButton style="margin: 0 auto;" transparent rounded @click="later(true)">{{ i18n.ts.later }}</MkButton>
 						</div>
@@ -130,6 +131,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script lang="ts" setup>
 import { ref, useTemplateRef, watch, nextTick, defineAsyncComponent } from 'vue';
 import { host } from '@@/js/config.js';
+import MkGridspaceSignupGuide from '@/components/MkGridspaceSignupGuide.vue';
+import { mainRouter } from '@/router.js';
 import MkModalWindow from '@/components/MkModalWindow.vue';
 import MkButton from '@/components/MkButton.vue';
 import XProfile from '@/components/MkUserSetupDialog.Profile.vue';
@@ -165,6 +168,12 @@ async function close(skip: boolean) {
 
 	dialog.value?.close();
 	store.set('accountSetupWizard', -1);
+}
+
+function linkAccount() {
+	store.set('accountSetupWizard', 1);
+	dialog.value?.close();
+	mainRouter.push('/settings/gridspace');
 }
 
 function setupComplete() {
@@ -230,7 +239,7 @@ async function later(later: boolean) {
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	height: 100cqh;
+	min-height: 100cqh;
 	padding-bottom: 30px;
 	box-sizing: border-box;
 }

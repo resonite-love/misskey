@@ -188,6 +188,12 @@ API 試験は専用の G/R 設定を確認して、新しいテストアカウ�
 
 画面試験は `.config/gridspace-notification-test-accounts.json` のアカウントを使い、Chrome で認可・通知一覧・添付画像・更新・解除・通信失敗からの復旧を確認する。グループへの追加と既読は、応答を固定した画面試験でも確認する。画像は `.config/notifications-desktop.png` と `.config/notifications-mobile.png` に保存する。認証情報と画像は Git に追加しない。
 
+## 旧名義での操作・表示・登録案内
+
+G のリポジトリから `node scripts/gridspace/test-actions.mjs` を実行すると、両サーバーで追加の OAuth 許可、旧名義でのリアクション・投票・添付付き返信、権限制限を確認する。続けて `node scripts/gridspace/test-actions-ui.mjs` で、Chrome による操作、MFM・カスタム絵文字、実際の新規登録後の案内と初期設定の再開を確認する。
+
+専用アカウントは Git 管理外の `.config/gridspace-actions-test-accounts.json` に保存する。画像は `.config/actions-mfm.png`、`.config/actions-mobile.png`、`.config/actions-signup.png` に保存する。ビルドとサーバーの再起動を済ませてから実行し、画面試験中はフロントエンドを再ビルドしない。
+
 ## 停止と再開
 
 試験環境を停止する場合は Misskey 本体とトンネルを停止し、次を実行する。DB のボリュームは保持される。

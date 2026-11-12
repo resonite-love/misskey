@@ -5,6 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <div class="_gaps_m">
+	<MkButton v-if="store.s.accountSetupWizard !== -1" @click="resumeSetup">{{ i18n.ts._gridspace.signupResume }}</MkButton>
 	<MkInfo>{{ i18n.ts._gridspace.description }}</MkInfo>
 	<MkLoading v-if="!status && !error"/>
 	<MkInfo v-if="error" warn role="alert">{{ error }}</MkInfo>
@@ -43,6 +44,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<p>{{ i18n.ts._gridspace.replyConsent }}</p>
 				<MkInfo v-if="readGrant?.canReply && readGrant.available">{{ i18n.ts._gridspace.replyGranted }}</MkInfo>
 				<MkButton :disabled="busy" @click="startPrivate(true)">{{ i18n.ts._gridspace.replyAuthorize }}</MkButton>
+				<p>{{ i18n.ts._gridspace.actionConsent }}</p>
+				<MkInfo v-if="readGrant?.canInteract && readGrant.available">{{ i18n.ts._gridspace.actionGranted }}</MkInfo>
+				<MkButton :disabled="busy" @click="startPrivate(true, false, true)">{{ i18n.ts._gridspace.actionAuthorize }}</MkButton>
 			</section>
 			<template v-if="status.total">
 				<div aria-live="polite">{{ i18n.tsx._gridspace.progress({ total: status.total, done: status.done, pending: status.pending, requested: status.requested, failed: status.failed, skipped: status.skipped }) }}</div>
@@ -65,9 +69,14 @@ import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
+import { store } from '@/store.js';
 import { $i } from '@/i.js';
 import { definePage } from '@/page.js';
 import * as os from '@/os.js';
+
+async function resumeSetup() {
+	const { dispose } = await os.popupAsyncWithDialog(import('@/components/MkUserSetupDialog.vue').then(module => module.default), {}, { closed: () => dispose() });
+}
 
 const status = ref<entities.GridspaceLinkResponse | null>(null);
 const readGrant = ref<entities.GridspacePrivateGrantResponse | null>(null);
@@ -125,9 +134,9 @@ async function start() {
 	});
 }
 
-async function startPrivate(withReply = false, withNotifications = false) {
+async function startPrivate(withReply = false, withNotifications = false, withActions = false) {
 	await perform(async () => {
-		const result = await misskeyApi('gridspace/private-grant', { action: 'start', withReply, withNotifications });
+		const result = await misskeyApi('gridspace/private-grant', { action: 'start', withReply, withNotifications, withActions });
 		if (!result.authorizationUrl || !result.clientKey) throw new Error('Missing authorization URL');
 		sessionStorage.setItem(storageKey, result.clientKey);
 		sessionStorage.setItem(`${storageKey}:purpose`, 'private');

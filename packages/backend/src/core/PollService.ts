@@ -3,6 +3,12 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { DataSource, type EntityManager } from 'typeorm';
+import { MiPoll } from '@/models/Poll.js';
+import { MiPollVote } from '@/models/PollVote.js';
+import type { MiLocalUser, MiRemoteUser } from '@/models/User.js';
+import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
+import { QueueService } from '@/core/QueueService.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { DI } from '@/di-symbols.js';
 import type { NotesRepository, UsersRepository, PollsRepository, PollVotesRepository, MiUser } from '@/models/_.js';
@@ -16,9 +22,16 @@ import { ApDeliverManagerService } from '@/core/activitypub/ApDeliverManagerServ
 import { bindThis } from '@/decorators.js';
 import { UserBlockingService } from '@/core/UserBlockingService.js';
 
+export class PollVoteError extends Error {
+	constructor(public code: 'noSuchNote' | 'noPoll' | 'invalidChoice' | 'alreadyVoted' | 'alreadyExpired' | 'youHaveBeenBlocked') { super(code); }
+}
+
 @Injectable()
 export class PollService {
 	constructor(
+		@Inject(DI.db) private db: DataSource,
+		private noteEntityService: NoteEntityService,
+		private queueService: QueueService,
 		@Inject(DI.usersRepository)
 		private usersRepository: UsersRepository,
 
@@ -39,6 +52,34 @@ export class PollService {
 		private apRendererService: ApRendererService,
 		private apDeliverManagerService: ApDeliverManagerService,
 	) {
+	}
+
+	/** Local votes share one transactional path, including delegated old-account votes. */
+	@bindThis
+	public async castVote(user: MiLocalUser, note: MiNote, choice: number, beforeInsert?: (manager: EntityManager) => Promise<void>) {
+		if (!await this.noteEntityService.isVisibleForMe(note, user.id)) throw new PollVoteError('noSuchNote');
+		if (!note.hasPoll) throw new PollVoteError('noPoll');
+		if (note.userId !== user.id && await this.userBlockingService.checkBlocked(note.userId, user.id)) throw new PollVoteError('youHaveBeenBlocked');
+		const result = await this.db.transaction(async manager => {
+			await beforeInsert?.(manager);
+			const poll = await manager.getRepository(MiPoll).findOne({ where: { noteId: note.id }, lock: { mode: 'pessimistic_write' } });
+			if (!poll) throw new PollVoteError('noPoll');
+			if (poll.expiresAt && poll.expiresAt.getTime() <= Date.now()) throw new PollVoteError('alreadyExpired');
+			if (!Number.isInteger(choice) || poll.choices[choice] == null) throw new PollVoteError('invalidChoice');
+			const votes = manager.getRepository(MiPollVote);
+			const previous = await votes.findBy({ noteId: note.id, userId: user.id });
+			if (previous.some(vote => vote.choice === choice) || (!poll.multiple && previous.length)) throw new PollVoteError('alreadyVoted');
+			const vote = votes.create({ id: this.idService.gen(), noteId: note.id, userId: user.id, choice });
+			await votes.insert(vote);
+			await manager.query('UPDATE poll SET votes[$1] = votes[$1] + 1 WHERE "noteId" = $2', [choice + 1, note.id]);
+			return { vote, poll };
+		});
+		this.globalEventService.publishNoteStream(note, 'pollVoted', { choice, userId: user.id });
+		if (note.userHost != null) {
+			const owner = await this.usersRepository.findOneByOrFail({ id: note.userId }) as MiRemoteUser;
+			this.queueService.deliver(user, this.apRendererService.addContext(await this.apRendererService.renderVote(user, result.vote, note, result.poll, owner)), owner.inbox, false);
+		}
+		this.deliverQuestionUpdate(note.id);
 	}
 
 	@bindThis

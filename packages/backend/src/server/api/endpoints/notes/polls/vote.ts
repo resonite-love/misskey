@@ -3,19 +3,10 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { Inject, Injectable } from '@nestjs/common';
-import type { UsersRepository, PollsRepository, PollVotesRepository } from '@/models/_.js';
-import type { MiRemoteUser } from '@/models/User.js';
-import { IdService } from '@/core/IdService.js';
+import { Injectable } from '@nestjs/common';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { GetterService } from '@/server/api/GetterService.js';
-import { QueueService } from '@/core/QueueService.js';
-import { PollService } from '@/core/PollService.js';
-import { ApRendererService } from '@/core/activitypub/ApRendererService.js';
-import { GlobalEventService } from '@/core/GlobalEventService.js';
-import { DI } from '@/di-symbols.js';
-import { UserBlockingService } from '@/core/UserBlockingService.js';
-import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
+import { PollService, PollVoteError } from '@/core/PollService.js';
 import { ApiError } from '../../../error.js';
 
 export const meta = {
@@ -75,107 +66,18 @@ export const paramDef = {
 	required: ['noteId', 'choice'],
 } as const;
 
-// TODO: ロジックをサービスに切り出す
-
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
-	constructor(
-		@Inject(DI.usersRepository)
-		private usersRepository: UsersRepository,
-
-		@Inject(DI.pollsRepository)
-		private pollsRepository: PollsRepository,
-
-		@Inject(DI.pollVotesRepository)
-		private pollVotesRepository: PollVotesRepository,
-
-		private idService: IdService,
-		private getterService: GetterService,
-		private queueService: QueueService,
-		private pollService: PollService,
-		private apRendererService: ApRendererService,
-		private globalEventService: GlobalEventService,
-		private userBlockingService: UserBlockingService,
-		private noteEntityService: NoteEntityService,
-	) {
+	constructor(private getterService: GetterService, private pollService: PollService) {
 		super(meta, paramDef, async (ps, me) => {
-			const createdAt = new Date();
-
-			// Get votee
 			const note = await this.getterService.getNote(ps.noteId).catch(err => {
 				if (err.id === '9725d0ce-ba28-4dde-95a7-2cbb2c15de24') throw new ApiError(meta.errors.noSuchNote);
 				throw err;
 			});
-
-			// check visibility
-			if (!await this.noteEntityService.isVisibleForMe(note, me.id)) {
-				throw new ApiError(meta.errors.noSuchNote);
+			try { await this.pollService.castVote(me, note, ps.choice); } catch (error) {
+				if (error instanceof PollVoteError) throw new ApiError(meta.errors[error.code]);
+				throw error;
 			}
-
-			if (!note.hasPoll) {
-				throw new ApiError(meta.errors.noPoll);
-			}
-
-			// Check blocking
-			if (note.userId !== me.id) {
-				const blocked = await this.userBlockingService.checkBlocked(note.userId, me.id);
-				if (blocked) {
-					throw new ApiError(meta.errors.youHaveBeenBlocked);
-				}
-			}
-
-			const poll = await this.pollsRepository.findOneByOrFail({ noteId: note.id });
-
-			if (poll.expiresAt && poll.expiresAt < createdAt) {
-				throw new ApiError(meta.errors.alreadyExpired);
-			}
-
-			if (poll.choices[ps.choice] == null) {
-				throw new ApiError(meta.errors.invalidChoice);
-			}
-
-			// if already voted
-			const exist = await this.pollVotesRepository.findBy({
-				noteId: note.id,
-				userId: me.id,
-			});
-
-			if (exist.length) {
-				if (poll.multiple) {
-					if (exist.some(x => x.choice === ps.choice)) {
-						throw new ApiError(meta.errors.alreadyVoted);
-					}
-				} else {
-					throw new ApiError(meta.errors.alreadyVoted);
-				}
-			}
-
-			// Create vote
-			const vote = await this.pollVotesRepository.insertOne({
-				id: this.idService.gen(createdAt.getTime()),
-				noteId: note.id,
-				userId: me.id,
-				choice: ps.choice,
-			});
-
-			// Increment votes count
-			const index = ps.choice + 1; // In SQL, array index is 1 based
-			await this.pollsRepository.query('UPDATE poll SET votes[$1] = votes[$1] + 1 WHERE "noteId" = $2', [index, poll.noteId]);
-
-			this.globalEventService.publishNoteStream(note, 'pollVoted', {
-				choice: ps.choice,
-				userId: me.id,
-			});
-
-			// リモート投票の場合リプライ送信
-			if (note.userHost != null) {
-				const pollOwner = await this.usersRepository.findOneByOrFail({ id: note.userId }) as MiRemoteUser;
-
-				this.queueService.deliver(me, this.apRendererService.addContext(await this.apRendererService.renderVote(me, vote, note, poll, pollOwner)), pollOwner.inbox, false);
-			}
-
-			// リモートフォロワーにUpdate配信
-			this.pollService.deliverQuestionUpdate(note.id);
 		});
 	}
 }

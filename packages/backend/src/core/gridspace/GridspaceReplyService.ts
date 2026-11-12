@@ -9,6 +9,7 @@ import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { MAX_NOTE_TEXT_LENGTH } from '@/const.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
+import { MiDriveFile } from '@/models/DriveFile.js';
 import { MiNote } from '@/models/Note.js';
 import { MiGridspaceReplyReceipt } from '@/models/Gridspace.js';
 import { NoteCreateService } from '@/core/NoteCreateService.js';
@@ -44,13 +45,13 @@ export class GridspaceReplyService {
 		if (!parent || parent.channelId || (isRenote(parent) && !isQuote(parent))) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
 		const audience = replyAudience(parent);
 		const participants = audience.visibleUserIds.length ? await this.db.getRepository(MiUser).findBy({ id: In(audience.visibleUserIds) }) : [];
-		const result = { account: this.actor(user), canReply: await this.links.hasReplyScope(input), visibility: audience.visibility, localOnly: audience.localOnly,
+		const result = { account: this.actor(user), canReply: await this.links.hasReplyScope(input), canAttach: await this.links.hasActionScope(input), visibility: audience.visibility, localOnly: audience.localOnly,
 			recipients: participants.map(person => this.actor(person)), maxTextLength: MAX_NOTE_TEXT_LENGTH, createdNoteId: null as string | null };
 		if (input.action === 'prepare') return result;
 		if (!result.canReply) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if (!input.requestId) throw new GridspaceLinkError('REPLY_REJECTED');
-		if (input.action === 'send' && (!input.text?.trim() || Array.from(input.text).length > MAX_NOTE_TEXT_LENGTH || Array.from(input.cw ?? '').length > 100)) throw new GridspaceLinkError('REPLY_REJECTED');
-		const requestHash = gridspaceHash(JSON.stringify([link.id, link.generation, input.noteId, input.text, input.cw ?? null]));
+		if (input.action === 'send' && ((!input.text?.trim() && !input.fileIds?.length) || Array.from(input.text ?? '').length > MAX_NOTE_TEXT_LENGTH || Array.from(input.cw ?? '').length > 100)) throw new GridspaceLinkError('REPLY_REJECTED');
+		const requestHash = gridspaceHash(JSON.stringify([link.id, link.generation, input.noteId, input.text, input.cw ?? null, ...(input.fileIds?.length ? [input.fileIds] : [])]));
 		const receipts = this.db.getRepository(MiGridspaceReplyReceipt);
 		const receiptKey = { userId: user.id, requestId: input.requestId };
 		const previous = await receipts.findOneBy(receiptKey);
@@ -63,17 +64,18 @@ export class GridspaceReplyService {
 		};
 		if (previous) return acknowledged(previous);
 		if (input.action === 'status') return result;
-		if (!input.text) throw new GridspaceLinkError('REPLY_REJECTED');
+		if (input.fileIds?.length && (!result.canAttach || await this.db.getRepository(MiDriveFile).countBy({ id: In(input.fileIds), userId: user.id }) !== input.fileIds.length)) throw new GridspaceLinkError('REPLY_REJECTED');
 		await rateLimit(user.id);
 		try {
 			await this.links.authorizePrivate(input);
 			const note = await this.create.fetchAndCreate(user, {
-				createdAt: new Date(), text: input.text, cw: input.cw ?? null, replyId: parent.id, renoteId: null,
-				fileIds: [], poll: null, reactionAcceptance: null, channelId: null, ...audience,
+				createdAt: new Date(), text: input.text?.trim() ? input.text : null, cw: input.cw ?? null, replyId: parent.id, renoteId: null,
+				fileIds: input.fileIds ?? [], poll: null, reactionAcceptance: null, channelId: null, ...audience,
 				// A mention typed in a private reply must not add recipients or leak its body.
 				apMentions: [],
 				gridspaceReply: { requestId: input.requestId, requestHash, beforeInsert: async manager => {
 					await this.links.lockReplyAuthorization(input, manager);
+					if (input.fileIds?.length && (!await this.links.hasActionScope(input, manager) || await manager.getRepository(MiDriveFile).countBy({ id: In(input.fileIds), userId: user.id }) !== input.fileIds.length)) throw new GridspaceLinkError('REPLY_REJECTED');
 					const fresh = await this.reader.readableSourceNote(user.id, parent.id, manager.queryRunner);
 					if (!fresh || fresh.channelId || JSON.stringify(replyAudience(fresh)) !== JSON.stringify(audience)) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
 				} },
@@ -93,7 +95,7 @@ export class GridspaceReplyService {
 		const link = await this.links.privateLink(viewer.id);
 		// Apply destination blocks/mutes as well as source readability before sending.
 		if (!(await this.reader.notes(viewer, { mode: 'show', noteId: input.noteId }, 1)).notes.length) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
-		const result = await this.links.json<Awaited<ReturnType<GridspaceReplyService['peerReply']>>>('/gridspace/v1/private/reply', { ...this.links.privateCredential(link), ...input });
+		const result = await this.links.json<Awaited<ReturnType<GridspaceReplyService['peerReply']>>>('/gridspace/v1/private/reply', { action: input.action, noteId: input.noteId, requestId: input.requestId, text: input.text, cw: input.cw, fileIds: input.fileIds, ...this.links.privateCredential(link) });
 		await this.links.checkPrivateUnchanged(link);
 		return result;
 	}

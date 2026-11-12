@@ -2405,6 +2405,16 @@ export type paths = {
          */
         post: operations['gridspace___notifications___read'];
     };
+    '/gridspace/private-action': {
+        /**
+         * gridspace/private-action
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___private-action'];
+    };
     '/gridspace/private-file': {
         /**
          * gridspace/private-file
@@ -2441,6 +2451,16 @@ export type paths = {
          *     **Credential required**: *Yes* / **Permission**: *write:gridspace-reply*
          */
         post: operations['gridspace___private-reply'];
+    };
+    '/gridspace/private-upload': {
+        /**
+         * gridspace/private-upload
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___private-upload'];
     };
     '/gridspace/search': {
         /**
@@ -25054,6 +25074,16 @@ export interface operations {
                                     uri: string;
                                     avatarUrl: string;
                                 };
+                                emojis?: {
+                                    [key: string]: string;
+                                };
+                                reactions?: {
+                                    [key: string]: number;
+                                };
+                                reactionEmojis?: {
+                                    [key: string]: string;
+                                };
+                                myReaction?: string | null;
                                 replyId: string | null;
                                 renoteId: string | null;
                                 files: {
@@ -25068,6 +25098,7 @@ export interface operations {
                                     choices: {
                                         text: string;
                                         votes: number;
+                                        isVoted?: boolean;
                                     }[];
                                     expiresAt: string | null;
                                     multiple: boolean;
@@ -25157,6 +25188,142 @@ export interface operations {
                 content: {
                     'application/json': {
                         unreadCount: number;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___private-action': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default prepare
+                     * @enum {string}
+                     */
+                    action?: 'prepare' | 'react' | 'vote';
+                    noteId: string;
+                    reaction?: string | null;
+                    choice?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        canInteract: boolean;
+                        account: {
+                            name: string | null;
+                            username: string;
+                            host: string;
+                            uri: string;
+                            avatarUrl: string;
+                        };
+                        note: {
+                            id: string;
+                            uri: string;
+                            createdAt: string;
+                            origin: string;
+                            text: string | null;
+                            cw: string | null;
+                            visibility: string;
+                            localOnly: boolean;
+                            author: {
+                                name: string | null;
+                                username: string;
+                                host: string;
+                                uri: string;
+                                avatarUrl: string;
+                            };
+                            emojis?: {
+                                [key: string]: string;
+                            };
+                            reactions?: {
+                                [key: string]: number;
+                            };
+                            reactionEmojis?: {
+                                [key: string]: string;
+                            };
+                            myReaction?: string | null;
+                            replyId: string | null;
+                            renoteId: string | null;
+                            files: {
+                                id: string;
+                                name: string;
+                                type: string;
+                                size: number;
+                                comment: string | null;
+                                isSensitive: boolean;
+                            }[];
+                            poll: {
+                                choices: {
+                                    text: string;
+                                    votes: number;
+                                    isVoted?: boolean;
+                                }[];
+                                expiresAt: string | null;
+                                multiple: boolean;
+                            } | null;
+                        };
                     };
                 };
             };
@@ -25306,6 +25473,8 @@ export interface operations {
                     /** @default false */
                     withNotifications?: boolean;
                     /** @default false */
+                    withActions?: boolean;
+                    /** @default false */
                     withReply?: boolean;
                     state?: string;
                     clientKey?: string;
@@ -25326,6 +25495,7 @@ export interface operations {
                         granted: boolean;
                         mutual: boolean;
                         canReply: boolean;
+                        canInteract: boolean;
                         canReadNotifications: boolean;
                         available: boolean;
                         peerOrigin: string | null;
@@ -25446,6 +25616,16 @@ export interface operations {
                                 uri: string;
                                 avatarUrl: string;
                             };
+                            emojis?: {
+                                [key: string]: string;
+                            };
+                            reactions?: {
+                                [key: string]: number;
+                            };
+                            reactionEmojis?: {
+                                [key: string]: string;
+                            };
+                            myReaction?: string | null;
                             replyId: string | null;
                             renoteId: string | null;
                             files: {
@@ -25460,6 +25640,7 @@ export interface operations {
                                 choices: {
                                     text: string;
                                     votes: number;
+                                    isVoted?: boolean;
                                 }[];
                                 expiresAt: string | null;
                                 multiple: boolean;
@@ -25539,6 +25720,7 @@ export interface operations {
                     noteId: string;
                     requestId?: string;
                     text?: string;
+                    fileIds?: string[];
                     cw?: string | null;
                 };
             };
@@ -25551,6 +25733,7 @@ export interface operations {
                 };
                 content: {
                     'application/json': {
+                        canAttach: boolean;
                         canReply: boolean;
                         account: {
                             name: string | null;
@@ -25571,6 +25754,92 @@ export interface operations {
                         }[];
                         maxTextLength: number;
                         createdNoteId: string | null;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___private-upload': {
+        requestBody: {
+            content: {
+                'multipart/form-data': {
+                    noteId: string;
+                    name: string;
+                    comment?: string | null;
+                    /** @default false */
+                    isSensitive?: boolean;
+                    /**
+                     * Format: binary
+                     * @description The file contents.
+                     */
+                    file: Blob;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        id: string;
+                        name: string;
                     };
                 };
             };

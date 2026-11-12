@@ -15,6 +15,7 @@ import { GridspaceHistoryService } from '@/core/gridspace/GridspaceHistoryServic
 import { GridspaceSearchService } from '@/core/gridspace/GridspaceSearchService.js';
 import { GridspacePrivateService } from '@/core/gridspace/GridspacePrivateService.js';
 import { GridspaceNotificationService } from '@/core/gridspace/GridspaceNotificationService.js';
+import { GridspaceActionService } from '@/core/gridspace/GridspaceActionService.js';
 import { GridspaceReplyService } from '@/core/gridspace/GridspaceReplyService.js';
 import { RoleService } from '@/core/RoleService.js';
 import { RateLimiterService } from '@/server/api/RateLimiterService.js';
@@ -35,11 +36,17 @@ export class GridSpaceServerService {
 		private search: GridspaceSearchService,
 		private privateNotes: GridspacePrivateService,
 		private replies: GridspaceReplyService,
+		private actions: GridspaceActionService,
 		private notifications: GridspaceNotificationService,
 		private roles: RoleService,
 		private limiter: RateLimiterService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
+	}
+
+	private async limitAction(userId: string, key: string, max: number) {
+		const factor = (await this.roles.getUserPolicies(userId)).rateLimitFactor;
+		if (factor > 0 && await this.limiter.limit({ key, duration: 60000, max }, userId, factor)) throw new GridspaceLinkError('RATE_LIMITED');
 	}
 
 	@bindThis
@@ -51,7 +58,9 @@ export class GridSpaceServerService {
 		input => this.replies.peerReply(input, async userId => {
 			const factor = (await this.roles.getUserPolicies(userId)).rateLimitFactor;
 			if (factor > 0 && await this.limiter.limit({ key: 'notes/create', duration: 3600000, max: 300 }, userId, factor)) throw new GridspaceLinkError('RATE_LIMITED');
-		}), (action, input) => this.notifications.peer(action, input));
+		}), (action, input) => this.notifications.peer(action, input),
+		input => this.actions.peerAction(input, userId => this.limitAction(userId, 'gridspace/action', 60)),
+		input => this.actions.peerUpload(input, userId => this.limitAction(userId, 'drive/files/create', 20)));
 		done();
 	}
 }

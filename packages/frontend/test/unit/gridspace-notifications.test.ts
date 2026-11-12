@@ -20,7 +20,7 @@ vi.mock('@/utility/gridspace-notification-state.js', () => ({ linkedNotification
 
 const api = vi.mocked(misskeyApi);
 const at = (n: number) => new Date(1700000000000 + n * 1000).toISOString();
-const notice = (n: number, id = String(n), type = 'test') => ({ id, createdAt: at(n), type, isRead: false, note: null, user: null, body: null, reaction: null });
+const notice = (n: number, id = String(n), type = 'test') => ({ id, createdAt: at(n), type, isRead: false, note: null as { id: string } | null, user: null, body: null, reaction: null });
 const page = (source: string, items: ReturnType<typeof notice>[] = [], next: string | null = null, boundary = 0) => ({
 	origin: source === 'peer' ? 'https://r.example' : 'https://g.example', recipientId: source, unreadCount: 5, next, newest: items[0]?.id ?? null, boundary: boundary ? at(boundary) : null,
 	local: source === 'local' ? items.map(n => ({ ...n, notification: n })) : [], remote: source === 'peer' ? items : [],

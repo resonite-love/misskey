@@ -11,6 +11,11 @@ import { MiUser, type MiLocalUser } from '@/models/User.js';
 import { MiUserProfile } from '@/models/UserProfile.js';
 import { MiNote } from '@/models/Note.js';
 import { MiDriveFile } from '@/models/DriveFile.js';
+import { MiPollVote } from '@/models/PollVote.js';
+import { MiNoteReaction } from '@/models/NoteReaction.js';
+import { ReactionsBufferingService } from '@/core/ReactionsBufferingService.js';
+import { ReactionService } from '@/core/ReactionService.js';
+import { CustomEmojiService } from '@/core/CustomEmojiService.js';
 import { MiPoll } from '@/models/Poll.js';
 import { MiFollowing } from '@/models/Following.js';
 import { MiFollowRequest } from '@/models/FollowRequest.js';
@@ -47,6 +52,9 @@ export class GridspacePrivateService {
 		private http: HttpRequestService,
 		private storage: InternalStorageService,
 		private users: UserEntityService,
+		private emojis: CustomEmojiService,
+		private reactionService: ReactionService,
+		private reactionBuffer: ReactionsBufferingService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 		this.noteTime = searchNoteTimeSql(config.id);
@@ -91,19 +99,38 @@ export class GridspacePrivateService {
 		return { name: user.name, username: user.username, host: user.host ?? new URL(this.peer!.origin).host, uri: user.uri ?? `${this.peer!.origin}/users/${user.id}` };
 	}
 
-	private async pack(note: MiNote, readableRelated: Set<string>): Promise<PrivateWireNote> {
+	private async emojiUrls(names: string[], host: string | null) {
+		const result = await this.emojis.populateEmojis(names, host);
+		const local = await this.emojis.localEmojisCache.fetch();
+		for (const name of names) {
+			const localName = name.endsWith('@.') ? name.slice(0, -2) : host == null && !name.includes('@') ? name : null;
+			const emoji = localName ? local.get(localName) : null;
+			if (emoji) result[name] = emoji.publicUrl || emoji.originalUrl;
+		}
+		return result;
+	}
+
+	private async pack(note: MiNote, viewerId: string, readableRelated: Set<string>): Promise<PrivateWireNote> {
 		const files = note.fileIds.length ? await this.db.getRepository(MiDriveFile).findBy({ id: In(note.fileIds) }) : [];
 		const poll = note.hasPoll ? await this.db.getRepository(MiPoll).findOneBy({ noteId: note.id }) : null;
+		const votes = poll ? await this.db.getRepository(MiPollVote).findBy({ noteId: note.id, userId: viewerId }) : [];
+		const reaction = await this.db.getRepository(MiNoteReaction).findOneBy({ noteId: note.id, userId: viewerId });
+		const emojiUrls = await this.emojiUrls(note.emojis, note.userHost);
+		const buffered = this.meta.enableReactionsBuffering ? await this.reactionBuffer.get(note.id) : { deltas: {} };
+		const reactions = this.reactionService.convertLegacyReactions(this.reactionBuffer.mergeReactions(note.reactions, buffered.deltas ?? {}));
+		const reactionEmojis = await this.emojiUrls(Object.keys(reactions).map(value => value.replace(/^:|:$/g, '')), note.userHost);
+
 		const actorIds = [note.userId, note.replyUserId, note.renoteUserId, note.renote?.replyUserId, note.renote?.renoteUserId].filter((id): id is string => !!id);
 		const actors = await this.db.getRepository(MiUser).findBy({ id: In(actorIds) });
 		return {
 			id: note.id, uri: note.uri ?? `${this.peer!.origin}/notes/${note.id}`, origin: this.peer!.origin, createdAt: this.ids.parse(note.id).date.toISOString(), text: note.text, cw: note.cw,
-			visibility: note.visibility, localOnly: note.localOnly,
+			visibility: note.visibility, localOnly: note.localOnly, emojis: emojiUrls,
+			reactions, reactionEmojis, myReaction: reaction ? Object.keys(this.reactionService.convertLegacyReactions({ [reaction.reaction]: 1 }))[0] : null,
 			author: { ...this.actor(note.user!), avatarUrl: (note.user!.avatarId == null ? null : note.user!.avatarUrl) ?? this.users.getIdenticonUrl(note.user!) }, filterActors: actors.map(user => this.actor(user)),
 			replyId: note.replyId && readableRelated.has(note.replyId) ? note.replyId : null,
 			renoteId: note.renoteId && readableRelated.has(note.renoteId) ? note.renoteId : null,
 			files: files.map(file => ({ id: file.id, name: file.name, type: file.type, size: file.size, comment: file.comment, isSensitive: file.isSensitive || file.maybeSensitive })),
-			poll: poll ? { choices: poll.choices.map((text, i) => ({ text, votes: poll.votes[i] ?? 0 })), expiresAt: poll.expiresAt?.toISOString() ?? null, multiple: poll.multiple } : null,
+			poll: poll ? { choices: poll.choices.map((text, i) => ({ text, votes: poll.votes[i] ?? 0, isVoted: votes.some(vote => vote.choice === i) })), expiresAt: poll.expiresAt?.toISOString() ?? null, multiple: poll.multiple } : null,
 		};
 	}
 
@@ -117,7 +144,7 @@ export class GridspacePrivateService {
 		const selected = rows.slice(0, limit);
 		const relatedIds = selected.flatMap(note => [note.replyId, note.renoteId]).filter((id): id is string => id != null);
 		const related = relatedIds.length ? await this.search.read(this.query(link.localUserId).andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
-		const packed = await Promise.all(selected.map(note => this.pack(note, new Set(related.map(item => item.id)))));
+		const packed = await Promise.all(selected.map(note => this.pack(note, link.localUserId, new Set(related.map(item => item.id)))));
 		// Recheck after packing attachments/polls, not just before the asynchronous work.
 		await this.links.authorizePrivate(input);
 		const fresh = selected.length ? await this.search.read(this.query(link.localUserId, input).andWhere('note.id IN (:...selected)', { selected: selected.map(note => note.id) })) : [];

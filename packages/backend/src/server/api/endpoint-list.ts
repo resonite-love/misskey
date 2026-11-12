@@ -471,4 +471,6 @@ export * as 'gridspace/private-grant' from './endpoints/gridspace/private-grant.
 export * as 'gridspace/private-notes' from './endpoints/gridspace/private-notes.js';
 export * as 'gridspace/private-file' from './endpoints/gridspace/private-file.js';
 export * as 'gridspace/private-reply' from './endpoints/gridspace/private-reply.js';
+export * as 'gridspace/private-upload' from './endpoints/gridspace/private-upload.js';
+export * as 'gridspace/private-action' from './endpoints/gridspace/private-action.js';
 export * as 'gridspace/link' from './endpoints/gridspace/link.js';

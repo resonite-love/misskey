@@ -9585,6 +9585,10 @@ export interface Locale extends ILocale {
          */
         "write:gridspace-notifications": string;
         /**
+         * 連携先から、このアカウントの名義でリアクション・投票を行い、返信用のファイルをドライブへ保存する
+         */
+        "write:gridspace-actions": string;
+        /**
          * 連携先から、このアカウントの名義で限定公開の返信を投稿する
          */
         "write:gridspace-reply": string;
@@ -13695,6 +13699,94 @@ export interface Locale extends ILocale {
         "failed": string;
     };
     "_gridspace": {
+        /**
+         * リアクション・投票
+         */
+        "actionOpen": string;
+        /**
+         * {account} として操作します
+         */
+        "actionIdentity": ParameterizedString<"account">;
+        /**
+         * 連携先のアカウント名義でリアクション・投票を行い、返信用のファイルを保存できます。利用するには、連携先で追加の許可が必要です。
+         */
+        "actionConsent": string;
+        /**
+         * リアクション・投票・添付を許可する
+         */
+        "actionAuthorize": string;
+        /**
+         * 連携先のアカウント名義でリアクション・投票・添付付き返信ができます。
+         */
+        "actionGranted": string;
+        /**
+         * 操作結果を確認できませんでした。再読み込みして現在の状態を確認してください。
+         */
+        "actionFailed": string;
+        /**
+         * リアクション
+         */
+        "actionReaction": string;
+        /**
+         * 絵文字、または連携先の :絵文字名:
+         */
+        "actionReactionHint": string;
+        /**
+         * リアクションする
+         */
+        "actionReact": string;
+        /**
+         * リアクションを取り消す
+         */
+        "actionUnreact": string;
+        /**
+         * 投票済み
+         */
+        "actionVoted": string;
+        /**
+         * 返信に添付するファイル
+         */
+        "replyAttachment": string;
+        /**
+         * 1ファイル16MiBまで、16個まで添付できます。ファイルは連携先のドライブに保存され、返信を取りやめても残ります。
+         */
+        "replyAttachmentHint": string;
+        /**
+         * ファイルの説明
+         */
+        "replyAlt": string;
+        /**
+         * センシティブなファイル
+         */
+        "replySensitive": string;
+        /**
+         * 添付ファイルを使うには追加の許可が必要です
+         */
+        "replyAttachmentAuthorize": string;
+        /**
+         * ファイルを送信できませんでした。返信はまだ投稿していません。再度お試しください。
+         */
+        "replyUploadFailed": string;
+        /**
+         * 初期設定の続きへ戻る
+         */
+        "signupResume": string;
+        /**
+         * {host} のアカウントをお持ちですか？
+         */
+        "signupTitle": ParameterizedString<"host">;
+        /**
+         * アカウントを連携すると、連携先のフォローを一度だけコピーし、両方のアカウントの投稿をまとめて見られます。コピー後のフォロー・解除はそれぞれ別になります。
+         */
+        "signupDescription": string;
+        /**
+         * アカウント連携へ進む
+         */
+        "signupStart": string;
+        /**
+         * 連携は任意です。あとから設定の「アカウント連携」でも始められます。
+         */
+        "signupLater": string;
         /**
          * 連携先の通知をこのサーバーの通知欄にまとめて表示します。表示した通知は、連携先でも既読になります。
          */
