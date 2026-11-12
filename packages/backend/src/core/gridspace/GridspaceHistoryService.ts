@@ -124,7 +124,7 @@ export class GridspaceHistoryService {
 		const query = this.baseQuery(viewer, options).andWhere(new Brackets(authors => {
 			authors.where('note.userId = :localAuthor', { localAuthor: link.localUserId })
 				.orWhere(new Brackets(peer => {
-					peer.where('note.userId = (SELECT peer_author.id FROM "user" peer_author WHERE peer_author.uri = :peerAuthor)', { peerAuthor: `${this.peer!.peerOrigin}/users/${link.peerUserId}` });
+					peer.where('note.userId = ANY(ARRAY(SELECT peer_author.id FROM "user" peer_author WHERE peer_author.uri = :peerAuthor))', { peerAuthor: `${this.peer!.peerOrigin}/users/${link.peerUserId}` });
 					// Public peer posts have their own source keyset. Only already-delivered restricted
 					// posts join this server's keyset; linking never delegates the peer account's rights.
 					if (!includePeerPublic) peer.andWhere(`(note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL

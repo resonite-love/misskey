@@ -114,6 +114,13 @@ try {
 	await assert.rejects(api(g, 'gridspace/history', { userId: gu.id, cursor: first.cursor }, gu.token), x => x.code === 'GRIDSPACE_HISTORY_UNAVAILABLE');
 	await assert.rejects(api(g, 'gridspace/history', { userId: gu.id, cursor: first.cursor, withFiles: true }, viewer.token), x => x.code === 'GRIDSPACE_HISTORY_UNAVAILABLE');
 	await assert.rejects(api(g, 'gridspace/history', { userId: remote.id, cursor: first.cursor }, viewer.token), x => x.code === 'GRIDSPACE_HISTORY_UNAVAILABLE');
+	// Actor URI is indexed but not unique. Duplicate cache rows must not break history.
+	const aliasId = 'alias' + suffix;
+	await g.db.query('INSERT INTO "user" (id, username, "usernameLower", host, uri) VALUES ($1,$2,$2,$3,$4)', [aliasId, aliasId, new URL(r.origin).host, `${r.origin}/users/${ru.id}`]);
+	try {
+		assert.ok((await api(g, 'gridspace/history', { userId: gu.id, limit: 3 }, viewer.token)).notes.length > 0);
+	} finally { await g.db.query('DELETE FROM "user" WHERE id=$1', [aliasId]); }
+	console.log('Duplicate cached actor URIs preserve history availability PASS');
 	const reverse = await collect(r, ru.id, ru.token);
 	assert.ok(old.every(x => reverse.some(n => canon(r, n) === uri(x.site, x.note))));
 	for (const item of old.filter(x => x.site === r)) {
