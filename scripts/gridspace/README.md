@@ -151,11 +151,16 @@ node scripts/gridspace/test-private.mjs
 node scripts/gridspace/test-mutual.mjs
 node scripts/gridspace/test-private-ui.mjs
 node scripts/gridspace/test-home.mjs
+node scripts/gridspace/test-lists.mjs
 ```
 
 実 OAuth で追加認可し、フォロワー限定・宛先限定の閲覧と検索、呼び出し元のスコープ、本文・CW・添付、解除・失効、両方向の取得を確かめる。専用アカウントと履歴行を作り、一時ロールは終了時に削除する。認証情報は Git 管理外の `.config/gridspace-private-test-accounts.json` に保存する。画面試験は Chrome を使い、画像を `.config/private-search-*.png` に保存する。
 
 `test-home.mjs` は同じ専用アカウントで通常ホームを開き、旧側だけで読める投稿との混在表示、日時順のページ送り、25件の新着、通信失敗からの復旧、フォロー解除を確かめる。この試験で作った投稿と一時ロールは終了時に削除する。画像は Git 管理外の `.config/home-desktop.png` と `.config/home-mobile.png` に保存する。
+
+`test-lists.mjs` は同じ専用アカウントで G/R のプロフィールと検索を開く。通常投稿と旧権限の限定投稿を混ぜた日時順のページ送り、重複防止、専用欄の撤去、空表示、再確認の失敗時の本文消去と再試行を確かめる。作成した投稿と一時ロールは終了時に削除する。画像は Git 管理外の `.config/lists-*.png` に保存する。
+
+`node scripts/gridspace/test-lists.mjs --mock` は、連携・投稿取得 API の応答を固定して同じ画面を検証する。このモードでは投稿と一時ロールを作成しない。サーバー間の通信や認可の検証には使わない。
 
 `test-mutual.mjs` は直前に作った専用アカウントを使う。一度の認可での両方向の許可、通信境界の保存状態からの再試行、解除後の遅延要求、両側からの同時認可、通常のトークン削除を確認する。テスト中はそのアカウントの認可状態を変更し、終了時に新しい相互認可を残す。
 

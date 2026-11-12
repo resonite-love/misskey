@@ -13692,6 +13692,10 @@ export interface Locale extends ILocale {
          */
         "privateTitle": string;
         /**
+         * 一部の投稿を取得できませんでした。
+         */
+        "notesPartial": string;
+        /**
          * 限定投稿
          */
         "privateProtected": string;

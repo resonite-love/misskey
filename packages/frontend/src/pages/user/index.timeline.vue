@@ -4,17 +4,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div v-if="member?.linked" :class="$style.member" class="_panel _gaps_s">
+<div v-if="member?.linked && (showLinkedAccounts || !member.available)" :class="$style.member" class="_panel _gaps_s">
 	<template v-if="showLinkedAccounts">
 		<div>{{ i18n.ts._gridspace.linkedAccounts }}</div>
 		<div v-for="account in member.accounts" :key="account.id">
 			<MkA :to="userPage(account)"><MkAcct :user="account" :detail="true"/></MkA>
 		</div>
 	</template>
-	<template v-if="member.available">
-		<div :class="$style.caption">{{ i18n.ts._gridspace.historyScope }}</div>
-	</template>
-	<template v-else>
+	<template v-if="!member.available">
 		<div role="status">{{ i18n.ts._gridspace.historyPeerUnavailable }}</div>
 		<MkButton small @click="loadMember">{{ i18n.ts.retry }}</MkButton>
 	</template>
@@ -33,18 +30,15 @@ SPDX-License-Identifier: AGPL-3.0-only
 		>
 		</MkTab>
 	</template>
-	<MkGridspacePrivateNotes v-if="tab !== 'featured'" :params="{ mode: 'profile', userId: user.id, withReplies: tab === 'all', withRenotes: tab === 'all', withFiles: tab === 'files', withChannelNotes: tab === 'all' }"/>
 	<MkNotesTimeline v-if="tab === 'featured'" :noGap="true" :paginator="featuredPaginator" :pullToRefresh="false" :class="$style.tl"/>
-	<XLinkedHistory v-else-if="member?.available && member.linked" ref="linkedHistory" :userId="user.id" :withReplies="tab === 'all'" :withRenotes="tab === 'all'" :withFiles="tab === 'files'" :withChannelNotes="tab === 'all'" @unavailable="loadMember"/>
-	<MkNotesTimeline v-else :noGap="true" :paginator="notesPaginator" :pullToRefresh="false" :class="$style.tl"/>
+	<XLinkedHistory v-else ref="linkedHistory" :userId="user.id" :linked="!!(member?.available && member.linked)" :withReplies="tab === 'all'" :withRenotes="tab === 'all'" :withFiles="tab === 'files'" :withChannelNotes="tab === 'all'" @unavailable="loadMember"/>
 </MkStickyContainer>
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, markRaw, watch, onBeforeUnmount, useTemplateRef } from 'vue';
+import { ref, markRaw, watch, onBeforeUnmount, useTemplateRef } from 'vue';
 import * as Misskey from 'misskey-js';
 import MkNotesTimeline from '@/components/MkNotesTimeline.vue';
-import MkGridspacePrivateNotes from '@/components/MkGridspacePrivateNotes.vue';
 import MkTab from '@/components/MkTab.vue';
 import MkButton from '@/components/MkButton.vue';
 import XLinkedHistory from './linked-history.vue';
@@ -85,22 +79,11 @@ const featuredPaginator = markRaw(new Paginator('users/featured-notes', {
 	},
 }));
 
-const notesPaginator = markRaw(new Paginator('users/notes', {
-	limit: 10,
-	computedParams: computed(() => ({
-		userId: props.user.id,
-		withRenotes: tab.value === 'all',
-		withReplies: tab.value === 'all',
-		withChannelNotes: tab.value === 'all',
-		withFiles: tab.value === 'files',
-	})),
-}));
-
 defineExpose({
 	reload: async () => {
 		await loadMember();
 		if (tab.value !== 'featured' && linkedHistory.value) await linkedHistory.value.reload();
-		else await (tab.value === 'featured' ? featuredPaginator : notesPaginator).reload();
+		else await featuredPaginator.reload();
 	},
 });
 </script>
@@ -109,10 +92,6 @@ defineExpose({
 .member {
 	padding: 20px;
 	overflow-wrap: anywhere;
-}
-.caption {
-	font-size: 0.85em;
-	opacity: 0.75;
 }
 .tab {
 	padding: calc(var(--MI-margin) / 2) 0;

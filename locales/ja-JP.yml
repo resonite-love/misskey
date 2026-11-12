@@ -3664,6 +3664,7 @@ _autoTranslation:
   failed: "翻訳できなかったため、原文を表示しています。"
 _gridspace:
   privateTitle: "連携先の権限で読む投稿"
+  notesPartial: "一部の投稿を取得できませんでした。"
   privateProtected: "限定投稿"
   replyAction: "連携先の名義で返信"
   replyCw: "内容の注意書き（CW、任意）"

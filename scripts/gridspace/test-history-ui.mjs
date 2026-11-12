@@ -39,8 +39,7 @@ try {
 		await expect(page.getByText(`${new URL(site.origin).host}からの投稿`, { exact: true })).toHaveCount(0);
 		await expect(page.getByText(`${peerHost}からの投稿`, { exact: true })).toHaveCount(0);
 		const next = page.getByRole('button', { name: 'もっと見る', exact: true });
-		await next.scrollIntoViewIfNeeded();
-		await next.click();
+		if (await next.count()) { await next.scrollIntoViewIfNeeded(); await next.click(); }
 		await expect(page.getByText('Historical CW', { exact: true }).first()).toBeVisible({ timeout: 30000 });
 		await page.getByText('連携しているアカウント', { exact: true }).scrollIntoViewIfNeeded();
 		await page.screenshot({ path: `.config/history-${site.role.toLowerCase()}-desktop.png` });

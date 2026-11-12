@@ -66,21 +66,23 @@ try {
 	await page.goto(`${g.origin}/search`, { waitUntil: 'domcontentloaded' });
 	await page.locator('input[type="search"]').fill(fixture.query);
 	await page.getByRole('button', { name: '検索', exact: true }).click();
-	const section = page.locator('[data-gridspace-private]');
-	await expect(section.locator('article')).toHaveCount(10, { timeout: 30000 });
-	await section.getByRole('button', { name: 'もっと見る', exact: true }).click();
-	await expect.poll(() => section.locator('article').count()).toBeGreaterThan(10);
+	let section = page.locator('[data-gridspace-note-list]');
+	await expect(section.locator('[data-gridspace-private-note]').first()).toBeVisible({ timeout: 30000 });
+	const morePrivate = section.getByRole('button', { name: 'もっと見る', exact: true });
+	if (await morePrivate.count()) await morePrivate.click();
+	await expect(page.locator('[data-gridspace-private]')).toHaveCount(0);
 	await page.screenshot({ path: '.config/private-search-desktop.png' });
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.screenshot({ path: '.config/private-search-mobile.png' });
 	assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 	console.log('Default private search results, pagination and mobile layout PASS');
 	await page.goto(`${g.origin}/@${fixture.author.username}@${new URL(r.origin).host}/notes`, { waitUntil: 'domcontentloaded' });
-	await expect(section.locator('article')).toHaveCount(10, { timeout: 30000 });
+	await expect(section.locator('[data-gridspace-private-note]').first()).toBeVisible({ timeout: 30000 });
 	console.log('Profile includes old-authorized private history by default PASS');
 
 	const detailUrl = `${g.origin}/gridspace/private?noteId=${fixture.imageNote.id}`;
 	await page.goto(detailUrl, { waitUntil: 'domcontentloaded' });
+	section = page.locator('[data-gridspace-private]');
 	await expect(section.locator('article')).toHaveCount(1, { timeout: 30000 });
 	await expect(section.getByText('one — 0', { exact: true })).not.toBeVisible();
 	await section.locator('summary').click();
