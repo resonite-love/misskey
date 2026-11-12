@@ -18,7 +18,7 @@ const g = resolveGridspaceConfig(source, 'https://g.example', env)!;
 const r = resolveGridspaceConfig({ ...source, peerUrl: g.origin }, source.peerUrl, env)!;
 const servers: FastifyInstance[] = [];
 
-async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8], reactions?: Parameters<typeof registerGridspacePeer>[12], reactionUpdates?: Parameters<typeof registerGridspacePeer>[13]) {
+async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8], reactions?: Parameters<typeof registerGridspacePeer>[12], reactionUpdates?: Parameters<typeof registerGridspacePeer>[13], readNotes?: Parameters<typeof registerGridspacePeer>[14]) {
 	const app = Fastify();
 	servers.push(app);
 	const used = new Set<string>();
@@ -29,7 +29,7 @@ async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Para
 			if (used.has(key)) return false;
 			used.add(key);
 			return true;
-		}), action, notes, history, search, undefined, replyAction, undefined, undefined, undefined, reactions, reactionUpdates);
+		}), action, notes, history, search, undefined, replyAction, undefined, undefined, undefined, reactions, reactionUpdates, readNotes);
 	}, { prefix: '/gridspace/v1' });
 	return app;
 }
@@ -271,4 +271,21 @@ describe('GridSpace history transport', () => {
 		expect(calls).toBe(1);
 		expect((await app.inject(request())).json().features).toContain('member-history');
 	});
+});
+
+test('batch read requires an authenticated non-replayed request and bounded unique IDs', async () => {
+	const received: string[][] = [];
+	const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, async ids => { received.push(ids); return { items: [] }; });
+	const url = '/gridspace/v1/notes/read-many';
+	const payload = Buffer.from(JSON.stringify({ noteIds: ['a', 'b'] }));
+	const req = { method: 'POST' as const, url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) };
+	expect((await app.inject({ ...req, headers: { 'content-type': 'application/json' } })).statusCode).toBe(403);
+	expect((await app.inject(req)).statusCode).toBe(200);
+	expect((await app.inject(req)).statusCode).toBe(409);
+	for (const noteIds of [[], ['a', 'a'], ['../a'], Array.from({ length: 21 }, (_, i) => String(i))]) {
+		const body = Buffer.from(JSON.stringify({ noteIds }));
+		expect((await app.inject({ ...req, payload: body, headers: createGridspaceHeaders(g, 'POST', url, body) })).statusCode).toBe(400);
+	}
+	expect(received).toEqual([['a', 'b']]);
+	expect((await app.inject(request())).json().features).toContain('community-note-batch');
 });

@@ -87,6 +87,10 @@ url: https://example.tld/
 #  enabled: true
 #  communityId: gridspace
 #  peerUrl: https://peer.example.tld
+#  # Optional private HTTPS route. Keep peerUrl as the public identity.
+#  # TLS must validate peerUrl's hostname; never disable certificate validation.
+#  peerTransportUrl: https://192.168.10.10:3443
+#  peerTlsCaFile: /misskey/.config/gridspace-peer-ca.pem
 #  keyId: first
 #  secretEnv: GRIDSPACE_PEER_KEY
 

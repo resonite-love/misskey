@@ -22,8 +22,8 @@ import { shouldHideNoteByTime } from '@/misc/should-hide-note-by-time.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { acquireApObjectLock } from '@/misc/distributed-lock.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
-import { requestGridspacePeer } from './peer-client.js';
-import { canShareGridspaceNote, canonicalGridspaceNoteUri, gridspaceNoteUris, gridspaceNoteId, GRIDSPACE_NOTE_BODY_LIMIT, GRIDSPACE_NOTE_PATH, validateGridspaceBundle, type GridspaceNoteBundle } from './note-protocol.js';
+import { GridspaceEndpointUnavailable, requestGridspacePeer } from './peer-client.js';
+import { GRIDSPACE_NOTE_BATCH_LIMIT, GRIDSPACE_NOTE_BATCH_BODY_LIMIT, validateGridspaceNoteBatch, canShareGridspaceNote, canonicalGridspaceNoteUri, gridspaceNoteUris, gridspaceNoteId, GRIDSPACE_NOTE_BODY_LIMIT, GRIDSPACE_NOTE_PATH, validateGridspaceBundle, type GridspaceNoteBundle } from './note-protocol.js';
 
 @Injectable()
 export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown {
@@ -91,13 +91,47 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 			if (!user || user.isSuspended || user.isDeleted) return false;
 			const createdAt = this.ids.parse(current.id).date;
 			if (shouldHideNoteByTime(user.makeNotesHiddenBefore, createdAt) || shouldHideNoteByTime(user.makeNotesFollowersOnlyBefore, createdAt)) return false;
-			await manager.update(MiNote, current.id, { gridspaceShared: true });
+			if (!current.gridspaceShared) await manager.update(MiNote, current.id, { gridspaceShared: true });
 			return current;
 		});
 		if (note === null) return { deleted: true, notes: [] };
 		if (note === false) return { deleted: false, unavailable: true, notes: [] };
 		const result = { deleted: false, notes: [{ object: await this.renderer.renderNote(note, false), localOnly: note.localOnly, reactionAcceptance: note.reactionAcceptance }] };
 		if (Buffer.byteLength(JSON.stringify(result)) > GRIDSPACE_NOTE_BODY_LIMIT) throw new Error('Note too large');
+		return result;
+	}
+
+	/** Preserve per-note authorization/locking while bounding database concurrency. */
+	public async readMany(noteIds: string[]) {
+		if (noteIds.length > GRIDSPACE_NOTE_BATCH_LIMIT || noteIds.some(id => !gridspaceNoteId(id)) || new Set(noteIds).size !== noteIds.length) throw new Error('Invalid note batch');
+		const items: { id: string; bundle: GridspaceNoteBundle }[] = [];
+		for (let offset = 0; offset < noteIds.length; offset += 4) {
+			items.push(...await Promise.all(noteIds.slice(offset, offset + 4).map(async id => ({ id, bundle: await this.read(id) }))));
+		}
+		return { items };
+	}
+
+	/** One fresh source read per page; no stale body cache or extra timeline fanout. */
+	public async historyNotes(noteIds: string[], budget: { remaining: number; deadline: number }): Promise<Map<string, MiNote>> {
+		if (!this.peer) throw new Error('GridSpace disabled');
+		const result = new Map<string, MiNote>();
+		if (noteIds.length === 0) return result;
+		if (noteIds.length > GRIDSPACE_NOTE_BATCH_LIMIT || new Set(noteIds).size !== noteIds.length) throw new Error('Invalid note batch');
+		let prefetched: Map<string, GridspaceNoteBundle> | undefined;
+		try {
+			prefetched = validateGridspaceNoteBatch(await requestGridspacePeer(this.peer, GRIDSPACE_NOTE_PATH + 'read-many', { noteIds }, GRIDSPACE_NOTE_BATCH_BODY_LIMIT, budget.deadline), this.peer.peerOrigin, noteIds);
+		} catch (error) {
+			// Rolling updates may temporarily pair with an older server. Other failures
+			// must fail the page rather than multiply an outage into per-note retries.
+			if (!(error instanceof GridspaceEndpointUnavailable)) throw error;
+		}
+		for (let offset = 0; offset < noteIds.length; offset += 4) {
+			await Promise.all(noteIds.slice(offset, offset + 4).map(async id => {
+				if (!await this.importNote(id, new Set(), false, budget, prefetched)) return;
+				const note = await this.apNotes.fetchNote(`${this.peer!.peerOrigin}/notes/${id}`);
+				if (note) result.set(id, note);
+			}));
+		}
 		return result;
 	}
 
@@ -113,13 +147,13 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		return this.apNotes.fetchNote(`${this.peer.peerOrigin}/notes/${noteId}`);
 	}
 
-	private async importNote(noteId: string, visiting: Set<string>, live: boolean, budget?: { remaining: number; deadline: number }): Promise<boolean> {
+	private async importNote(noteId: string, visiting: Set<string>, live: boolean, budget?: { remaining: number; deadline: number }, prefetched?: Map<string, GridspaceNoteBundle>): Promise<boolean> {
 		if (!this.peer) throw new Error('GridSpace disabled');
 		if (budget && (--budget.remaining < 0 || Date.now() > budget.deadline)) throw new Error('History import budget exceeded');
 		const uri = `${this.peer.peerOrigin}/notes/${noteId}`;
 		if (visiting.has(uri)) throw new Error('Cyclic note references');
 		visiting.add(uri);
-		const bundle = validateGridspaceBundle(await this.request('read', noteId, budget?.deadline), this.peer.peerOrigin, noteId);
+		const bundle = validateGridspaceBundle(prefetched?.has(noteId) ? structuredClone(prefetched.get(noteId)) : await this.request('read', noteId, budget?.deadline), this.peer.peerOrigin, noteId);
 		if (bundle.unavailable) { visiting.delete(uri); return false; }
 		const entry = bundle.notes[0];
 		const resolver = budget ? await this.resolvers.createResolver() : undefined;
@@ -136,7 +170,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 				if (ref.startsWith(this.peer.peerOrigin + '/notes/')) {
 					const id = ref.slice((this.peer.peerOrigin + '/notes/').length);
 					if (!gridspaceNoteId(id)) throw new Error('Invalid note reference');
-					if (!await this.importNote(id, visiting, false, budget)) delete entry.object[field];
+					if (!await this.importNote(id, visiting, false, budget, prefetched)) delete entry.object[field];
 				} else if (ref.startsWith(this.peer.origin + '/notes/')) {
 					delete entry.object[field];
 				} else if (resolver) {

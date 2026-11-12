@@ -20,6 +20,7 @@ import { IdService } from '@/core/IdService.js';
 import { UserFollowingService } from '@/core/UserFollowingService.js';
 import { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
 import { GridspaceFollowGuardService } from './GridspaceFollowGuardService.js';
+import { gridspacePeerTransport } from './peer-client.js';
 import { createGridspaceHeaders, resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
 import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH, GRIDSPACE_LINK_SCOPES, GRIDSPACE_PRIVATE_CLIENT_PATH, GRIDSPACE_PRIVATE_SCOPE, GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE, GRIDSPACE_REPLY_SCOPE, GRIDSPACE_ACTION_SCOPE, GRIDSPACE_NOTIFICATION_SCOPE, GRIDSPACE_NOTIFICATION_WRITE_SCOPE, gridspaceChallenge, gridspaceHash, openGridspaceSecret, sealGridspaceSecret } from './link-crypto.js';
 
@@ -65,10 +66,12 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		const bytes = Buffer.from(JSON.stringify(body));
 		try {
 			// Keep reciprocal authorization POSTs off native fetch's HTTP/2 connection.
-			const response = await fetch(new URL(path, peer.peerOrigin), {
+			const transport = gridspacePeerTransport(peer, path);
+			const response = await fetch(transport.url, {
+				agent: transport.agent,
 				method: 'POST', body: bytes, redirect: 'error', signal: AbortSignal.timeout(10000),
 				size: maxBytes,
-				headers: signed ? createGridspaceHeaders(peer, 'POST', path, bytes) : { 'content-type': 'application/json' },
+				headers: { ...(signed ? createGridspaceHeaders(peer, 'POST', path, bytes) : { 'content-type': 'application/json' }), host: transport.host },
 			});
 			// node-fetch bounds streaming bodies, not just Content-Length.
 			const result = await response.json();

@@ -57,3 +57,14 @@ describe('GridSpace peer authentication', () => {
 		expect(verifyGridspaceRequest(r, 'POST', GRIDSPACE_HANDSHAKE_PATH, body, { ...headers, 'x-gridspace-signature': 'x' }, now)).toBeNull();
 	});
 });
+
+test('private transport keeps canonical identities and requires HTTPS', () => {
+	const peer = resolveGridspaceConfig({ ...source, peerTransportUrl: 'https://192.168.10.94:3443' }, g.origin, env)!;
+	expect(peer.peerOrigin).toBe(source.peerUrl);
+	expect(peer.transportOrigin).toBe('https://192.168.10.94:3443');
+	expect(verifyGridspaceRequest(r, 'POST', GRIDSPACE_HANDSHAKE_PATH, body, createGridspaceHeaders(peer, 'POST', GRIDSPACE_HANDSHAKE_PATH, body, now), now)).toBeTruthy();
+	for (const peerTransportUrl of ['http://192.168.10.94:3443', 'https://user:password@host', 'https://host/path', 'https://host?x=1']) {
+		expect(() => resolveGridspaceConfig({ ...source, peerTransportUrl }, g.origin, env)).toThrow();
+	}
+	expect(() => resolveGridspaceConfig({ ...source, peerTlsCaFile: 'unused.pem' }, g.origin, env)).toThrow();
+});

@@ -124,7 +124,7 @@ export class GridspaceHistoryService {
 		const query = this.baseQuery(viewer, options).andWhere(new Brackets(authors => {
 			authors.where('note.userId = :localAuthor', { localAuthor: link.localUserId })
 				.orWhere(new Brackets(peer => {
-					peer.where('user.uri = :peerAuthor', { peerAuthor: `${this.peer!.peerOrigin}/users/${link.peerUserId}` });
+					peer.where('note.userId = (SELECT peer_author.id FROM "user" peer_author WHERE peer_author.uri = :peerAuthor)', { peerAuthor: `${this.peer!.peerOrigin}/users/${link.peerUserId}` });
 					// Public peer posts have their own source keyset. Only already-delivered restricted
 					// posts join this server's keyset; linking never delegates the peer account's rights.
 					if (!includePeerPublic) peer.andWhere(`(note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL
@@ -160,7 +160,9 @@ export class GridspaceHistoryService {
 		// A signed peer assertion authenticates its local visitor, even before their actor is cached here.
 		const viewer = input.viewerId ? await this.db.getRepository(MiUser).findOneBy({ uri: `${this.peer.peerOrigin}/users/${input.viewerId}` }) : null;
 		const query = this.query(input.userId, viewer, input, input.before, input.head, input.viewerId != null);
-		const notes = await query.take(input.limit).getMany();
+		// Select the indexed keyset before hydrating relations. TypeORM take/getMany
+		// otherwise builds a DISTINCT query over every selected relation column.
+		const notes = await query.select('note.id', 'id').limit(input.limit).getRawMany<{ id: string }>();
 		return { active: true, items: notes.map(note => ({ id: note.id, date: this.ids.parse(note.id).date.getTime() })) };
 	}
 
@@ -172,14 +174,16 @@ export class GridspaceHistoryService {
 		if (cursor) {
 			try { position = decodeHistoryCursor(this.peer, cursor, context); } catch { throw new GridspaceHistoryError('INVALID_CURSOR'); }
 		}
-		// Do not advance either keyset on peer failure; a retry must not leave a gap in the merged order.
-		const remote = await this.remote({ ...this.input(link, viewer, options, cursor && position.remoteHead == null ? 0 : limit, position.remote ?? undefined), head: position.remoteHead ?? undefined });
-		if (!remote.active) throw new GridspaceHistoryError('LINK_UNAVAILABLE');
 		const localQuery = this.viewerQuery(link, viewer, options);
 		if (position.local) localQuery.andWhere('note.id < :before', { before: position.local });
 		if (position.localHead) localQuery.andWhere('note.id <= :head', { head: position.localHead });
 		if (cursor && position.localHead == null) localQuery.andWhere('1=0');
-		const local = await localQuery.take(limit).getMany();
+		// Both sources start together. A failed peer never advances either keyset.
+		const [remote, local] = await Promise.all([
+			this.remote({ ...this.input(link, viewer, options, cursor && position.remoteHead == null ? 0 : limit, position.remote ?? undefined), head: position.remoteHead ?? undefined }),
+			localQuery.select('note.id', 'id').limit(limit).getRawMany<{ id: string }>(),
+		]);
+		if (!remote.active) throw new GridspaceHistoryError('LINK_UNAVAILABLE');
 		const remoteItems = !viewer && this.meta.ugcVisibilityForVisitor !== 'all' ? [] : remote.items;
 		if (!cursor) {
 			position.localHead = local[0]?.id ?? null;
@@ -189,13 +193,11 @@ export class GridspaceHistoryService {
 		const mapped = new Map<string, string>();
 		const budget = { remaining: 64, deadline: Date.now() + 15000 };
 		try {
-			// Keep imports bounded and silent. Fetching the current source again closes a deletion race.
-			for (let offset = 0; offset < selected.length; offset += 4) {
-				await Promise.all(selected.slice(offset, offset + 4).map(async item => {
-					if (item.source === 'local') { mapped.set(`local:${item.id}`, item.id); return; }
-					const note = await this.sharedNotes.historyNote(item.id, budget);
-					if (note) mapped.set(`remote:${item.id}`, note.id);
-				}));
+			// Re-read selected source objects in one bounded request, including deletions.
+			const remoteNotes = await this.sharedNotes.historyNotes(selected.filter(item => item.source === 'remote').map(item => item.id), budget);
+			for (const item of selected) {
+				const id = item.source === 'local' ? item.id : remoteNotes.get(item.id)?.id;
+				if (id) mapped.set(`${item.source}:${item.id}`, id);
 			}
 		} catch { throw new GridspaceHistoryError('PEER_UNAVAILABLE'); }
 		if (!await this.active(link)) throw new GridspaceHistoryError('LINK_UNAVAILABLE');

@@ -8,6 +8,8 @@ import type { IPost } from '@/core/activitypub/type.js';
 
 export const GRIDSPACE_NOTE_PATH = '/gridspace/v1/notes/';
 export const GRIDSPACE_NOTE_BODY_LIMIT = 2 * 1024 * 1024;
+export const GRIDSPACE_NOTE_BATCH_LIMIT = 20;
+export const GRIDSPACE_NOTE_BATCH_BODY_LIMIT = GRIDSPACE_NOTE_BATCH_LIMIT * GRIDSPACE_NOTE_BODY_LIMIT + 65536;
 export type GridspaceNoteEntry = { object: IPost; localOnly: boolean; reactionAcceptance: MiNote['reactionAcceptance'] };
 export type GridspaceNoteBundle = { deleted: boolean; unavailable?: boolean; notes: GridspaceNoteEntry[] };
 
@@ -59,4 +61,14 @@ export function validateGridspaceBundle(value: unknown, origin: string, rootId: 
 	}
 	if (!seen.has(origin + '/notes/' + rootId) || bundle.notes.at(-1)?.object.id !== origin + '/notes/' + rootId) throw new Error('Missing root');
 	return bundle;
+}
+
+/** Reject incomplete or reordered batches before importing any object. */
+export function validateGridspaceNoteBatch(value: unknown, origin: string, ids: string[]): Map<string, GridspaceNoteBundle> {
+	const batch = value as { items?: { id: string; bundle: unknown }[] } | null;
+	if (!batch || !Array.isArray(batch.items) || batch.items.length !== ids.length || ids.length > GRIDSPACE_NOTE_BATCH_LIMIT || new Set(ids).size !== ids.length) throw new Error('Invalid note batch');
+	return new Map(batch.items.map((item, index) => {
+		if (!item || item.id !== ids[index]) throw new Error('Invalid batch item');
+		return [item.id, validateGridspaceBundle(item.bundle, origin, item.id)];
+	}));
 }

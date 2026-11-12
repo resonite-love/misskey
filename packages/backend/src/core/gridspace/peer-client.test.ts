@@ -8,7 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { once } from 'node:events';
 import { afterEach, describe, expect, test } from 'vitest';
 import { GridspaceLinkService } from './GridspaceLinkService.js';
-import { GridspaceProtocolMismatch, requestGridspacePeer } from './peer-client.js';
+import { gridspacePeerTransport, GridspaceProtocolMismatch, requestGridspacePeer } from './peer-client.js';
 import { verifyGridspaceRequest, type GridspacePeerConfig } from './peer-protocol.js';
 
 const servers: ReturnType<typeof createServer>[] = [];
@@ -119,4 +119,19 @@ describe('GridSpace peer transport', () => {
 		const origin = await listen((_req, res) => { res.writeHead(200); res.write('{"unfinished":'); });
 		await expect(requestGridspacePeer(peer('https://g.example', origin), '/read', {}, 1024, Date.now() + 100)).rejects.toMatchObject({ name: 'AbortError' });
 	});
+});
+
+test('private TLS transport preserves Host and SNI and cannot override the peer origin through a path', () => {
+	const config = { ...peer('https://g.example', 'https://r.example'), transportOrigin: 'https://192.168.10.94:3443', transportCa: 'test-ca' };
+	const transport = gridspacePeerTransport(config, '/gridspace/v1/history');
+	expect(transport.url.href).toBe('https://192.168.10.94:3443/gridspace/v1/history');
+	expect(transport.host).toBe('r.example');
+	expect(transport.agent?.options.servername).toBe('r.example');
+	expect(transport.agent?.options.ca).toBe('test-ca');
+	expect(transport.agent?.maxSockets).toBe(Infinity);
+	expect(transport.agent?.options.rejectUnauthorized).not.toBe(false);
+	for (const path of ['https://evil.example', '//evil.example', '/\\evil.example']) {
+		expect(() => gridspacePeerTransport(config, path)).toThrow();
+	}
+	transport.agent?.destroy();
 });

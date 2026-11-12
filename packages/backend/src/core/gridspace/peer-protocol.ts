@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { readFileSync } from 'node:fs';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const GRIDSPACE_PROTOCOL_VERSION = 1;
@@ -14,6 +15,10 @@ export type GridspaceConfigSource = {
 	enabled?: boolean;
 	communityId: string;
 	peerUrl: string;
+	/** Optional HTTPS transport within the private network; identities remain peerUrl. */
+	peerTransportUrl?: string;
+	/** CA certificate file for the private transport (never disables TLS verification). */
+	peerTlsCaFile?: string;
 	keyId: string;
 	secretEnv: string;
 };
@@ -21,6 +26,8 @@ export type GridspaceConfigSource = {
 export type GridspacePeerConfig = {
 	origin: string;
 	peerOrigin: string;
+	transportOrigin?: string;
+	transportCa?: string;
 	communityId: string;
 	keyId: string;
 	secret: Buffer;
@@ -54,7 +61,10 @@ export function resolveGridspaceConfig(source: GridspaceConfigSource | undefined
 	const origin = httpsOrigin(ownUrl);
 	const peerOrigin = httpsOrigin(source.peerUrl);
 	if (origin === peerOrigin) throw new Error('GridSpace peer must be a different origin.');
-	return { origin, peerOrigin, communityId: source.communityId, keyId: source.keyId, secret };
+	const transportOrigin = source.peerTransportUrl == null ? undefined : httpsOrigin(source.peerTransportUrl);
+	if (source.peerTlsCaFile != null && (!transportOrigin || typeof source.peerTlsCaFile !== 'string' || source.peerTlsCaFile.length === 0)) throw new Error('GridSpace private CA requires a transport URL and a certificate file.');
+	const transportCa = source.peerTlsCaFile == null ? undefined : readFileSync(source.peerTlsCaFile, 'utf8');
+	return { origin, peerOrigin, transportOrigin, transportCa, communityId: source.communityId, keyId: source.keyId, secret };
 }
 
 function signature(config: GridspacePeerConfig, sender: string, recipient: string, method: string, path: string, timestamp: string, nonce: string, body: Buffer): string {

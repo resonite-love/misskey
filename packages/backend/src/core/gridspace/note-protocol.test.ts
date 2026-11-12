@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, test } from 'vitest';
-import { canShareGridspaceNote, canonicalGridspaceNoteUri, gridspaceNoteUris, validateGridspaceBundle, type GridspaceNoteBundle } from './note-protocol.js';
+import { validateGridspaceNoteBatch, canShareGridspaceNote, canonicalGridspaceNoteUri, gridspaceNoteUris, validateGridspaceBundle, type GridspaceNoteBundle } from './note-protocol.js';
 
 const origin = 'https://r.example';
 const publicAudience = 'https://www.w3.org/ns/activitystreams#Public';
@@ -60,4 +60,15 @@ test('canonicalizes only peer Announce IDs and resolves earlier stored IDs', () 
 	expect(gridspaceNoteUris(origin + '/notes/test', origin)).toEqual([origin + '/notes/test', origin + '/notes/test/activity']);
 	expect(canonicalGridspaceNoteUri('https://external.example/notes/test/activity', origin)).toBe('https://external.example/notes/test/activity');
 	expect(canonicalGridspaceNoteUri(origin + '/notes/test/activity?other=1', origin)).toBe(origin + '/notes/test/activity?other=1');
+});
+
+test('batch preserves deletion/unavailability and rejects missing, reordered or private objects', () => {
+	const values = { items: [{ id: 'test', bundle: bundle() }, { id: 'gone', bundle: { deleted: true, notes: [] } }, { id: 'hidden', bundle: { deleted: false, unavailable: true, notes: [] } }] };
+	const ids = ['test', 'gone', 'hidden'];
+	expect([...validateGridspaceNoteBatch(values, origin, ids).keys()]).toEqual(ids);
+	expect(() => validateGridspaceNoteBatch({ items: values.items.slice(0, 2) }, origin, ids)).toThrow();
+	expect(() => validateGridspaceNoteBatch({ items: [...values.items].reverse() }, origin, ids)).toThrow();
+	expect(() => validateGridspaceNoteBatch({ items: [values.items[0], values.items[0]] }, origin, ['test', 'test'])).toThrow();
+	values.items[0].bundle.notes[0].object.to = [origin + '/users/author/followers'];
+	expect(() => validateGridspaceNoteBatch(values, origin, ids)).toThrow('Private note');
 });
