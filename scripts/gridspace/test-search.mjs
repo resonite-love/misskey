@@ -193,19 +193,25 @@ try {
 	await api(r, 'i/update', { requireSigninToViewContents: true }, ru.token);
 	assert.ok((await collect(g, undefined)).notes.every(note => note.userId !== remote.id));
 	assert.ok((await collect(g, viewer.token)).notes.some(note => note.userId === remote.id));
-	await api(r, 'i/update', { requireSigninToViewContents: false, makeNotesHiddenBefore: 0 }, ru.token);
-	assert.ok((await collect(g, viewer.token)).notes.every(note => note.userId !== remote.id));
-	const dynamicQuery = `dynamic_secret_${suffix}`;
-	const dynamic = await historical(r, rt, start - 4000, { visibility: 'public', visibleUserIds: [], text: dynamicQuery });
-	let invisible = await api(g, 'gridspace/search', { query: dynamicQuery, limit: 1 }, viewer.token);
-	assert.deepEqual(invisible.notes, []); assert.equal(invisible.cursor, null);
-	assert.equal((await g.db.query('SELECT id FROM note WHERE uri=$1', [uri(r, dynamic)])).rowCount, 0);
-	await api(r, 'i/update', { makeNotesHiddenBefore: null, makeNotesFollowersOnlyBefore: 0 }, ru.token);
-	assert.ok((await collect(g, viewer.token)).notes.every(note => note.userId !== remote.id));
-	invisible = await api(g, 'gridspace/search', { query: dynamicQuery, limit: 1 }, viewer.token);
-	assert.deepEqual(invisible.notes, []); assert.equal(invisible.cursor, null);
-	assert.equal((await g.db.query('SELECT id FROM note WHERE uri=$1', [uri(r, dynamic)])).rowCount, 0);
-	await api(r, 'i/update', { makeNotesFollowersOnlyBefore: null }, ru.token);
+	await api(r, 'i/update', { requireSigninToViewContents: false }, ru.token);
+	for (const field of ['makeNotesHiddenBefore', 'makeNotesFollowersOnlyBefore']) {
+		const dynamicQuery = `dynamic_${field}_${suffix}`;
+		const dynamic = await historical(r, rt, start - 4000, { visibility: 'public', visibleUserIds: [], text: dynamicQuery });
+		await api(r, 'i/update', { [field]: 0 }, ru.token);
+		await eventually('restriction reaches cached author', async () => (await g.db.query(`SELECT "${field}" AS cutoff FROM "user" WHERE id=$1`, [remote.id])).rows[0]?.cutoff === 0);
+		assert.ok((await collect(g, viewer.token)).notes.every(note => note.userId !== remote.id));
+		const invisible = await api(g, 'gridspace/search', { query: dynamicQuery, limit: 1 }, viewer.token);
+		assert.equal(invisible.peerAvailable, true, 'an unavailable peer is not proof of privacy filtering');
+		assert.deepEqual(invisible.notes, []); assert.equal(invisible.cursor, null);
+		assert.equal((await g.db.query('SELECT id FROM note WHERE uri=$1', [uri(r, dynamic)])).rowCount, 0);
+		await api(r, 'i/update', { [field]: null }, ru.token);
+		await eventually('cleared cutoff reaches cached author', async () => (await g.db.query(`SELECT "${field}" AS cutoff FROM "user" WHERE id=$1`, [remote.id])).rows[0]?.cutoff === null);
+		const restored = await api(g, 'gridspace/search', { query: dynamicQuery, limit: 1 }, viewer.token);
+		assert.equal(restored.peerAvailable, true);
+		assert.equal(restored.notes.length, 1);
+		assert.equal(restored.notes[0].uri, uri(r, dynamic));
+		assert.equal(restored.notes[0].text, dynamicQuery);
+	}
 	await api(g, 'i/update', { makeNotesHiddenBefore: 0 }, gu.token);
 	assert.ok((await collect(g, viewer.token)).notes.every(note => note.userId !== gu.id));
 	assert.ok((await collect(g, gu.token)).notes.some(note => note.userId === gu.id));

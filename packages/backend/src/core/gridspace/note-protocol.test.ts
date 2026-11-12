@@ -47,7 +47,8 @@ describe('community note boundary', () => {
 		expect(() => validateGridspaceBundle({ ...bundle(), deleted: true }, origin, 'test')).toThrow();
 	});
 	test('temporary unavailability is distinct from deletion and cannot carry content', () => {
-		expect(validateGridspaceBundle({ deleted: false, unavailable: true, notes: [] }, origin, 'test').deleted).toBe(false);
+		expect(validateGridspaceBundle({ deleted: false, unavailable: true, notes: [] }, origin, 'test')).toEqual({ deleted: false, unavailable: true, notes: [] });
+		expect(() => validateGridspaceBundle({ deleted: false, unavailable: false, notes: [] }, origin, 'test')).toThrow();
 		expect(() => validateGridspaceBundle({ ...bundle(), unavailable: true }, origin, 'test')).toThrow();
 		expect(() => validateGridspaceBundle({ deleted: true, unavailable: true, notes: [] }, origin, 'test')).toThrow();
 		expect(() => validateGridspaceBundle({ ...bundle(), unavailable: 'true' }, origin, 'test')).toThrow();

@@ -85,6 +85,12 @@ try {
 	assert.equal(rows.length, 1); assert.equal(rows[0].reaction, '👍');
 	assert.equal((await action({})).note.myReaction, '👍');
 	await action({ action: 'react', reaction: '🎉' });
+	rows = (await r.db.query('SELECT reaction FROM note_reaction WHERE "noteId"=$1 AND "userId"=$2', [parent.id, resonite.id])).rows;
+	assert.deepEqual(rows, [{ reaction: '🎉' }]);
+	const replaced = (await action({})).note;
+	assert.equal(replaced.myReaction, '🎉');
+	assert.equal(replaced.reactions['🎉'], 1);
+	assert.equal(replaced.reactions['👍'] ?? 0, 0);
 	await Promise.all([action({ action: 'react', reaction: null }), action({ action: 'react', reaction: null })]);
 	assert.equal((await action({})).note.myReaction, null);
 	await denied(action({ action: 'react', reaction: '👍', noteId: hidden.id }));
@@ -97,7 +103,13 @@ try {
 	assert.equal(rows.length, 1);
 	assert.equal((await action({})).note.poll.choices[0].isVoted, true);
 	await denied(action({ action: 'vote', choice: 1 }));
-	await denied(action({ action: 'vote', choice: 99 }));
+	const invalidChoice = await post({ poll: { choices: ['one', 'two'], multiple: false } });
+	await denied(action({ action: 'vote', noteId: invalidChoice.id, choice: 99 }));
+	await assert.rejects(api(r, 'notes/polls/vote', { noteId: invalidChoice.id, choice: 99 }, author.token), error => error.code === 'INVALID_CHOICE');
+	assert.equal((await r.db.query('SELECT 1 FROM poll_vote WHERE "noteId"=$1', [invalidChoice.id])).rowCount, 0);
+	assert.deepEqual((await r.db.query('SELECT votes FROM poll WHERE "noteId"=$1', [invalidChoice.id])).rows[0].votes, [0, 0]);
+	await action({ action: 'vote', noteId: invalidChoice.id, choice: 0 });
+	assert.deepEqual((await r.db.query('SELECT votes FROM poll WHERE "noteId"=$1', [invalidChoice.id])).rows[0].votes, [1, 0]);
 	await action({ action: 'vote', noteId: multiple.id, choice: 0 });
 	await action({ action: 'vote', noteId: multiple.id, choice: 1 });
 	assert.ok((await action({ noteId: multiple.id })).note.poll.choices.every(choice => choice.isVoted));

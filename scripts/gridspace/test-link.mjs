@@ -4,6 +4,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -83,7 +84,33 @@ console.log('R home note appears in G home, not G local timeline PASS');
 await api(grid, 'following/delete', { userId: author.id }, g.token);
 await api(grid, 'following/requests/cancel', { userId: locked.id }, g.token);
 assert.equal((await api(resonite, 'users/show', { userId: resonite.accounts.author.id }, r.token)).isFollowing, true);
-await api(resonite, 'following/create', { userId: resonite.accounts.admin.id }, r.token);
+// Recreate durable pending receipts after side effects, as if the worker crashed
+// before recording completion. Hold its real advisory lock while changing follows.
+const { Client } = createRequire(resolve('packages/backend/package.json'))('pg');
+const password = readFileSync(resolve(grid.repo, '.config/gridspace-lab.env'), 'utf8').match(/^GRIDSPACE_LAB_DB_PASSWORD=(.+)$/m)?.[1].trim();
+const db = new Client({ host: grid.config.db.host, port: grid.config.db.port, user: grid.config.db.user, password, database: grid.config.db.db });
+await db.connect();
+try {
+	await db.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [`gridspace-follow:${g.id}`]);
+	try {
+		const linkId = (await db.query('SELECT id FROM gridspace_link WHERE "localUserId"=$1 AND state=\'active\'', [g.id])).rows[0].id;
+		const changed = await db.query('UPDATE gridspace_import_item SET state=\'pending\', reason=NULL WHERE "linkId"=$1 AND "targetUserId"=ANY($2::varchar[])', [linkId, [author.id, locked.id]]);
+		assert.equal(changed.rowCount, 2);
+		assert.equal((await status()).pending, 2);
+		await api(resonite, 'following/create', { userId: resonite.accounts.admin.id }, r.token);
+		// The worker must reach the real import path; a timer alone cannot prove it did.
+		await eventually('initial-copy worker waits on the held guard', async () => (await db.query(`SELECT 1 FROM pg_locks WHERE locktype='advisory' AND NOT granted
+			AND objid=(hashtextextended($1, 0) & 4294967295)::oid AND classid=((hashtextextended($1, 0) >> 32) & 4294967295)::oid`, [`gridspace-follow:${g.id}`])).rowCount > 0, 60000);
+		assert.equal((await status()).pending, 2);
+	} finally { await db.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [`gridspace-follow:${g.id}`]); }
+	await eventually('pending initial-copy retry honors manual changes', async () => (await status()).pending === 0, 60000);
+	const items = (await db.query('SELECT state, reason FROM gridspace_import_item WHERE "targetUserId"=ANY($1::varchar[]) AND "linkId" IN (SELECT id FROM gridspace_link WHERE "localUserId"=$2)', [[author.id, locked.id], g.id])).rows;
+	assert.equal(items.length, 2);
+	assert.ok(items.every(item => item.state === 'cancelled' && item.reason === 'USER_UNFOLLOWED'));
+	assert.equal((await db.query('SELECT 1 FROM following WHERE "followerId"=$1 AND "followeeId"=ANY($2::varchar[])', [g.id, [author.id, locked.id]])).rowCount, 0);
+	assert.equal((await db.query('SELECT 1 FROM follow_request WHERE "followerId"=$1 AND "followeeId"=ANY($2::varchar[])', [g.id, [author.id, locked.id]])).rowCount, 0);
+} finally { await db.end(); }
+console.log('Pending initial-copy replay preserves unfollow/cancel and the frozen source snapshot PASS');
 await api(grid, 'gridspace/link', await authorize(), g.token);
 state = await status();
 assert.equal(state.total, 3, 'Reauthorization refreshed the frozen snapshot');
