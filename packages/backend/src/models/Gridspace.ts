@@ -69,3 +69,19 @@ export class MiGridspaceFollowOverride {
 	@ManyToOne(() => MiUser, { onDelete: 'CASCADE' }) @JoinColumn() public targetUser: MiUser | null;
 	@Column('timestamp with time zone') public changedAt: Date;
 }
+
+/** No FK: deletion of the source note must not remove its pending delivery. */
+@Entity('gridspace_note_delivery')
+export class MiGridspaceNoteDelivery {
+	@PrimaryColumn(id()) public noteId: string;
+	@Column('uuid') public version: string;
+	@Column('varchar', { length: 512 }) public peerOrigin: string;
+	@Index() @Column('timestamp with time zone') public retryAt: Date;
+	@Column('integer', { default: 0 }) public attempts: number;
+}
+
+/** Permanent tombstones also guard against ordinary ActivityPub replay. */
+@Entity('gridspace_note_tombstone')
+export class MiGridspaceNoteTombstone {
+	@PrimaryColumn('varchar', { length: 512 }) public uri: string;
+}

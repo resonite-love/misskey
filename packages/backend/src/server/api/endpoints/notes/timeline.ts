@@ -6,6 +6,7 @@
 import { Brackets } from 'typeorm';
 import { Inject, Injectable } from '@nestjs/common';
 import type { NotesRepository, MiMeta } from '@/models/_.js';
+import { GridspaceIdentityService } from '@/core/gridspace/GridspaceIdentityService.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { QueryService } from '@/core/QueryService.js';
 import ActiveUsersChart from '@/core/chart/charts/active-users.js';
@@ -72,10 +73,12 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		private channelMutingService: ChannelMutingService,
 		private channelFollowingService: ChannelFollowingService,
 		private queryService: QueryService,
+		private gridspaceIdentity: GridspaceIdentityService,
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			const untilId = ps.untilId ?? (ps.untilDate ? this.idService.gen(ps.untilDate!) : null);
 			const sinceId = ps.sinceId ?? (ps.sinceDate ? this.idService.gen(ps.sinceDate!) : null);
+			const linkedUserId = await this.gridspaceIdentity.linkedUserId(me.id);
 
 			if (!this.serverSettings.enableFanoutTimeline) {
 				const timeline = await this.getFromDb({
@@ -109,10 +112,14 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				allowPartial: ps.allowPartial,
 				me,
 				useDbFallback: this.serverSettings.enableFanoutTimelineDbFallback,
-				redisTimelines: ps.withFiles ? [`homeTimelineWithFiles:${me.id}`] : [`homeTimeline:${me.id}`],
+				redisTimelines: [
+					...(ps.withFiles ? [`homeTimelineWithFiles:${me.id}` as const] : [`homeTimeline:${me.id}` as const]),
+					...(linkedUserId ? (ps.withFiles ? [`userTimelineWithFiles:${linkedUserId}` as const] : [`userTimeline:${linkedUserId}` as const, `userTimelineWithReplies:${linkedUserId}` as const]) : []),
+				],
 				alwaysIncludeMyNotes: true,
 				excludePureRenotes: !ps.withRenotes,
 				noteFilter: note => {
+					if (note.userId === linkedUserId && note.visibility !== 'public' && note.visibility !== 'home' && !Object.hasOwn(followings, note.userId)) return false;
 					if (note.reply && note.reply.visibility === 'followers') {
 						if (!Object.hasOwn(followings, note.reply.userId) && note.reply.userId !== me.id) return false;
 					}
@@ -140,7 +147,8 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 	}
 
 	private async getFromDb(ps: { untilId: string | null; sinceId: string | null; limit: number; includeMyRenotes: boolean; includeRenotedMyNotes: boolean; includeLocalRenotes: boolean; withFiles: boolean; withRenotes: boolean; }, me: MiLocalUser) {
-		const followees = await this.userFollowingService.getFollowees(me.id);
+		const linkedUserId = await this.gridspaceIdentity.linkedUserId(me.id);
+		const followees = [...await this.userFollowingService.getFollowees(me.id), ...(linkedUserId ? [{ followeeId: linkedUserId }] : [])];
 
 		const mutingChannelIds = await this.channelMutingService
 			.list({ requestUserId: me.id }, { idOnly: true })

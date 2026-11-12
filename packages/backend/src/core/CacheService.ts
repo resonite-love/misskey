@@ -175,6 +175,14 @@ export class CacheService implements OnApplicationShutdown {
 					this.localUserByNativeTokenCache.set(body.newToken, user);
 					break;
 				}
+				case 'blockingCreated':
+				case 'blockingDeleted': {
+					await Promise.all([
+						this.userBlockingCache.delete(body.blockerId),
+						this.userBlockedCache.delete(body.blockeeId),
+					]);
+					break;
+				}
 				case 'follow': {
 					const follower = this.userByIdCache.get(body.followerId);
 					if (follower) follower.followingCount++;

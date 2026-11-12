@@ -18,7 +18,7 @@ const g = resolveGridspaceConfig(source, 'https://g.example', env)!;
 const r = resolveGridspaceConfig({ ...source, peerUrl: g.origin }, source.peerUrl, env)!;
 const servers: FastifyInstance[] = [];
 
-async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3]) {
+async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4]) {
 	const app = Fastify();
 	servers.push(app);
 	const used = new Set<string>();
@@ -29,7 +29,7 @@ async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Para
 			if (used.has(key)) return false;
 			used.add(key);
 			return true;
-		}), action);
+		}), action, notes);
 	}, { prefix: '/gridspace/v1' });
 	return app;
 }
@@ -131,5 +131,19 @@ describe('GridSpace peer handshake', () => {
 		expect((await app.inject({ ...req, payload: '{' })).statusCode).toBe(400);
 		expect((await app.inject({ ...req, payload: 'x'.repeat(4097) })).statusCode).toBe(413);
 		expect((await app.inject({ ...req, headers: { ...req.headers, 'content-type': 'text/plain' } })).statusCode).toBe(415);
+	});
+});
+
+describe('GridSpace note transport', () => {
+	test.each(['read', 'sync'])('authenticates and replay-protects %s', async name => {
+		let calls = 0;
+		const app = await server(true, undefined, undefined, async () => { calls++; return { ok: true }; });
+		const url = `/gridspace/v1/notes/${name}`;
+		const payload = Buffer.from(JSON.stringify({ noteId: 'test' }));
+		expect((await app.inject({ method: 'POST', url, payload, headers: { 'content-type': 'application/json' } })).statusCode).toBe(403);
+		const input = { method: 'POST' as const, url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) };
+		expect((await app.inject(input)).statusCode).toBe(200);
+		expect((await app.inject(input)).statusCode).toBe(409);
+		expect(calls).toBe(1);
 	});
 });

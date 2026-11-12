@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { GridspaceIdentityService } from '@/core/gridspace/GridspaceIdentityService.js';
 import { Inject, Injectable, Scope } from '@nestjs/common';
 import type { Packed } from '@/misc/json-schema.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
@@ -27,6 +28,7 @@ export class HomeTimelineChannel extends Channel {
 		request: ChannelRequest,
 
 		private noteEntityService: NoteEntityService,
+		private gridspaceIdentity: GridspaceIdentityService,
 		private noteStreamingHidingService: NoteStreamingHidingService,
 	) {
 		super(request);
@@ -43,7 +45,7 @@ export class HomeTimelineChannel extends Channel {
 
 	@bindThis
 	private async onNote(note: Packed<'Note'>) {
-		const isMe = this.user!.id === note.userId;
+		const isMe = this.user!.id === note.userId || ((note.visibility === 'public' || note.visibility === 'home') && note.userId === await this.gridspaceIdentity.linkedUserId(this.user!.id));
 
 		if (this.withFiles && (note.fileIds == null || note.fileIds.length === 0)) return;
 

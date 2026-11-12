@@ -6,6 +6,7 @@
 import { Brackets } from 'typeorm';
 import { Inject, Injectable } from '@nestjs/common';
 import type { NotesRepository, ChannelFollowingsRepository, MiMeta } from '@/models/_.js';
+import { GridspaceIdentityService } from '@/core/gridspace/GridspaceIdentityService.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import ActiveUsersChart from '@/core/chart/charts/active-users.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
@@ -87,6 +88,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		private idService: IdService,
 		private cacheService: CacheService,
 		private queryService: QueryService,
+		private gridspaceIdentity: GridspaceIdentityService,
 		private userFollowingService: UserFollowingService,
 		private channelMutingService: ChannelMutingService,
 		private channelFollowingService: ChannelFollowingService,
@@ -95,6 +97,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		super(meta, paramDef, async (ps, me) => {
 			const untilId = ps.untilId ?? (ps.untilDate ? this.idService.gen(ps.untilDate!) : null);
 			const sinceId = ps.sinceId ?? (ps.sinceDate ? this.idService.gen(ps.sinceDate!) : null);
+			const linkedUserId = await this.gridspaceIdentity.linkedUserId(me.id);
 
 			const policies = await this.roleService.getUserPolicies(me.id);
 			if (!policies.ltlAvailable) {
@@ -155,11 +158,12 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				limit: ps.limit,
 				allowPartial: ps.allowPartial,
 				me,
-				redisTimelines: timelineConfig,
+				redisTimelines: [...timelineConfig, ...(linkedUserId ? (ps.withFiles ? [`userTimelineWithFiles:${linkedUserId}` as const] : [`userTimeline:${linkedUserId}` as const, `userTimelineWithReplies:${linkedUserId}` as const]) : [])],
 				useDbFallback: this.serverSettings.enableFanoutTimelineDbFallback,
 				alwaysIncludeMyNotes: true,
 				excludePureRenotes: !ps.withRenotes,
 				noteFilter: note => {
+					if (note.userId === linkedUserId && note.visibility !== 'public' && note.visibility !== 'home' && !Object.hasOwn(followings, note.userId)) return false;
 					if (note.reply && note.reply.visibility === 'followers') {
 						if (!Object.hasOwn(followings, note.reply.userId) && note.reply.userId !== me.id) return false;
 					}
@@ -196,7 +200,8 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		withFiles: boolean,
 		withReplies: boolean,
 	}, me: MiLocalUser) {
-		const followees = await this.userFollowingService.getFollowees(me.id);
+		const linkedUserId = await this.gridspaceIdentity.linkedUserId(me.id);
+		const followees = [...await this.userFollowingService.getFollowees(me.id), ...(linkedUserId ? [{ followeeId: linkedUserId }] : [])];
 
 		const mutingChannelIds = await this.channelMutingService
 			.list({ requestUserId: me.id }, { idOnly: true })
@@ -210,10 +215,10 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				if (followees.length > 0) {
 					const meOrFolloweeIds = [me.id, ...followees.map(f => f.followeeId)];
 					qb.where('note.userId IN (:...meOrFolloweeIds)', { meOrFolloweeIds: meOrFolloweeIds });
-					qb.orWhere('(note.visibility = \'public\') AND (note.userHost IS NULL)');
+					qb.orWhere('(note.visibility = \'public\') AND ((note.userHost IS NULL OR note.gridspaceShared = true))');
 				} else {
 					qb.where('note.userId = :meId', { meId: me.id });
-					qb.orWhere('(note.visibility = \'public\') AND (note.userHost IS NULL)');
+					qb.orWhere('(note.visibility = \'public\') AND ((note.userHost IS NULL OR note.gridspaceShared = true))');
 				}
 			}))
 			.innerJoinAndSelect('note.user', 'user')

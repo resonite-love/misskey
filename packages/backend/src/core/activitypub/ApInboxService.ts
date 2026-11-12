@@ -15,6 +15,7 @@ import { NotePiningService } from '@/core/NotePiningService.js';
 import { UserBlockingService } from '@/core/UserBlockingService.js';
 import { NoteDeleteService } from '@/core/NoteDeleteService.js';
 import { NoteCreateService } from '@/core/NoteCreateService.js';
+import { canonicalGridspaceNoteUri } from '@/core/gridspace/note-protocol.js';
 import { acquireApObjectLock } from '@/misc/distributed-lock.js';
 import { concat, toArray, toSingle, unique } from '@/misc/prelude/array.js';
 import type Logger from '@/logger.js';
@@ -314,7 +315,7 @@ export class ApInboxService {
 		if (!this.utilityService.isFederationAllowedUri(uri)) return;
 
 		const activityUri = getApId(activity);
-		const unlock = await acquireApObjectLock(this.redisClient, activityUri);
+		const unlock = await acquireApObjectLock(this.redisClient, canonicalGridspaceNoteUri(activityUri, this.config.gridspace?.peerUrl));
 
 		try {
 			// 既に同じURIを持つものが登録されていないかチェック
@@ -449,7 +450,7 @@ export class ApInboxService {
 			}
 		}
 
-		const unlock = await acquireApObjectLock(this.redisClient, uri);
+		const unlock = await acquireApObjectLock(this.redisClient, canonicalGridspaceNoteUri(uri, this.config.gridspace?.peerUrl));
 
 		try {
 			const exist = await this.apNoteService.fetchNote(note);
@@ -533,7 +534,7 @@ export class ApInboxService {
 	private async deleteNote(actor: MiRemoteUser, uri: string): Promise<string> {
 		this.logger.info(`Deleting the Note: ${uri}`);
 
-		const unlock = await acquireApObjectLock(this.redisClient, uri);
+		const unlock = await acquireApObjectLock(this.redisClient, canonicalGridspaceNoteUri(uri, this.config.gridspace?.peerUrl));
 
 		try {
 			const note = await this.apDbResolverService.getNoteFromApId(uri);
@@ -696,15 +697,13 @@ export class ApInboxService {
 	private async undoAnnounce(actor: MiRemoteUser, activity: IAnnounce): Promise<string> {
 		const uri = getApId(activity);
 
-		const note = await this.notesRepository.findOneBy({
-			uri,
-			userId: actor.id,
-		});
-
-		if (!note) return 'skip: no such Announce';
-
-		await this.noteDeleteService.delete(actor, note);
-		return 'ok: deleted';
+		const unlock = await acquireApObjectLock(this.redisClient, canonicalGridspaceNoteUri(uri, this.config.gridspace?.peerUrl));
+		try {
+			const note = await this.apDbResolverService.getNoteFromApId(uri);
+			if (!note || note.userId !== actor.id) return 'skip: no such Announce';
+			await this.noteDeleteService.delete(actor, note);
+			return 'ok: deleted';
+		} finally { await unlock(); }
 	}
 
 	@bindThis

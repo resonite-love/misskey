@@ -3,14 +3,18 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { canonicalGridspaceNoteUri } from '@/core/gridspace/note-protocol.js';
+import { randomUUID } from 'node:crypto';
+import type { Config } from '@/config.js';
+import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone } from '@/models/Gridspace.js';
 import { Inject, Injectable } from '@nestjs/common';
-import { MoreThan } from 'typeorm';
+import { DataSource, In, MoreThan } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { DriveFilesRepository, NotesRepository, PagesRepository, UserProfilesRepository, UsersRepository } from '@/models/_.js';
 import type Logger from '@/logger.js';
 import { DriveService } from '@/core/DriveService.js';
 import type { MiDriveFile } from '@/models/DriveFile.js';
-import type { MiNote } from '@/models/Note.js';
+import { MiNote } from '@/models/Note.js';
 import { EmailService } from '@/core/EmailService.js';
 import { bindThis } from '@/decorators.js';
 import { SearchService } from '@/core/SearchService.js';
@@ -24,6 +28,8 @@ export class DeleteAccountProcessorService {
 	private logger: Logger;
 
 	constructor(
+		@Inject(DI.db) private db: DataSource,
+		@Inject(DI.config) private config: Config,
 		@Inject(DI.usersRepository)
 		private usersRepository: UsersRepository,
 
@@ -78,7 +84,21 @@ export class DeleteAccountProcessorService {
 
 				cursor = notes.at(-1)?.id ?? null;
 
-				await this.notesRepository.delete(notes.map(note => note.id));
+				await this.db.transaction(async manager => {
+					const ids = notes.map(note => note.id);
+					const current = await manager.getRepository(MiNote).createQueryBuilder('note')
+						.where({ id: In(ids) }).orderBy('note.id', 'ASC').setLock('pessimistic_write').getMany();
+					for (const note of current) {
+						if (!note.gridspaceShared) continue;
+						if (note.userHost == null && this.config.gridspace?.peerUrl) {
+							await manager.upsert(MiGridspaceNoteDelivery, { noteId: note.id, version: randomUUID(), peerOrigin: new URL(this.config.gridspace.peerUrl).origin, retryAt: new Date(), attempts: 0 }, ['noteId']);
+						} else if (note.uri) {
+							await manager.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', ['gridspace-note:' + canonicalGridspaceNoteUri(note.uri, this.config.gridspace?.peerUrl)]);
+							await manager.upsert(MiGridspaceNoteTombstone, { uri: canonicalGridspaceNoteUri(note.uri, this.config.gridspace?.peerUrl) }, ['uri']);
+						}
+					}
+					await manager.delete(MiNote, { id: In(ids) });
+				});
 
 				for (const note of notes) {
 					await this.searchService.unindexNote(note);

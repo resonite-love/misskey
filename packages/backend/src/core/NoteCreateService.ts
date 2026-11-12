@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { randomUUID } from 'node:crypto';
+import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone } from '@/models/Gridspace.js';
+import { canShareGridspaceNote, canonicalGridspaceNoteUri, gridspaceNoteUris } from '@/core/gridspace/note-protocol.js';
 import { setImmediate } from 'node:timers/promises';
 import * as mfm from 'mfm-js';
 import { In, DataSource, IsNull, LessThan } from 'typeorm';
@@ -177,6 +180,7 @@ type Option = {
 	files?: MiDriveFile[] | null;
 	poll?: IPoll | null;
 	localOnly?: boolean | null;
+	gridspaceShared?: boolean;
 	reactionAcceptance?: MiNote['reactionAcceptance'];
 	cw?: string | null;
 	visibility?: string;
@@ -694,6 +698,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			emojis,
 			userId: user.id,
 			localOnly: data.localOnly!,
+			gridspaceShared: data.gridspaceShared === true || (user.host == null && this.config.gridspace?.enabled === true && canShareGridspaceNote({ visibility: data.visibility!, channelId: data.channel?.id ?? null })),
 			reactionAcceptance: data.reactionAcceptance ?? null,
 			visibility: data.visibility as any,
 			visibleUserIds: data.visibility === 'specified'
@@ -713,7 +718,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			userHost: user.host,
 		});
 
-		if (data.uri != null) insert.uri = data.uri;
+		if (data.uri != null) insert.uri = canonicalGridspaceNoteUri(data.uri, this.config.gridspace?.peerUrl);
 		if (data.url != null) insert.url = data.url;
 
 		// Append mentions data
@@ -734,10 +739,18 @@ export class NoteCreateService implements OnApplicationShutdown {
 
 		// 投稿を作成
 		try {
-			if (insert.hasPoll) {
-				// Start transaction
+			if (insert.hasPoll || insert.gridspaceShared || insert.uri) {
+				// Persist delivery with the note; tombstones serialize against late/replayed creates.
 				await this.db.transaction(async transactionalEntityManager => {
+					if (insert.uri) {
+						await transactionalEntityManager.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', ['gridspace-note:' + insert.uri]);
+						if (await transactionalEntityManager.existsBy(MiGridspaceNoteTombstone, gridspaceNoteUris(insert.uri, this.config.gridspace?.peerUrl).map(uri => ({ uri })))) throw new Error('GridSpace note was deleted');
+					}
 					await transactionalEntityManager.insert(MiNote, insert);
+					if (insert.gridspaceShared && user.host == null) {
+						await transactionalEntityManager.insert(MiGridspaceNoteDelivery, { noteId: insert.id, version: randomUUID(), peerOrigin: new URL(this.config.gridspace!.peerUrl).origin, retryAt: new Date() });
+					}
+					if (!insert.hasPoll) return;
 
 					const poll = new MiPoll({
 						noteId: insert.id,
@@ -1098,7 +1111,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 	}
 
 	@bindThis
-	private async pushToTl(note: MiNote, user: { id: MiUser['id']; host: MiUser['host']; }) {
+	public async pushToTl(note: MiNote, user: { id: MiUser['id']; host: MiUser['host']; }) {
 		if (!this.meta.enableFanoutTimeline) return;
 
 		const r = this.redisForTimelines.pipeline();
@@ -1202,7 +1215,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			if (isReply(note)) {
 				this.fanoutTimelineService.push(`userTimelineWithReplies:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax : this.meta.perRemoteUserUserTimelineCacheMax, r);
 
-				if (note.visibility === 'public' && note.userHost == null) {
+				if (note.visibility === 'public' && (note.userHost == null || note.gridspaceShared)) {
 					this.fanoutTimelineService.push('localTimelineWithReplies', note.id, 300, r);
 					if (note.replyUserHost == null) {
 						this.fanoutTimelineService.push(`localTimelineWithReplyTo:${note.replyUserId}`, note.id, 300 / 10, r);
@@ -1220,7 +1233,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 					this.fanoutTimelineService.push(`userTimelineWithFiles:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax / 2 : this.meta.perRemoteUserUserTimelineCacheMax / 2, r);
 				}
 
-				if (note.visibility === 'public' && note.userHost == null) {
+				if (note.visibility === 'public' && (note.userHost == null || note.gridspaceShared)) {
 					this.fanoutTimelineService.push('localTimeline', note.id, 1000, r);
 					if (note.fileIds.length > 0) {
 						this.fanoutTimelineService.push('localTimelineWithFiles', note.id, 500, r);

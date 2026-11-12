@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { GridspaceLink1794451421453 } from '../../packages/backend/migration/1794451421453-GridspaceLink.js';
 import { GridspaceSessionGeneration1794451529407 } from '../../packages/backend/migration/1794451529407-GridspaceSessionGeneration.js';
+import { GridspaceNotes1794452699504 } from '../../packages/backend/migration/1794452699504-GridspaceNotes.js';
 import { loadSite } from './lab.mjs';
 
 const site = loadSite('.', 0);
@@ -27,12 +28,13 @@ const scratch = new Client({ ...connection, database });
 try {
 	await scratch.connect();
 	await scratch.query('CREATE TABLE "user" (id varchar(32) PRIMARY KEY)');
-	const migrations = [new GridspaceLink1794451421453(), new GridspaceSessionGeneration1794451529407()];
+	await scratch.query('CREATE TABLE "note" (id varchar(32) PRIMARY KEY)');
+	const migrations = [new GridspaceLink1794451421453(), new GridspaceSessionGeneration1794451529407(), new GridspaceNotes1794452699504()];
 	for (const migration of migrations) await migration.up(scratch);
 	for (const migration of [...migrations].reverse()) await migration.down(scratch);
-	assert.equal((await scratch.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")).rowCount, 1);
+	assert.equal((await scratch.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")).rowCount, 2);
 	for (const migration of migrations) await migration.up(scratch);
-	assert.equal((await scratch.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")).rowCount, 5);
+	assert.equal((await scratch.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")).rowCount, 8);
 	console.log('GridSpace migrations up/down/up PASS (isolated disposable database)');
 } finally {
 	await scratch.end();

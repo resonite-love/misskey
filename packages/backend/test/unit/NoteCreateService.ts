@@ -37,6 +37,7 @@ describe('NoteCreateService', () => {
 			userId: 'some-user-id',
 			user: null,
 			localOnly: false,
+			gridspaceShared: false,
 			reactionAcceptance: null,
 			renoteCount: 0,
 			repliesCount: 0,

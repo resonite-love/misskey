@@ -12,7 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 export type ClaimGridspaceNonce = (key: string, ttlMs: number) => Promise<boolean>;
 
 /** Mounted under /gridspace/v1; independent from user-authorized /api endpoints. */
-export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>): void {
+export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>): void {
 	if (config === null) return;
 	// Preserve wire bytes for the signature without changing other server plugins' parsers.
 	const parseJson = fastify.getDefaultJsonParser('error', 'error');
@@ -56,9 +56,23 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			origin: config.origin,
 			peerOrigin: config.peerOrigin,
 			// Only advertise features once their authorization and persistence are implemented.
-			features: action ? ['account-link-follow-copy'] : [] as string[],
+			features: [...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : [])],
 		};
 	});
+	if (notes) {
+		for (const name of ['read', 'sync']) {
+			fastify.post<{ Body: { noteId: string } }>(`/notes/${name}`, {
+				bodyLimit: 4096, config: { rawBody: true }, preHandler: authenticate,
+				schema: { body: { type: 'object', additionalProperties: false, required: ['noteId'], properties: {
+					noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+				} } },
+			}, async (request, reply) => {
+				try { return await notes(name, request.body.noteId); } catch {
+					return reply.code(503).send({ error: 'PEER_NOTE_UNAVAILABLE' });
+				}
+			});
+		}
+	}
 	if (!action) return;
 	fastify.get('/oauth-client', async () => ({
 		client_id: config.origin + GRIDSPACE_CLIENT_PATH,

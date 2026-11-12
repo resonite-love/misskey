@@ -3,10 +3,13 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { Brackets, In, IsNull, Not } from 'typeorm';
+import { canonicalGridspaceNoteUri } from '@/core/gridspace/note-protocol.js';
+import { randomUUID } from 'node:crypto';
+import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone } from '@/models/Gridspace.js';
+import { DataSource, Brackets, In, IsNull, Not } from 'typeorm';
 import { Injectable, Inject } from '@nestjs/common';
 import type { MiUser, MiLocalUser, MiRemoteUser } from '@/models/User.js';
-import type { MiNote, IMentionedRemoteUsers } from '@/models/Note.js';
+import { MiNote, type IMentionedRemoteUsers } from '@/models/Note.js';
 import type { InstancesRepository, MiMeta, NotesRepository, UsersRepository } from '@/models/_.js';
 import { RelayService } from '@/core/RelayService.js';
 import { FederatedInstanceService } from '@/core/FederatedInstanceService.js';
@@ -27,6 +30,7 @@ import { isQuote, isRenote } from '@/misc/is-renote.js';
 @Injectable()
 export class NoteDeleteService {
 	constructor(
+		@Inject(DI.db) private db: DataSource,
 		@Inject(DI.config)
 		private config: Config,
 
@@ -110,9 +114,17 @@ export class NoteDeleteService {
 
 		this.searchService.unindexNote(note);
 
-		await this.notesRepository.delete({
-			id: note.id,
-			userId: user.id,
+		await this.db.transaction(async manager => {
+			const current = await manager.findOne(MiNote, { where: { id: note.id, userId: user.id }, lock: { mode: 'pessimistic_write' } });
+			if (!current) return;
+			if (current.gridspaceShared && user.host == null && this.config.gridspace?.peerUrl) {
+				await manager.upsert(MiGridspaceNoteDelivery, { noteId: note.id, version: randomUUID(), peerOrigin: new URL(this.config.gridspace.peerUrl).origin, retryAt: new Date(), attempts: 0 }, ['noteId']);
+			}
+			if (current.gridspaceShared && current.uri) {
+				await manager.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', ['gridspace-note:' + canonicalGridspaceNoteUri(current.uri, this.config.gridspace?.peerUrl)]);
+				await manager.upsert(MiGridspaceNoteTombstone, { uri: canonicalGridspaceNoteUri(current.uri, this.config.gridspace?.peerUrl) }, ['uri']);
+			}
+			await manager.delete(MiNote, { id: note.id, userId: user.id });
 		});
 
 		if (deleter && (note.userId !== deleter.id)) {

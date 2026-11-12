@@ -197,6 +197,10 @@ export const packedNoteSchema = {
 				},
 			},
 		},
+		gridspaceShared: {
+			type: 'boolean',
+			optional: true, nullable: false,
+		},
 		localOnly: {
 			type: 'boolean',
 			optional: true, nullable: false,

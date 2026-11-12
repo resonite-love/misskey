@@ -81,6 +81,7 @@ function generateDummyNote(override?: Partial<MiNote>): MiNote {
 		userId: 'dummy-user-1',
 		user: null,
 		localOnly: true,
+		gridspaceShared: false,
 		reactionAcceptance: 'likeOnly',
 		renoteCount: 10,
 		repliesCount: 5,

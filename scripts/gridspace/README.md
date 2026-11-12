@@ -102,6 +102,19 @@ node scripts/gridspace/test-migrations.mjs
 
 `test-migrations.mjs` は G の PostgreSQL に一時 DB を作り、新規 migration の up → down → up を確認してその DB を削除する。稼働中の Misskey のテーブルと利用者データは変更しない。
 
+### 共通 LTL とローカル限定投稿の試験
+
+`test-link.mjs` を一度実行した環境で、次を実行する。
+
+```powershell
+node scripts/gridspace/test-notes.mjs ../resonite-love-gridspace ../gridspace-external-test
+pnpm --filter backend test --run src/core/gridspace src/server/gridspace
+```
+
+`test-notes.mjs` は専用アカウントを作り、LTL・ホーム・ソーシャルのライブ受信、フォローの有無、連携した自分の投稿、画像・CW・投票、返信・引用・Renote、通常連合との重複防止を確認する。外部サーバーへのローカル限定投稿の配送禁止と、投稿・専用アカウントを削除した後の表示取り下げも確認する。既存利用者のアカウントは削除しない。
+
+DB からの取得を確認する間だけ G のタイムラインキャッシュを無効にし、終了時に元の設定へ戻す。共通 LTL は `gridspace.enabled` が有効な両サイトで動作する。投稿元の URI とアカウントを保持するため、通常の連合で先に受信していても別の投稿は作らない。
+
 ビルドを更新した後は Misskey のプロセスを再起動し、ブラウザーも再読み込みする。起動中のサーバーは古いアセットの情報を保持するため、ファイルの置き換えだけでは画面を更新できないことがある。
 
 ## 停止と再開

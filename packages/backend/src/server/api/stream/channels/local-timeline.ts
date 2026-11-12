@@ -54,7 +54,7 @@ export class LocalTimelineChannel extends Channel {
 	private async onNote(note: Packed<'Note'>) {
 		if (this.withFiles && (note.fileIds == null || note.fileIds.length === 0)) return;
 
-		if (note.user.host !== null) return;
+		if (note.user.host !== null && !note.gridspaceShared) return;
 		if (note.visibility !== 'public') return;
 		if (note.channelId != null) return;
 		if (note.user.requireSigninToViewContents && this.user == null) return;

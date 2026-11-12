@@ -94,6 +94,9 @@ export class MiNote {
 	})
 	public localOnly: boolean;
 
+	@Column('boolean', { default: false })
+	public gridspaceShared: boolean;
+
 	@Column('varchar', {
 		length: 64, nullable: true,
 	})

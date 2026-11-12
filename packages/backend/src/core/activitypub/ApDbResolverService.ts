@@ -4,6 +4,7 @@
  */
 
 import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common';
+import { gridspaceNoteUris } from '@/core/gridspace/note-protocol.js';
 import { DI } from '@/di-symbols.js';
 import type { NotesRepository, UserPublickeysRepository, UsersRepository } from '@/models/_.js';
 import type { Config } from '@/config.js';
@@ -92,9 +93,7 @@ export class ApDbResolverService implements OnApplicationShutdown {
 				id: parsed.id,
 			});
 		} else {
-			return await this.notesRepository.findOneBy({
-				uri: parsed.uri,
-			});
+			return await this.notesRepository.findOneBy(gridspaceNoteUris(parsed.uri, this.config.gridspace?.peerUrl).map(uri => ({ uri })));
 		}
 	}
 

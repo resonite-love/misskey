@@ -4612,6 +4612,7 @@ export type components = {
                 allowRenoteToExternal: boolean;
                 userId: string | null;
             } | null;
+            gridspaceShared?: boolean;
             localOnly?: boolean;
             /** @enum {string|null} */
             reactionAcceptance: 'likeOnly' | 'likeOnlyForRemote' | 'nonSensitiveOnly' | 'nonSensitiveOnlyForLocalLikeOnlyForRemote' | null;
