@@ -25168,6 +25168,7 @@ export interface operations {
                     'application/json': {
                         notes: {
                             id: string;
+                            uri: string;
                             createdAt: string;
                             origin: string;
                             text: string | null;
@@ -25179,6 +25180,7 @@ export interface operations {
                                 username: string;
                                 host: string;
                                 uri: string;
+                                avatarUrl: string;
                             };
                             replyId: string | null;
                             renoteId: string | null;
@@ -25200,6 +25202,8 @@ export interface operations {
                             } | null;
                         }[];
                         cursor: string | null;
+                        scannedThrough: string | null;
+                        observedAt: string;
                     };
                 };
             };

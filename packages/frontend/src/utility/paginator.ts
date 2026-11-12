@@ -252,7 +252,7 @@ export class Paginator<
 			})) as T[] | null;
 
 			if (apiRes == null) {
-				break;
+				return;
 			}
 
 			totalFetched++;
@@ -346,7 +346,8 @@ export class Paginator<
 			})) as T[] | null;
 
 			if (apiRes == null) {
-				break;
+				this.fetchingOlder.value = false;
+				return;
 			}
 
 			totalFetched++;

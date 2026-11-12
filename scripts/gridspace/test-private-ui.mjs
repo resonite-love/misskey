@@ -87,15 +87,15 @@ try {
 	await expect(section.getByText('one — 0', { exact: true })).toBeVisible();
 	await section.getByRole('button', { name: '添付ファイルを表示: private.png', exact: true }).click();
 	await expect(section.locator('img[src^="blob:"]')).toBeVisible();
-	assert.equal(await section.locator('img').evaluate(img => img.complete && img.naturalWidth > 0), true);
+	assert.equal(await section.locator('img[src^="blob:"]').evaluate(img => img.complete && img.naturalWidth > 0), true);
 	await section.locator('summary').click();
-	await expect(section.locator('img')).toHaveCount(0);
+	await expect(section.locator('img[src^="blob:"]')).toHaveCount(0);
 	await expect(section.getByText('one — 0', { exact: true })).not.toBeVisible();
 	assert.ok(await page.evaluate(() => window.privateRevokedUrls.length > 0));
 	await section.locator('summary').click();
 	await section.getByRole('button', { name: '添付ファイルを表示: private.png', exact: true }).click();
 	await expect(section.locator('img[src^="blob:"]')).toBeVisible();
-	const loaded = await section.locator('img').getAttribute('src');
+	const loaded = await section.locator('img[src^="blob:"]').getAttribute('src');
 	await api(g, 'gridspace/private-grant', { action: 'revoke' }, fixture.grid.token);
 	await page.evaluate(() => window.dispatchEvent(new Event('focus')));
 	await expect(section.locator('article')).toHaveCount(0, { timeout: 30000 });

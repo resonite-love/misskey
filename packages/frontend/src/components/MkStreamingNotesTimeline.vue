@@ -5,18 +5,22 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" :refresher="() => reloadTimeline()">
-	<MkLoading v-if="paginator.fetching.value"/>
+	<MkInfo v-if="home.error.value" warn class="_gaps_s">
+		{{ i18n.ts._gridspace.homeUnavailable }}
+		<MkButton small :disabled="home.busy.value" @click="home.reload">{{ i18n.ts.retry }}</MkButton>
+	</MkInfo>
+	<MkLoading v-if="paginator.fetching.value || (home.busy.value && home.rows.value.length === 0)"/>
 
 	<MkError v-else-if="paginator.error.value" @retry="paginator.init()"/>
 
-	<div v-else-if="paginator.items.value.length === 0" key="_empty_">
+	<div v-else-if="home.rows.value.length === 0 && !home.hasMore.value" key="_empty_">
 		<slot name="empty">
 			<MkResult type="empty" :text="i18n.ts.noNotes"/>
 		</slot>
 	</div>
 
 	<div v-else ref="rootEl">
-		<div v-if="paginator.queuedAheadItemsCount.value > 0" :class="$style.new">
+		<div v-if="home.queuedCount.value > 0" :class="$style.new">
 			<div :class="$style.newBg1"></div>
 			<div :class="$style.newBg2"></div>
 			<button class="_button" :class="$style.newButton" @click="releaseQueue()">
@@ -25,7 +29,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</button>
 		</div>
 		<component
-			:is="prefer.s.animation ? TransitionGroup : 'div'"
+			:is="prefer.s.animation && src !== 'home' ? TransitionGroup : 'div'"
 			:class="$style.notes"
 			:enterActiveClass="$style.transition_x_enterActive"
 			:leaveActiveClass="$style.transition_x_leaveActive"
@@ -34,38 +38,25 @@ SPDX-License-Identifier: AGPL-3.0-only
 			:moveClass="$style.transition_x_move"
 			tag="div"
 		>
-			<template v-for="(note, i) in paginator.items.value" :key="note.id">
-				<div
-					v-if="i > 0 && isSeparatorNeeded(paginator.items.value[i -1].createdAt, note.createdAt)"
-					:data-scroll-anchor="note.id"
-				>
-					<div :class="$style.date">
-						<span><i class="ti ti-chevron-up"></i> {{
-							getSeparatorInfo(paginator.items.value[i - 1].createdAt, note.createdAt)?.prevText
-						}}</span>
-						<span style="height: 1em; width: 1px; background: var(--MI_THEME-divider);"></span>
-						<span>{{ getSeparatorInfo(paginator.items.value[i - 1].createdAt, note.createdAt)?.nextText }} <i
-							class="ti ti-chevron-down"
-						></i></span>
-					</div>
-					<MkNote :class="$style.note" :note="note" :withHardMute="true"/>
+			<template v-for="(row, i) in home.rows.value" :key="row.key">
+				<div v-if="i > 0 && isSeparatorNeeded(home.rows.value[i - 1].createdAt, row.createdAt)" :class="$style.date">
+					<span><i class="ti ti-chevron-up"></i> {{ getSeparatorInfo(home.rows.value[i - 1].createdAt, row.createdAt)?.prevText }}</span>
+					<span>{{ getSeparatorInfo(home.rows.value[i - 1].createdAt, row.createdAt)?.nextText }} <i class="ti ti-chevron-down"></i></span>
 				</div>
-				<div v-else-if="note._shouldInsertAd_" :data-scroll-anchor="note.id">
-					<MkNote :class="$style.note" :note="note" :withHardMute="true"/>
-					<div :class="$style.ad">
-						<MkAd :preferForms="['horizontal', 'horizontal-big']"/>
-					</div>
-				</div>
-				<MkNote v-else :class="$style.note" :note="note" :withHardMute="true" :data-scroll-anchor="note.id"/>
+				<MkGridspacePrivateNote v-if="row.kind === 'private'" :class="$style.note" :note="row.note" :data-scroll-anchor="row.key" @unavailable="home.fail"/>
+				<template v-else>
+					<MkNote :class="$style.note" :note="row.note" :withHardMute="true" :data-scroll-anchor="row.key"/>
+					<div v-if="row.note._shouldInsertAd_" :class="$style.ad"><MkAd :preferForms="['horizontal', 'horizontal-big']"/></div>
+				</template>
 			</template>
 		</component>
 		<button
-			v-show="paginator.canFetchOlder.value" key="_more_"
-			v-appear="prefer.s.enableInfiniteScroll ? paginator.fetchOlder : null"
-			:disabled="paginator.fetchingOlder.value" class="_button" :class="$style.more"
-			@click="paginator.fetchOlder"
+			v-show="home.hasMore.value" :key="home.pagingKey.value"
+			v-appear="prefer.s.enableInfiniteScroll ? home.fetchOlder : null"
+			:disabled="home.loading.value" class="_button" :class="$style.more"
+			@click="home.fetchOlder"
 		>
-			<div v-if="!paginator.fetchingOlder.value">{{ i18n.ts.loadMore }}</div>
+			<div v-if="!home.loading.value">{{ i18n.ts.loadMore }}</div>
 			<MkLoading v-else :inline="true"/>
 		</button>
 	</div>
@@ -100,6 +91,9 @@ import { instance } from '@/instance.js';
 import { prefer } from '@/preferences.js';
 import { store } from '@/store.js';
 import MkNote from '@/components/MkNote.vue';
+import MkGridspacePrivateNote from '@/components/MkGridspacePrivateNote.vue';
+import MkInfo from '@/components/MkInfo.vue';
+import { useGridspaceHome } from '@/utility/use-gridspace-home.js';
 import MkButton from '@/components/MkButton.vue';
 import { i18n } from '@/i18n.js';
 import { DI } from '@/di.js';
@@ -268,6 +262,10 @@ if (props.src === 'antenna') {
 	throw new Error('Unrecognized timeline type: ' + props.src);
 }
 
+const home = useGridspaceHome(paginator, computed(() => props.src === 'home' && $i ? {
+	mode: 'home' as const, withReplies: false, withRenotes: props.withRenotes, withFiles: props.onlyFiles, withChannelNotes: false,
+} : null), isTop, computed(() => props.withSensitive));
+
 onMounted(() => {
 	paginator.init();
 
@@ -291,6 +289,7 @@ let scrollContainer: HTMLElement | null = null;
 function onScrollContainerScroll() {
 	if (isTop()) {
 		paginator.releaseQueue();
+		home.releaseQueue();
 	}
 }
 
@@ -362,6 +361,7 @@ useGlobalEvent('noteRemovedFromAntenna', (antennaId, noteId) => {
 
 function releaseQueue() {
 	paginator.releaseQueue();
+	home.releaseQueue();
 	scrollToTop(rootEl.value!);
 }
 
@@ -532,7 +532,7 @@ function reloadTimeline() {
 	return new Promise<void>((res) => {
 		adInsertionCounter = 0;
 
-		paginator.reload().then(() => {
+		Promise.all([paginator.reload(), home.reload()]).then(() => {
 			res();
 		});
 	});

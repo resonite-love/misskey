@@ -5,8 +5,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <article :class="$style.note" data-gridspace-private-note>
+	<MkA :to="authorPage" :class="$style.avatar" :aria-label="note.author.name || note.author.username"><img :src="avatarUrl" alt="" loading="lazy" decoding="async"></MkA>
+	<div :class="$style.content">
 	<header :class="$style.header">
-		<strong>{{ note.author.name || note.author.username }}</strong>
+		<MkA :to="authorPage"><strong>{{ note.author.name || note.author.username }}</strong></MkA>
 		<span :class="$style.account">@{{ note.author.username }}@{{ note.author.host }}</span>
 		<MkA :to="`/gridspace/private?noteId=${note.id}`"><MkTime :time="note.createdAt"/></MkA>
 		<span><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateReadOnly }}</span>
@@ -38,18 +40,23 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkA v-if="note.replyId" :to="`/gridspace/private?noteId=${note.replyId}`">{{ i18n.ts._gridspace.privateReply }}</MkA>
 		<MkA v-if="note.renoteId" :to="`/gridspace/private?noteId=${note.renoteId}`">{{ i18n.ts._gridspace.privateRenote }}</MkA>
 	</footer>
+	</div>
 </article>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onDeactivated, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onDeactivated, ref, watch } from 'vue';
 import type { entities } from 'misskey-js';
 import MkButton from '@/components/MkButton.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
+import { prefer } from '@/preferences.js';
+import { getStaticImageUrl } from '@/utility/media-proxy.js';
 
 const props = defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number] }>();
 const emit = defineEmits<{ (event: 'unavailable'): void }>();
+const authorPage = computed(() => `/@${props.note.author.username}@${props.note.author.host}`);
+const avatarUrl = computed(() => prefer.s.disableShowingAnimatedImages || prefer.s.dataSaver.avatar ? getStaticImageUrl(props.note.author.avatarUrl) : props.note.author.avatarUrl);
 const expanded = ref(false);
 const blobs = ref<Record<string, string>>({});
 const loading = ref<string | null>(null);
@@ -102,10 +109,16 @@ onDeactivated(clear);
 </script>
 
 <style lang="scss" module>
-.note { padding: 20px; border-bottom: 1px solid var(--MI_THEME-divider); overflow-wrap: anywhere; }
+.note { display: flex; gap: 16px; padding: 28px 32px; border-bottom: 1px solid var(--MI_THEME-divider); overflow-wrap: anywhere; }
+.avatar { flex: none; width: 58px; height: 58px; img { width: 100%; height: 100%; border-radius: 100%; object-fit: cover; } }
+.content { flex: 1; min-width: 0; }
 .header { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
 .account { color: var(--MI_THEME-fgTransparentWeak); font-size: 0.85em; }
 .body { margin-block: 12px; }
 .text { white-space: pre-wrap; }
 .media { display: block; max-width: 100%; max-height: 420px; }
+@container (max-width: 500px) {
+	.note { gap: 12px; padding: 20px 16px; }
+	.avatar { width: 46px; height: 46px; }
+}
 </style>

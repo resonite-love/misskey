@@ -13688,6 +13688,10 @@ export interface Locale extends ILocale {
          */
         "privateTitle": string;
         /**
+         * 連携先の限定投稿を取得できませんでした。ほかの投稿は引き続き表示しています。
+         */
+        "homeUnavailable": string;
+        /**
          * 一度の許可で、連携した両アカウントからお互いの権限で限定投稿と添付ファイルを閲覧・検索できるようにします。対象は連携した本人のアカウントだけです。投稿や返信の権限は含みません。解除すると両方向の閲覧が止まります。
          */
         "privateConsent": string;

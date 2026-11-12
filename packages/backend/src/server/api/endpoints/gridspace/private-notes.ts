@@ -17,6 +17,8 @@ export const meta = {
 	res: { type: 'object', optional: false, nullable: false, properties: {
 		notes: { type: 'array', optional: false, nullable: false, items: privateNoteSchema },
 		cursor: { type: 'string', optional: false, nullable: true },
+		scannedThrough: { type: 'string', optional: false, nullable: true },
+		observedAt: { type: 'string', optional: false, nullable: false },
 	} },
 } as const;
 export const paramDef = {

@@ -17,14 +17,14 @@ export type PrivatePeerRequest = GridspacePeerLinkRequest & Omit<PrivateOptions,
 };
 export type PrivateActor = { name: string | null; username: string; host: string; uri: string };
 export type PrivateNote = {
-	id: string; createdAt: string; origin: string; text: string | null; cw: string | null;
-	visibility: string; localOnly: boolean; author: PrivateActor;
+	id: string; uri: string; createdAt: string; origin: string; text: string | null; cw: string | null;
+	visibility: string; localOnly: boolean; author: PrivateActor & { avatarUrl: string };
 	replyId: string | null; renoteId: string | null;
 	files: { id: string; name: string; type: string; size: number; comment: string | null; isSensitive: boolean }[];
 	poll: { choices: { text: string; votes: number }[]; expiresAt: string | null; multiple: boolean } | null;
 };
 export type PrivateWireNote = PrivateNote & { filterActors: PrivateActor[] };
-export type PrivatePage = { notes: PrivateWireNote[]; next: string | null; head: string | null };
+export type PrivatePage = { notes: PrivateWireNote[]; next: string | null; head: string | null; scannedThrough: string | null; observedAt: string };
 export const PRIVATE_FILE_LIMIT = 16 * 1024 * 1024;
 
 const text = { type: 'string', optional: false, nullable: false } as const;
@@ -36,8 +36,8 @@ const integer = { type: 'integer', optional: false, nullable: false } as const;
 // must never be inserted into normal note caches or used for local mutations.
 export const privateNoteSchema = {
 	type: 'object', optional: false, nullable: false, properties: {
-		id: text, createdAt: text, origin: text, text: nullableText, cw: nullableText, visibility: text, localOnly: flag,
-		author: { type: 'object', optional: false, nullable: false, properties: { name: nullableText, username: text, host: text, uri: text } },
+		id: text, uri: text, createdAt: text, origin: text, text: nullableText, cw: nullableText, visibility: text, localOnly: flag,
+		author: { type: 'object', optional: false, nullable: false, properties: { name: nullableText, username: text, host: text, uri: text, avatarUrl: text } },
 		replyId: nullableText, renoteId: nullableText,
 		files: { type: 'array', optional: false, nullable: false, items: { type: 'object', optional: false, nullable: false, properties: {
 			id: text, name: text, type: text, size: integer, comment: nullableText, isSensitive: flag,

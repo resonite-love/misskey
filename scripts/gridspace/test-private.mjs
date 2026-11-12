@@ -109,7 +109,7 @@ try {
 	assert.equal((await read(gu, { mode: 'validate', contextMode: 'search', ids: allIds })).notes.length, expected.length);
 	const profile = await read(gu, { mode: 'profile', query: undefined, userId: remote.id });
 	assert.equal(profile.notes.length, 10);
-	assert.equal((await read(gu, { mode: 'home', query: undefined })).notes.length, 0, 'Unapproved G follow appeared in home');
+	assert.ok((await read(gu, { mode: 'home', query: undefined })).notes.length, 'Copied pending follow must use the old account read permission');
 	const oldPeer = await api(r, 'users/show', { username: gu.username, host: new URL(g.origin).host }, author.token);
 	await api(r, 'following/requests/accept', { userId: oldPeer.id }, author.token);
 	await eventually('G follow approval', async () => (await api(g, 'users/show', { userId: remote.id }, gu.token)).isFollowing);

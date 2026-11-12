@@ -13,12 +13,14 @@ import { MiNote } from '@/models/Note.js';
 import { MiDriveFile } from '@/models/DriveFile.js';
 import { MiPoll } from '@/models/Poll.js';
 import { MiFollowing } from '@/models/Following.js';
+import { MiFollowRequest } from '@/models/FollowRequest.js';
 import type { MiMeta } from '@/models/Meta.js';
 import { UtilityService } from '@/core/UtilityService.js';
 import { IdService } from '@/core/IdService.js';
 import { RoleService } from '@/core/RoleService.js';
 import { HttpRequestService } from '@/core/HttpRequestService.js';
 import { InternalStorageService } from '@/core/InternalStorageService.js';
+import { UserEntityService } from '@/core/entities/UserEntityService.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspaceSearchService } from './GridspaceSearchService.js';
 import { GridspaceHistoryService } from './GridspaceHistoryService.js';
@@ -44,6 +46,7 @@ export class GridspacePrivateService {
 		private roles: RoleService,
 		private http: HttpRequestService,
 		private storage: InternalStorageService,
+		private users: UserEntityService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 		this.noteTime = searchNoteTimeSql(config.id);
@@ -58,9 +61,12 @@ export class GridspacePrivateService {
 				ELSE :nowMs::bigint + "user"."makeNotesFollowersOnlyBefore"::bigint * 1000 END))`);
 		}
 		if (input.targetUris) query.andWhere('(COALESCE(user.uri, :origin || \'/users/\' || user.id) IN (:...targets))', { origin: this.peer!.origin, targets: input.targetUris });
-		if (mode === 'home') query.andWhere('(note.userId = :oldViewer OR EXISTS (SELECT 1 FROM following f WHERE f."followerId" = :oldViewer AND f."followeeId" = note."userId"))', { oldViewer: viewerId });
-		if (input.withReplies === false) query.andWhere('note.replyId IS NULL');
-		if (input.withRenotes === false) query.andWhere('note.renoteId IS NULL');
+		// Home subscriptions belong to the destination account. The source checks
+		// readability; localAllows checks current follows/requests after retrieval.
+		if (input.withReplies === false) query.andWhere(mode === 'home'
+			? '(note.replyId IS NULL OR note.replyUserId = note.userId OR note.replyUserId = :homeViewer OR note.replyUserId IN (SELECT id FROM "user" WHERE uri = :homePeerViewer))'
+			: 'note.replyId IS NULL', { homeViewer: viewerId, homePeerViewer: `${this.peer!.peerOrigin}/users/${input.localUserId}` });
+		if (input.withRenotes === false) query.andWhere(mode === 'home' ? '(note.renoteId IS NULL OR note.text IS NOT NULL OR note.cw IS NOT NULL OR note.replyId IS NOT NULL OR cardinality(note.fileIds) > 0 OR note.hasPoll)' : 'note.renoteId IS NULL');
 		if (input.withFiles) query.andWhere('cardinality(note.fileIds) > 0');
 		if (input.withChannelNotes === false) query.andWhere('note.channelId IS NULL');
 		return query;
@@ -85,9 +91,9 @@ export class GridspacePrivateService {
 		const actorIds = [note.userId, note.replyUserId, note.renoteUserId, note.renote?.replyUserId, note.renote?.renoteUserId].filter((id): id is string => !!id);
 		const actors = await this.db.getRepository(MiUser).findBy({ id: In(actorIds) });
 		return {
-			id: note.id, origin: this.peer!.origin, createdAt: this.ids.parse(note.id).date.toISOString(), text: note.text, cw: note.cw,
+			id: note.id, uri: note.uri ?? `${this.peer!.origin}/notes/${note.id}`, origin: this.peer!.origin, createdAt: this.ids.parse(note.id).date.toISOString(), text: note.text, cw: note.cw,
 			visibility: note.visibility, localOnly: note.localOnly,
-			author: this.actor(note.user!), filterActors: actors.map(user => this.actor(user)),
+			author: { ...this.actor(note.user!), avatarUrl: (note.user!.avatarId == null ? null : note.user!.avatarUrl) ?? this.users.getIdenticonUrl(note.user!) }, filterActors: actors.map(user => this.actor(user)),
 			replyId: note.replyId && readableRelated.has(note.replyId) ? note.replyId : null,
 			renoteId: note.renoteId && readableRelated.has(note.renoteId) ? note.renoteId : null,
 			files: files.map(file => ({ id: file.id, name: file.name, type: file.type, size: file.size, comment: file.comment, isSensitive: file.isSensitive || file.maybeSensitive })),
@@ -97,6 +103,7 @@ export class GridspacePrivateService {
 
 	/** No delegated body, attachment URL or search document is persisted. */
 	public async peerNotes(input: PrivatePeerRequest): Promise<PrivatePage> {
+		const observedAt = new Date().toISOString();
 		const link = await this.links.authorizePrivate(input);
 		if ((input.query || input.mode === 'search' || input.contextMode === 'search') && (!(input.query?.trim()) || !(await this.roles.getUserPolicies(link.localUserId)).canSearchNotes)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const rows = await this.sourceNotes(link.localUserId, input);
@@ -116,7 +123,8 @@ export class GridspacePrivateService {
 			if (note.renoteId && !relatedAllowed.has(note.renoteId)) note.renoteId = null;
 		}
 		await this.links.authorizePrivate(input);
-		return { notes: packed.filter(note => allowed.has(note.id)), next: rows.length > limit ? selected.at(-1)!.id : null, head: input.head ?? selected[0]?.id ?? null };
+		return { notes: packed.filter(note => allowed.has(note.id)), next: rows.length > limit ? selected.at(-1)!.id : null, head: input.head ?? selected[0]?.id ?? null,
+			scannedThrough: selected.length ? this.ids.parse(selected.at(-1)!.id).date.toISOString() : null, observedAt };
 	}
 
 	private async localAllows(viewer: MiLocalUser, note: PrivateWireNote, home: boolean, peerUserId: string) {
@@ -131,7 +139,9 @@ export class GridspacePrivateService {
 		const where = uri.startsWith(`${this.peer!.origin}/users/`) ? { id: uri.slice(`${this.peer!.origin}/users/`.length), host: IsNull() } : { uri };
 		const local = await this.db.getRepository(MiUser).findOneBy(where);
 		if (home && uri !== `${this.peer!.peerOrigin}/users/${peerUserId}` && local?.id !== viewer.id) {
-			if (!local || !(await this.db.getRepository(MiFollowing).existsBy({ followerId: viewer.id, followeeId: local.id }))) return false;
+			if (!local) return false;
+			const subscription = { followerId: viewer.id, followeeId: local.id };
+			if (!(await this.db.getRepository(MiFollowing).existsBy(subscription)) && !(await this.db.getRepository(MiFollowRequest).existsBy(subscription))) return false;
 		}
 		return true;
 	}
@@ -164,6 +174,7 @@ export class GridspacePrivateService {
 			...credential, ...peerOptions, targetUris, before: state.remote ?? undefined, head: state.remoteHead ?? undefined, limit,
 		});
 		if (!Array.isArray(page.notes) || page.notes.length > (input.mode === 'validate' ? 100 : limit) || page.notes.some(note => note.origin !== this.peer!.peerOrigin)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		if (!Number.isFinite(Date.parse(page.observedAt)) || (page.next && !Number.isFinite(Date.parse(page.scannedThrough ?? '')))) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		const notes: PrivateNote[] = [];
 		for (const note of page.notes) if (await this.localAllows(viewer, note, (input.contextMode ?? input.mode) === 'home', link.peerUserId)) {
 			const { filterActors: _filterActors, ...display } = note;
@@ -171,7 +182,7 @@ export class GridspacePrivateService {
 		}
 		await this.links.checkPrivateUnchanged(link);
 		const next = page.next ? encodeHistoryCursor(this.peer!, { ...state, remote: page.next, remoteHead: page.head }, context) : null;
-		return { notes, cursor: next };
+		return { notes, cursor: next, scannedThrough: page.scannedThrough, observedAt: page.observedAt };
 	}
 
 	public async peerFile(input: PrivatePeerRequest) {

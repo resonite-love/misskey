@@ -11,9 +11,9 @@ import MkGridspacePrivateNote from './MkGridspacePrivateNote.vue';
 export const Default = {
 	render: args => ({ components: { MkGridspacePrivateNote }, setup: () => ({ args }), template: '<MkGridspacePrivateNote v-bind="args" />' }),
 	args: {
-		note: { id: 'privatenote1', createdAt: '2026-11-12T00:00:00Z', origin: 'https://peer.example',
+		note: { id: 'privatenote1', uri: 'https://peer.example/notes/privatenote1', createdAt: '2026-11-12T00:00:00Z', origin: 'https://peer.example',
 			text: '連携先で読める投稿です。', cw: null, visibility: 'followers', localOnly: true,
-			author: { name: 'ここあ', username: 'kokoa', host: 'peer.example', uri: 'https://peer.example/users/author' },
+			author: { name: 'ここあ', username: 'kokoa', host: 'peer.example', uri: 'https://peer.example/users/author', avatarUrl: '/static-assets/avatar.png' },
 			replyId: null, renoteId: null, files: [], poll: null },
 	},
 } satisfies StoryObj<typeof MkGridspacePrivateNote>;
