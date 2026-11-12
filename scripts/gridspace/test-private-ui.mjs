@@ -81,6 +81,21 @@ try {
 	console.log('Profile includes old-authorized private history by default PASS');
 
 	const detailUrl = `${g.origin}/gridspace/private?noteId=${fixture.imageNote.id}`;
+	// The mixed profile must discard delegated bodies and loaded blobs on real revocation.
+	const mixedCard = section.locator('[data-gridspace-private-note]').filter({
+		has: page.locator(`a[href="/gridspace/private?noteId=${fixture.imageNote.id}"]`),
+	});
+	await expect(mixedCard).toBeVisible();
+	await mixedCard.locator('summary').click();
+	await mixedCard.getByRole('button', { name: '添付ファイルを表示: private.png', exact: true }).click();
+	await expect(mixedCard.locator('img[src^="blob:"]')).toBeVisible();
+	const mixedBlob = await mixedCard.locator('img[src^="blob:"]').getAttribute('src');
+	await api(g, 'gridspace/private-grant', { action: 'revoke' }, fixture.grid.token);
+	await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+	await expect(section.locator('[data-gridspace-private-note]')).toHaveCount(0);
+	assert.ok(await page.evaluate(url => window.privateRevokedUrls.includes(url), mixedBlob));
+	console.log('Mixed profile revocation removes delegated bodies and loaded blob URLs PASS');
+	await consent();
 	await page.goto(detailUrl, { waitUntil: 'domcontentloaded' });
 	section = page.locator('[data-gridspace-private]');
 	await expect(section.locator('article')).toHaveCount(1, { timeout: 30000 });

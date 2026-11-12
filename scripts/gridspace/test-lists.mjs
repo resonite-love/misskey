@@ -16,6 +16,7 @@ const g = loadSite('.', 0); const r = loadSite('../resonite-love-gridspace', 1);
 const require = createRequire(resolve('packages/frontend/package.json'));
 const { chromium } = require('playwright'); const { expect } = require('@playwright/test');
 const prefix = `Lists-${randomBytes(5).toString('hex')}`;
+const countPerKind = 21;
 const mocked = process.argv.includes('--mock');
 console.log(mocked ? 'Mode: fixed API responses (UI only)' : 'Mode: real peer APIs');
 const created = []; const roles = new Map(); let browser; let page;
@@ -46,7 +47,7 @@ try {
 		roles.set(site, role.id);
 		await api(site, 'admin/roles/assign', { roleId: role.id, userId: user.id }, site.admin.token);
 	}
-	for (let i = 0; i < 7; i++) {
+	for (let i = 0; i < countPerKind; i++) {
 		await post(g, fixture.grid, 'public', i);
 		await post(r, fixture.resonite, 'specified', i);
 		await post(r, fixture.resonite, 'public', i);
@@ -118,14 +119,14 @@ try {
 		}
 		await page.goto(`${site.origin}/@${user.username}/notes`, { waitUntil: 'domcontentloaded' });
 		await allFixtureRows(); await noSeparateSection();
-		assert.equal(await list.locator('[data-gridspace-private-note]').filter({ hasText: prefix }).count(), 7);
+		assert.equal(await list.locator('[data-gridspace-private-note]').filter({ hasText: prefix }).count(), countPerKind);
 		await page.screenshot({ path: `.config/lists-${site.role}-profile-desktop.png` });
 		console.log(`${site.role} profile: mixed chronological pages, distinct source identities, no duplicates or separate section PASS`);
 		await page.goto(`${site.origin}/search?q=${encodeURIComponent(prefix)}`, { waitUntil: 'domcontentloaded' });
 		await page.locator('input[type="search"]').fill(prefix);
 		await page.getByRole('button', { name: '検索', exact: true }).click();
 		await allFixtureRows(); await noSeparateSection();
-		assert.equal(await list.locator('[data-gridspace-private-note]').count(), 7);
+		assert.equal(await list.locator('[data-gridspace-private-note]').count(), countPerKind);
 		await page.setViewportSize({ width: 390, height: 844 });
 		await page.screenshot({ path: `.config/lists-${site.role}-search-mobile.png` });
 		assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -137,7 +138,7 @@ try {
 		await page.evaluate(() => window.dispatchEvent(new Event('focus')));
 		await expect(list.locator('[data-gridspace-private-note]')).toHaveCount(0);
 		await expect(list.getByText('一部の投稿を取得できませんでした。', { exact: true })).toBeVisible();
-		assert.equal(await list.locator('article').count(), 21);
+		assert.equal(await list.locator('article').count(), 3 * countPerKind);
 		await page.unroute('**/api/gridspace/private-notes');
 		await list.getByRole('button', { name: '再試行', exact: true }).click();
 		await allFixtureRows();

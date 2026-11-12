@@ -4,6 +4,7 @@
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';
+import fetch from 'node-fetch';
 import { Inject, Injectable, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { DataSource, In, IsNull, LessThan, type EntityManager } from 'typeorm';
 import { DI } from '@/di-symbols.js';
@@ -63,28 +64,18 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		const peer = this.enabled();
 		const bytes = Buffer.from(JSON.stringify(body));
 		try {
+			// Keep reciprocal authorization POSTs off native fetch's HTTP/2 connection.
 			const response = await fetch(new URL(path, peer.peerOrigin), {
 				method: 'POST', body: bytes, redirect: 'error', signal: AbortSignal.timeout(10000),
+				size: maxBytes,
 				headers: signed ? createGridspaceHeaders(peer, 'POST', path, bytes) : { 'content-type': 'application/json' },
 			});
-			// Bound streaming bodies as well as Content-Length, without logging credentials.
-			const reader = response.body?.getReader();
-			if (!reader) throw new GridspaceLinkError('PEER_UNAVAILABLE');
-			const chunks: Uint8Array[] = [];
-			let size = 0;
-			try {
-				while (true) {
-					const result = await reader.read();
-					if (result.done) break;
-					size += result.value.length;
-					if (size > maxBytes) { await reader.cancel(); throw new GridspaceLinkError('PEER_UNAVAILABLE'); }
-					chunks.push(result.value);
-				}
-			} finally { reader.releaseLock(); }
-			const result = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+			// node-fetch bounds streaming bodies, not just Content-Length.
+			const result = await response.json();
 			if (!response.ok) {
 				const known = ['LINK_CONFLICT', 'LINK_REVOKED', 'AUTHORIZATION_REVOKED', 'SNAPSHOT_TOO_LARGE', 'REPLY_UNAVAILABLE', 'REPLY_REJECTED', 'REPLY_CONFLICT', 'REPLY_DELETED', 'RATE_LIMITED'];
-				throw new GridspaceLinkError(known.includes(result.error) ? result.error : 'PEER_UNAVAILABLE');
+				const code = (result as { error?: unknown } | null)?.error;
+				throw new GridspaceLinkError(typeof code === 'string' && known.includes(code) ? code : 'PEER_UNAVAILABLE');
 			}
 			return result as T;
 		} catch (error) {
