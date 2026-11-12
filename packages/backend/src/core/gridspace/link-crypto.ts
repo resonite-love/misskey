@@ -18,7 +18,7 @@ export const GRIDSPACE_CHANNEL_SCOPE = 'write:gridspace-channel';
 export const GRIDSPACE_PALETTE_SCOPE = 'read:gridspace-palette';
 export const GRIDSPACE_CALLBACK_PATH = '/settings/gridspace';
 export const GRIDSPACE_LINK_SCOPES = ['read:account', 'read:following', 'read:blocks', 'read:mutes'];
-export const GRIDSPACE_PRIVATE_SCOPES = [GRIDSPACE_PRIVATE_SCOPE, GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE, GRIDSPACE_REPLY_SCOPE, GRIDSPACE_ACTION_SCOPE, GRIDSPACE_CHANNEL_SCOPE, GRIDSPACE_NOTIFICATION_SCOPE, GRIDSPACE_NOTIFICATION_WRITE_SCOPE, 'write:following'];
+export const GRIDSPACE_PRIVATE_SCOPES = [GRIDSPACE_PRIVATE_SCOPE, GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE, GRIDSPACE_REPLY_SCOPE, GRIDSPACE_ACTION_SCOPE, GRIDSPACE_CHANNEL_SCOPE, GRIDSPACE_NOTIFICATION_SCOPE, GRIDSPACE_NOTIFICATION_WRITE_SCOPE, 'write:following', 'read:favorites', 'read:clip-favorite'];
 export const GRIDSPACE_ALL_SCOPES = [...GRIDSPACE_LINK_SCOPES, ...GRIDSPACE_PRIVATE_SCOPES, GRIDSPACE_PALETTE_SCOPE];
 export const gridspaceHash = (value: string): string => createHash('sha256').update(value).digest('hex');
 export const gridspaceChallenge = (value: string): string => createHash('sha256').update(value).digest('base64url');

@@ -2103,10 +2103,14 @@ declare namespace entities {
         GridspaceChannelPostResponse,
         GridspaceChannelsRequest,
         GridspaceChannelsResponse,
+        GridspaceCollectionsRequest,
+        GridspaceCollectionsResponse,
         GridspaceHistoryRequest,
         GridspaceHistoryResponse,
         GridspaceLinkRequest,
         GridspaceLinkResponse,
+        GridspaceListImportRequest,
+        GridspaceListImportResponse,
         GridspaceMemberRequest,
         GridspaceMemberResponse,
         GridspaceNotificationsRequest,
@@ -2746,6 +2750,12 @@ type GridspaceChannelsRequest = operations['gridspace___channels']['requestBody'
 type GridspaceChannelsResponse = operations['gridspace___channels']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
+type GridspaceCollectionsRequest = operations['gridspace___collections']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceCollectionsResponse = operations['gridspace___collections']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
 type GridspaceHistoryRequest = operations['gridspace___history']['requestBody']['content']['application/json'];
 
 // @public (undocumented)
@@ -2756,6 +2766,12 @@ type GridspaceLinkRequest = operations['gridspace___link']['requestBody']['conte
 
 // @public (undocumented)
 type GridspaceLinkResponse = operations['gridspace___link']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceListImportRequest = operations['gridspace___list-import']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceListImportResponse = operations['gridspace___list-import']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type GridspaceMemberRequest = operations['gridspace___member']['requestBody']['content']['application/json'];

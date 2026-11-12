@@ -9,7 +9,8 @@ import { ModuleRef } from '@nestjs/core';
 import type { UserListMembershipsRepository } from '@/models/_.js';
 import type { MiUser } from '@/models/User.js';
 import type { MiUserList } from '@/models/UserList.js';
-import type { MiUserListMembership } from '@/models/UserListMembership.js';
+import type { EntityManager } from 'typeorm';
+import { MiUserListMembership } from '@/models/UserListMembership.js';
 import { IdService } from '@/core/IdService.js';
 import type { GlobalEvents } from '@/core/GlobalEventService.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
@@ -94,7 +95,7 @@ export class UserListService implements OnApplicationShutdown, OnModuleInit {
 	}
 
 	@bindThis
-	public async addMember(target: MiUser, list: MiUserList, me: MiUser, options: { withReplies?: boolean } = {}) {
+	public async addMember(target: MiUser, list: MiUserList, me: MiUser, options: { withReplies?: boolean; receipt?: (manager: EntityManager) => Promise<void> } = {}) {
 		const currentCount = await this.userListMembershipsRepository.countBy({
 			userListId: list.id,
 		});
@@ -102,13 +103,19 @@ export class UserListService implements OnApplicationShutdown, OnModuleInit {
 			throw new UserListService.TooManyUsersError();
 		}
 
-		await this.userListMembershipsRepository.insert({
+		const membership = {
 			id: this.idService.gen(),
 			userId: target.id,
 			userListId: list.id,
 			userListUserId: list.userId,
 			withReplies: options.withReplies ?? false,
-		} as MiUserListMembership);
+		} as MiUserListMembership;
+		if (options.receipt) {
+			await this.userListMembershipsRepository.manager.transaction(async manager => {
+				await manager.insert(MiUserListMembership, membership);
+				await options.receipt!(manager);
+			});
+		} else await this.userListMembershipsRepository.insert(membership);
 
 		this.globalEventService.publishInternalEvent('userListMemberAdded', { userListId: list.id, memberId: target.id });
 		this.globalEventService.publishUserListStream(list.id, 'userAdded', await this.userEntityService.pack(target));

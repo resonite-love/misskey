@@ -412,10 +412,14 @@ import type {
 	GridspaceChannelPostResponse,
 	GridspaceChannelsRequest,
 	GridspaceChannelsResponse,
+	GridspaceCollectionsRequest,
+	GridspaceCollectionsResponse,
 	GridspaceHistoryRequest,
 	GridspaceHistoryResponse,
 	GridspaceLinkRequest,
 	GridspaceLinkResponse,
+	GridspaceListImportRequest,
+	GridspaceListImportResponse,
 	GridspaceMemberRequest,
 	GridspaceMemberResponse,
 	GridspaceNotificationsRequest,
@@ -995,8 +999,10 @@ export type Endpoints = {
 	'gridspace/channel-delete': { req: GridspaceChannelDeleteRequest; res: GridspaceChannelDeleteResponse };
 	'gridspace/channel-post': { req: GridspaceChannelPostRequest; res: GridspaceChannelPostResponse };
 	'gridspace/channels': { req: GridspaceChannelsRequest; res: GridspaceChannelsResponse };
+	'gridspace/collections': { req: GridspaceCollectionsRequest; res: GridspaceCollectionsResponse };
 	'gridspace/history': { req: GridspaceHistoryRequest; res: GridspaceHistoryResponse };
 	'gridspace/link': { req: GridspaceLinkRequest; res: GridspaceLinkResponse };
+	'gridspace/list-import': { req: GridspaceListImportRequest; res: GridspaceListImportResponse };
 	'gridspace/member': { req: GridspaceMemberRequest; res: GridspaceMemberResponse };
 	'gridspace/notifications': { req: GridspaceNotificationsRequest; res: GridspaceNotificationsResponse };
 	'gridspace/notifications/follow-request': { req: GridspaceNotificationsFollowRequestRequest; res: GridspaceNotificationsFollowRequestResponse };

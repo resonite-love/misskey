@@ -7,15 +7,15 @@ import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import type { ReactionPreview } from './reaction-protocol.js';
 
 export type PrivateOptions = {
-	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'validate';
-	contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct';
-	channelId?: string;
+	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'validate';
+	contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip';
+	channelId?: string; clipId?: string;
 	query?: string; userId?: string; noteId?: string; ids?: string[];
 	rangeStartAt?: number; rangeEndAt?: number;
 	withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean; withChannelNotes?: boolean;
 };
 export type PrivatePeerRequest = GridspacePeerLinkRequest & Omit<PrivateOptions, 'userId'> & {
-	targetUris?: string[]; before?: string; head?: string; limit?: number; fileId?: string;
+	targetUris?: string[]; before?: string; head?: string; limit?: number; fileId?: string; collectionKind?: 'clips' | 'clip-favorites' | 'status';
 };
 export type PrivateActor = { name: string | null; username: string; host: string; uri: string };
 export type PrivateNote = {
@@ -23,6 +23,7 @@ export type PrivateNote = {
 	visibility: string; localOnly: boolean; author: PrivateActor & { avatarUrl: string };
 	channelId?: string | null;
 	canDelete?: boolean;
+	collectionId?: string; collectionAt?: string;
 	emojis?: Record<string, string>; reactions?: Record<string, number>; reactionEmojis?: Record<string, string>; myReaction?: string | null;
 	myReactions?: string[]; extendedReactions?: boolean;
 	reactionPreviews?: ReactionPreview[];
@@ -45,6 +46,7 @@ export const privateNoteSchema = {
 	type: 'object', optional: false, nullable: false, properties: {
 		id: text, uri: text, createdAt: text, origin: text, text: nullableText, cw: nullableText, visibility: text, localOnly: flag,
 		channelId: { ...nullableText, optional: true },
+		collectionId: { ...text, optional: true }, collectionAt: { ...text, optional: true },
 		canDelete: { ...flag, optional: true },
 		author: { type: 'object', optional: false, nullable: false, properties: { name: nullableText, username: text, host: text, uri: text, avatarUrl: text } },
 		emojis: { type: 'object', optional: true, nullable: false, additionalProperties: text },
@@ -68,8 +70,9 @@ export const privateNoteSchema = {
 } as const;
 
 export const privateOptionsSchema = {
-	mode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'validate'], default: 'home' },
-	contextMode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct'] },
+	mode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip', 'validate'], default: 'home' },
+	contextMode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip'] },
+	clipId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	query: { type: 'string', minLength: 1, maxLength: 200 },
 	userId: { type: 'string', format: 'misskey:id', maxLength: 32 },

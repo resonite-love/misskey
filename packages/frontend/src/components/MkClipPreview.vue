@@ -4,13 +4,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<MkA :to="`/clips/${clip.id}`" :class="$style.link">
+<MkA :to="`/clips/${clip.id}${peerOrigin ? '/linked' : ''}`" :class="$style.link">
 	<div :class="$style.root" class="_panel _gaps_s">
 		<b>{{ clip.name }}</b>
+		<div v-if="peerOrigin">{{ i18n.tsx._gridspace.collectionSource({ host: peerHost }) }}</div>
 		<div :class="$style.description">
 			<div v-if="clip.description"><Mfm :text="clip.description" :plain="true" :nowrap="true"/></div>
 			<div v-if="clip.lastClippedAt">{{ i18n.ts.updatedAt }}: <MkTime :time="clip.lastClippedAt" mode="detail"/></div>
-			<div v-if="clip.notesCount != null">{{ i18n.ts.notesCount }}: {{ number(clip.notesCount) }} / {{ $i?.policies.noteEachClipsLimit }} ({{ i18n.tsx.remainingN({ n: remaining }) }})</div>
+			<div v-if="clip.notesCount != null && !peerOrigin">{{ i18n.ts.notesCount }}: {{ number(clip.notesCount) }} / {{ $i?.policies.noteEachClipsLimit }} ({{ i18n.tsx.remainingN({ n: remaining }) }})</div>
 		</div>
 		<template v-if="!props.noUserInfo">
 			<div :class="$style.divider"></div>
@@ -32,9 +33,12 @@ import number from '@/filters/number.js';
 const props = withDefaults(defineProps<{
 	clip: Misskey.entities.Clip;
 	noUserInfo?: boolean;
+	peerOrigin?: string;
 }>(), {
 	noUserInfo: false,
 });
+
+const peerHost = computed(() => props.peerOrigin ? new URL(props.peerOrigin).host : '');
 
 const remaining = computed(() => {
 	return ($i?.policies && props.clip.notesCount != null) ? ($i.policies.noteEachClipsLimit - props.clip.notesCount) : i18n.ts.unknown;

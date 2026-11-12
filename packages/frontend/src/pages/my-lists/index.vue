@@ -11,6 +11,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				{{ i18n.ts._userLists.tip }}
 			</MkTip>
 
+			<MkGridspaceListImport/>
 			<MkResult v-if="items.length === 0" type="empty"/>
 
 			<MkButton primary rounded style="margin: 0 auto;" @click="create"><i class="ti ti-plus"></i> {{ i18n.ts.createList }}</MkButton>
@@ -28,6 +29,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script lang="ts" setup>
 import { onActivated, computed } from 'vue';
+import MkGridspaceListImport from '@/components/MkGridspaceListImport.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkAvatars from '@/components/MkAvatars.vue';
 import * as os from '@/os.js';

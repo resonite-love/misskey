@@ -3693,6 +3693,11 @@ _autoTranslation:
   showTranslation: "翻訳を表示"
   failed: "翻訳できなかったため、原文を表示しています。"
 _gridspace:
+  listsCopy: "れぞらぶのリストを引き継ぐ"
+  listsCopyFailed: "引き継げないリストやメンバーがあります。接続やリストの上限を確認して再試行してください。"
+  collectionsAuthorize: "れぞらぶのお気に入り・クリップを表示するには、アカウント連携からもう一度認可してください。"
+  collectionsPartial: "一部のクリップを取得できませんでした。"
+  collectionSource: "{host} のクリップ"
   resoniteLoveName: "れぞらぶ"
   gridSpaceName: "ぐりすぺ"
   channels: "連携先のチャンネル"

@@ -6,6 +6,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <PageWithHeader :actions="headerActions">
 	<div class="_spacer" style="--MI_SPACER-w: 800px;">
+		<MkInfo v-if="peerError" warn>{{ i18n.ts._gridspace.collectionsPartial }}</MkInfo>
+		<MkButton v-if="peerError" @click="loadClip">{{ i18n.ts.retry }}</MkButton>
 		<div v-if="clip" class="_gaps">
 			<div class="_panel">
 				<div class="_gaps_s" :class="$style.description">
@@ -13,28 +15,32 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<Mfm :text="clip.description" :isNote="false"/>
 					</div>
 					<div v-else>({{ i18n.ts.noDescription }})</div>
-					<div>
+					<div v-if="!isPeer">
 						<MkButton v-if="favorited" v-tooltip="i18n.ts.unfavorite" asLike rounded primary @click="unfavorite()"><i class="ti ti-heart"></i><span v-if="clip.favoritedCount > 0" style="margin-left: 6px;">{{ clip.favoritedCount }}</span></MkButton>
 						<MkButton v-else v-tooltip="i18n.ts.favorite" asLike rounded @click="favorite()"><i class="ti ti-heart"></i><span v-if="clip.favoritedCount > 0" style="margin-left: 6px;">{{ clip.favoritedCount }}</span></MkButton>
 					</div>
 				</div>
-				<div :class="$style.user">
+				<div v-if="isPeer" :class="$style.user"><a :href="`${peerOrigin}/clips/${clip.id}`" target="_blank" rel="noopener noreferrer">{{ i18n.tsx._gridspace.collectionSource({ host: peerHost }) }} <i class="ti ti-external-link"></i></a></div>
+				<div v-else :class="$style.user">
 					<MkAvatar :user="clip.user" :class="$style.avatar" indicator link preview/> <MkUserName :user="clip.user" :nowrap="false"/>
 				</div>
 			</div>
 
-			<MkNotesTimeline :paginator="paginator" :detail="true"/>
+			<MkGridspaceNoteList v-if="isPeer" :source="{ kind: 'clip', clipId }"/>
+			<MkNotesTimeline v-else :paginator="paginator" :detail="true"/>
 		</div>
 	</div>
 </PageWithHeader>
 </template>
 
 <script lang="ts" setup>
-import { computed, watch, provide, ref, markRaw } from 'vue';
+import { computed, watch, provide, ref, markRaw, onBeforeUnmount, onActivated, onDeactivated } from 'vue';
 import * as Misskey from 'misskey-js';
 import { url } from '@@/js/config.js';
 import type { MenuItem } from '@/types/menu.js';
 import type { PageHeaderItem } from '@/types/page-header.js';
+import MkGridspaceNoteList from '@/components/MkGridspaceNoteList.vue';
+import MkInfo from '@/components/MkInfo.vue';
 import MkNotesTimeline from '@/components/MkNotesTimeline.vue';
 import { $i } from '@/i.js';
 import { i18n } from '@/i18n.js';
@@ -54,10 +60,18 @@ const CTX_CLIP = !$i && assertServerContext(serverContext, 'clip') ? serverConte
 
 const props = defineProps<{
 	clipId: string,
+	peer?: string,
 }>();
 
 const clip = ref<Misskey.entities.Clip | null>(CTX_CLIP);
 const favorited = ref(false);
+const isPeer = computed(() => props.peer === 'linked');
+const peerOrigin = ref('');
+const peerHost = computed(() => peerOrigin.value ? new URL(peerOrigin.value).host : '');
+const peerError = ref(false);
+let generation = 0;
+let active = true;
+let checking = false;
 const paginator = markRaw(new Paginator('clips/notes', {
 	limit: 10,
 	canSearch: true,
@@ -66,24 +80,39 @@ const paginator = markRaw(new Paginator('clips/notes', {
 	})),
 }));
 
-const isOwned = computed<boolean | null>(() => $i && clip.value && ($i.id === clip.value.userId));
+const isOwned = computed<boolean | null>(() => !isPeer.value && $i && clip.value && ($i.id === clip.value.userId));
 
-watch(() => props.clipId, async () => {
-	if (CTX_CLIP && CTX_CLIP.id === props.clipId) {
-		clip.value = CTX_CLIP;
-		return;
-	}
+async function loadClip() {
+	if (checking || !active || (isPeer.value && window.document.hidden)) return;
+	const current = ++generation;
+	checking = true;
+	try {
+		if (isPeer.value) {
+			const page = await misskeyApi('gridspace/collections', { kind: 'clips', clipId: props.clipId });
+			if (current !== generation) return;
+			if (!page.clipsList.length || !page.origin) throw new Error('Unavailable clip');
+			clip.value = page.clipsList[0]; peerOrigin.value = page.origin; peerError.value = false;
+		} else {
+			const loaded = CTX_CLIP?.id === props.clipId ? CTX_CLIP : await misskeyApi('clips/show', { clipId: props.clipId });
+			if (current !== generation) return;
+			clip.value = loaded;
+			favorited.value = clip.value!.isFavorited ?? false;
+		}
+	} catch { if (current === generation) { clip.value = null; peerError.value = true; } } finally { if (current === generation) checking = false; }
+}
 
-	clip.value = await misskeyApi('clips/show', {
-		clipId: props.clipId,
-	});
+watch(() => [props.clipId, props.peer], () => { generation++; checking = false; clip.value = null; void loadClip(); }, { immediate: true });
+provide('currentClip', computed(() => isPeer.value ? null : clip.value));
 
-	favorited.value = clip.value!.isFavorited ?? false;
-}, {
-	immediate: true,
-});
+function suspendPeer() { if (isPeer.value) { generation++; checking = false; clip.value = null; } }
 
-provide('currentClip', clip);
+function visibility() { if (window.document.hidden) suspendPeer(); else if (isPeer.value) void loadClip(); }
+
+window.document.addEventListener('visibilitychange', visibility);
+const timer = window.setInterval(() => { if (isPeer.value) void loadClip(); }, 15000);
+onDeactivated(() => { active = false; suspendPeer(); });
+onActivated(() => { if (!active) { active = true; if (isPeer.value) void loadClip(); } });
+onBeforeUnmount(() => { active = false; generation++; window.clearInterval(timer); window.document.removeEventListener('visibilitychange', visibility); });
 
 function favorite() {
 	os.apiWithDialog('clips/favorite', {

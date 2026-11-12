@@ -25,6 +25,13 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(at(100))); api.
 afterEach(() => { cleanup(); cleanup = () => {}; vi.useRealTimers(); });
 
 describe('home common timeline', () => {
+	it('orders favorites by the saved date without changing the displayed note date', () => {
+		const n = { ...normal(8), collectionAt: at(20) };
+		const p = { ...privateNote(1), collectionAt: at(30) };
+		const rows = mergeHomeRows([n], [p], 'https://local', -Infinity, -Infinity);
+		expect(rows.map(row => row.createdAt)).toEqual([at(30), at(20)]);
+		expect(rows[0].note.createdAt).toBe(at(1));
+	});
 	it('holds equal-time and older rows until both streams have scanned them', () => {
 		const n = [normal(5), normal(2)]; const p = [privateNote(4), privateNote(2), privateNote(1)];
 		expect(mergeHomeRows(n, p, 'https://local', Date.parse(at(2)), Date.parse(at(1))).map(row => row.createdAt)).toEqual([at(5), at(4)]);

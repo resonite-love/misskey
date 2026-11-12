@@ -31,7 +31,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<section v-if="status.state === 'active'" class="_gaps_s">
 				<h2>{{ i18n.ts._gridspace.linkPermissions }}</h2>
 				<MkInfo v-if="readGrant && !readGrant.available" warn>{{ i18n.ts._gridspace.connectionError }}</MkInfo>
-				<MkInfo v-else-if="readGrant?.granted && readGrant.canReply && readGrant.canInteract && readGrant.canReadNotifications && readGrant.canWriteChannels && readGrant.canManageFollowRequests">{{ i18n.ts._gridspace.allGranted }}</MkInfo>
+				<MkInfo v-else-if="readGrant?.granted && readGrant.canReply && readGrant.canInteract && readGrant.canReadNotifications && readGrant.canWriteChannels && readGrant.canManageFollowRequests && (!status.channelsEnabled || (collectionsGrant?.favorites && collectionsGrant.clipFavorites))">{{ i18n.ts._gridspace.allGranted }}</MkInfo>
 				<MkInfo v-else>{{ i18n.ts._gridspace.upgradePermissions }}</MkInfo>
 				<MkButton v-if="!status.initiator" :disabled="busy" @click="startPrivate">{{ i18n.ts._gridspace.authorizeAll }}</MkButton>
 				<MkInfo v-if="paletteCopied">{{ i18n.ts._gridspace.paletteCopied }}</MkInfo>
@@ -42,6 +42,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					<MkInfo v-if="profileResult?.complete" role="status">{{ i18n.tsx._gridspace.profileCopied({ copied: profileResult.copied.length, skipped: profileResult.skipped.length }) }}</MkInfo>
 					<MkInfo v-if="profileError" warn role="alert">{{ i18n.ts._gridspace.profileCopyFailed }}</MkInfo>
 					<MkButton :disabled="busy || profileResult?.complete" @click="retryProfile">{{ profileError ? i18n.ts.retry : i18n.ts._gridspace.profileCopy }}</MkButton>
+					<MkGridspaceListImport :autoStart="listsAutoStart"/>
 					<MkInfo>{{ i18n.ts._gridspace.settingsCopyDescription }}</MkInfo>
 					<MkInfo v-if="settingsResult" role="status">{{ i18n.tsx._gridspace.settingsProgress({ done: settingsResult.done, total: settingsResult.total, failed: settingsResult.failed }) }}</MkInfo>
 					<MkInfo v-if="settingsComplete" role="status">{{ i18n.ts._gridspace.settingsCopied }}</MkInfo>
@@ -67,6 +68,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script lang="ts" setup>
 import { onMounted, onUnmounted, ref } from 'vue';
 import type { entities } from 'misskey-js';
+import MkGridspaceListImport from '@/components/MkGridspaceListImport.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
@@ -93,6 +95,8 @@ const paletteCopied = ref(false);
 const paletteError = ref(false);
 const profileResult = ref<entities.GridspaceProfileImportResponse | null>(null);
 const profileError = ref(false);
+const listsAutoStart = ref(false);
+const collectionsGrant = ref<entities.GridspaceCollectionsResponse | null>(null);
 const settingsResult = ref<entities.GridspaceSettingsImportResponse | null>(null);
 const settingsError = ref(false);
 const settingsComplete = ref(false);
@@ -139,6 +143,7 @@ async function refresh() {
 	await perform(async () => {
 		status.value = await misskeyApi('gridspace/link', { action: 'status' });
 		readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' });
+		if (status.value?.channelsEnabled && status.value.state === 'active') collectionsGrant.value = await misskeyApi('gridspace/collections', { kind: 'status' });
 		if (!paletteAttempted) await resumePalette();
 		if (!profileAttempted) await resumeProfile();
 	});
@@ -295,6 +300,7 @@ onMounted(async () => {
 				if (sessionStorage.getItem(`${storageKey}:purpose`) === 'private') readGrant.value = await misskeyApi('gridspace/private-grant', input);
 				else {
 					status.value = await misskeyApi('gridspace/link', input);
+					listsAutoStart.value = true;
 					prefer.commit('gridspacePaletteImportPending', true);
 					prefer.commit('gridspaceProfileImportPending', true);
 					await resumePalette();
@@ -315,7 +321,10 @@ onMounted(async () => {
 		try { status.value = await misskeyApi('gridspace/link', { action: 'status' }); } catch { error.value ||= i18n.ts._gridspace.connectionError; }
 	}
 	if (stopped) return;
-	try { readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' }); } catch { error.value ||= i18n.ts._gridspace.connectionError; }
+	try {
+		readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' });
+		if (status.value?.channelsEnabled && status.value.state === 'active') collectionsGrant.value = await misskeyApi('gridspace/collections', { kind: 'status' });
+	} catch { error.value ||= i18n.ts._gridspace.connectionError; }
 	if (stopped) return;
 	if (!paletteAttempted) await resumePalette();
 	if (!profileAttempted) await perform(resumeProfile);

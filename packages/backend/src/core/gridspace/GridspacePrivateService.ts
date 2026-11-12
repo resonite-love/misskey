@@ -9,6 +9,11 @@ import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
 import { MiUserProfile } from '@/models/UserProfile.js';
+import { MiClip } from '@/models/Clip.js';
+import { MiClipNote } from '@/models/ClipNote.js';
+import { MiClipFavorite } from '@/models/ClipFavorite.js';
+import { MiNoteFavorite } from '@/models/NoteFavorite.js';
+import { ClipEntityService } from '@/core/entities/ClipEntityService.js';
 import { MiNote } from '@/models/Note.js';
 import { MiDriveFile } from '@/models/DriveFile.js';
 import { MiPollVote } from '@/models/PollVote.js';
@@ -40,6 +45,7 @@ import { PRIVATE_FILE_LIMIT, type PrivateNote, type PrivateWireNote, type Privat
 export class GridspacePrivateService {
 	private readonly peer: GridspacePeerConfig | null;
 	private readonly noteTime: string;
+	private readonly collectionClient: boolean;
 	constructor(
 		@Inject(DI.db) private db: DataSource,
 		@Inject(DI.config) config: Config,
@@ -57,14 +63,23 @@ export class GridspacePrivateService {
 		private extendedReactions: GridspaceReactionService,
 		private channelAuth: GridspaceChannelAuthService,
 		private queries: QueryService,
+		private clips: ClipEntityService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 		this.noteTime = searchNoteTimeSql(config.id);
+		this.collectionClient = config.gridspace?.channelRole === 'client';
 	}
 
 	private async authorizeRead(input: PrivatePeerRequest) {
 		if (input.channelId) this.channelAuth.assertSource();
-		if (!input.channelActorId) return this.links.authorizePrivate(input);
+		if (!input.channelActorId) {
+			const link = await this.links.authorizePrivate(input);
+			const mode = input.mode === 'validate' ? input.contextMode : input.mode;
+			if (mode === 'favorites' || mode === 'clip') {
+				if (link.initiator || !await this.links.hasCollectionScope(input, mode === 'favorites' ? 'favorites' : 'clips')) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			}
+			return link;
+		}
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
 		if (!input.channelId || (mode !== 'channel' && mode !== 'show')) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		return { localUserId: (await this.channelAuth.source(input.channelActorId)).id, initiator: false };
@@ -73,8 +88,16 @@ export class GridspacePrivateService {
 	private query(viewerId: string, input: Partial<PrivatePeerRequest> = {}, authors?: Pick<MiUser, 'id' | 'makeNotesFollowersOnlyBefore'>[]) {
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
 		if ((mode === 'channel' && !input.channelId) || (input.channelId && mode !== 'channel' && mode !== 'show')) throw new GridspaceLinkError('INVALID_REQUEST');
-		const query = this.search.noteQuery({ id: viewerId }, { query: input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length, mode === 'mentions' || mode === 'direct');
-		if (mode === 'mentions' || mode === 'direct') {
+		if ((mode === 'clip' && !input.clipId) || (input.clipId && mode !== 'clip')) throw new GridspaceLinkError('INVALID_REQUEST');
+		const query = this.search.noteQuery({ id: viewerId }, { query: input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length, mode === 'mentions' || mode === 'direct' || mode === 'favorites' || mode === 'clip');
+		if (mode === 'favorites') {
+			query.innerJoinAndMapOne('note.gridspaceCollection', MiNoteFavorite, 'collection', 'collection.noteId = note.id AND collection.userId = :collectionViewer', { collectionViewer: viewerId });
+			query.orderBy('collection.id', 'DESC');
+		} else if (mode === 'clip') {
+			query.innerJoin(MiClipNote, 'collection', 'collection.noteId = note.id AND collection.clipId = :collectionClip', { collectionClip: input.clipId });
+			query.innerJoin(MiClip, 'collectionOwner', 'collectionOwner.id = collection.clipId AND (collectionOwner.userId = :collectionViewer OR collectionOwner.isPublic = true)', { collectionViewer: viewerId });
+			query.orderBy('note.id', 'DESC');
+		} else if (mode === 'mentions' || mode === 'direct') {
 			// Include public mentions too: delivery to the old account does not
 			// imply delivery to the new one. Keep the visibility query above.
 			query.andWhere('(:mentionViewer::varchar[] <@ note.mentions OR :mentionViewer::varchar[] <@ note.visibleUserIds)', { mentionViewer: [viewerId] });
@@ -118,8 +141,9 @@ export class GridspacePrivateService {
 		const query = this.query(viewerId, input, authors);
 		if (input.mode === 'show') query.andWhere('note.id = :noteId', { noteId: input.noteId });
 		if (input.mode === 'validate') query.andWhere('note.id IN (:...ids)', { ids: input.ids });
-		if (input.before) query.andWhere('note.id < :before', { before: input.before });
-		if (input.head) query.andWhere('note.id <= :head', { head: input.head });
+		const order = (input.contextMode ?? input.mode) === 'favorites' ? 'collection' : 'note';
+		if (input.before) query.andWhere(`${order}.id < :before`, { before: input.before });
+		if (input.head) query.andWhere(`${order}.id <= :head`, { head: input.head });
 		const limit = input.mode === 'validate' ? 100 : input.mode === 'show' ? 1 : (input.limit ?? 10) + 1;
 		return authors && input.mode !== 'validate' && input.mode !== 'show'
 			? this.search.readAuthorPage(query, authors.map(author => author.id), limit)
@@ -131,6 +155,8 @@ export class GridspacePrivateService {
 		if (runner) return query.setQueryRunner(runner).getOne();
 		return (await this.search.read(query))[0] ?? null;
 	}
+
+	private collectionId(note: MiNote) { return (note as MiNote & { gridspaceCollection?: { id: string } }).gridspaceCollection?.id; }
 
 	private actor(user: MiUser) {
 		return { name: user.name, username: user.username, host: user.host ?? new URL(this.peer!.origin).host, uri: user.uri ?? `${this.peer!.origin}/users/${user.id}` };
@@ -161,6 +187,7 @@ export class GridspacePrivateService {
 		return {
 			id: note.id, uri: note.uri ?? `${this.peer!.origin}/notes/${note.id}`, origin: this.peer!.origin, createdAt: this.ids.parse(note.id).date.toISOString(), text: note.text, cw: note.cw,
 			visibility: note.visibility, localOnly: note.localOnly, emojis: emojiUrls,
+			...(this.collectionId(note) ? { collectionId: this.collectionId(note), collectionAt: this.ids.parse(this.collectionId(note)!).date.toISOString() } : {}),
 			channelId: note.channelId, canDelete: !!note.channelId && note.userId === viewerId,
 			reactions, reactionEmojis, myReaction, myReactions, extendedReactions: !!note.channelId || supportsGridspaceReactions(note, this.peer),
 			reactionPreviews: reactionState.reactionPreviews?.filter(row => Object.keys(reactions).some(reaction => reaction.replace('@.:', ':') === row.reaction.replace('@.:', ':'))),
@@ -197,8 +224,8 @@ export class GridspacePrivateService {
 			if (note.renoteId && !relatedAllowed.has(note.renoteId)) note.renoteId = null;
 		}
 		await this.authorizeRead(input);
-		return { notes: packed.filter(note => allowed.has(note.id)), next: rows.length > limit ? selected.at(-1)!.id : null, head: input.head ?? selected[0]?.id ?? null,
-			scannedThrough: selected.length ? this.ids.parse(selected.at(-1)!.id).date.toISOString() : null, observedAt };
+		return { notes: packed.filter(note => allowed.has(note.id)), next: rows.length > limit ? this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id : null, head: input.head ?? (selected[0] ? this.collectionId(selected[0]) ?? selected[0].id : null),
+			scannedThrough: selected.length ? this.ids.parse(this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id).date.toISOString() : null, observedAt };
 	}
 
 	public async localActorAllows(viewer: MiLocalUser, actor: PrivateWireNote['author'] | PrivateWireNote['filterActors'][number]) {
@@ -240,7 +267,7 @@ export class GridspacePrivateService {
 		if ((input.query || input.mode === 'search' || input.contextMode === 'search') && (!input.query?.trim() || !(await this.roles.getUserPolicies(viewer.id)).canSearchNotes)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if ((input.mode === 'profile' && !input.userId) || (input.mode === 'show' && !input.noteId) || (input.mode === 'validate' && !input.ids?.length)) throw new GridspaceLinkError('INVALID_REQUEST');
 		const options: PrivateOptions = {
-			mode: input.mode, contextMode: input.contextMode, query: input.query?.trim(), userId: input.userId, noteId: input.noteId, channelId: input.channelId,
+			mode: input.mode, contextMode: input.contextMode, query: input.query?.trim(), userId: input.userId, noteId: input.noteId, channelId: input.channelId, clipId: input.clipId,
 			ids: input.ids, rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt,
 			withReplies: input.withReplies ?? true, withRenotes: input.withRenotes ?? true, withFiles: input.withFiles ?? false, withChannelNotes: input.withChannelNotes ?? true,
 		};
@@ -262,6 +289,43 @@ export class GridspacePrivateService {
 		if (channel) await channel.check(); else await this.links.checkPrivateUnchanged(link!);
 		const next = page.next ? encodeHistoryCursor(this.peer!, { ...state, remote: page.next, remoteHead: page.head }, context) : null;
 		return { notes, cursor: next, scannedThrough: page.scannedThrough, observedAt: page.observedAt };
+	}
+
+	public async peerCollections(input: PrivatePeerRequest) {
+		const link = await this.links.authorizePrivate(input);
+		if (link.initiator) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const favorites = await this.links.hasCollectionScope(input, 'favorites');
+		const clips = await this.links.hasCollectionScope(input, 'clips');
+		const clipFavorites = await this.links.hasCollectionScope(input, 'clip-favorites');
+		if (input.collectionKind === 'status') return { favorites, clips, clipFavorites, clipsList: [], next: null, scannedThrough: null, origin: this.peer!.origin };
+		if (!clips || (input.collectionKind === 'clip-favorites' && !clipFavorites)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const query = this.db.getRepository(MiClip).createQueryBuilder('clip')
+			.where('(clip.isPublic = true OR clip.userId = :viewer)', { viewer: link.localUserId });
+		if (input.clipId) query.andWhere('clip.id = :clipId', { clipId: input.clipId });
+		else if (input.collectionKind === 'clip-favorites') query.innerJoin(MiClipFavorite, 'favorite', 'favorite.clipId = clip.id AND favorite.userId = :viewer');
+		else query.andWhere('clip.userId = :viewer');
+		if (input.ids?.length) query.andWhere('clip.id IN (:...collectionIds)', { collectionIds: input.ids });
+		if (input.before) query.andWhere('clip.id < :before', { before: input.before });
+		const limit = input.clipId ? 1 : input.limit ?? 10;
+		const rows = await query.orderBy('clip.id', 'DESC').take(limit + 1).getMany();
+		const selected = rows.slice(0, limit);
+		const packed = await this.clips.packMany(selected, { id: link.localUserId });
+		const fresh = selected.length ? await query.clone().andWhere('clip.id IN (:...ids)', { ids: selected.map(c => c.id) }).getMany() : [];
+		await this.links.authorizePrivate(input);
+		if (!await this.links.hasCollectionScope(input, input.collectionKind === 'clip-favorites' ? 'clip-favorites' : 'clips')) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		return { favorites, clips, clipFavorites, clipsList: packed.filter(c => fresh.some(f => f.id === c.id)).map(c => ({ ...c, user: { ...c.user, host: c.user.host ?? new URL(this.peer!.origin).host } })), next: rows.length > limit ? selected.at(-1)!.id : null, scannedThrough: selected.length ? this.ids.parse(selected.at(-1)!.id).date.toISOString() : null, origin: this.peer!.origin };
+	}
+
+	public async collections(viewer: MiLocalUser, kind: 'status' | 'clips' | 'clip-favorites', clipId?: string, before?: string, limit = 10, ids?: string[]) {
+		const disabled = { enabled: false, favorites: false, clips: false, clipFavorites: false, clipsList: [], next: null, scannedThrough: null, origin: this.peer?.peerOrigin ?? null };
+		if (!this.collectionClient) { if (kind === 'status') return disabled; throw new GridspaceLinkError('AUTHORIZATION_REVOKED'); }
+		const link = await this.links.privateLink(viewer.id).catch(error => { if (kind === 'status' && error instanceof GridspaceLinkError && error.code === 'LINK_REVOKED') return null; throw error; });
+		if (!link) return disabled;
+		if (!link.initiator) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const page = await this.links.json<Awaited<ReturnType<GridspacePrivateService['peerCollections']>>>('/gridspace/v1/private/collections', { ...this.links.privateCredential(link), collectionKind: kind, clipId, before, limit, ids });
+		if (page.origin !== this.peer!.peerOrigin || !Array.isArray(page.clipsList) || page.clipsList.length > limit) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		await this.links.checkPrivateUnchanged(link);
+		return { enabled: true, ...page };
 	}
 
 	public async peerFile(input: PrivatePeerRequest) {

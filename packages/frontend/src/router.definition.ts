@@ -50,7 +50,7 @@ export const ROUTE_DEF = [{
 	path: '/list/:listId',
 	component: page(() => import('@/pages/list.vue')),
 }, {
-	path: '/clips/:clipId',
+	path: '/clips/:clipId/:peer?',
 	component: page(() => import('@/pages/clip.vue')),
 }, {
 	path: '/chat',

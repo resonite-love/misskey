@@ -13803,6 +13803,26 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * れぞらぶのリストを引き継ぐ
+         */
+        "listsCopy": string;
+        /**
+         * 引き継げないリストやメンバーがあります。接続やリストの上限を確認して再試行してください。
+         */
+        "listsCopyFailed": string;
+        /**
+         * れぞらぶのお気に入り・クリップを表示するには、アカウント連携からもう一度認可してください。
+         */
+        "collectionsAuthorize": string;
+        /**
+         * 一部のクリップを取得できませんでした。
+         */
+        "collectionsPartial": string;
+        /**
+         * {host} のクリップ
+         */
+        "collectionSource": ParameterizedString<"host">;
+        /**
          * れぞらぶ
          */
         "resoniteLoveName": string;

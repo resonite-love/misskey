@@ -8,7 +8,7 @@ import { checkTextWordMute } from '@/utility/check-word-mute.js';
 import { $i } from '@/i.js';
 
 export type GridspacePrivateNote = entities.GridspacePrivateNotesResponse['notes'][number];
-export type GridspaceNoteReference = Pick<GridspacePrivateNote, 'id' | 'uri' | 'createdAt'> & { suspended: true; visible: boolean };
+export type GridspaceNoteReference = Pick<GridspacePrivateNote, 'id' | 'uri' | 'createdAt' | 'collectionAt'> & { suspended: true; visible: boolean };
 export type GridspaceNoteEntry = GridspacePrivateNote | GridspaceNoteReference;
 
 export function isSuspendedNote(note: GridspaceNoteEntry): note is GridspaceNoteReference {
@@ -22,7 +22,7 @@ export function isVisiblePrivateNote(note: GridspaceNoteEntry, withSensitive = t
 
 /** Retain only ordering/authorization references, never bodies, actors or files. */
 export function suspendPrivateNotes(notes: GridspaceNoteEntry[], withSensitive = true): GridspaceNoteReference[] {
-	return notes.map(note => ({ id: note.id, uri: note.uri, createdAt: note.createdAt, suspended: true, visible: isVisiblePrivateNote(note, withSensitive) }));
+	return notes.map(note => ({ id: note.id, uri: note.uri, createdAt: note.createdAt, ...(note.collectionAt ? { collectionAt: note.collectionAt } : {}), suspended: true, visible: isVisiblePrivateNote(note, withSensitive) }));
 }
 
 /** Vue's leave phase can outlive authorization (including throttled hidden tabs). */

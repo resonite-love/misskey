@@ -14,6 +14,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<p>{{ i18n.ts._gridspace.notesPartial }}</p>
 		<MkButton :disabled="loading" @click="retry">{{ i18n.ts.retry }}</MkButton>
 	</div>
+	<MkA v-if="needsAuthorization" to="/settings/gridspace" :class="$style.status">{{ i18n.ts._gridspace.collectionsAuthorize }}</MkA>
 	<MkLoading v-if="loading"/>
 	<p v-else-if="!hasMore && !normalError && !privateError && rows.length === 0" :class="$style.status">{{ i18n.ts.noNotes }}</p>
 	<div v-if="hasMore && !loading" :key="pagingKey" ref="sentinel" :class="$style.status">
@@ -37,7 +38,7 @@ import { i18n } from '@/i18n.js';
 
 const props = defineProps<{ source: GridspaceNoteSource }>();
 const emit = defineEmits<{ (event: 'unavailable'): void }>();
-const { rows, loading, hasMore, normalError, privateError, pagingKey, load, reload, retry, failPrivate, removeNormal } = useGridspaceNoteList(computed(() => props.source));
+const { rows, loading, hasMore, normalError, privateError, needsAuthorization, pagingKey, load, reload, retry, failPrivate, removeNormal } = useGridspaceNoteList(computed(() => props.source));
 const sentinel = useTemplateRef('sentinel');
 let observer: IntersectionObserver | undefined;
 watch([sentinel, prefer.r.enableInfiniteScroll], ([element, enabled]) => {

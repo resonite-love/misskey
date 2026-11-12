@@ -2425,6 +2425,16 @@ export type paths = {
          */
         post: operations['gridspace___channels'];
     };
+    '/gridspace/collections': {
+        /**
+         * gridspace/collections
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___collections'];
+    };
     '/gridspace/history': {
         /**
          * gridspace/history
@@ -2443,6 +2453,16 @@ export type paths = {
          *     **Credential required**: *Yes*
          */
         post: operations['gridspace___link'];
+    };
+    '/gridspace/list-import': {
+        /**
+         * gridspace/list-import
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___list-import'];
     };
     '/gridspace/member': {
         /**
@@ -25514,6 +25534,98 @@ export interface operations {
             };
         };
     };
+    gridspace___collections: {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default status
+                     * @enum {string}
+                     */
+                    kind?: 'status' | 'clips' | 'clip-favorites';
+                    clipId?: string;
+                    before?: string;
+                    ids?: string[];
+                    /** @default 10 */
+                    limit?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        enabled: boolean;
+                        favorites: boolean;
+                        clips: boolean;
+                        clipFavorites: boolean;
+                        scannedThrough: string | null;
+                        origin: string | null;
+                        next: string | null;
+                        clipsList: components['schemas']['Clip'][];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
     gridspace___history: {
         requestBody: {
             content: {
@@ -25649,6 +25761,91 @@ export interface operations {
                             state: string;
                             reason: string | null;
                         }[];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___list-import': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default status
+                     * @enum {string}
+                     */
+                    action?: 'start' | 'step' | 'status' | 'retry';
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        started: boolean;
+                        complete: boolean;
+                        total: number;
+                        done: number;
+                        failed: number;
+                        pending: number;
                     };
                 };
             };
@@ -25849,6 +26046,8 @@ export interface operations {
                                 visibility: string;
                                 localOnly: boolean;
                                 channelId?: string | null;
+                                collectionId?: string;
+                                collectionAt?: string;
                                 canDelete?: boolean;
                                 author: {
                                     name: string | null;
@@ -25911,6 +26110,8 @@ export interface operations {
                                 visibility: string;
                                 localOnly: boolean;
                                 channelId?: string | null;
+                                collectionId?: string;
+                                collectionAt?: string;
                                 canDelete?: boolean;
                                 author: {
                                     name: string | null;
@@ -26323,6 +26524,8 @@ export interface operations {
                             visibility: string;
                             localOnly: boolean;
                             channelId?: string | null;
+                            collectionId?: string;
+                            collectionAt?: string;
                             canDelete?: boolean;
                             author: {
                                 name: string | null;
@@ -26633,9 +26836,10 @@ export interface operations {
                      * @default home
                      * @enum {string}
                      */
-                    mode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'validate';
+                    mode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'validate';
                     /** @enum {string} */
-                    contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct';
+                    contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip';
+                    clipId?: string;
                     channelId?: string;
                     query?: string;
                     /** Format: misskey:id */
@@ -26676,6 +26880,8 @@ export interface operations {
                             visibility: string;
                             localOnly: boolean;
                             channelId?: string | null;
+                            collectionId?: string;
+                            collectionAt?: string;
                             canDelete?: boolean;
                             author: {
                                 name: string | null;
