@@ -27,8 +27,7 @@ try {
 	const page = await context.newPage(); page.setDefaultTimeout(30000);
 	const errors = []; page.on('pageerror', error => errors.push(error.message));
 	await page.goto(`${g.origin}/channels`);
-	await page.getByRole('link', { name: '連携先のチャンネル', exact: true }).click();
-	await page.goto(`${g.origin}/gridspace/channels/${fixture.channel.id}`);
+	await page.locator(`[data-combined-channels] a[href="/gridspace/channels/${fixture.channel.id}"]`).click();
 	const root = page.locator('[data-gridspace-channels]');
 	await expect(root.getByText(`Channel body ${fixture.suffix}`, { exact: true })).toBeVisible();
 	await root.getByRole('button', { name: 'このチャンネルに投稿する', exact: true }).click();

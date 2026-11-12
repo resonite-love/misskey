@@ -17,7 +17,15 @@ const g = loadSite('.', 0); const r = loadSite('../resonite-love-gridspace', 1);
 await api(g, 'i/registry/set', { scope: ['client', 'base'], key: 'accountSetupWizard', value: -1 }, fixture.grid.token);
 const account = { ...await api(g, 'i', {}, fixture.grid.token), token: fixture.grid.token };
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
+const adminToken = JSON.parse(readFileSync(g.accountsPath, 'utf8')).accounts.admin.token;
+const createdChannels = [];
+let roleId;
 try {
+	const role = await api(g, 'admin/roles/create', { name: `Channel UI ${fixture.suffix}`, description: 'Temporary UI test role', color: null, iconUrl: null, target: 'manual', condFormula: {}, isPublic: false, isModerator: false, isAdministrator: false, asBadge: false, canEditMembersByModerator: false, displayOrder: 0, policies: { rateLimitFactor: { useDefault: false, priority: 2, value: 0 } } }, adminToken);
+	roleId = role.id;
+	await api(g, 'admin/roles/assign', { roleId, userId: fixture.grid.id }, adminToken);
+	const stalePages = await api(g, 'channels/search', { query: `Pagination ${fixture.suffix}-`, limit: 100 }, fixture.grid.token);
+	for (const channel of stalePages) if (channel.userId === fixture.grid.id) await api(g, 'channels/update', { channelId: channel.id, isArchived: true }, fixture.grid.token);
 	const context = await browser.newContext({ viewport: { width: 1280, height: 960 }, locale: 'ja-JP' });
 	await context.addInitScript(({ origin, account }) => {
 		if (location.origin === origin) localStorage.setItem('account', JSON.stringify(account));
@@ -28,15 +36,64 @@ try {
 	const errors = []; page.on('pageerror', error => errors.push(error.message));
 	const url = `${g.origin}/gridspace/channels/${fixture.channel.id}`;
 	await page.goto(`${g.origin}/channels`);
-	await page.getByRole('link', { name: '連携先のチャンネル', exact: true }).click();
+	const combined = page.locator('[data-combined-channels]');
+	await expect(combined.locator(`a[href="/channels/${fixture.gridChannel.id}"]`)).toBeVisible();
+	await expect(combined.locator(`a[href="/gridspace/channels/${fixture.channel.id}"]`)).toBeVisible();
+	await expect(page.getByRole('link', { name: '連携先のチャンネル', exact: true })).toHaveCount(0);
+	await page.screenshot({ path: '.config/channels-combined-desktop.png', fullPage: true });
+	await page.getByRole('button', { name: /お気に入り/ }).click();
+	await expect(combined.locator(`a[href="/channels/${fixture.gridChannel.id}"]`)).toBeVisible();
+	await expect(combined.locator(`a[href="/gridspace/channels/${fixture.channel.id}"]`)).toBeVisible();
+	await page.getByRole('button', { name: /検索/ }).click();
+	await page.getByRole('searchbox').fill(fixture.suffix);
+	await page.getByRole('searchbox').press('Enter');
+	await expect(combined.locator(`a[href="/channels/${fixture.gridChannel.id}"]`)).toBeVisible();
+	await expect(combined.locator(`a[href="/gridspace/channels/${fixture.channel.id}"]`)).toBeVisible();
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(combined.getByText(new URL(r.origin).host, { exact: true }).first()).toBeVisible();
+	await page.screenshot({ path: '.config/channels-combined-mobile.png', fullPage: true });
+	assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
+	await page.setViewportSize({ width: 1280, height: 960 });
+	for (let index = 0; index < 12; index++) createdChannels.push(await api(g, 'channels/create', { name: `Pagination ${fixture.suffix}-${index}` }, fixture.grid.token));
+	await page.route('**/api/gridspace/channels', route => route.abort());
+	await page.getByRole('searchbox').press('Enter');
+	await expect(combined.getByText('チャンネルを取得できませんでした。連携の権限と接続状況を確認してください。')).toBeVisible();
+	await combined.getByRole('button', { name: 'もっと見る', exact: true }).click();
+	await expect(combined.locator(`a[href="/channels/${fixture.gridChannel.id}"]`)).toBeVisible();
+	await page.unroute('**/api/gridspace/channels');
+	await combined.getByRole('button', { name: '再試行', exact: true }).click();
+	await expect(combined.locator(`a[href="/gridspace/channels/${fixture.channel.id}"]`)).toBeVisible();
+	await combined.locator(`a[href="/gridspace/channels/${fixture.channel.id}"]`).click();
 	const root = page.locator('[data-gridspace-channels]');
-	await root.getByRole('searchbox').fill(fixture.suffix);
-	await root.getByRole('button', { name: '検索', exact: true }).click();
-	await root.getByRole('link').filter({ hasText: fixture.channel.name }).click();
 	await expect(page).toHaveURL(url);
 	await expect(root.getByText(`Channel body ${fixture.suffix}`, { exact: true })).toBeVisible();
+	assert.ok(await page.evaluate(key => Number(localStorage.getItem(key)) > 0, `channelLastReadedAt:${r.origin}:${fixture.channel.id}`));
 	await expect(root.getByRole('heading', { name: '連携先の権限で読む投稿' })).toHaveCount(0);
+	await page.goto(`${g.origin}/channels`);
+	const readCard = combined.locator(`a[href="/gridspace/channels/${fixture.channel.id}"]`);
+	await expect(readCard).toBeVisible();
+	await expect(readCard.locator('..').locator('.indicator')).toHaveCount(0);
+	await readCard.click();
+	await expect(root.getByText(`Channel body ${fixture.suffix}`, { exact: true })).toBeVisible();
 	console.log('Normal channels entry, search, channel navigation and plain timeline PASS');
+
+	let offline = true;
+	await page.route('**/api/gridspace/private-notes', route => offline ? route.abort() : route.continue());
+	await root.getByRole('button', { name: 'リロード', exact: true }).click();
+	const unavailable = root.getByText('チャンネルの投稿を取得できませんでした。接続と閲覧の許可を確認して再試行してください。', { exact: true });
+	await expect(unavailable).toBeVisible();
+	await expect(root.locator('[data-gridspace-private-note]')).toHaveCount(0);
+	offline = false;
+	await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+	await expect(root.getByText(`Channel body ${fixture.suffix}`, { exact: true })).toBeVisible();
+	await expect(unavailable).toHaveCount(0);
+	offline = true;
+	await root.getByRole('button', { name: 'リロード', exact: true }).click();
+	await expect(unavailable).toBeVisible();
+	offline = false;
+	await expect(root.getByText(`Channel body ${fixture.suffix}`, { exact: true })).toBeVisible({ timeout: 50000 });
+	await page.unroute('**/api/gridspace/private-notes');
+	console.log('Transient channel read failure clears content and recovers on focus and with backoff without manual reload PASS');
 
 	await root.getByRole('button', { name: 'このチャンネルに投稿する', exact: true }).click();
 	const composer = root.locator('[data-gridspace-reply]');
@@ -93,7 +150,11 @@ try {
 	await expect(root.getByText(uncertain, { exact: true })).toBeVisible();
 	await api(g, 'gridspace/private-grant', { action: 'revoke' }, fixture.grid.token);
 	await expect(root.locator('[data-gridspace-private-note]')).toHaveCount(0, { timeout: 40000 });
-	await expect(root.getByText('限定投稿を取得できないため、表示を消しました。連携先への接続と閲覧の許可を確認して再試行してください。', { exact: true })).toBeVisible();
+	await expect(root.getByText('チャンネルの投稿を取得できませんでした。接続と閲覧の許可を確認して再試行してください。', { exact: true })).toBeVisible();
 	console.log('Mobile width, sensitive reveal and live revocation clear PASS');
 	assert.deepEqual(errors, []);
-} finally { await browser.close(); }
+} finally {
+	await browser.close();
+	for (const channel of createdChannels) await api(g, 'channels/update', { channelId: channel.id, isArchived: true }, fixture.grid.token).catch(() => {});
+	if (roleId) await api(g, 'admin/roles/delete', { roleId }, adminToken);
+}

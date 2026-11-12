@@ -36,22 +36,26 @@ export class GridspaceChannelService {
 		const query = this.db.getRepository(MiChannel).createQueryBuilder('channel');
 		if (input.channelId) query.where('channel.id = :channelId', { channelId: input.channelId });
 		else {
-			query.where('channel.isArchived = false');
+			query.where(input.list === 'favorites' || input.list === 'following' ? '1 = 1' : 'channel.isArchived = false');
 			query.andWhere(`NOT EXISTS (SELECT 1 FROM channel_muting m WHERE m."userId" = :viewer AND m."channelId" = channel.id
 				AND (m."expiresAt" IS NULL OR m."expiresAt" > CURRENT_TIMESTAMP))`, { viewer: link.localUserId });
-			if (input.query?.trim()) query.andWhere('(channel.name ILIKE :query OR channel.description ILIKE :query)', { query: `%${sqlLikeEscape(input.query.trim())}%` });
-			if (input.followed) query.andWhere('EXISTS (SELECT 1 FROM channel_following f WHERE f."followerId" = :viewer AND f."followeeId" = channel.id)', { viewer: link.localUserId });
+			if (input.query?.trim()) query.andWhere(input.queryType === 'nameOnly' ? 'channel.name ILIKE :query' : '(channel.name ILIKE :query OR channel.description ILIKE :query)', { query: `%${sqlLikeEscape(input.query.trim())}%` });
+			if (input.followed || input.list === 'following') query.andWhere('EXISTS (SELECT 1 FROM channel_following f WHERE f."followerId" = :viewer AND f."followeeId" = channel.id)', { viewer: link.localUserId });
+			if (input.list === 'favorites') query.andWhere('EXISTS (SELECT 1 FROM channel_favorite f WHERE f."userId" = :viewer AND f."channelId" = channel.id)', { viewer: link.localUserId });
+			if (input.list === 'owned') query.andWhere('channel.userId = :viewer', { viewer: link.localUserId });
+			if (input.list === 'featured') query.andWhere('channel.lastNotedAt IS NOT NULL');
 			if (input.before) query.andWhere('channel.id < :before', { before: input.before });
 		}
 		const limit = input.channelId ? 1 : input.limit ?? 12;
-		const rows = await query.orderBy('channel.id', 'DESC').take(limit + 1).getMany();
+		const rows = await query.orderBy(input.list === 'featured' ? 'channel.lastNotedAt' : 'channel.id', 'DESC').addOrderBy('channel.id', 'DESC').take(limit + 1).getMany();
 		const channels = await Promise.all(rows.slice(0, limit).map(async row => {
 			const packed = await this.channels.pack(row, { id: link.localUserId });
 			return { id: row.id, name: row.name, description: row.description, bannerUrl: packed.bannerUrl, color: row.color,
-				isArchived: row.isArchived, isSensitive: row.isSensitive, isFollowing: packed.isFollowing === true, notesCount: row.notesCount };
+				isArchived: row.isArchived, isSensitive: row.isSensitive, isFollowing: packed.isFollowing === true, notesCount: row.notesCount,
+				isFavorited: packed.isFavorited === true, isOwned: row.userId === link.localUserId, usersCount: row.usersCount, createdAt: packed.createdAt, lastNotedAt: packed.lastNotedAt };
 		}));
 		if (input.channelActorId) await this.auth.source(input.channelActorId); else await this.links.authorizePrivate(input);
-		return { origin: this.config.url, channels, next: rows.length > limit ? channels.at(-1)!.id : null };
+		return { origin: this.config.url, channels, next: input.list !== 'featured' && rows.length > limit ? channels.at(-1)!.id : null };
 	}
 
 	public async list(viewer: MiLocalUser, input: ChannelOptions) {

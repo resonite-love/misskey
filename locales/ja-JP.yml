@@ -3698,6 +3698,7 @@ _gridspace:
   channelDeleteConfirm: "この投稿を連携先のチャンネルから削除しますか？"
   channelDeleteFailed: "投稿を削除できませんでした。時間をおいて再試行してください。"
   channelsUnavailable: "チャンネルを取得できませんでした。連携の権限と接続状況を確認してください。"
+  channelNotesUnavailable: "チャンネルの投稿を取得できませんでした。接続と閲覧の許可を確認して再試行してください。"
   channelArchived: "このチャンネルはアーカイブされています。過去の投稿を閲覧できます。"
   channelSensitive: "センシティブなチャンネル"
   channelShowSensitive: "センシティブなチャンネルの投稿を表示する"

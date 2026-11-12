@@ -13823,6 +13823,10 @@ export interface Locale extends ILocale {
          */
         "channelsUnavailable": string;
         /**
+         * チャンネルの投稿を取得できませんでした。接続と閲覧の許可を確認して再試行してください。
+         */
+        "channelNotesUnavailable": string;
+        /**
          * このチャンネルはアーカイブされています。過去の投稿を閲覧できます。
          */
         "channelArchived": string;

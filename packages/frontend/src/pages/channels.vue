@@ -6,7 +6,6 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <PageWithHeader v-model:tab="tab" :actions="headerActions" :tabs="headerTabs" :swipable="true">
 	<div class="_spacer" style="--MI_SPACER-w: 1200px;">
-		<MkA v-if="peerChannels" to="/gridspace/channels" :class="$style.peerChannels"><i class="ti ti-device-tv" aria-hidden="true"></i> {{ i18n.ts._gridspace.channels }}</MkA>
 		<div v-if="tab === 'search'" :class="$style.searchRoot">
 			<div class="_gaps">
 				<MkInput v-model="searchQuery" :large="true" :autofocus="true" type="search" @enter="search">
@@ -26,37 +25,21 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 			<MkFoldableSection v-if="channelPaginator">
 				<template #header>{{ i18n.ts.searchResult }}</template>
-				<MkChannelList :key="key" :paginator="channelPaginator"/>
+				<MkCombinedChannelList :key="key" :paginator="channelPaginator" :peerEnabled="peerChannels" :peerParams="searchParams" :grid="false"/>
 			</MkFoldableSection>
 		</div>
 		<div v-if="tab === 'featured'">
-			<MkPagination v-slot="{items}" :paginator="featuredPaginator">
-				<div :class="$style.root">
-					<MkChannelPreview v-for="channel in items" :key="channel.id" :channel="channel"/>
-				</div>
-			</MkPagination>
+			<MkCombinedChannelList :paginator="featuredPaginator" :peerEnabled="peerChannels" :peerParams="{ list: 'featured' }"/>
 		</div>
 		<div v-else-if="tab === 'favorites'">
-			<MkPagination v-slot="{items}" :paginator="favoritesPaginator">
-				<div :class="$style.root">
-					<MkChannelPreview v-for="channel in items" :key="channel.id" :channel="channel"/>
-				</div>
-			</MkPagination>
+			<MkCombinedChannelList :paginator="favoritesPaginator" :peerEnabled="peerChannels" :peerParams="{ list: 'favorites' }"/>
 		</div>
 		<div v-else-if="tab === 'following'">
-			<MkPagination v-slot="{items}" :paginator="followingPaginator">
-				<div :class="$style.root">
-					<MkChannelPreview v-for="channel in items" :key="channel.id" :channel="channel"/>
-				</div>
-			</MkPagination>
+			<MkCombinedChannelList :paginator="followingPaginator" :peerEnabled="peerChannels" :peerParams="{ list: 'following' }"/>
 		</div>
 		<div v-else-if="tab === 'owned'" class="_gaps">
 			<MkButton v-if="$i?.policies.canCreateChannel" type="routerLink" primary rounded to="/channels/new"><i class="ti ti-plus"></i> {{ i18n.ts.createNew }}</MkButton>
-			<MkPagination v-slot="{items}" :paginator="ownedPaginator">
-				<div :class="$style.root">
-					<MkChannelPreview v-for="channel in items" :key="channel.id" :channel="channel"/>
-				</div>
-			</MkPagination>
+			<MkCombinedChannelList :paginator="ownedPaginator" :peerEnabled="peerChannels" :peerParams="{ list: 'owned' }"/>
 		</div>
 	</div>
 </PageWithHeader>
@@ -64,9 +47,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script lang="ts" setup>
 import { computed, markRaw, onMounted, ref, shallowRef } from 'vue';
-import MkChannelPreview from '@/components/MkChannelPreview.vue';
-import MkChannelList from '@/components/MkChannelList.vue';
-import MkPagination from '@/components/MkPagination.vue';
+import type { entities } from 'misskey-js';
+import MkCombinedChannelList from '@/components/MkCombinedChannelList.vue';
 import MkInput from '@/components/MkInput.vue';
 import MkRadios from '@/components/MkRadios.vue';
 import MkButton from '@/components/MkButton.vue';
@@ -100,6 +82,7 @@ const tab = ref('featured');
 const searchQuery = ref('');
 const searchType = ref<SearchType>('nameAndDescription');
 const channelPaginator = shallowRef();
+const searchParams = shallowRef<entities.GridspaceChannelsRequest>({ list: 'search' });
 
 onMounted(() => {
 	searchQuery.value = props.query ?? '';
@@ -109,10 +92,12 @@ onMounted(() => {
 const featuredPaginator = markRaw(new Paginator('channels/featured', {
 	limit: 10,
 	noPaging: true,
+	minItemsToShow: 1,
 }));
 const favoritesPaginator = markRaw(new Paginator('channels/my-favorites', {
 	limit: 100,
 	noPaging: true,
+	minItemsToShow: 1,
 }));
 const followingPaginator = markRaw(new Paginator('channels/followed', {
 	limit: 10,
@@ -142,6 +127,7 @@ async function search() {
 	}));
 
 	key.value = query + type;
+	searchParams.value = { list: 'search', query, queryType: type };
 }
 
 const headerActions = computed(() => []);
@@ -175,16 +161,10 @@ definePage(() => ({
 </script>
 
 <style lang="scss" module>
-.peerChannels { display: block; padding: var(--MI-margin); margin-bottom: var(--MI-margin); background: var(--MI_THEME-panel); border-radius: var(--MI-radius); }
 .searchRoot {
 	width: 100%;
 	max-width: 700px;
 	margin: 0 auto;
 }
 
-.root {
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-	gap: var(--MI-margin);
-}
 </style>

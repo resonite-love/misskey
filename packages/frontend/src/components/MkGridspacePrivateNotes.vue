@@ -13,7 +13,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<template v-if="enabled">
 		<MkGridspacePrivateNote v-for="note in displayed" :key="note.id" :note="note" @unavailable="fail"/>
 		<div :class="$style.heading" class="_gaps_s">
-			<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateUnavailable }}</p>
+			<p v-if="error" role="alert">{{ params.channelId ? i18n.ts._gridspace.channelNotesUnavailable : i18n.ts._gridspace.privateUnavailable }}</p>
 			<MkLoading v-if="loading"/>
 			<p v-else-if="!error && notes.length === 0 && !hasMore">{{ i18n.ts.noNotes }}</p>
 			<MkButton v-if="error" :disabled="loading" @click="reload">{{ i18n.ts.retry }}</MkButton>
@@ -34,6 +34,7 @@ import { $i } from '@/i.js';
 import { checkTextWordMute } from '@/utility/check-word-mute.js';
 
 const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; alwaysShow?: boolean; plain?: boolean }>();
+const emit = defineEmits<{ (event: 'loaded'): void }>();
 type Note = entities.GridspacePrivateNotesResponse['notes'][number];
 const enabled = ref(false);
 const notes = ref<Note[]>([]);
@@ -46,8 +47,14 @@ let generation = 0;
 let checking = false;
 let stopped = false;
 let active = true;
+let retryAt = 0;
+let retryDelay = 30000;
+let recovering = false;
 
-function fail() { generation++; notes.value = []; cursor = undefined; hasMore.value = false; loading.value = false; error.value = true; }
+function fail() {
+	generation++; notes.value = []; cursor = undefined; hasMore.value = false; loading.value = false; error.value = true;
+	retryAt = Date.now() + retryDelay; retryDelay = Math.min(retryDelay * 2, 120000);
+}
 
 async function load() {
 	if (loading.value || !hasMore.value || window.document.hidden || !active) return;
@@ -60,6 +67,8 @@ async function load() {
 		notes.value.push(...result.notes.filter(note => !seen.has(note.id)));
 		cursor = result.cursor ?? undefined;
 		hasMore.value = result.cursor != null;
+		retryDelay = 30000;
+		emit('loaded');
 	} catch { if (current === generation) fail(); } finally { if (current === generation) loading.value = false; }
 }
 
@@ -115,6 +124,7 @@ async function revalidate() {
 				// pagination at the new head instead of silently skipping that gap.
 				notes.value = head.notes; cursor = head.cursor ?? undefined; hasMore.value = head.cursor != null;
 			}
+			emit('loaded');
 		}
 	} catch { if (current === generation) fail(); } finally { checking = false; }
 }
@@ -123,9 +133,22 @@ function visibility() {
 	if (window.document.hidden) { generation++; notes.value = []; loading.value = false; } else void reload();
 }
 
-const timer = window.setInterval(() => { if (!stopped) void revalidate(); }, 15000);
+async function recover() {
+	if (recovering || loading.value || stopped || !active || window.document.hidden) return;
+	recovering = true;
+	try { await reload(); } finally { recovering = false; }
+}
+
+function focus() {
+	if (error.value || !enabled.value) void recover(); else void revalidate();
+}
+
+const timer = window.setInterval(() => {
+	if (stopped) return;
+	if (error.value) { if (Date.now() >= retryAt) void recover(); } else void revalidate();
+}, 15000);
 window.document.addEventListener('visibilitychange', visibility);
-window.addEventListener('focus', revalidate);
+window.addEventListener('focus', focus);
 // Parents pass object literals; rerendering an unchanged search must not reset
 // the private pages or repeat consent checks.
 watch(() => JSON.stringify(Object.entries(props.params).sort(([a], [b]) => a.localeCompare(b))), reload, { immediate: true });
@@ -135,7 +158,7 @@ onBeforeUnmount(() => {
 	stopped = true; generation++; notes.value = [];
 	window.clearInterval(timer);
 	window.document.removeEventListener('visibilitychange', visibility);
-	window.removeEventListener('focus', revalidate);
+	window.removeEventListener('focus', focus);
 });
 </script>
 

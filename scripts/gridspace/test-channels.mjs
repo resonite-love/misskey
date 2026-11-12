@@ -79,6 +79,16 @@ try {
 	assert.equal((await timeline({ mode: 'show', noteId: otherNote.id })).notes.length, 0);
 	assert.equal((await timeline({ mode: 'validate', contextMode: 'channel', ids: [parent.id, otherNote.id] })).notes.length, 1);
 	await api(r, 'channels/mute/delete', { channelId: channel.id }, resonite.token);
+	await api(r, 'channels/favorite', { channelId: channel.id }, resonite.token);
+	assert.deepEqual((await list({ list: 'following', query: suffix })).channels.map(c => c.id), [channel.id]);
+	assert.deepEqual((await list({ list: 'favorites', query: suffix })).channels.map(c => c.id), [channel.id]);
+	assert.equal((await list({ list: 'owned', query: suffix })).channels.length, 0);
+	assert.ok(!(await list({ query: 'Channel description', queryType: 'nameOnly' })).channels.some(c => c.id === channel.id));
+	assert.ok((await list({ query: 'Channel description', queryType: 'nameAndDescription' })).channels.some(c => c.id === channel.id));
+	const featured = await list({ list: 'featured', query: suffix });
+	assert.equal(featured.next, null);
+	assert.ok(featured.channels.every(c => c.lastNotedAt && c.createdAt && typeof c.usersCount === 'number'));
+	assert.deepEqual(featured.channels.map(c => c.lastNotedAt), featured.channels.map(c => c.lastNotedAt).sort().reverse());
 	console.log('Channel list, stable pagination, source follows/mutes, explicit sensitive access and context validation PASS');
 
 	const post = options => api(g, 'gridspace/channel-post', { channelId: channel.id, ...options }, grid.token);
@@ -127,6 +137,9 @@ try {
 	assert.ok(!(await timeline({})).notes.some(note => note.id === parent.id));
 	await api(g, 'mute/delete', { userId: authorOnGrid.id }, grid.token);
 	await api(r, 'channels/update', { channelId: channel.id, isArchived: true }, author.token);
+	assert.ok((await list({ list: 'favorites', query: suffix })).channels.some(c => c.id === channel.id));
+	assert.ok((await list({ list: 'following', query: suffix })).channels.some(c => c.id === channel.id));
+	assert.ok(!(await list({ list: 'featured', query: suffix })).channels.some(c => c.id === channel.id));
 	assert.equal((await post({})).canReply, false);
 	await denied(post({ action: 'send', requestId: randomUUID(), text: 'Archived' }));
 	await denied(upload(g, 'gridspace/private-upload', grid, { channelId: channel.id, name: 'archive.png' }));
@@ -135,6 +148,9 @@ try {
 	console.log('Both-account mute/block enforcement and archive read-only behavior PASS');
 
 	const gridChannel = await api(g, 'channels/create', { name: `G only ${suffix}` }, grid.token);
+	await api(g, 'channels/favorite', { channelId: gridChannel.id }, grid.token);
+	const ownedChannel = await api(r, 'channels/create', { name: `Owned ${suffix}` }, resonite.token);
+	assert.deepEqual((await list({ list: 'owned', query: suffix })).channels.map(c => [c.id, c.isOwned]), [[ownedChannel.id, true]]);
 	const gridFile = await upload(g, 'drive/files/create', grid);
 	const gridNote = (await api(g, 'notes/create', { channelId: gridChannel.id, text: 'Reverse prohibited', fileIds: [gridFile.id] }, grid.token)).createdNote;
 	await denied(api(r, 'gridspace/channels', {}, resonite.token));
@@ -148,7 +164,7 @@ try {
 	await api(g, 'gridspace/private-grant', { action: 'revoke' }, grid.token);
 	await denied(list({})); await denied(timeline({})); await denied(post({ action: 'send', requestId: randomUUID(), text: 'Revoked' }));
 	await consent(grid, resonite);
-	savePrivateJson(resolve('.config/gridspace-channels-test-accounts.json'), { grid, resonite, author, channel, sensitive, parent, secret, createdId, suffix });
+	savePrivateJson(resolve('.config/gridspace-channels-test-accounts.json'), { grid, resonite, author, channel, sensitive, parent, secret, createdId, suffix, gridChannel, ownedChannel });
 	console.log('Reverse direction denied even without channelId; scope isolation, revoke and reauthorization PASS');
 } finally {
 	for (const [site, roleId] of roles) await api(site, 'admin/roles/delete', { roleId }, site.accounts.admin.token).catch(() => {});

@@ -5,10 +5,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <div style="position: relative;">
-	<MkA :to="`/channels/${channel.id}`" class="eftoefju _panel" @click="updateLastReadedAt">
-		<div class="banner" :style="bannerStyle">
+	<MkA :to="origin ? `/gridspace/channels/${channel.id}` : `/channels/${channel.id}`" class="eftoefju _panel" @click="updateLastReadedAt">
+		<div class="banner" :class="{ peer: !!origin }" :style="bannerStyle">
 			<div class="fade"></div>
-			<div class="name"><i class="ti ti-device-tv"></i> {{ channel.name }}</div>
+			<div class="name"><i class="ti ti-device-tv"></i> {{ channel.name }}<small v-if="origin" class="source">{{ originHost }}</small></div>
 			<div v-if="channel.isSensitive" class="sensitiveIndicator">{{ i18n.ts.sensitive }}</div>
 			<div class="status">
 				<div>
@@ -27,7 +27,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 						</template>
 					</I18n>
 				</div>
-				<div v-if="$i != null && $i.id === channel.userId" style="color: var(--MI_THEME-warn)">
+				<div v-if="isOwned" style="color: var(--MI_THEME-warn)">
 					<i class="ti ti-user-star ti-fw"></i>
 					<span style="margin-left: 4px;">{{ i18n.ts.youAreAdmin }}</span>
 				</div>
@@ -50,32 +50,38 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onActivated, ref, watch } from 'vue';
 import * as Misskey from 'misskey-js';
 import { $i } from '@/i.js';
 import { i18n } from '@/i18n.js';
 import { miLocalStorage } from '@/local-storage.js';
 
 const props = defineProps<{
-	channel: Misskey.entities.Channel;
+	channel: Misskey.entities.Channel | Misskey.entities.GridspaceChannelsResponse['channels'][number];
+	origin?: string;
 }>();
 
+const isOwned = computed(() => props.origin ? 'isOwned' in props.channel && props.channel.isOwned : $i != null && 'userId' in props.channel && $i.id === props.channel.userId);
+const originHost = computed(() => props.origin ? new URL(props.origin).host : null);
+const readKey = computed<`channelLastReadedAt:${string}`>(() => `channelLastReadedAt:${props.origin ? `${props.origin}:` : ''}${props.channel.id}`);
+
 const getLastReadedAt = (): number | null => {
-	return miLocalStorage.getItemAsJson(`channelLastReadedAt:${props.channel.id}`) ?? null;
+	return miLocalStorage.getItemAsJson(readKey.value) ?? null;
 };
 
 const lastReadedAt = ref(getLastReadedAt());
 
-watch(() => props.channel.id, () => {
+watch(readKey, () => {
 	lastReadedAt.value = getLastReadedAt();
 });
+onActivated(() => { lastReadedAt.value = getLastReadedAt(); });
 
 const updateLastReadedAt = () => {
 	lastReadedAt.value = props.channel.lastNotedAt ? Date.parse(props.channel.lastNotedAt) : Date.now();
 };
 
 const bannerStyle = computed(() => {
-	if (props.channel.bannerUrl) {
+	if (props.channel.bannerUrl && !(props.origin && props.channel.isSensitive)) {
 		return { backgroundImage: `url(${props.channel.bannerUrl})` };
 	} else {
 		return { backgroundColor: '#4c5e6d' };
@@ -136,6 +142,8 @@ const bannerStyle = computed(() => {
 			background: rgba(0, 0, 0, 0.7);
 			color: #fff;
 			font-size: 1.2em;
+
+			> .source { display: block; margin-top: 4px; font-size: 0.7em; overflow-wrap: anywhere; }
 		}
 
 		> .status {
@@ -188,6 +196,7 @@ const bannerStyle = computed(() => {
 
 		> .banner {
 			height: 80px;
+			&.peer { height: 108px; > .sensitiveIndicator { bottom: 4px; } }
 
 			> .status {
 				display: none;

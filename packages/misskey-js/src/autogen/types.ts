@@ -25381,6 +25381,13 @@ export interface operations {
                     query?: string;
                     /** @default false */
                     followed?: boolean;
+                    /**
+                     * @default nameAndDescription
+                     * @enum {string}
+                     */
+                    queryType?: 'nameOnly' | 'nameAndDescription';
+                    /** @enum {string} */
+                    list?: 'featured' | 'favorites' | 'following' | 'owned' | 'search';
                     before?: string;
                     /** @default 12 */
                     limit?: number;
@@ -25407,6 +25414,11 @@ export interface operations {
                             isSensitive: boolean;
                             isFollowing: boolean;
                             notesCount: number;
+                            isFavorited: boolean;
+                            isOwned: boolean;
+                            usersCount: number;
+                            createdAt: string;
+                            lastNotedAt: string | null;
                         }[];
                     };
                 };
