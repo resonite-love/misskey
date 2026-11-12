@@ -24,7 +24,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		:myReaction="props.myReaction"
 		:myReactions="props.myReactions"
 		:extendedReactions="props.extendedReactions"
-		:reactionVersion="props.reactionVersion"
+		:reactionVersion="typeof props.reactionVersion === 'object' ? props.reactionVersion[reaction] : props.reactionVersion"
 		@reactionToggled="onMockToggleReaction"
 	/>
 	<slot v-if="hasMoreReactions" name="more"></slot>
@@ -50,7 +50,7 @@ const props = withDefaults(defineProps<{
 	myReaction: Misskey.entities.Note['myReaction'];
 	myReactions?: string[];
 	extendedReactions?: boolean;
-	reactionVersion?: number;
+	reactionVersion?: number | Record<string, string>;
 	maxNumber?: number;
 }>(), {
 	maxNumber: Infinity,

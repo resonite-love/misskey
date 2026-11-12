@@ -77,19 +77,21 @@ export class GridspaceReactionService {
 	private async snapshot(note: MiNote, input: ReactionPeerRequest): Promise<ReactionSnapshot> {
 		const peer = this.peer!;
 		const params = [note.id, note.userHost !== null, new URL(peer.peerOrigin).host];
-		const counts: { reaction: string; count: string; revision: string }[] = await this.db.query(
+		// Reactor pages do not consume counts or emoji metadata.
+		const counts: { reaction: string; count: string; revision: string }[] = input.mode === 'list' ? [] : await this.db.query(
 			`SELECT r.reaction, COUNT(*) AS count, md5(string_agg(r.id, ',' ORDER BY r.id)) AS revision FROM (${ownedRows}) r GROUP BY r.reaction ORDER BY r.reaction`, params);
 		const reactions = Object.fromEntries(counts.map(row => [canonicalReaction(row.reaction, peer.origin), Number(row.count)]));
 		const custom = counts.map(row => row.reaction).filter(value => value.startsWith(':')).map(value => value.slice(1, -1));
-		const emojiUrls = await this.emojis.populateEmojis(custom, null);
-		const localEmojis = await this.emojis.localEmojisCache.fetch();
+		const emojiUrls = custom.length ? await this.emojis.populateEmojis(custom, null) : {};
+		const localEmojis = custom.length ? await this.emojis.localEmojisCache.fetch() : new Map();
 		for (const name of custom) {
 			const emoji = localEmojis.get(name.replace(/@\.$/, ''));
 			if (emoji) emojiUrls[name] = emoji.publicUrl || emoji.originalUrl;
 		}
 		const reactionEmojis = Object.fromEntries(Object.entries(emojiUrls).map(([key, value]) => [canonicalReaction(`:${key}:`, peer.origin).slice(1, -1), value]));
 		const revision = createHash('sha256').update(JSON.stringify(counts)).digest('hex');
-		const result: ReactionSnapshot = { uri: this.uri(note), reactions, reactionEmojis, revision, reactionAcceptance: note.reactionAcceptance };
+		const reactionVersions = Object.fromEntries(counts.map(row => [canonicalReaction(row.reaction, peer.origin), row.revision]));
+		const result: ReactionSnapshot = { uri: this.uri(note), reactions, reactionEmojis, revision, reactionVersions, reactionAcceptance: note.reactionAcceptance };
 		if (input.mode === 'list') {
 			const rows: { id: string; userId: string; userUri: string | null; userHost: string | null; reaction: string; time: string }[] = await this.db.query(`
 				SELECT r.*, ${this.reactionTime} AS time FROM (${ownedRows}) r
@@ -133,12 +135,12 @@ export class GridspaceReactionService {
 	}
 
 	public async show(noteIds: string[], me: { id: string } | null) {
-		const base = await this.extended.show(noteIds, me);
 		const notes = await this.db.getRepository(MiNote).findBy({ id: In(noteIds) });
 		const shared = (await this.visible(notes.filter(note => this.shared(note)), me));
 		const input: ReactionPeerRequest = { mode: 'show', uris: shared.map(note => this.uri(note)), viewerId: me?.id };
 		let remote: ReactionSnapshot[] | null = [];
 		if (shared.length) { try { remote = await this.remote(input); } catch { remote = null; } }
+		const base = await this.extended.show(noteIds, me, new Set(remote === null ? [] : shared.map(note => note.id)));
 		const result = [];
 		for (const state of base) {
 			const note = notes.find(item => item.id === state.noteId)!;
@@ -150,7 +152,10 @@ export class GridspaceReactionService {
 			const own = await this.snapshot(note, input);
 			const reactions = { ...own.reactions };
 			for (const [key, count] of Object.entries(other?.reactions ?? {})) reactions[key] = (reactions[key] ?? 0) + count;
-			result.push({ ...state, shared: true, complete: true, revision: own.revision + (other?.revision ?? ''),
+			// Older peers have no per-emoji versions: keep their whole-note fallback.
+			const reactionVersions = !other || other.reactionVersions ? Object.fromEntries(Object.keys(reactions).map(key =>
+				[localReaction(key, this.peer!.origin), `${own.reactionVersions?.[key] ?? ''}:${other?.reactionVersions?.[key] ?? ''}`])) : undefined;
+			result.push({ ...state, shared: true, complete: true, reactionVersions, revision: own.revision + (other?.revision ?? ''),
 				reactions: Object.fromEntries(Object.entries(reactions).map(([key, value]) => [localReaction(key, this.peer!.origin), value])),
 				reactionEmojis: Object.fromEntries(Object.entries({ ...own.reactionEmojis, ...other?.reactionEmojis }).map(([key, value]) => [localReaction(`:${key}:`, this.peer!.origin).slice(1, -1), value])),
 			});

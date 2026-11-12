@@ -23,7 +23,7 @@ export type ReactionPeerRequest = {
 };
 export type ReactionSnapshot = {
 	uri: string; reactions: Record<string, number>; reactionEmojis: Record<string, string>;
-	reactionAcceptance: string | null; revision: string; rows?: ReactionRow[];
+	reactionAcceptance: string | null; revision: string; reactionVersions?: Record<string, string>; rows?: ReactionRow[];
 };
 
 export function canonicalReaction(reaction: string, origin: string): string {
@@ -59,6 +59,7 @@ export function validateReactionSnapshots(value: unknown, input: ReactionPeerReq
 		seen.add(item.uri);
 		if (!item.reactions || typeof item.reactions !== 'object' || Array.isArray(item.reactions) || !item.reactionEmojis || typeof item.reactionEmojis !== 'object' || Array.isArray(item.reactionEmojis) || typeof item.revision !== 'string' || !/^[0-9a-f]{64}$/.test(item.revision)) throw new Error('Invalid reaction state');
 		if (Object.entries(item.reactions).some(([key, count]) => key.length > 260 || !Number.isSafeInteger(count) || count < 0)) throw new Error('Invalid reaction count');
+		if (item.reactionVersions != null && (typeof item.reactionVersions !== 'object' || Array.isArray(item.reactionVersions) || Object.keys(item.reactions).some(key => !Object.hasOwn(item.reactionVersions!, key)) || Object.entries(item.reactionVersions).some(([key, version]) => !(key in item.reactions) || typeof version !== 'string' || !/^[0-9a-f]{32}$/.test(version)))) throw new Error('Invalid reaction versions');
 		if (Object.values(item.reactionEmojis).some(url => typeof url !== 'string' || !/^https?:\/\//.test(url))) throw new Error('Invalid reaction emoji');
 		if (![null, 'likeOnly', 'likeOnlyForRemote', 'nonSensitiveOnly', 'nonSensitiveOnlyForLocalLikeOnlyForRemote'].includes(item.reactionAcceptance)) throw new Error('Invalid reaction policy');
 		if (input.mode === 'list' && (!Array.isArray(item.rows) || item.rows.length > (input.limit ?? 10))) throw new Error('Invalid reaction list');

@@ -41,8 +41,10 @@ describe('paired reaction wire contract', () => {
 	test('rejects injected notes, counts, malformed maps, duplicate rows and oversized lists', () => {
 		const input = { mode: 'list' as const, uris: [uri], limit: 1 };
 		expect(validateReactionSnapshots([snapshot], input, r)).toEqual([snapshot]);
+		const versioned = { ...snapshot, reactionVersions: { '👍': 'b'.repeat(32) } };
+		expect(validateReactionSnapshots([versioned], input, r)).toEqual([versioned]);
 		const row = { time: 1, id: 'abc', origin: r, userUri: `${r}/users/u`, reaction: '👍' };
-		for (const changed of [{ uri: `${r}/notes/hidden` }, { reactions: { '👍': -1 } }, { reactions: [] }, { revision: 'bad' }, { rows: [row, row] }, { rows: [{ ...row, origin: g }] }]) {
+		for (const changed of [{ uri: `${r}/notes/hidden` }, { reactions: { '👍': -1 } }, { reactions: [] }, { revision: 'bad' }, { reactionVersions: {} }, { reactionVersions: { '👍': 'bad' } }, { reactionVersions: [] }, { rows: [row, row] }, { rows: [{ ...row, origin: g }] }]) {
 			expect(() => validateReactionSnapshots([{ ...snapshot, ...changed }], input, r)).toThrow();
 		}
 		expect(() => validateReactionSnapshots([snapshot, snapshot], { ...input, uris: [uri, `${r}/notes/other`] }, r)).toThrow();

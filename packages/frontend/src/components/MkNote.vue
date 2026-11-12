@@ -122,7 +122,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				:myReaction="$appearNote.myReaction"
 				:myReactions="$appearNote.myReactions"
 				:extendedReactions="$appearNote.extendedReactions"
-				:reactionVersion="$appearNote.reactionVersion"
+				:reactionVersion="$appearNote.reactionVersions ?? $appearNote.reactionVersion"
 				:noteId="appearNote.id"
 				:maxNumber="16"
 				@mockUpdateMyReaction="emitUpdReaction"

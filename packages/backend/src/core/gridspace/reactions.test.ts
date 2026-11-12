@@ -43,6 +43,7 @@ describe('paired reaction authorization and failures', () => {
 	test('returns an explicitly incomplete local snapshot on peer failure', async () => {
 		const f = fixture(); vi.mocked(requestGridspacePeer).mockRejectedValue(new Error('offline'));
 		expect(await f.service.show([f.note.id], f.viewer)).toEqual([expect.objectContaining({ complete: false, shared: true, myReactions: ['👍'] })]);
+		expect(f.extended.show).toHaveBeenCalledWith([f.note.id], f.viewer, new Set());
 	});
 	test('does not turn source denial into a cached reaction response', async () => {
 		const f = fixture(true); vi.mocked(requestGridspacePeer).mockResolvedValue([]);
@@ -83,5 +84,29 @@ describe('paired reaction authorization and failures', () => {
 		expect(f.search.noteQuery).not.toHaveBeenCalled();
 		f.note.userHost = null; f.note.uri = null;
 		expect(await f.service.peerRead({ mode: 'show', uris: ['https://g.example/notes/note'], viewerId: 'unauthorized' })).toEqual([]);
+	});
+	test('skips duplicate base counts and versions each emoji independently, including equal-count membership changes', async () => {
+		const f = fixture(); vi.mocked(requestGridspacePeer).mockResolvedValue([]);
+		f.db.query.mockResolvedValue([
+			{ reaction: '👍', count: '1', revision: 'a'.repeat(32) },
+			{ reaction: '🎉', count: '1', revision: 'b'.repeat(32) },
+		]);
+		const first = (await f.service.show([f.note.id], f.viewer))[0];
+		expect(f.extended.show).toHaveBeenCalledWith([f.note.id], f.viewer, new Set([f.note.id]));
+		f.db.query.mockResolvedValue([
+			{ reaction: '👍', count: '1', revision: 'c'.repeat(32) },
+			{ reaction: '🎉', count: '1', revision: 'b'.repeat(32) },
+		]);
+		const next = (await f.service.show([f.note.id], f.viewer))[0];
+		expect(next.reactions).toEqual(first.reactions);
+		expect(next.reactionVersions?.['👍']).not.toBe(first.reactionVersions?.['👍']);
+		expect(next.reactionVersions?.['🎉']).toBe(first.reactionVersions?.['🎉']);
+	});
+	test('reactor pages skip aggregation and still recheck access after collection', async () => {
+		const f = fixture(); vi.mocked(requestGridspacePeer).mockResolvedValue([]);
+		expect(await f.service.list(f.note, f.viewer, '👍', 10)).toEqual([]);
+		expect(f.db.query).toHaveBeenCalledTimes(1);
+		expect(f.db.query.mock.calls[0][0]).not.toMatch(/COUNT|GROUP BY|string_agg/);
+		expect(f.search.read).toHaveBeenCalledTimes(2);
 	});
 });

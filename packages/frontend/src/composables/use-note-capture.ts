@@ -200,6 +200,7 @@ export type ReactiveNoteData = {
 	myReactions: string[];
 	extendedReactions: boolean;
 	reactionVersion: number;
+	reactionVersions?: Record<string, string>;
 	pollChoices: NonNullable<Misskey.entities.Note['poll']>['choices'];
 };
 
@@ -246,6 +247,18 @@ export function useNoteCapture(props: {
 	let lastReactionState = '';
 	let retryTimer: number | undefined;
 	let retryAttempt = 0;
+	let updateTimer: number | undefined;
+
+	// A primary reaction emits both legacy and extended events and a local echo.
+	// Gather that burst before reading, while retaining follow-up reads for changes
+	// arriving during a request.
+	function scheduleExtendedRefresh(): void {
+		if (disposed || updateTimer !== undefined) return;
+		updateTimer = window.setTimeout(() => {
+			updateTimer = undefined;
+			void refreshExtended();
+		}, 100);
+	}
 
 	function retryExtended(): void {
 		if (disposed || retryTimer !== undefined) return;
@@ -282,6 +295,7 @@ export function useNoteCapture(props: {
 					$note.reactionEmojis = state.reactionEmojis;
 				}
 				$note.reactionCount = Object.values($note.reactions).reduce((sum, count) => sum + count, 0);
+				$note.reactionVersions = state.complete === false ? undefined : state.reactionVersions;
 				$note.myReactions = state.myReactions;
 				$note.myReaction = state.myReaction;
 				const signature = JSON.stringify([$note.reactions, $note.reactionEmojis, $note.myReactions, state.revision]);
@@ -297,7 +311,7 @@ export function useNoteCapture(props: {
 		}
 	}
 
-	noteEvents.on(`extendedUpdated:${note.id}`, refreshExtended);
+	noteEvents.on(`extendedUpdated:${note.id}`, scheduleExtendedRefresh);
 	void refreshExtended();
 
 	noteEvents.on(`reacted:${note.id}`, onReacted);
@@ -311,7 +325,7 @@ export function useNoteCapture(props: {
 	function onReacted(ctx: { userId: Misskey.entities.User['id']; reaction: string; emoji?: { name: string; url: string; } | null; }): void {
 		if ($note.extendedReactions) {
 			if ($i && ctx.userId === $i.id) $note.myReaction = ctx.reaction;
-			void refreshExtended();
+			scheduleExtendedRefresh();
 			return;
 		}
 		let normalizedName = ctx.reaction.replace(/^:(\w+):$/, ':$1@.:');
@@ -335,7 +349,7 @@ export function useNoteCapture(props: {
 
 	function onUnreacted(ctx: { userId: Misskey.entities.User['id']; reaction: string; emoji?: { name: string; url: string; } | null; }): void {
 		if ($note.extendedReactions) {
-			void refreshExtended();
+			scheduleExtendedRefresh();
 			return;
 		}
 		let normalizedName = ctx.reaction.replace(/^:(\w+):$/, ':$1@.:');
@@ -396,8 +410,9 @@ export function useNoteCapture(props: {
 	onUnmounted(() => {
 		disposed = true;
 		window.clearTimeout(retryTimer);
+		window.clearTimeout(updateTimer);
 		stopSharedRefresh?.();
-		noteEvents.off(`extendedUpdated:${note.id}`, refreshExtended);
+		noteEvents.off(`extendedUpdated:${note.id}`, scheduleExtendedRefresh);
 		noteEvents.off(`reacted:${note.id}`, onReacted);
 		noteEvents.off(`unreacted:${note.id}`, onUnreacted);
 		noteEvents.off(`pollVoted:${note.id}`, onPollVoted);

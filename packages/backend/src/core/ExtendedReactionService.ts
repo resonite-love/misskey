@@ -86,14 +86,16 @@ export class ExtendedReactionService {
 	}
 
 	@bindThis
-	public async show(noteIds: string[], me: { id: string } | null) {
-		const notes = await this.db.getRepository(MiNote).find({ where: { id: In(noteIds) }, relations: { reply: true } });
+	public async show(noteIds: string[], me: { id: string } | null, skipCountsFor: ReadonlySet<string> = new Set()) {
+		const notes = await this.db.getRepository(MiNote).findBy({ id: In(noteIds) });
 		const visible = (await Promise.all(notes.map(async note => await this.noteEntityService.isVisibleForMe(note, me?.id ?? null) ? note : null)))
 			.filter((note): note is MiNote => note !== null);
 		const ids = visible.map(note => note.id);
 		if (ids.length === 0) return [];
-		const counts: { noteId: string; reaction: string; count: string }[] = await this.db.query(
-			`SELECT "noteId", reaction, COUNT(*) AS count FROM (${mergedReactions}) r WHERE "noteId" = ANY($1::varchar[]) GROUP BY "noteId", reaction`, [ids]);
+		// Paired snapshots already aggregate these notes; retain viewer-specific state.
+		const countIds = ids.filter(id => !skipCountsFor.has(id));
+		const counts: { noteId: string; reaction: string; count: string }[] = countIds.length ? await this.db.query(
+			`SELECT "noteId", reaction, COUNT(*) AS count FROM (${mergedReactions}) r WHERE "noteId" = ANY($1::varchar[]) GROUP BY "noteId", reaction`, [countIds]) : [];
 		const mine: { noteId: string; reaction: string }[] = me ? await this.db.query(
 			`SELECT "noteId", reaction FROM (${mergedReactions}) r WHERE "noteId" = ANY($1::varchar[]) AND "userId" = $2 ORDER BY reaction`, [ids, me.id]) : [];
 		const primary = me ? await this.db.getRepository(MiNoteReaction).findBy({ noteId: In(ids), userId: me.id }) : [];

@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { entities } from 'misskey-js';
-import { fetchExtendedReactions, supportsExtendedReactions, watchSharedReactions } from '@/utility/extended-reactions.js';
+import { fetchExtendedReactions, fetchReactionUsers, supportsExtendedReactions, watchSharedReactions } from '@/utility/extended-reactions.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: vi.fn() }));
@@ -58,5 +58,37 @@ describe('paired extended reactions', () => {
 		stopFirst(); hidden.mockReturnValue(false); await vi.advanceTimersByTimeAsync(10000);
 		expect(second).toHaveBeenCalledTimes(2); expect(first).toHaveBeenCalledTimes(1);
 		stopSecond(); expect(vi.getTimerCount()).toBe(0);
+	});
+	test('shares a pending show across different microtasks but reads again after completion', async () => {
+		let resolve!: (value: unknown) => void;
+		const api = vi.mocked(misskeyApi).mockImplementation(() => new Promise(r => { resolve = r; }) as never);
+		const first = fetchExtendedReactions('pending');
+		await Promise.resolve();
+		const second = fetchExtendedReactions('pending');
+		expect(api).toHaveBeenCalledTimes(1);
+		resolve([{ noteId: 'pending' }]);
+		expect(await first).toBe(await second);
+		const third = fetchExtendedReactions('pending');
+		await Promise.resolve();
+		expect(api).toHaveBeenCalledTimes(2);
+		resolve([{ noteId: 'pending' }]); await third;
+	});
+	test('shares avatars with hover and duplicate views, but refreshes changed membership and expired results', async () => {
+		vi.useFakeTimers();
+		const api = vi.mocked(misskeyApi).mockResolvedValue([] as never);
+		await Promise.all([fetchReactionUsers('avatars', '👍', true, 2, 'a'), fetchReactionUsers('avatars', '👍', true, 2, 'a')]);
+		await fetchReactionUsers('avatars', '👍', true, 2, 'a');
+		expect(api).toHaveBeenCalledTimes(1);
+		await fetchReactionUsers('avatars', '👍', true, 2, 'b');
+		expect(api).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1001);
+		await fetchReactionUsers('avatars', '👍', true, 2, 'b');
+		expect(api).toHaveBeenCalledTimes(3);
+	});
+	test('does not cache failed reactor requests', async () => {
+		const api = vi.mocked(misskeyApi).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([] as never);
+		await expect(fetchReactionUsers('retry', '👍', true, 1, 'a')).rejects.toThrow('offline');
+		await expect(fetchReactionUsers('retry', '👍', true, 1, 'a')).resolves.toEqual([]);
+		expect(api).toHaveBeenCalledTimes(2);
 	});
 });

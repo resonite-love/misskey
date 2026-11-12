@@ -47,7 +47,7 @@ import { store } from '@/store';
 import { noteEvents } from '@/composables/use-note-capture.js';
 import { mute as muteEmoji, unmute as unmuteEmoji, checkMuted as isEmojiMuted } from '@/utility/emoji-mute.js';
 import { addToEmojiPalette } from '@/utility/emoji-palette.js';
-import { addExtendedReaction, deleteExtendedReaction } from '@/utility/extended-reactions.js';
+import { addExtendedReaction, deleteExtendedReaction, fetchReactionUsers } from '@/utility/extended-reactions.js';
 import { haptic } from '@/utility/haptic.js';
 
 const props = defineProps<{
@@ -57,7 +57,7 @@ const props = defineProps<{
 	myReaction: Misskey.entities.Note['myReaction'];
 	myReactions?: string[];
 	extendedReactions?: boolean;
-	reactionVersion?: number;
+	reactionVersion?: string | number;
 	count: number;
 	isInitial: boolean;
 }>();
@@ -258,27 +258,27 @@ function anime() {
 	});
 }
 
-watch([() => props.count, () => props.reactionVersion], ([newCount], [oldCount]) => {
-	misskeyApi(props.extendedReactions ? 'notes/extended-reactions/list' : 'notes/reactions', {
-		noteId: props.noteId,
-		type: props.reaction,
-		limit: 10,
-	}).then((reactions) => {
-		users.value = [...new Map(reactions.map(x => [x.user.id, x.user])).values()];
-	}).catch(() => { /* Keep the last known avatars while the peer is unavailable. */ });
+function fetchUsers() {
+	return fetchReactionUsers(props.noteId, props.reaction, props.extendedReactions ?? false, props.count, props.reactionVersion);
+}
 
+let usersRequest = 0;
+
+async function refreshUsers() {
+	const request = ++usersRequest;
+	try {
+		const reactions = await fetchUsers();
+		if (request === usersRequest) users.value = [...new Map(reactions.map(x => [x.user.id, x.user])).values()];
+	} catch { /* Retain the last avatars; the next update/hover can retry. */ }
+}
+
+watch([() => props.count, () => props.reactionVersion], ([newCount], [oldCount]) => {
+	void refreshUsers();
 	if (oldCount < newCount) anime();
 });
 
 onMounted(() => {
-	misskeyApi(props.extendedReactions ? 'notes/extended-reactions/list' : 'notes/reactions', {
-		noteId: props.noteId,
-		type: props.reaction,
-		limit: 10,
-	}).then((reactions) => {
-		users.value = reactions.map(x => x.user);
-	}).catch(() => { /* A later update or tooltip open can retry the list. */ });
-
+	void refreshUsers();
 	if (!props.isInitial) anime();
 });
 
@@ -286,11 +286,7 @@ if (!mock) {
 	useTooltip(buttonEl, async (showing) => {
 		if (buttonEl.value == null) return;
 
-		const reactions = await misskeyApi(props.extendedReactions ? 'notes/extended-reactions/list' : 'notes/reactions', {
-			noteId: props.noteId,
-			type: props.reaction,
-			limit: 10,
-		}).catch(() => null);
+		const reactions = await fetchUsers().catch(() => null);
 		if (!reactions) return;
 
 		const users = [...new Map(reactions.map(x => [x.user.id, x.user])).values()];

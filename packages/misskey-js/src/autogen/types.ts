@@ -32759,6 +32759,9 @@ export interface operations {
                         push: boolean;
                         complete: boolean;
                         revision?: string;
+                        reactionVersions?: {
+                            [key: string]: string;
+                        };
                         /** Format: id */
                         noteId: string;
                         reactions: {

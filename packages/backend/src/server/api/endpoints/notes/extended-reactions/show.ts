@@ -21,6 +21,7 @@ export const meta = {
 				push: { type: 'boolean', optional: false, nullable: false },
 				complete: { type: 'boolean', optional: false, nullable: false },
 				revision: { type: 'string', optional: true, nullable: false },
+				reactionVersions: { type: 'object', optional: true, nullable: false, additionalProperties: { type: 'string' } },
 				noteId: { type: 'string', format: 'id', optional: false, nullable: false },
 				reactions: { type: 'object', optional: false, nullable: false, additionalProperties: { type: 'number' } },
 				reactionEmojis: { type: 'object', optional: false, nullable: false, additionalProperties: { type: 'string' } },
