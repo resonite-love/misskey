@@ -13676,6 +13676,30 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * 連携しているアカウント
+         */
+        "linkedAccounts": string;
+        /**
+         * 両アカウントの投稿を表示
+         */
+        "showLinkedHistory": string;
+        /**
+         * 公開・ホームの過去の投稿をまとめて表示します。限定公開やチャンネルの投稿は、この切り替えをオフにして各アカウントで確認できます。
+         */
+        "historyScope": string;
+        /**
+         * {host}からの投稿
+         */
+        "postedOn": ParameterizedString<"host">;
+        /**
+         * 連携先の履歴を取得できませんでした。再試行するか、各アカウントの投稿表示をご利用ください。
+         */
+        "historyPeerUnavailable": string;
+        /**
+         * 連携状態が変わったか、履歴の取得期限が切れました。再読み込みしてください。
+         */
+        "historyChanged": string;
+        /**
          * アカウント連携
          */
         "title": string;

@@ -13,12 +13,14 @@ import { MiUser } from '@/models/User.js';
 import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone } from '@/models/Gridspace.js';
 import { ApRendererService } from '@/core/activitypub/ApRendererService.js';
 import { ApNoteService } from '@/core/activitypub/models/ApNoteService.js';
+import { ApResolverService } from '@/core/activitypub/ApResolverService.js';
 import { NoteCreateService } from '@/core/NoteCreateService.js';
 import { NoteDeleteService } from '@/core/NoteDeleteService.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { acquireApObjectLock } from '@/misc/distributed-lock.js';
-import { createGridspaceHeaders, resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
+import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
+import { requestGridspacePeer } from './peer-client.js';
 import { canShareGridspaceNote, canonicalGridspaceNoteUri, gridspaceNoteUris, gridspaceNoteId, GRIDSPACE_NOTE_BODY_LIMIT, GRIDSPACE_NOTE_PATH, validateGridspaceBundle, type GridspaceNoteBundle } from './note-protocol.js';
 
 @Injectable()
@@ -33,6 +35,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		@Inject(DI.redis) private redis: Redis.Redis,
 		private renderer: ApRendererService,
 		private apNotes: ApNoteService,
+		private resolvers: ApResolverService,
 		private create: NoteCreateService,
 		private remove: NoteDeleteService,
 		private packer: NoteEntityService,
@@ -47,29 +50,9 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 
 	public onApplicationShutdown(): void { clearInterval(this.timer); }
 
-	private async request(action: string, noteId: string): Promise<unknown> {
+	private async request(action: string, noteId: string, deadline?: number): Promise<unknown> {
 		if (!this.peer) throw new Error('GridSpace disabled');
-		const path = GRIDSPACE_NOTE_PATH + action;
-		const bytes = Buffer.from(JSON.stringify({ noteId }));
-		const response = await fetch(this.peer.peerOrigin + path, {
-			method: 'POST', body: bytes, redirect: 'error', signal: AbortSignal.timeout(20000),
-			headers: createGridspaceHeaders(this.peer, 'POST', path, bytes),
-		});
-		if (!response.ok) { await response.body?.cancel(); throw new Error('GridSpace peer unavailable'); }
-		const reader = response.body?.getReader();
-		if (!reader) throw new Error('Empty peer response');
-		const chunks: Uint8Array[] = [];
-		let size = 0;
-		try {
-			while (true) {
-				const part = await reader.read();
-				if (part.done) break;
-				size += part.value.length;
-				if (size > GRIDSPACE_NOTE_BODY_LIMIT) { await reader.cancel(); throw new Error('Peer response too large'); }
-				chunks.push(part.value);
-			}
-		} finally { reader.releaseLock(); }
-		return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+		return requestGridspacePeer(this.peer, GRIDSPACE_NOTE_PATH + action, { noteId }, GRIDSPACE_NOTE_BODY_LIMIT, deadline);
 	}
 
 	private async work(): Promise<void> {
@@ -117,13 +100,22 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		return { ok: true };
 	}
 
-	private async importNote(noteId: string, visiting: Set<string>, live: boolean): Promise<boolean> {
+	public async historyNote(noteId: string, budget: { remaining: number; deadline: number }): Promise<MiNote | null> {
 		if (!this.peer) throw new Error('GridSpace disabled');
+		await this.importNote(noteId, new Set(), false, budget);
+		return this.apNotes.fetchNote(`${this.peer.peerOrigin}/notes/${noteId}`);
+	}
+
+	private async importNote(noteId: string, visiting: Set<string>, live: boolean, budget?: { remaining: number; deadline: number }): Promise<boolean> {
+		if (!this.peer) throw new Error('GridSpace disabled');
+		if (budget && (--budget.remaining < 0 || Date.now() > budget.deadline)) throw new Error('History import budget exceeded');
 		const uri = `${this.peer.peerOrigin}/notes/${noteId}`;
 		if (visiting.has(uri)) throw new Error('Cyclic note references');
 		visiting.add(uri);
-		const bundle = validateGridspaceBundle(await this.request('read', noteId), this.peer.peerOrigin, noteId);
+		const bundle = validateGridspaceBundle(await this.request('read', noteId, budget?.deadline), this.peer.peerOrigin, noteId);
 		const entry = bundle.notes[0];
+		const resolver = budget ? await this.resolvers.createResolver() : undefined;
+		if (resolver) resolver.historyBudget = budget;
 		// Resolve missing peer references before taking the root lock. Known parents stop the walk,
 		// so each new reply in a long thread costs only one read. Deleted parents do not hide replies.
 		if (!bundle.deleted) {
@@ -136,9 +128,13 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 				if (ref.startsWith(this.peer.peerOrigin + '/notes/')) {
 					const id = ref.slice((this.peer.peerOrigin + '/notes/').length);
 					if (!gridspaceNoteId(id)) throw new Error('Invalid note reference');
-					if (!await this.importNote(id, visiting, false)) delete entry.object[field];
+					if (!await this.importNote(id, visiting, false, budget)) delete entry.object[field];
 				} else if (ref.startsWith(this.peer.origin + '/notes/')) {
 					delete entry.object[field];
+				} else if (resolver) {
+					// Resolve genuine external references within the same budget before taking the root lock.
+					// Failure leaves the root unimported so a retry can preserve the original relationship.
+					await this.apNotes.resolveNote(ref, { resolver });
 				}
 			}
 		}
@@ -165,7 +161,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 				}
 				return true;
 			}
-			await this.apNotes.createNote(entry.object, undefined, undefined, !live, entry);
+			await this.apNotes.createNote(entry.object, undefined, resolver, !live, { ...entry, historical: !live });
 			return true;
 		} finally { visiting.delete(uri); await unlock(); }
 	}

@@ -7,12 +7,13 @@ import { GRIDSPACE_NONCE_TTL_MS, GRIDSPACE_PROTOCOL_VERSION, verifyGridspaceRequ
 import type { GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
 import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH } from '@/core/gridspace/link-crypto.js';
 import type { GridspacePeerLinkRequest } from '@/core/gridspace/GridspaceLinkService.js';
+import type { HistoryPeerRequest } from '@/core/gridspace/history-protocol.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 export type ClaimGridspaceNonce = (key: string, ttlMs: number) => Promise<boolean>;
 
 /** Mounted under /gridspace/v1; independent from user-authorized /api endpoints. */
-export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>): void {
+export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>): void {
 	if (config === null) return;
 	// Preserve wire bytes for the signature without changing other server plugins' parsers.
 	const parseJson = fastify.getDefaultJsonParser('error', 'error');
@@ -56,9 +57,26 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			origin: config.origin,
 			peerOrigin: config.peerOrigin,
 			// Only advertise features once their authorization and persistence are implemented.
-			features: [...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : [])],
+			features: [...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : []), ...(history ? ['member-history'] : [])],
 		};
 	});
+	if (history) {
+		const id = { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' };
+		fastify.post<{ Body: HistoryPeerRequest }>('/history', {
+			bodyLimit: 4096, config: { rawBody: true }, preHandler: authenticate,
+			schema: { body: { type: 'object', additionalProperties: false,
+				required: ['userId', 'counterpartId', 'linkId', 'generation', 'limit', 'withReplies', 'withRenotes', 'withFiles'],
+				properties: {
+					userId: id, counterpartId: id, viewerId: id, before: id, head: id,
+					linkId: { type: 'string', format: 'uuid' }, generation: { type: 'integer', minimum: 1, maximum: 2147483647 },
+					limit: { type: 'integer', minimum: 0, maximum: 20 },
+					withReplies: { type: 'boolean' }, withRenotes: { type: 'boolean' }, withFiles: { type: 'boolean' },
+				},
+			} },
+		}, async (request, reply) => {
+			try { return await history(request.body); } catch { return reply.code(503).send({ error: 'PEER_HISTORY_UNAVAILABLE' }); }
+		});
+	}
 	if (notes) {
 		for (const name of ['read', 'sync']) {
 			fastify.post<{ Body: { noteId: string } }>(`/notes/${name}`, {

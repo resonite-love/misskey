@@ -12,7 +12,7 @@
 
 実装済みなのは、明示的に有効化する peer API と署名つきの互換性確認である。`POST /gridspace/v1/handshake` は送信元、宛先、コミュニティ、キー ID、時刻、nonce、メソッド、パス、送信された本文のバイト列を検証する。nonce は Redis で一度だけ受け付ける。Redis が利用できない場合は処理しない。
 
-機能一覧の `features` は `account-link-follow-copy` を返す。設定の「アカウント連携」で OAuth の本人確認を行い、相手サーバーのフォローを一度だけコピーできる。通常連合で配送される新規投稿は、その後ホームに届く。共通 LTL、履歴・通知の統合、旧名義での返信は後続の実装となる。サーバー同士が認証できても、利用者の限定投稿へアクセスする許可にはならない。
+機能一覧の `features` は `account-link-follow-copy`、`community-notes`、`member-history` を返す。設定の「アカウント連携」で OAuth の本人確認を行い、相手サーバーのフォローを一度だけコピーできる。新規投稿は共通 LTL と購読者のホームに届き、連携したプロフィールでは公開・ホームの過去履歴も読める。横断検索、通知の統合、旧名義での返信は後続の実装となる。サーバー同士が認証できても、利用者の限定投稿へアクセスする許可にはならない。
 
 ## 初回の準備
 
@@ -116,6 +116,17 @@ pnpm --filter backend test --run src/core/gridspace src/server/gridspace
 DB からの取得を確認する間だけ G のタイムラインキャッシュを無効にし、終了時に元の設定へ戻す。共通 LTL は `gridspace.enabled` が有効な両サイトで動作する。投稿元の URI とアカウントを保持するため、通常の連合で先に受信していても別の投稿は作らない。
 
 ビルドを更新した後は Misskey のプロセスを再起動し、ブラウザーも再読み込みする。起動中のサーバーは古いアセットの情報を保持するため、ファイルの置き換えだけでは画面を更新できないことがある。
+
+### プロフィールと過去履歴の試験
+
+```powershell
+node scripts/gridspace/test-history.mjs ../resonite-love-gridspace ../gridspace-external-test
+node scripts/gridspace/test-history-ui.mjs
+```
+
+履歴試験は専用の G/R/E 設定を照合し、新しいテスト用アカウントだけを使う。過去投稿は専用 DB 内にテスト行を作り、新着配送を伴わずに取得する状況を再現する。ページ間の新着、同一 ID・同文の別投稿、過去のローカル限定投稿、返信・引用・画像、ミュート・ブロック・削除・解除を確認する。未ログイン閲覧設定は一時的に変更し、終了時に戻す。
+
+画面試験はインストール済み Chrome と Playwright を使う。履歴試験が作成した `.config/gridspace-history-test-accounts.json` を読み、G/R のページ追加、表示の切り替え、キーボード操作、デスクトップ幅とスマートフォン幅を確認する。画像は `.config/history-*-desktop.png` と `.config/history-*-mobile.png` に保存する。認証情報と画像は Git に追加しない。
 
 ## 停止と再開
 

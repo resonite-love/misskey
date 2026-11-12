@@ -18,7 +18,7 @@ const g = resolveGridspaceConfig(source, 'https://g.example', env)!;
 const r = resolveGridspaceConfig({ ...source, peerUrl: g.origin }, source.peerUrl, env)!;
 const servers: FastifyInstance[] = [];
 
-async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4]) {
+async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5]) {
 	const app = Fastify();
 	servers.push(app);
 	const used = new Set<string>();
@@ -29,7 +29,7 @@ async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Para
 			if (used.has(key)) return false;
 			used.add(key);
 			return true;
-		}), action, notes);
+		}), action, notes, history);
 	}, { prefix: '/gridspace/v1' });
 	return app;
 }
@@ -145,5 +145,23 @@ describe('GridSpace note transport', () => {
 		expect((await app.inject(input)).statusCode).toBe(200);
 		expect((await app.inject(input)).statusCode).toBe(409);
 		expect(calls).toBe(1);
+	});
+});
+
+describe('GridSpace history transport', () => {
+	test('authenticates, limits and replay-protects history requests', async () => {
+		let calls = 0;
+		const app = await server(true, undefined, undefined, undefined, async () => { calls++; return { active: true, items: [] }; });
+		const url = '/gridspace/v1/history';
+		const body = { userId: 'a', counterpartId: 'b', linkId: '46059293-4b67-4834-9786-d86f092887e7', generation: 1, limit: 10, withReplies: true, withRenotes: true, withFiles: false };
+		const payload = Buffer.from(JSON.stringify(body));
+		expect((await app.inject({ method: 'POST', url, payload, headers: { 'content-type': 'application/json' } })).statusCode).toBe(403);
+		const input = { method: 'POST' as const, url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) };
+		expect((await app.inject(input)).statusCode).toBe(200);
+		expect((await app.inject(input)).statusCode).toBe(409);
+		const oversized = Buffer.from(JSON.stringify({ ...body, limit: 21 }));
+		expect((await app.inject({ method: 'POST', url, payload: oversized, headers: createGridspaceHeaders(g, 'POST', url, oversized) })).statusCode).toBe(400);
+		expect(calls).toBe(1);
+		expect((await app.inject(request())).json().features).toContain('member-history');
 	});
 });

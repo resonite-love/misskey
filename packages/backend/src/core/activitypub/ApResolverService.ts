@@ -37,6 +37,8 @@ export class Resolver {
 	private user?: MiLocalUser;
 	private logger: Logger;
 	private recursionLimit = 256;
+	/** Optional shared budget for on-demand historical imports, including nested references. */
+	public historyBudget?: { remaining: number; deadline: number };
 
 	constructor(
 		@Inject(DI.config)
@@ -99,6 +101,9 @@ export class Resolver {
 	public async resolve(value: string | IObject, allowSoftfail: FetchAllowSoftFailMask = FetchAllowSoftFailMask.Strict): Promise<IObject> {
 		if (typeof value !== 'string') {
 			return value;
+		}
+		if (this.historyBudget && (--this.historyBudget.remaining < 0 || Date.now() > this.historyBudget.deadline)) {
+			throw new Error('History import budget exceeded');
 		}
 
 		if (value.includes('#')) {

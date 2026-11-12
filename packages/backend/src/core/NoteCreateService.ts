@@ -181,6 +181,7 @@ type Option = {
 	poll?: IPoll | null;
 	localOnly?: boolean | null;
 	gridspaceShared?: boolean;
+	gridspaceHistorical?: boolean;
 	reactionAcceptance?: MiNote['reactionAcceptance'];
 	cw?: string | null;
 	visibility?: string;
@@ -796,6 +797,13 @@ export class NoteCreateService implements OnApplicationShutdown {
 		host: MiUser['host'];
 		isBot: MiUser['isBot'];
 	}, data: Option, silent: boolean, tags: string[], mentionedUsers: MinimumUser[]) {
+		if (data.gridspaceHistorical) {
+			// Historical reads populate storage and ordered timelines, never new-post notifications or activity charts.
+			await this.pushToTl(note, user);
+			this.index(note);
+			return;
+		}
+
 		this.notesChart.update(note, true);
 		if (note.visibility !== 'specified' && (this.meta.enableChartsForRemoteUser || (user.host == null))) {
 			this.perUserNotesChart.update(user, note, true);

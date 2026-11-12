@@ -126,7 +126,7 @@ export class ApNoteService {
 	 * Noteを作成します。
 	 */
 	@bindThis
-	public async createNote(value: string | IObject, actor?: MiRemoteUser, resolver?: Resolver, silent = false, gridspace?: { localOnly: boolean; reactionAcceptance: MiNote['reactionAcceptance'] }): Promise<MiNote | null> {
+	public async createNote(value: string | IObject, actor?: MiRemoteUser, resolver?: Resolver, silent = false, gridspace?: { localOnly: boolean; reactionAcceptance: MiNote['reactionAcceptance']; historical?: boolean }): Promise<MiNote | null> {
 		// eslint-disable-next-line no-param-reassign
 		if (resolver == null) resolver = await this.apResolverService.createResolver();
 
@@ -262,7 +262,7 @@ export class ApNoteService {
 			> => {
 				if (!/^https?:/.test(uri)) return { status: 'permerror' };
 				try {
-					const res = await this.resolveNote(uri);
+					const res = await this.resolveNote(uri, resolver?.historyBudget ? { resolver } : {});
 					if (res == null) return { status: 'permerror' };
 					return { status: 'ok', res };
 				} catch (e) {
@@ -284,7 +284,7 @@ export class ApNoteService {
 		}
 
 		// vote
-		if (!gridspace && reply && reply.hasPoll) {
+		if (!gridspace && !resolver.historyBudget && reply && reply.hasPoll) {
 			const poll = await this.pollsRepository.findOneByOrFail({ noteId: reply.id });
 
 			const tryCreateVote = async (name: string, index: number): Promise<null> => {
@@ -323,6 +323,7 @@ export class ApNoteService {
 				text,
 				localOnly: gridspace?.localOnly ?? false,
 				gridspaceShared: gridspace != null,
+				gridspaceHistorical: gridspace?.historical || resolver.historyBudget != null,
 				reactionAcceptance: gridspace?.reactionAcceptance,
 				visibility,
 				visibleUsers,
