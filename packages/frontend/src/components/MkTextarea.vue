@@ -12,6 +12,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			v-model="v"
 			v-adaptive-border
 			:class="[$style.textarea, { _monospace: code }]"
+			:aria-label="props.ariaLabel"
 			:disabled="disabled"
 			:required="required"
 			:readonly="readonly"
@@ -45,6 +46,7 @@ import { Autocomplete } from '@/utility/autocomplete.js';
 
 const props = defineProps<{
 	modelValue: string | null;
+	ariaLabel?: string;
 	required?: boolean;
 	readonly?: boolean;
 	disabled?: boolean;

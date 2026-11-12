@@ -420,6 +420,10 @@ export const ROUTE_DEF = [{
 		name: 'avatarDecorations',
 		component: page(() => import('@/pages/avatar-decorations.vue')),
 	}, {
+		path: '/gridspace',
+		name: 'gridspace',
+		component: $i?.isAdmin ? page(() => import('@/pages/admin/gridspace.vue')) : page(() => import('@/pages/not-found.vue')),
+	}, {
 		path: '/federation-job-queue',
 		name: 'federationJobQueue',
 		component: page(() => import('@/pages/admin/federation-job-queue.vue')),

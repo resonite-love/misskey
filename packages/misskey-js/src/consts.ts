@@ -155,6 +155,7 @@ export const moderationLogTypes = [
 	'createRole',
 	'updateRole',
 	'deleteRole',
+	'retryGridspaceJob',
 	'clearQueue',
 	'promoteQueue',
 	'deleteDriveFile',
@@ -345,6 +346,7 @@ export type ModerationLogPayloads = {
 		roleId: string;
 		role: Role;
 	};
+	retryGridspaceJob: { kind: 'import' | 'expansion' | 'delivery'; jobId: string };
 	clearQueue: Record<string, never>;
 	promoteQueue: Record<string, never>;
 	deleteDriveFile: {

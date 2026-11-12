@@ -200,6 +200,23 @@ G のリポジトリから `node scripts/gridspace/test-actions.mjs` を実行�
 
 ## 停止と再開
 
+### 連携の管理画面と障害時の試験
+
+両サーバーをビルド・再起動してから、G のリポジトリで次の順に実行する。
+
+```powershell
+node scripts/gridspace/test-admin.mjs
+node scripts/gridspace/test-admin-ui.mjs
+```
+
+`test-admin.mjs` は専用の G/R 設定とポートを確認し、新しいテストアカウントを作る。管理 API の権限、ページ送り、失敗した初回コピーと自動フォローの再試行、解除・取消・古い配送バージョンの保護、管理ログを検証する。続いて `server-control.ps1` で R の Misskey プロセスを実際に停止し、接続エラー、限定投稿の閲覧拒否、配送待ちを確認する。R を再開し、投稿の到着、削除済み投稿の非復活、解除通知の到着を確認する。DB・Redis・トンネルは停止しない。
+
+一時ロールは終了時に削除する。アカウントと投稿は試験データとして残し、認証情報は Git 管理外の `.config/gridspace-admin-test-accounts.json` に保存する。試験を強制終了した場合は、R の起動状態と残った一時ロールを確認する。
+
+`test-admin-ui.mjs` はそのアカウントを使い、Chrome で両サーバーのコンパネと幅390pxの表示を確認する。テスト利用者だけを宛先にお知らせを公開し、本人の画面に表示されることと、第三者には届かないことを確認して削除する。全体のお知らせは公開しない。一覧取得の失敗中の操作制限と、概要更新後も警告が残ることは API 応答を置き換えて検証する。画像は `.config/admin-desktop.png` と `.config/admin-mobile.png` に保存する。画面試験中は再ビルドしない。
+
+### 試験環境全体の停止
+
 試験環境を停止する場合は Misskey 本体とトンネルを停止し、次を実行する。DB のボリュームは保持される。
 
 ```powershell

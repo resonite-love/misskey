@@ -7,6 +7,8 @@ import fetch from 'node-fetch';
 import type { Readable } from 'node:stream';
 import { createGridspaceHeaders, type GridspacePeerConfig } from './peer-protocol.js';
 
+export class GridspaceProtocolMismatch extends Error {}
+
 export async function requestGridspacePeer(peer: GridspacePeerConfig, path: string, input: object, maxBytes = 2 * 1024 * 1024, deadline?: number): Promise<unknown> {
 	const bytes = Buffer.from(JSON.stringify(input));
 	// Match HttpRequestService's HTTP/1.1 transport. Native fetch can negotiate HTTP/2
@@ -16,7 +18,16 @@ export async function requestGridspacePeer(peer: GridspacePeerConfig, path: stri
 		size: maxBytes,
 		headers: createGridspaceHeaders(peer, 'POST', path, bytes),
 	});
-	if (!response.ok) { (response.body as Readable | null)?.destroy(); throw new Error('GridSpace peer unavailable'); }
+	if (!response.ok) {
+		// Only recognize this fixed handshake error; never expose an arbitrary peer body.
+		if (path === '/gridspace/v1/handshake' && response.status === 409) {
+			let body: unknown;
+			try { body = await response.json(); } catch { /* Invalid or oversized response. */ }
+			if (body && typeof body === 'object' && 'error' in body && body.error === 'PEER_PROTOCOL_INCOMPATIBLE') throw new GridspaceProtocolMismatch('GridSpace protocol mismatch');
+		}
+		(response.body as Readable | null)?.destroy();
+		throw new Error('GridSpace peer unavailable');
+	}
 	// node-fetch enforces size while consuming the body, including chunked responses.
 	return response.json();
 }

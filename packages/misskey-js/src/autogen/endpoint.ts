@@ -72,6 +72,13 @@ import type {
 	AdminGetTableStatsResponse,
 	AdminGetUserIpsRequest,
 	AdminGetUserIpsResponse,
+	AdminGridspaceJobsRequest,
+	AdminGridspaceJobsResponse,
+	AdminGridspaceLinksRequest,
+	AdminGridspaceLinksResponse,
+	AdminGridspaceRetryRequest,
+	AdminGridspaceRetryResponse,
+	AdminGridspaceStatusResponse,
 	AdminInviteCreateRequest,
 	AdminInviteCreateResponse,
 	AdminInviteListRequest,
@@ -762,6 +769,10 @@ export type Endpoints = {
 	'admin/get-index-stats': { req: EmptyRequest; res: AdminGetIndexStatsResponse };
 	'admin/get-table-stats': { req: EmptyRequest; res: AdminGetTableStatsResponse };
 	'admin/get-user-ips': { req: AdminGetUserIpsRequest; res: AdminGetUserIpsResponse };
+	'admin/gridspace/jobs': { req: AdminGridspaceJobsRequest; res: AdminGridspaceJobsResponse };
+	'admin/gridspace/links': { req: AdminGridspaceLinksRequest; res: AdminGridspaceLinksResponse };
+	'admin/gridspace/retry': { req: AdminGridspaceRetryRequest; res: AdminGridspaceRetryResponse };
+	'admin/gridspace/status': { req: EmptyRequest; res: AdminGridspaceStatusResponse };
 	'admin/invite/create': { req: AdminInviteCreateRequest; res: AdminInviteCreateResponse };
 	'admin/invite/list': { req: AdminInviteListRequest; res: AdminInviteListResponse };
 	'admin/meta': { req: EmptyRequest; res: AdminMetaResponse };

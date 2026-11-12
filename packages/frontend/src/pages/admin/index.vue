@@ -35,6 +35,7 @@ import { onActivated, onMounted, onUnmounted, provide, watch, ref, computed } fr
 import type { SuperMenuDef } from '@/components/MkSuperMenu.vue';
 import type { PageMetadata } from '@/page.js';
 import { i18n } from '@/i18n.js';
+import { $i } from '@/i.js';
 import MkSuperMenu from '@/components/MkSuperMenu.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import { instance } from '@/instance.js';
@@ -101,7 +102,12 @@ const menuDef = computed<SuperMenuDef[]>(() => [{
 	}] : [])],
 }, {
 	title: i18n.ts.administration,
-	items: [{
+	items: [...($i?.isAdmin ? [{
+		icon: 'ti ti-link',
+		text: i18n.ts._gridspaceAdmin.title,
+		to: '/admin/gridspace',
+		active: currentPage.value?.route.name === 'gridspace',
+	}] : []), {
 		icon: 'ti ti-dashboard',
 		text: i18n.ts.dashboard,
 		to: '/admin/overview',

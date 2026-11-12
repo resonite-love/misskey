@@ -474,3 +474,8 @@ export * as 'gridspace/private-reply' from './endpoints/gridspace/private-reply.
 export * as 'gridspace/private-upload' from './endpoints/gridspace/private-upload.js';
 export * as 'gridspace/private-action' from './endpoints/gridspace/private-action.js';
 export * as 'gridspace/link' from './endpoints/gridspace/link.js';
+
+export * as 'admin/gridspace/status' from './endpoints/admin/gridspace/status.js';
+export * as 'admin/gridspace/links' from './endpoints/admin/gridspace/links.js';
+export * as 'admin/gridspace/jobs' from './endpoints/admin/gridspace/jobs.js';
+export * as 'admin/gridspace/retry' from './endpoints/admin/gridspace/retry.js';

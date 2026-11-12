@@ -13,6 +13,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			v-model="v"
 			v-adaptive-border
 			:class="$style.inputCore"
+			:aria-label="props.ariaLabel"
 			:type="type"
 			:disabled="disabled"
 			:required="required"
@@ -63,6 +64,7 @@ import { genId } from '@/utility/id.js';
 
 const props = defineProps<{
 	modelValue: ModelValueType<T> | null;
+	ariaLabel?: string;
 	type?: T;
 	required?: boolean;
 	readonly?: boolean;

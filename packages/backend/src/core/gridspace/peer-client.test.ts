@@ -8,7 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { once } from 'node:events';
 import { afterEach, describe, expect, test } from 'vitest';
 import { GridspaceLinkService } from './GridspaceLinkService.js';
-import { requestGridspacePeer } from './peer-client.js';
+import { GridspaceProtocolMismatch, requestGridspacePeer } from './peer-client.js';
 import { verifyGridspaceRequest, type GridspacePeerConfig } from './peer-protocol.js';
 
 const servers: ReturnType<typeof createServer>[] = [];
@@ -40,6 +40,12 @@ function link(config: GridspacePeerConfig) {
 }
 
 describe('GridSpace peer transport', () => {
+	test('classifies only the fixed handshake protocol error without returning peer details', async () => {
+		const origin = await listen((_req, res) => { res.statusCode = 409; res.end('{"error":"PEER_PROTOCOL_INCOMPATIBLE","token":"not-for-output"}'); });
+		const config = peer('https://g.example', origin);
+		await expect(requestGridspacePeer(config, '/gridspace/v1/handshake', {})).rejects.toBeInstanceOf(GridspaceProtocolMismatch);
+		await expect(requestGridspacePeer(config, '/other', {})).rejects.not.toBeInstanceOf(GridspaceProtocolMismatch);
+	});
 	test('reciprocal syncs can make callbacks while independent authorization proceeds', async () => {
 		let release!: () => void; let entered = 0;
 		const bothEntered = new Promise<void>(resolve => { release = resolve; });

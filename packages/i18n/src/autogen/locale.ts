@@ -11655,6 +11655,10 @@ export interface Locale extends ILocale {
     };
     "_moderationLogTypes": {
         /**
+         * アカウント連携の処理を再試行
+         */
+        "retryGridspaceJob": string;
+        /**
          * ジョブキューをクリア
          */
         "clearQueue": string;
@@ -14143,5 +14147,275 @@ export interface Locale extends ILocale {
          * コピー対象が上限の10000件を超えています。管理者に相談してください。
          */
         "tooMany": string;
+    };
+    "_gridspaceAdmin": {
+        /**
+         * 連携の管理
+         */
+        "title": string;
+        /**
+         * このサーバーの連携と送信待ちを確認できます。相手側の処理待ちは、相手サーバーのコンパネで確認してください。
+         */
+        "description": string;
+        /**
+         * 状況を取得できませんでした。表示済みの情報は古い可能性があります。再読み込みしてください。
+         */
+        "loadFailed": string;
+        /**
+         * 操作履歴
+         */
+        "auditLog": string;
+        /**
+         * 相手サーバーへの接続
+         */
+        "connection": string;
+        /**
+         * 確認日時
+         */
+        "checkedAt": string;
+        /**
+         * 接続状態は約30秒ごとに確認します。接続できても、すべての処理が完了しているとは限りません。
+         */
+        "connectionHint": string;
+        /**
+         * 接続できました
+         */
+        "connected": string;
+        /**
+         * 接続または認証に失敗しました
+         */
+        "unavailable": string;
+        /**
+         * 相手の連携設定を確認してください
+         */
+        "incompatible": string;
+        /**
+         * 連携機能は無効です
+         */
+        "disabled": string;
+        /**
+         * アカウント連携
+         */
+        "links": string;
+        /**
+         * 連携中
+         */
+        "active": string;
+        /**
+         * 連携の準備中
+         */
+        "preparing": string;
+        /**
+         * 解除済み
+         */
+        "revoked": string;
+        /**
+         * エラーのある連携
+         */
+        "errors": string;
+        /**
+         * フォローの引き継ぎ
+         */
+        "follows": string;
+        /**
+         * 初回コピーの処理待ち
+         */
+        "importPending": string;
+        /**
+         * 初回コピーの失敗
+         */
+        "importFailed": string;
+        /**
+         * 承認待ち
+         */
+        "requested": string;
+        /**
+         * 自動フォローの処理待ち
+         */
+        "expansionPending": string;
+        /**
+         * うち、失敗後の再試行待ち
+         */
+        "expansionRetrying": string;
+        /**
+         * 投稿の共有
+         */
+        "delivery": string;
+        /**
+         * 処理待ち
+         */
+        "pending": string;
+        /**
+         * うち、失敗後の再試行待ち
+         */
+        "retrying": string;
+        /**
+         * 連携解除の通知待ち
+         */
+        "revokePending": string;
+        /**
+         * 閲覧許可の取消通知待ち
+         */
+        "privateRevokePending": string;
+        /**
+         * 利用者IDで絞り込み（空欄で全員）
+         */
+        "userFilter": string;
+        /**
+         * 問題のある連携だけ表示
+         */
+        "issuesOnly": string;
+        /**
+         * 絞り込みを適用
+         */
+        "applyFilter": string;
+        /**
+         * 該当する連携はありません
+         */
+        "noLinks": string;
+        /**
+         * このサーバーから連携
+         */
+        "initiator": string;
+        /**
+         * 相手サーバーから連携
+         */
+        "mirror": string;
+        /**
+         * 世代
+         */
+        "generation": string;
+        /**
+         * この利用者の処理を見る
+         */
+        "showJobs": string;
+        /**
+         * この利用者にお知らせ
+         */
+        "contactUser": string;
+        /**
+         * 最初のページ
+         */
+        "firstPage": string;
+        /**
+         * 処理の一覧と再試行
+         */
+        "jobs": string;
+        /**
+         * 処理の種類
+         */
+        "jobKind": string;
+        /**
+         * フォローの初回コピー
+         */
+        "imports": string;
+        /**
+         * 新アカウントの自動フォロー
+         */
+        "expansions": string;
+        /**
+         * 失敗した処理だけ表示
+         */
+        "failedOnly": string;
+        /**
+         * 該当する処理はありません
+         */
+        "noJobs": string;
+        /**
+         * 対象
+         */
+        "target": string;
+        /**
+         * 失敗回数
+         */
+        "attempts": string;
+        /**
+         * 次の試行予定
+         */
+        "nextAttempt": string;
+        /**
+         * 再試行を予約
+         */
+        "retry": string;
+        /**
+         * 失敗した処理を再試行できます。解除・却下・省略済みのフォローは復活しません。認可が失効している場合は、利用者による再認可が必要です。削除済み投稿の共有は、削除を相手へ伝える処理も含みます。
+         */
+        "retryHint": string;
+        /**
+         * この処理の再試行を予約します。実行時にも、現在の連携と権限を確認します。
+         */
+        "retryConfirm": string;
+        /**
+         * 対象は処理済み、実行待ち、または再試行できない状態です。最新の状況を確認してください。
+         */
+        "alreadyChanged": string;
+        /**
+         * 完了
+         */
+        "done": string;
+        /**
+         * 省略
+         */
+        "skipped": string;
+        /**
+         * 失敗
+         */
+        "failed": string;
+        /**
+         * 取消済み
+         */
+        "cancelled": string;
+        /**
+         * 連携または認可の状態を確認してください。必要なら利用者へ再認可を案内してください。
+         */
+        "needsAuthorization": string;
+        /**
+         * 解除・取消・却下されたフォローです。
+         */
+        "manualCancellation": string;
+        /**
+         * ミュート・ブロック・アカウント停止などにより省略しました。
+         */
+        "restricted": string;
+        /**
+         * 通信や対象の状態を確認してください。解消後に再試行できます。
+         */
+        "checkFailure": string;
+        /**
+         * 利用者へのお知らせ
+         */
+        "notice": string;
+        /**
+         * 通常のお知らせとして表示します。公開前に宛先と本文を確認できます。個人の連携状況を全体向けのお知らせへ書かないでください。
+         */
+        "noticeHint": string;
+        /**
+         * 宛先
+         */
+        "audience": string;
+        /**
+         * 選択した利用者だけ
+         */
+        "oneUser": string;
+        /**
+         * このサーバーの全利用者
+         */
+        "allUsers": string;
+        /**
+         * 上の連携一覧から「この利用者にお知らせ」を選んでください。
+         */
+        "chooseUser": string;
+        /**
+         * アカウント連携について
+         */
+        "noticeTitle": string;
+        /**
+         * 宛先と本文を確認して公開
+         */
+        "publishNotice": string;
+        /**
+         * 公開したお知らせを管理
+         */
+        "manageNotices": string;
     };
 }
