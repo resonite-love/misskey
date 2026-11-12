@@ -13684,7 +13684,7 @@ export interface Locale extends ILocale {
          */
         "showLinkedHistory": string;
         /**
-         * 公開・ホームの過去の投稿をまとめて表示します。限定公開やチャンネルの投稿は、この切り替えをオフにして各アカウントで確認できます。
+         * 両アカウントの公開・ホームの過去の投稿をまとめて表示します。
          */
         "historyScope": string;
         /**
@@ -13692,7 +13692,7 @@ export interface Locale extends ILocale {
          */
         "postedOn": ParameterizedString<"host">;
         /**
-         * 連携先の履歴を取得できませんでした。再試行するか、各アカウントの投稿表示をご利用ください。
+         * 連携先の履歴を取得できませんでした。時間をおいて再試行してください。
          */
         "historyPeerUnavailable": string;
         /**

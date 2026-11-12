@@ -5,12 +5,13 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <div v-if="member?.linked" :class="$style.member" class="_panel _gaps_s">
-	<div>{{ i18n.ts._gridspace.linkedAccounts }}</div>
-	<div v-for="account in member.accounts" :key="account.id">
-		<MkA :to="userPage(account)"><MkAcct :user="account" :detail="true"/></MkA>
-	</div>
+	<template v-if="showLinkedAccounts">
+		<div>{{ i18n.ts._gridspace.linkedAccounts }}</div>
+		<div v-for="account in member.accounts" :key="account.id">
+			<MkA :to="userPage(account)"><MkAcct :user="account" :detail="true"/></MkA>
+		</div>
+	</template>
 	<template v-if="member.available">
-		<MkButton :primary="combined" :aria-pressed="combined" @click="combined = !combined">{{ i18n.ts._gridspace.showLinkedHistory }}</MkButton>
 		<div :class="$style.caption">{{ i18n.ts._gridspace.historyScope }}</div>
 	</template>
 	<template v-else>
@@ -33,7 +34,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</MkTab>
 	</template>
 	<MkNotesTimeline v-if="tab === 'featured'" :noGap="true" :paginator="featuredPaginator" :pullToRefresh="false" :class="$style.tl"/>
-	<XLinkedHistory v-else-if="member?.available && member.linked && combined" ref="linkedHistory" :userId="user.id" :withReplies="tab === 'all'" :withRenotes="tab === 'all'" :withFiles="tab === 'files'" @unavailable="loadMember"/>
+	<XLinkedHistory v-else-if="member?.available && member.linked" ref="linkedHistory" :userId="user.id" :withReplies="tab === 'all'" :withRenotes="tab === 'all'" :withFiles="tab === 'files'" @unavailable="loadMember"/>
 	<MkNotesTimeline v-else :noGap="true" :paginator="notesPaginator" :pullToRefresh="false" :class="$style.tl"/>
 </MkStickyContainer>
 </template>
@@ -50,13 +51,15 @@ import { userPage } from '@/filters/user.js';
 import { i18n } from '@/i18n.js';
 import { Paginator } from '@/utility/paginator.js';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
 	user: Misskey.entities.UserDetailed;
-}>();
+	showLinkedAccounts?: boolean;
+}>(), {
+	showLinkedAccounts: true,
+});
 
 const tab = ref<'featured' | 'notes' | 'all' | 'files'>('all');
 const member = ref<Misskey.entities.GridspaceMemberResponse | null>(null);
-const combined = ref(true);
 const linkedHistory = useTemplateRef('linkedHistory');
 let memberRequest = 0;
 
@@ -70,7 +73,7 @@ async function loadMember() {
 	}
 }
 
-watch(() => props.user.id, () => { member.value = null; combined.value = true; void loadMember(); }, { immediate: true });
+watch(() => props.user.id, () => { member.value = null; void loadMember(); }, { immediate: true });
 onBeforeUnmount(() => { memberRequest++; });
 
 const featuredPaginator = markRaw(new Paginator('users/featured-notes', {

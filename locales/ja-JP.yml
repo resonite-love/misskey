@@ -3662,9 +3662,9 @@ _autoTranslation:
 _gridspace:
   linkedAccounts: "連携しているアカウント"
   showLinkedHistory: "両アカウントの投稿を表示"
-  historyScope: "公開・ホームの過去の投稿をまとめて表示します。限定公開やチャンネルの投稿は、この切り替えをオフにして各アカウントで確認できます。"
+  historyScope: "両アカウントの公開・ホームの過去の投稿をまとめて表示します。"
   postedOn: "{host}からの投稿"
-  historyPeerUnavailable: "連携先の履歴を取得できませんでした。再試行するか、各アカウントの投稿表示をご利用ください。"
+  historyPeerUnavailable: "連携先の履歴を取得できませんでした。時間をおいて再試行してください。"
   historyChanged: "連携状態が変わったか、履歴の取得期限が切れました。再読み込みしてください。"
   title: "アカウント連携"
   description: "相手サーバーのアカウントを確認し、フォローを一度だけコピーします。以後のフォロー・解除はサーバーごとに独立します。"

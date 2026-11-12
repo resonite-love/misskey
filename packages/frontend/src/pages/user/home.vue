@@ -127,6 +127,17 @@ SPDX-License-Identifier: AGPL-3.0-only
 							</MkA>
 						</div>
 					</div>
+					<section v-if="linkedAccounts.length > 0" class="_panel _gaps_s" :class="$style.linkedAccounts" :aria-label="i18n.ts._gridspace.linkedAccounts">
+						<h2 :class="$style.linkedAccountsTitle">{{ i18n.ts._gridspace.linkedAccounts }}</h2>
+						<MkA v-for="account in linkedAccounts" :key="account.id" :to="userPage(account)" :class="$style.linkedAccount">
+							<MkAvatar :user="account" :link="false" :class="$style.linkedAvatar"/>
+							<div :class="$style.linkedAccountDetails">
+								<MkUserName :user="account" :nowrap="false" :class="$style.linkedAccountName"/>
+								<MkAcct :user="account" :detail="true" :class="$style.linkedAccountAddress"/>
+							</div>
+							<i class="ti ti-chevron-right" aria-hidden="true"></i>
+						</MkA>
+					</section>
 				</div>
 
 				<div class="contents _gaps">
@@ -144,7 +155,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					</template>
 					<div v-if="!disableNotes">
 						<MkLazy>
-							<XTimeline ref="timelineEl" :user="user"/>
+							<XTimeline ref="timelineEl" :user="user" :showLinkedAccounts="false"/>
 						</MkLazy>
 					</div>
 				</div>
@@ -236,6 +247,27 @@ const isEditingMemo = ref(false);
 const moderationNote = ref(props.user.moderationNote ?? '');
 const editModerationNote = ref(false);
 const isModerationNoteDirty = ref(false);
+const linkedAccounts = ref<Misskey.entities.UserLite[]>([]);
+let linkedAccountsRequest = 0;
+
+async function loadLinkedAccounts() {
+	const current = ++linkedAccountsRequest;
+	const userId = props.user.id;
+	try {
+		const member = await misskeyApi('gridspace/member', { userId });
+		if (current === linkedAccountsRequest) {
+			linkedAccounts.value = member.linked ? member.accounts.filter(account => account.id !== userId) : [];
+		}
+	} catch {
+		if (current === linkedAccountsRequest) linkedAccounts.value = [];
+	}
+}
+
+watch(() => props.user.id, () => {
+	linkedAccounts.value = [];
+	void loadLinkedAccounts();
+}, { immediate: true });
+onUnmounted(() => { linkedAccountsRequest++; });
 
 watch(moderationNote, async (newValue) => {
 	// 再取得した値を同期しただけの場合は保存しない
@@ -300,6 +332,7 @@ async function reload() {
 	await Promise.allSettled([
 		props.refreshUser?.(),
 		timelineEl.value?.reload(),
+		loadLinkedAccounts(),
 	]);
 }
 
@@ -781,6 +814,56 @@ onDeactivated(disposeBannerParallaxResizeObserver);
 </style>
 
 <style lang="scss" module>
+.linkedAccounts {
+	padding: var(--MI-margin);
+}
+
+.linkedAccountsTitle {
+	margin: 0;
+	font-size: 1em;
+}
+
+.linkedAccount {
+	display: flex;
+	align-items: center;
+	gap: var(--MI-margin);
+	padding: var(--MI-marginHalf);
+	border-radius: var(--MI-radius);
+
+	&:hover {
+		background: var(--MI_THEME-buttonHoverBg);
+		text-decoration: none;
+	}
+
+	&:focus-visible {
+		outline: 2px solid var(--MI_THEME-focus);
+		outline-offset: -2px;
+	}
+}
+
+.linkedAvatar {
+	flex-shrink: 0;
+	width: 48px;
+	height: 48px;
+}
+
+.linkedAccountDetails {
+	flex: 1;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.linkedAccountName {
+	display: block;
+	font-weight: bold;
+}
+
+.linkedAccountAddress {
+	display: block;
+	margin-top: 4px;
+	font-size: 0.85em;
+}
+
 .tl {
 	background: var(--MI_THEME-bg);
 	border-radius: var(--MI-radius);

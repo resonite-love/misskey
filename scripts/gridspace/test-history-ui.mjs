@@ -29,27 +29,22 @@ try {
 		const errors = [];
 		page.on('pageerror', error => errors.push(error.message));
 		await page.goto(`${site.origin}/@${profile.username}/notes`, { waitUntil: 'domcontentloaded' });
-		const combined = page.getByRole('button', { name: '両アカウントの投稿を表示', exact: true });
-		await expect(combined).toHaveAttribute('aria-pressed', 'true', { timeout: 30000 });
 		await expect(page.getByText('連携しているアカウント', { exact: true })).toBeVisible();
+		await expect(page.getByRole('button', { name: '両アカウントの投稿を表示', exact: true })).toHaveCount(0);
 		await expect(page.getByText(`${new URL(site.origin).host}からの投稿`, { exact: true }).first()).toBeVisible({ timeout: 30000 });
+		const peerHost = site.role === 'G' ? 'resonite-love-misskey.kokopi.me' : 'grid-space-misskey.kokopi.me';
+		await expect(page.getByText(`${peerHost}からの投稿`, { exact: true }).first()).toBeVisible({ timeout: 30000 });
 		const next = page.getByRole('button', { name: 'もっと見る', exact: true });
 		await next.scrollIntoViewIfNeeded();
 		await next.click();
 		await expect(page.getByText('Historical CW', { exact: true }).first()).toBeVisible({ timeout: 30000 });
-		await combined.scrollIntoViewIfNeeded();
-		await combined.click();
-		await expect(combined).toHaveAttribute('aria-pressed', 'false');
-		await expect(page.getByText(`${new URL(site.origin).host}からの投稿`, { exact: true })).toHaveCount(0);
-		await combined.focus(); await page.keyboard.press('Enter');
-		await expect(combined).toHaveAttribute('aria-pressed', 'true');
-		await expect(page.getByText(`${new URL(site.origin).host}からの投稿`, { exact: true }).first()).toBeVisible();
+		await page.getByText('連携しているアカウント', { exact: true }).scrollIntoViewIfNeeded();
 		await page.screenshot({ path: `.config/history-${site.role.toLowerCase()}-desktop.png` });
 		await page.setViewportSize({ width: 390, height: 844 });
 		await page.screenshot({ path: `.config/history-${site.role.toLowerCase()}-mobile.png` });
 		assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 		assert.deepEqual(errors, []);
-		console.log(`${site.role} linked profile, pagination, account toggle, keyboard and mobile layout PASS`);
+		console.log(`${site.role} linked profile, combined history by default, no opt-out, pagination and mobile layout PASS`);
 		await context.close();
 	}
 } finally { await browser.close(); }
