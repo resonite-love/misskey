@@ -12,6 +12,7 @@ import type * as SentryVue from '@sentry/vue';
 import type { RedisOptions as IoRedisRedisOptions } from 'ioredis';
 import type { RedisOptions as BullMqRedisOptions } from 'bullmq';
 import type { AccessLogConfiguration, LogFormat, LogLevelSetting } from './logging/types.js';
+import type { GridspaceConfigSource } from './core/gridspace/peer-protocol.js';
 
 type RedisOptionsRequiredFields = {
 	host: string;
@@ -34,6 +35,7 @@ type SentryBackendConfig = {
  * 設定ファイルの型
  */
 type Source = {
+	gridspace?: GridspaceConfigSource;
 	url?: string;
 	port?: number;
 	socket?: string;
@@ -132,6 +134,7 @@ type Source = {
 };
 
 export type Config = {
+	gridspace?: GridspaceConfigSource;
 	url: string;
 	port: number;
 	socket: string | undefined;
@@ -290,6 +293,7 @@ export function loadConfig(): Config {
 
 	return {
 		version,
+		gridspace: config.gridspace,
 		publishTarballInsteadOfProvideRepositoryUrl: !!config.publishTarballInsteadOfProvideRepositoryUrl,
 		setupPassword: config.setupPassword,
 		url: url.origin,

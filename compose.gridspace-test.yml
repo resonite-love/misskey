@@ -1,0 +1,55 @@
+name: gridspace-lab
+
+x-db: &db
+  image: postgres:18-alpine
+  environment:
+    POSTGRES_DB: misskey
+    POSTGRES_USER: gridspace
+    POSTGRES_PASSWORD: ${GRIDSPACE_LAB_DB_PASSWORD:?Run scripts/gridspace/setup-lab.mjs first}
+  healthcheck:
+    test: [CMD-SHELL, pg_isready -U gridspace -d misskey]
+    interval: 3s
+    timeout: 3s
+    retries: 20
+
+x-redis: &redis
+  image: redis:7-alpine
+  healthcheck:
+    test: [CMD, redis-cli, ping]
+    interval: 3s
+    timeout: 3s
+    retries: 20
+
+services:
+  db-g:
+    <<: *db
+    ports: ["127.0.0.1:15432:5432"]
+    volumes: [db-g:/var/lib/postgresql]
+  db-r:
+    <<: *db
+    ports: ["127.0.0.1:25432:5432"]
+    volumes: [db-r:/var/lib/postgresql]
+  db-e:
+    <<: *db
+    ports: ["127.0.0.1:35432:5432"]
+    volumes: [db-e:/var/lib/postgresql]
+  redis-g:
+    <<: *redis
+    ports: ["127.0.0.1:16379:6379"]
+    volumes: [redis-g:/data]
+  redis-r:
+    <<: *redis
+    ports: ["127.0.0.1:26379:6379"]
+    volumes: [redis-r:/data]
+  redis-e:
+    <<: *redis
+    ports: ["127.0.0.1:36379:6379"]
+    volumes: [redis-e:/data]
+
+volumes:
+  db-g:
+  db-r:
+  db-e:
+  redis-g:
+  redis-r:
+  redis-e:

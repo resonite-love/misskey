@@ -79,6 +79,17 @@
 # Final accessible URL seen by a user.
 url: https://example.tld/
 
+# Optional GridSpace peer protocol. Disabled unless explicitly enabled.
+# Both sites need the same communityId, keyId and random 32-byte base64 key.
+# Put the key in the named environment variable, never in this example file.
+# This enables the peer handshake only; it does not grant access to user data.
+#gridspace:
+#  enabled: true
+#  communityId: gridspace
+#  peerUrl: https://peer.example.tld
+#  keyId: first
+#  secretEnv: GRIDSPACE_PEER_KEY
+
 # ONCE YOU HAVE STARTED THE INSTANCE, DO NOT CHANGE THE
 # URL SETTINGS AFTER THAT!
 

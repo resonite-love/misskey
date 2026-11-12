@@ -10,6 +10,7 @@ import { CoreModule } from '@/core/CoreModule.js';
 import { ApiCallService } from './api/ApiCallService.js';
 import { FileServerService } from './FileServerService.js';
 import { HealthServerService } from './HealthServerService.js';
+import { GridSpaceServerService } from './gridspace/GridSpaceServerService.js';
 import { NodeinfoServerService } from './NodeinfoServerService.js';
 import { ServerService } from './ServerService.js';
 import { WellKnownServerService } from './WellKnownServerService.js';
@@ -66,6 +67,7 @@ import { SigninWithPasskeyApiService } from './api/SigninWithPasskeyApiService.j
 		HtmlTemplateService,
 		FeedService,
 		HealthServerService,
+		GridSpaceServerService,
 		UrlPreviewService,
 		ActivityPubServerService,
 		FileServerService,
