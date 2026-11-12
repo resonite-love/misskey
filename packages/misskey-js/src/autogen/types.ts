@@ -25282,6 +25282,11 @@ export interface operations {
                     text?: string;
                     fileIds?: string[];
                     cw?: string | null;
+                    poll?: {
+                        choices: string[];
+                        multiple: boolean;
+                        expiresAt: number | null;
+                    };
                 };
             };
         };
@@ -26582,6 +26587,11 @@ export interface operations {
                     text?: string;
                     fileIds?: string[];
                     cw?: string | null;
+                    poll?: {
+                        choices: string[];
+                        multiple: boolean;
+                        expiresAt: number | null;
+                    };
                 };
             };
         };

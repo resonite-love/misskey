@@ -49,7 +49,7 @@ export class Autocomplete {
 	/**
 	 * 対象のテキストエリアを与えてインスタンスを初期化します。
 	 */
-	constructor(textarea: HTMLInputElement | HTMLTextAreaElement, textRef: Ref<string | number | null>, onlyType?: SuggestionType[]) {
+	constructor(textarea: HTMLInputElement | HTMLTextAreaElement, textRef: Ref<string | number | null>, onlyType?: SuggestionType[], private options: { localUserHost?: string } = {}) {
 		//#region BIND
 		this.onInput = this.onInput.bind(this);
 		this.complete = this.complete.bind(this);
@@ -274,7 +274,8 @@ export class Autocomplete {
 			const trimmedBefore = before.substring(0, before.lastIndexOf('@'));
 			const after = source.substring(caret);
 
-			const acct = props.value.host === null ? props.value.username : `${props.value.username}@${toASCII(props.value.host)}`;
+			const accountHost = props.value.host ?? this.options.localUserHost;
+			const acct = accountHost == null ? props.value.username : `${props.value.username}@${toASCII(accountHost)}`;
 
 			// 挿入
 			this.text = `${trimmedBefore}@${acct} ${after}`;

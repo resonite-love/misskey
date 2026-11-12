@@ -15,6 +15,11 @@ describe('old-account reply audience', () => {
 		const endpoint = new TestEndpoint();
 		await expect(endpoint.exec({ noteId: 'parent', action: 'status', requestId: '00000000-0000-4000-8000-000000000001' }, null, null)).resolves.toEqual({});
 		await expect(endpoint.exec({ noteId: 'parent', requestId: 'bad' }, null, null)).rejects.toMatchObject({ code: 'INVALID_PARAM' });
+		const poll = { choices: ['One', 'Two'], multiple: false, expiresAt: null };
+		await expect(endpoint.exec({ noteId: 'parent', poll }, null, null)).resolves.toEqual({});
+		for (const choices of [['One'], ['Same', 'Same'], ['', 'Two'], ['x'.repeat(51), 'Two']]) {
+			await expect(endpoint.exec({ noteId: 'parent', poll: { ...poll, choices } }, null, null)).rejects.toMatchObject({ code: 'INVALID_PARAM' });
+		}
 	});
 	test('keeps direct conversation participants and its author without widening mentions', () => {
 		expect(replyAudience({ visibility: 'specified', visibleUserIds: ['old', 'author', 'old'], userId: 'author', localOnly: true }))

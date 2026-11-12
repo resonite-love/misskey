@@ -114,6 +114,20 @@ try {
 	assert.equal((await g.db.query('SELECT count(*)::int AS n FROM note WHERE uri=$1', [`${r.origin}/notes/${createdId}`])).rows[0].n, 0);
 	assert.ok(!(await api(r, 'notes/local-timeline', {}, resonite.token)).some(note => note.id === createdId));
 	console.log('Old identity, source-owned attachment, CW, same-channel reply, atomic retry receipt, no copy/LTL leakage PASS');
+	const pollRequest = { action: 'send', requestId: randomUUID(), poll: { choices: ['First', 'Second'], multiple: true, expiresAt: Date.now() + 3600000 } };
+	const pollNoteId = (await post(pollRequest)).createdNoteId;
+	assert.equal((await post(pollRequest)).createdNoteId, pollNoteId);
+	assert.equal((await post({ ...pollRequest, poll: { expiresAt: pollRequest.poll.expiresAt, multiple: true, choices: ['First', 'Second'] } })).createdNoteId, pollNoteId);
+	for (const changed of [{ choices: ['Changed', 'Second'] }, { multiple: false }, { expiresAt: pollRequest.poll.expiresAt + 1000 }]) await denied(post({ ...pollRequest, poll: { ...pollRequest.poll, ...changed } }));
+	await denied(post({ ...pollRequest, requestId: randomUUID(), poll: { ...pollRequest.poll, expiresAt: Date.now() - 1000 } }));
+	await denied(post({ ...pollRequest, requestId: randomUUID(), poll: { ...pollRequest.poll, choices: ['Duplicate', 'Duplicate'] } }));
+	const pollNote = await api(r, 'notes/show', { noteId: pollNoteId }, resonite.token);
+	assert.equal(pollNote.userId, resonite.id); assert.equal(pollNote.poll.multiple, true);
+	assert.deepEqual(pollNote.poll.choices.map(choice => choice.text), pollRequest.poll.choices);
+	assert.equal(pollNote.poll.expiresAt, new Date(pollRequest.poll.expiresAt).toISOString());
+	const sharedPoll = (await api(g, 'gridspace/private-notes', { mode: 'show', channelId: channel.id, noteId: pollNoteId }, grid.token)).notes[0];
+	assert.deepEqual(sharedPoll.poll.choices.map(choice => choice.text), pollRequest.poll.choices);
+	console.log('Poll-only channel post, source identity, round trip, retry and invalid/conflicting poll rejection PASS');
 
 	const action = options => api(g, 'gridspace/private-action', { noteId: parent.id, channelId: channel.id, ...options }, grid.token);
 	await action({ action: 'add-reaction', reaction: '👍' }); await action({ action: 'add-reaction', reaction: '🎉' });

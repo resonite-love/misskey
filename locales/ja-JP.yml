@@ -3707,6 +3707,7 @@ _gridspace:
   channelPostAudience: "連携先のチャンネルに投稿します。チャンネルを閲覧できる人に公開され、外部サーバーには連合しません。"
   channelPostSend: "この名義で投稿する"
   channelPostSent: "チャンネルに投稿しました。"
+  discardPost: "入力中の内容を破棄して閉じますか？"
   channelPostUnavailable: "チャンネルに投稿できません。アーカイブされていないか確認し、必要なら連携の権限を更新してください。"
   linkPermissions: "連携の権限"
   authorizeAll: "連携で使う権限をまとめて許可"

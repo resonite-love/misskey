@@ -5,7 +5,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <div class="_gaps_s" data-gridspace-note-actions>
-	<ul v-if="note.poll" :class="$style.choices">
+	<MkPoll v-if="compact && note.poll" :noteId="note.id" :choices="note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true }))" :multiple="note.poll.multiple" :expiresAt="note.poll.expiresAt" :emojiUrls="note.emojis ?? {}" :voteHandler="vote"/>
+	<ul v-else-if="note.poll" :class="$style.choices">
 		<li v-for="(choice, index) in note.poll.choices" :key="index">
 			<Mfm :text="choice.text" :author="note.author" :emojiUrls="note.emojis ?? {}" :plain="true" :enableEmojiMenu="false"/>
 			<span> — {{ choice.votes }} <i v-if="choice.isVoted" class="ti ti-check" :aria-label="i18n.ts._gridspace.actionVoted"></i></span>
@@ -13,7 +14,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</li>
 	</ul>
 	<div v-if="Object.keys(note.reactions ?? {}).length" class="_buttons">
-		<button v-for="(count, reactionKey) in note.reactions" :key="reactionKey" type="button" class="_button" :class="[$style.reaction, { [$style.selected]: note.myReactions?.includes(String(reactionKey)) }]" :disabled="busy" @click="showReactors(String(reactionKey))">
+		<button v-for="(count, reactionKey) in note.reactions" :key="reactionKey" type="button" class="_button" :class="[$style.reaction, { [$style.selected]: note.myReactions?.includes(String(reactionKey)) }]" :disabled="busy" @click="compact ? toggleReaction(String(reactionKey)) : showReactors(String(reactionKey))" @contextmenu.prevent="showReactors(String(reactionKey))">
 			<MkReactionIcon :reaction="String(reactionKey)" :emojiUrl="note.reactionEmojis?.[String(reactionKey).replace(/^:|:$/g, '')]"/> {{ count }}
 		</button>
 	</div>
@@ -21,8 +22,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div v-for="reactor in reactors" :key="reactor.id"><a :href="reactor.account.uri" target="_blank" rel="noopener noreferrer">{{ reactor.account.name || reactor.account.username }} <span>@{{ reactor.account.username }}@{{ reactor.account.host }}</span></a></div>
 		<MkButton v-if="moreReactors" small :disabled="busy" @click="showReactors(selectedReaction, true)">{{ i18n.ts.more }}</MkButton>
 	</div>
-	<MkButton v-if="!opened" small @click="openActions">{{ i18n.ts._gridspace.actionOpen }}</MkButton>
-	<template v-else>
+	<p v-if="compact && error" role="alert">{{ i18n.ts._gridspace.actionFailed }} <MkA to="/settings/gridspace">{{ i18n.ts._gridspace.title }}</MkA></p>
+	<MkButton v-if="!compact && !opened" small @click="openActions">{{ i18n.ts._gridspace.actionOpen }}</MkButton>
+	<template v-else-if="!compact">
 		<MkLoading v-if="busy && !info"/>
 		<p v-if="error" role="alert">{{ i18n.ts._gridspace.actionFailed }}</p>
 		<template v-if="info">
@@ -51,10 +53,12 @@ import { onBeforeUnmount, onDeactivated, ref, shallowRef, watch } from 'vue';
 import type { entities } from 'misskey-js';
 import MkButton from '@/components/MkButton.vue';
 import MkReactionIcon from '@/components/MkReactionIcon.vue';
+import MkPoll from '@/components/MkPoll.vue';
+import { reactionPicker } from '@/utility/reaction-picker.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 
-const props = defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number] }>();
+const props = defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number]; compact?: boolean }>();
 const emit = defineEmits<{ (event: 'changed', note: entities.GridspacePrivateNotesResponse['notes'][number]): void; (event: 'unavailable'): void }>();
 const info = shallowRef<entities.GridspacePrivateActionResponse | null>(null);
 const opened = ref(false);
@@ -76,15 +80,15 @@ function canVote(index: number) {
 }
 
 async function act(options: Omit<entities.GridspacePrivateActionRequest, 'noteId'>) {
-	if (busy.value || (!['prepare', 'reaction-list'].includes(options.action ?? 'prepare') && !info.value?.canInteract)) return;
-	if (options.action === 'vote' && (options.choice === undefined || !canVote(options.choice))) return;
-	if (options.action === 'react' && options.reaction !== null && !options.reaction?.trim()) return;
+	if (busy.value || (!['prepare', 'reaction-list'].includes(options.action ?? 'prepare') && !info.value?.canInteract)) return false;
+	if (options.action === 'vote' && (options.choice === undefined || !canVote(options.choice))) return false;
+	if (options.action === 'react' && options.reaction !== null && !options.reaction?.trim()) return false;
 	const current = generation;
 	busy.value = true; error.value = false;
 	try {
 		const result = await misskeyApi('gridspace/private-action', { ...options, noteId: props.note.id, channelId: props.note.channelId ?? undefined,
 			expectedActorUri: ['prepare', 'reaction-list'].includes(options.action ?? 'prepare') ? undefined : info.value?.account.uri }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
-		if (current !== generation) return;
+		if (current !== generation) return false;
 		info.value = result;
 		if (options.action === 'reaction-list') {
 			const rows = result.reactors ?? [];
@@ -94,17 +98,40 @@ async function act(options: Omit<entities.GridspacePrivateActionRequest, 'noteId
 			selectedReaction.value = null; reactors.value = []; moreReactors.value = false;
 		}
 		emit('changed', result.note);
+		return true;
 	} catch (err) {
-		if (current !== generation) return;
+		if (current !== generation) return false;
 		error.value = true;
 		const reason = (err as { info?: { reason?: string } }).info?.reason;
 		if (reason === 'AUTHORIZATION_REVOKED' || reason === 'LINK_REVOKED') { closeActions(); emit('unavailable'); }
+		return false;
 	} finally { if (current === generation) busy.value = false; }
 }
 
 function openActions() { opened.value = true; void act({ action: 'prepare' }); }
 
 function addReaction(value: string) { if (value.trim()) void act({ action: props.note.extendedReactions ? 'add-reaction' : 'react', reaction: value.trim() }); }
+
+async function prepareInteraction() {
+	if (!await act({ action: 'prepare' }) || !info.value?.canInteract) { error.value = true; return false; }
+	return true;
+}
+
+async function vote(choice: number) { return await prepareInteraction() && await act({ action: 'vote', choice }); }
+
+async function toggleReaction(value: string) {
+	if (!await prepareInteraction()) return;
+	const own = props.note.myReactions?.includes(value) || props.note.myReaction === value;
+	await act({ action: props.note.extendedReactions ? own ? 'remove-reaction' : 'add-reaction' : 'react', reaction: own && !props.note.extendedReactions ? null : value });
+}
+
+async function react(event: MouseEvent) {
+	const anchor = event.currentTarget as HTMLElement;
+	if (!await prepareInteraction()) return;
+	reactionPicker.show(anchor, null, value => { void toggleReaction(value); }, () => anchor.focus());
+}
+
+defineExpose({ react });
 
 function showReactors(value: string, more = false) {
 	if (busy.value) return;

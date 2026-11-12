@@ -11,7 +11,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkA v-if="!enabled" to="/settings/gridspace">{{ i18n.ts._gridspace.privateAuthorize }}</MkA>
 	</div>
 	<template v-if="enabled">
-		<MkGridspacePrivateNote v-for="note in displayed" :key="note.id" :note="note" @unavailable="fail"/>
+		<MkGridspacePrivateNote v-for="note in displayed" :key="note.id" :note="note" @unavailable="fail" @replied="reload"/>
 		<div :class="$style.heading" class="_gaps_s">
 			<p v-if="error" role="alert">{{ params.channelId ? i18n.ts._gridspace.channelNotesUnavailable : i18n.ts._gridspace.privateUnavailable }}</p>
 			<MkLoading v-if="loading"/>

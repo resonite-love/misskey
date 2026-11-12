@@ -13859,6 +13859,10 @@ export interface Locale extends ILocale {
          */
         "channelPostSent": string;
         /**
+         * 入力中の内容を破棄して閉じますか？
+         */
+        "discardPost": string;
+        /**
          * チャンネルに投稿できません。アーカイブされていないか確認し、必要なら連携の権限を更新してください。
          */
         "channelPostUnavailable": string;

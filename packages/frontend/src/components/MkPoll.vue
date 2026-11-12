@@ -46,6 +46,7 @@ const props = defineProps<{
 	readOnly?: boolean;
 	emojiUrls?: Record<string, string>;
 	author?: Misskey.entities.UserLite;
+	voteHandler?: (choice: number) => Promise<boolean>;
 }>();
 
 const now = useLowresTime();
@@ -99,10 +100,14 @@ const vote = async (id: number) => {
 	});
 	if (canceled) return;
 
-	await misskeyApi('notes/polls/vote', {
-		noteId: props.noteId,
-		choice: id,
-	});
+	if (props.voteHandler) {
+		if (!await props.voteHandler(id)) return;
+	} else {
+		await misskeyApi('notes/polls/vote', {
+			noteId: props.noteId,
+			choice: id,
+		});
+	}
 	if (!showResult.value) showResult.value = !props.multiple;
 };
 </script>

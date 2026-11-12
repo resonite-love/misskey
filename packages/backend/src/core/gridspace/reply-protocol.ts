@@ -7,7 +7,7 @@ import { MAX_NOTE_TEXT_LENGTH } from '@/const.js';
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import { privateNoteSchema } from './private-protocol.js';
 
-export type ReplyOptions = { action: 'prepare' | 'send' | 'status'; noteId?: string; channelId?: string; expectedActorUri?: string; requestId?: string; text?: string; cw?: string | null; fileIds?: string[] };
+export type ReplyOptions = { action: 'prepare' | 'send' | 'status'; noteId?: string; channelId?: string; expectedActorUri?: string; requestId?: string; text?: string; cw?: string | null; fileIds?: string[]; poll?: { choices: string[]; multiple: boolean; expiresAt: number | null } };
 export type ReplyPeerRequest = GridspacePeerLinkRequest & ReplyOptions;
 export const replyOptionsSchema = {
 	action: { type: 'string', enum: ['prepare', 'send', 'status'], default: 'prepare' },
@@ -18,6 +18,14 @@ export const replyOptionsSchema = {
 	text: { type: 'string', maxLength: MAX_NOTE_TEXT_LENGTH },
 	fileIds: { type: 'array', maxItems: 16, uniqueItems: true, items: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } },
 	cw: { type: 'string', nullable: true, maxLength: 100 },
+	poll: {
+		type: 'object', required: ['choices', 'multiple', 'expiresAt'],
+		properties: {
+			choices: { type: 'array', uniqueItems: true, minItems: 2, maxItems: 10, items: { type: 'string', minLength: 1, maxLength: 50 } },
+			multiple: { type: 'boolean' },
+			expiresAt: { type: 'integer', nullable: true, minimum: 1, maximum: 4102444800000 },
+		},
+	},
 } as const;
 const text = { type: 'string', optional: false, nullable: false } as const;
 export const replyResultSchema = { type: 'object', optional: false, nullable: false, properties: {

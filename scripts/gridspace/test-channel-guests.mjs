@@ -45,6 +45,13 @@ await denied(post({ ...input, requestId: randomUUID(), expectedActorUri: `${g.or
 await denied(api(g, 'gridspace/private-notes', { mode: 'home' }, guest.token));
 assert.equal((await notes({})).notes.find(note => note.id === posted.createdNoteId).canDelete, true);
 console.log('Unlinked member reads channels and posts as the actual G account; identity mismatch rejected PASS');
+const pollRequest = { action: 'send', requestId: randomUUID(), expectedActorUri: prepared.account.uri, poll: { choices: ['Guest A', 'Guest B'], multiple: false, expiresAt: null } };
+const pollId = (await post(pollRequest)).createdNoteId;
+assert.equal((await post(pollRequest)).createdNoteId, pollId);
+const pollNote = await api(r, 'notes/show', { noteId: pollId }, fixture.resonite.token);
+assert.equal(pollNote.userId, targetUser.id);
+assert.deepEqual(pollNote.poll.choices.map(choice => choice.text), pollRequest.poll.choices);
+console.log('Unlinked member creates a poll-only note as the G identity and retries without duplication PASS');
 
 await post({ action: 'send', requestId: randomUUID(), noteId: fixture.parent.id, text: `Guest reply ${suffix}` });
 await action({ action: 'add-reaction', reaction: '👍' }); await action({ action: 'add-reaction', reaction: '🎉' });

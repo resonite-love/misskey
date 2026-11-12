@@ -40,3 +40,8 @@ export const Formatted = {
 	...Default,
 	args: { note: { ...Default.args.note, text: '**MFM** :example: @kokoa', cw: 'CW :example:', emojis: { example: '/static-assets/avatar.png' } } },
 } satisfies StoryObj<typeof MkGridspacePrivateNote>;
+
+export const Channel = {
+	...Default,
+	args: { note: { ...Default.args.note, channelId: 'channel1', visibility: 'public', text: 'チャンネルへの投稿です。', reactions: { '👍': 2 } } },
+} satisfies StoryObj<typeof MkGridspacePrivateNote>;
