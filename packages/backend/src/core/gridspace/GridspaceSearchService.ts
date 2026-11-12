@@ -88,7 +88,7 @@ export class GridspaceSearchService {
 			.leftJoinAndSelect('note.reply', 'reply').leftJoinAndSelect('reply.user', 'replyUser')
 			.leftJoinAndSelect('note.renote', 'renote').leftJoinAndSelect('renote.user', 'renoteUser')
 			.where('user.isDeleted = false');
-		if (options.query) query.andWhere('(note.text ILIKE :q OR note.cw ILIKE :q)', { q: `%${sqlLikeEscape(options.query)}%` });
+		if (options.query) query.andWhere('(note.text ILIKE :q OR (note.cw IS NOT NULL AND note.cw::text ILIKE :q))', { q: `%${sqlLikeEscape(options.query)}%` });
 		this.queries.generateBaseNoteFilteringQuery(query, viewer);
 		// These settings can hide an otherwise public note. Filter before matching/paging,
 		// so neither an ID nor a continuation token reveals a match in hidden text.
@@ -152,6 +152,8 @@ export class GridspaceSearchService {
 		const peerHost = new URL(peer.peerOrigin).host;
 		const link = options.userId ? await this.history.findLink(options.userId) : null;
 		const author = options.userId ? await this.db.getRepository(MiUser).findOneBy({ id: options.userId, isDeleted: false, isSuspended: false }) : null;
+		const counterpart = link ? await this.db.getRepository(MiUser).findOneBy({ uri: `${peer.peerOrigin}/users/${link.peerUserId}` }) : null;
+		const authorIds = link ? [link.localUserId, ...(counterpart ? [counterpart.id] : [])] : options.userId ? [options.userId] : [];
 		const targetId = link?.peerUserId ?? (author?.host === peerHost && author.uri?.startsWith(peer.peerOrigin + '/users/') ? author.uri.slice((peer.peerOrigin + '/users/').length) : undefined);
 		const fetchPeer = (options.userId == null || targetId != null) && (viewer != null || this.meta.ugcVisibilityForVisitor === 'all');
 		const input: SearchPeerRequest = { kind, query: options.query, rangeStartAt: options.rangeStartAt, rangeEndAt: options.rangeEndAt,
@@ -165,10 +167,8 @@ export class GridspaceSearchService {
 			const query = this.noteQuery(viewer, options, false)
 				.andWhere('(note.userHost IS NULL OR note.userHost = :peerHost)', { peerHost });
 			if (!includePeerPublic) query.andWhere("(note.userHost IS NULL OR note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL)");
-			if (options.userId) {
-				if (link) query.andWhere('(note.userId = :localAuthor OR user.uri = :peerAuthor)', { localAuthor: link.localUserId, peerAuthor: `${peer.peerOrigin}/users/${link.peerUserId}` });
-				else query.andWhere('note.userId = :author', { author: options.userId });
-			}
+			// Resolve linked actors before scanning notes, so both authors use the note.userId index.
+			if (authorIds.length) query.andWhere('note.userId IN (:...authors)', { authors: authorIds });
 			return query;
 		};
 		const localQuery = kind === 'notes' ? localNotes() : this.userQuery(viewer).andWhere('user.host IS NULL')
@@ -211,6 +211,11 @@ export class GridspaceSearchService {
 		}
 		if (link && !await this.db.getRepository(MiGridspaceLink).existsBy({ id: link.id, generation: link.generation, state: 'active' })) throw new GridspaceSearchError('LINK_UNAVAILABLE');
 		if (!peerAvailable) for (const key of mapped.keys()) if (key.startsWith('remote:')) mapped.delete(key);
+		if (link && !counterpart) {
+			// The first imported result can create a previously uncached peer actor.
+			const importedAuthor = await this.db.getRepository(MiUser).findOneBy({ uri: `${peer.peerOrigin}/users/${link.peerUserId}` });
+			if (importedAuthor) authorIds.push(importedAuthor.id);
+		}
 		const allowed = new Map<string, MiNote | MiUser>();
 		if (mapped.size) {
 			const query = kind === 'notes' ? localNotes(true) : this.userQuery(viewer);

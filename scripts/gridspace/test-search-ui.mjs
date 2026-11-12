@@ -51,6 +51,14 @@ try {
 		await page.setViewportSize({ width: 390, height: 844 });
 		await page.screenshot({ path: `.config/search-${site.role.toLowerCase()}-mobile.png` });
 		assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+		const authorId = site.role === 'G' ? accounts.grid.id : accounts.resonite.id;
+		await page.goto(`${site.origin}/search?${new URLSearchParams({ q: accounts.query, userId: authorId })}`, { waitUntil: 'domcontentloaded' });
+		await page.getByRole('button', { name: '検索', exact: true }).click();
+		await expect(page.locator('article').first()).toBeVisible({ timeout: 30000 });
+		await expect(page.getByText('一部の投稿を取得できませんでした。', { exact: true })).toHaveCount(0);
+		await expect(page.locator(`article header a[href*="@${peerHost}"]`).first()).toBeVisible();
+		assert.ok(requests.some(request => request.userId === authorId));
+		console.log(`${site.role} selected author search returns both linked accounts without partial error PASS`);
 		await page.goto(`${site.origin}/search?type=user`, { waitUntil: 'domcontentloaded' });
 		await page.locator('input[type="search"]').fill(accounts.grid.username);
 		await page.getByRole('button', { name: '検索', exact: true }).click();
