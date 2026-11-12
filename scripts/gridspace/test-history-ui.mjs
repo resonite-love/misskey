@@ -31,9 +31,13 @@ try {
 		await page.goto(`${site.origin}/@${profile.username}/notes`, { waitUntil: 'domcontentloaded' });
 		await expect(page.getByText('連携しているアカウント', { exact: true })).toBeVisible();
 		await expect(page.getByRole('button', { name: '両アカウントの投稿を表示', exact: true })).toHaveCount(0);
-		await expect(page.getByText(`${new URL(site.origin).host}からの投稿`, { exact: true }).first()).toBeVisible({ timeout: 30000 });
 		const peerHost = site.role === 'G' ? 'resonite-love-misskey.kokopi.me' : 'grid-space-misskey.kokopi.me';
-		await expect(page.getByText(`${peerHost}からの投稿`, { exact: true }).first()).toBeVisible({ timeout: 30000 });
+		const peerAccount = site.role === 'G' ? accounts.resonite : accounts.grid;
+		await expect(page.locator(`article header a[href="/@${profile.username}"]`).first()).toBeVisible({ timeout: 30000 });
+		await expect(page.locator(`article header a[href="/@${peerAccount.username}@${peerHost}"]`).first()).toBeVisible({ timeout: 30000 });
+		await expect(page.locator('article').getByText(site.role === 'G' ? 'resonite.love (test)' : 'GridSpace (test)', { exact: true }).first()).toBeVisible();
+		await expect(page.getByText(`${new URL(site.origin).host}からの投稿`, { exact: true })).toHaveCount(0);
+		await expect(page.getByText(`${peerHost}からの投稿`, { exact: true })).toHaveCount(0);
 		const next = page.getByRole('button', { name: 'もっと見る', exact: true });
 		await next.scrollIntoViewIfNeeded();
 		await next.click();

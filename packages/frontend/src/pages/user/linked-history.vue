@@ -6,7 +6,6 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <div :class="$style.root" :aria-busy="loading">
 	<div v-for="note in displayedNotes" :key="note.id" :class="$style.entry">
-		<div :class="$style.origin">{{ i18n.tsx._gridspace.postedOn({ host: note.user.host ?? host }) }}</div>
 		<MkNote :note="note" :withHardMute="true"/>
 	</div>
 	<div v-if="error" role="status" :class="$style.status">
@@ -27,7 +26,6 @@ import * as Misskey from 'misskey-js';
 import MkNote from '@/components/MkNote.vue';
 import MkButton from '@/components/MkButton.vue';
 import { i18n } from '@/i18n.js';
-import { host } from '@@/js/config.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { useGlobalEvent } from '@/events.js';
 import { prefer } from '@/preferences.js';
@@ -105,12 +103,6 @@ defineExpose({ reload });
 }
 .entry {
 	border-bottom: solid 0.5px var(--MI_THEME-divider);
-}
-.origin {
-	padding: 12px 24px 0;
-	font-size: 0.8em;
-	color: var(--MI_THEME-fgTransparentWeak);
-	overflow-wrap: anywhere;
 }
 .status {
 	padding: 20px;
