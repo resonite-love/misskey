@@ -38,6 +38,7 @@ import { RegistryApiService } from '@/core/RegistryApiService.js';
 import { resolveGridspaceConfig } from '@/core/gridspace/peer-protocol.js';
 import { GRIDSPACE_CLIENT_PATH } from '@/core/gridspace/link-crypto.js';
 import { GRIDSPACE_PALETTE_SCOPE, GRIDSPACE_PALETTE_REGISTRY_SCOPE, GRIDSPACE_PALETTE_REGISTRY_KEY, parseGridspacePalette } from '@/core/gridspace/palette-protocol.js';
+import { settingsScope, settingsKey, settingsDomain } from '@/core/gridspace/settings-protocol.js';
 import { OAuthPage } from '@/server/web/views/oauth.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 
@@ -627,6 +628,12 @@ export class OAuth2ProviderService implements OnApplicationShutdown {
 				this.#logger.info(`Checking the user before sending authorization code to ${transaction.client.id}`);
 				const user = await this.#findUserByLoginToken(loginToken);
 				const rawPalette = firstValue(body.gridspace_palette);
+				const rawSettings = firstValue(body.gridspace_settings);
+				if (rawSettings && this.#isGridspacePaletteClient(transaction.client.id, transaction.request.scopes)) {
+					if (rawSettings.length > 524288) throw new InvalidRequestError('Settings too large');
+					try { JSON.parse(rawSettings); } catch { throw new InvalidRequestError('Invalid settings'); }
+					await this.registryApiService.set(user.id, settingsDomain, settingsScope, settingsKey, rawSettings);
+				}
 				if (rawPalette && this.#isGridspacePaletteClient(transaction.client.id, transaction.request.scopes)) {
 					let value: unknown;
 					try { value = JSON.parse(rawPalette); } catch { throw new InvalidRequestError('Invalid emoji palette'); }

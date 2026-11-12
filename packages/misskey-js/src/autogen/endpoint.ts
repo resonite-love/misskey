@@ -441,6 +441,8 @@ import type {
 	GridspaceSearchRequest,
 	GridspaceSearchResponse,
 	GridspaceSearchInfoResponse,
+	GridspaceSettingsImportRequest,
+	GridspaceSettingsImportResponse,
 	HashtagsListRequest,
 	HashtagsListResponse,
 	HashtagsSearchRequest,
@@ -1009,6 +1011,7 @@ export type Endpoints = {
 	'gridspace/profile-import': { req: EmptyRequest; res: GridspaceProfileImportResponse };
 	'gridspace/search': { req: GridspaceSearchRequest; res: GridspaceSearchResponse };
 	'gridspace/search-info': { req: EmptyRequest; res: GridspaceSearchInfoResponse };
+	'gridspace/settings-import': { req: GridspaceSettingsImportRequest; res: GridspaceSettingsImportResponse };
 	'hashtags/list': { req: HashtagsListRequest; res: HashtagsListResponse };
 	'hashtags/search': { req: HashtagsSearchRequest; res: HashtagsSearchResponse };
 	'hashtags/show': { req: HashtagsShowRequest; res: HashtagsShowResponse };

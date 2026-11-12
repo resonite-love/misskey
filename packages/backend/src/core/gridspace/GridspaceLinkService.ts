@@ -13,6 +13,8 @@ import { MiUser, type MiLocalUser } from '@/models/User.js';
 import { MiRegistryItem } from '@/models/RegistryItem.js';
 import { MiUserProfile } from '@/models/UserProfile.js';
 import { MiDriveFile } from '@/models/DriveFile.js';
+import { MiAvatarDecoration } from '@/models/AvatarDecoration.js';
+import { parseSettingsSnapshot, selectAccountSettings, settingsScope, settingsKey, settingsDomain, type SettingsSnapshot } from './settings-protocol.js';
 import { parseLinkedProfile, type LinkedProfile } from './profile-protocol.js';
 import { GRIDSPACE_PALETTE_SCOPE, GRIDSPACE_PALETTE_REGISTRY_SCOPE, GRIDSPACE_PALETTE_REGISTRY_KEY, parseGridspacePalette, type GridspacePalette } from './palette-protocol.js';
 import { MiAccessToken } from '@/models/AccessToken.js';
@@ -210,15 +212,36 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		}
 		const user = await this.authorized(input.accessToken);
 		if (action === 'identity') return { id: user.id, username: user.username };
-		if (action === 'check' || action === 'palette' || action === 'profile') {
+		if (action === 'check' || action === 'palette' || action === 'profile' || action === 'settings') {
 			const exists = await this.db.getRepository(MiGridspaceLink).existsBy({ id: input.linkId, localUserId: user.id, peerUserId: input.localUserId, peerOrigin: peer.peerOrigin, generation: input.generation, state: 'active' });
 			if (!exists) throw new GridspaceLinkError('LINK_REVOKED');
+			if (action === 'settings') {
+				if (this.config.gridspace?.channelRole !== 'source') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+				const profile = await this.db.getRepository(MiUserProfile).findOneByOrFail({ userId: user.id });
+				const mutes = await this.db.getRepository(MiMuting).find({ where: { muterId: user.id }, relations: { mutee: true }, take: 10001 });
+				const blocks = await this.db.getRepository(MiBlocking).find({ where: { blockerId: user.id }, relations: { blockee: true }, take: 10001 });
+				if (mutes.length > 10000 || blocks.length > 10000) throw new GridspaceLinkError('SNAPSHOT_TOO_LARGE');
+				const item = await this.db.getRepository(MiRegistryItem).findOneBy({ userId: user.id, domain: settingsDomain, scope: Raw(alias => `${alias} = :scope`, { scope: settingsScope }), key: settingsKey });
+				const settings: SettingsSnapshot = { account: selectAccountSettings({ ...profile, ...user }), client: typeof item?.value === 'string' ? item.value : null,
+					restrictions: [
+						...blocks.filter(b => b.blockee).map(b => ({ kind: 'block' as const, uri: b.blockee!.uri ?? `${peer.origin}/users/${b.blockeeId}`, expiresAt: null })),
+						...mutes.filter(m => m.mutee && (!m.expiresAt || m.expiresAt.getTime() > Date.now())).map(m => ({ kind: 'mute' as const, uri: m.mutee!.uri ?? `${peer.origin}/users/${m.muteeId}`, expiresAt: m.expiresAt?.getTime() ?? null })),
+					] };
+				await this.authorized(input.accessToken);
+				if (!await this.db.getRepository(MiGridspaceLink).existsBy({ id: input.linkId, localUserId: user.id, generation: input.generation, state: 'active' })) throw new GridspaceLinkError('LINK_REVOKED');
+				return { userId: user.id, settings: parseSettingsSnapshot(settings) };
+			}
 			if (action === 'profile') {
 				if (this.config.gridspace?.channelRole !== 'source') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 				const profile = await this.db.getRepository(MiUserProfile).findOneByOrFail({ userId: user.id });
 				const image = async (id: string | null) => id ? (await this.db.getRepository(MiDriveFile).findOneBy({ id, userId: user.id }))?.url ?? null : null;
+				const decorations = user.avatarDecorations.length ? await this.db.getRepository(MiAvatarDecoration).findBy({ id: In(user.avatarDecorations.map(d => d.id)) }) : [];
 				const result = { name: user.name, description: profile.description, location: profile.location, birthday: profile.birthday, fields: profile.fields,
-					avatarUrl: await image(user.avatarId), bannerUrl: await image(user.bannerId) };
+					avatarUrl: await image(user.avatarId), bannerUrl: await image(user.bannerId),
+					avatarDecorations: user.avatarDecorations.flatMap(worn => {
+						const definition = decorations.find(d => d.id === worn.id);
+						return definition ? [{ name: definition.name, url: definition.url, angle: worn.angle ?? 0, flipH: worn.flipH ?? false, offsetX: worn.offsetX ?? 0, offsetY: worn.offsetY ?? 0 }] : [];
+					}) };
 				await this.authorized(input.accessToken);
 				if (!await this.db.getRepository(MiGridspaceLink).existsBy({ id: input.linkId, localUserId: user.id, peerUserId: input.localUserId, generation: input.generation, state: 'active' })) throw new GridspaceLinkError('LINK_REVOKED');
 				return { userId: user.id, profile: parseLinkedProfile(result) };
@@ -338,6 +361,25 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		const current = await this.privateLink(user.id);
 		if (current.id !== link.id || current.generation !== link.generation || current.tokenCipher !== link.tokenCipher || result.userId !== link.peerUserId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		return { peerOrigin: link.peerOrigin, peerUserId: link.peerUserId, profile: parseLinkedProfile(result.profile) };
+	}
+
+	public async settings(user: MiLocalUser) {
+		if (this.config.gridspace?.channelRole !== 'client') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const link = await this.privateLink(user.id);
+		if (!link.initiator || !link.tokenCipher) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const result = await this.json<{ userId: string; settings: unknown }>('/gridspace/v1/link/settings', { linkId: link.id, generation: link.generation, localUserId: user.id, accessToken: openGridspaceSecret(this.enabled(), link.tokenCipher, link.id) });
+		const current = await this.privateLink(user.id);
+		if (current.id !== link.id || current.generation !== link.generation || current.tokenCipher !== link.tokenCipher || result.userId !== link.peerUserId) throw new GridspaceLinkError('LINK_REVOKED');
+		return { linkId: link.id, generation: link.generation, credentialHash: gridspaceHash(link.tokenCipher), peerOrigin: link.peerOrigin, peerUserId: link.peerUserId, settings: parseSettingsSnapshot(result.settings) };
+	}
+
+	public async checkSettingsAuthorization(user: MiLocalUser) {
+		const link = await this.privateLink(user.id);
+		if (!link.initiator || !link.tokenCipher) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		await this.json('/gridspace/v1/link/check', { linkId: link.id, generation: link.generation, localUserId: user.id, accessToken: openGridspaceSecret(this.enabled(), link.tokenCipher, link.id) });
+		const current = await this.privateLink(user.id);
+		if (current.id !== link.id || current.generation !== link.generation || current.tokenCipher !== link.tokenCipher || current.peerUserId !== link.peerUserId) throw new GridspaceLinkError('LINK_REVOKED');
+		return { linkId: link.id, generation: link.generation, credentialHash: gridspaceHash(link.tokenCipher), peerUserId: link.peerUserId, peerOrigin: link.peerOrigin };
 	}
 
 	public async privateLink(userId: string): Promise<MiGridspaceLink> {

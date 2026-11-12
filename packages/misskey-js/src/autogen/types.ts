@@ -2578,6 +2578,16 @@ export type paths = {
          */
         post: operations['gridspace___search-info'];
     };
+    '/gridspace/settings-import': {
+        /**
+         * gridspace/settings-import
+         * @description Import explicitly selected linked account settings and process restrictions in resumable batches.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___settings-import'];
+    };
     '/hashtags/list': {
         /**
          * hashtags/list
@@ -26987,9 +26997,9 @@ export interface operations {
                 };
                 content: {
                     'application/json': {
-                        copied: ('name' | 'description' | 'location' | 'birthday' | 'fields' | 'avatarId' | 'bannerId')[];
-                        skipped: ('name' | 'description' | 'location' | 'birthday' | 'fields' | 'avatarId' | 'bannerId')[];
-                        failed: ('name' | 'description' | 'location' | 'birthday' | 'fields' | 'avatarId' | 'bannerId')[];
+                        copied: ('name' | 'description' | 'location' | 'birthday' | 'fields' | 'avatarId' | 'bannerId' | 'avatarDecorations')[];
+                        skipped: ('name' | 'description' | 'location' | 'birthday' | 'fields' | 'avatarId' | 'bannerId' | 'avatarDecorations')[];
+                        failed: ('name' | 'description' | 'location' | 'birthday' | 'fields' | 'avatarId' | 'bannerId' | 'avatarDecorations')[];
                         complete: boolean;
                     };
                 };
@@ -27187,6 +27197,94 @@ export interface operations {
             };
             /** @description I'm Ai */
             418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___settings-import': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default status
+                     * @enum {string}
+                     */
+                    action?: 'start' | 'step' | 'status' | 'retry';
+                    requestId?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        requestId: string | null;
+                        client: string | null;
+                        accountApplied: boolean;
+                        complete: boolean;
+                        total: number;
+                        done: number;
+                        failed: number;
+                        pending: number;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

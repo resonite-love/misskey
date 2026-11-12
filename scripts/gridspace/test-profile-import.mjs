@@ -52,7 +52,7 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve('scripts/gridspace/t
 		assert.equal(editsDone, false); assert.equal(importDone, false);
 		await db.query('SELECT pg_advisory_unlock(hashtextextended($1,0))', [key]);
 		await editing; const result = await importing;
-		assert.equal(result.complete, true); assert.deepEqual(result.skipped, ['name']); assert.equal(result.copied.length, 6);
+		assert.equal(result.complete, true); assert.deepEqual(result.skipped, ['name', 'avatarDecorations']); assert.equal(result.copied.length, 6);
 	} finally { await db.end(); }
 	const copied = await api(g, 'i', {}, grid.token);
 	assert.equal(copied.name, 'Keep my new name');

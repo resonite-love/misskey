@@ -4,7 +4,7 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
-import { In } from 'typeorm';
+import { In, LessThan } from 'typeorm';
 import type { MutingsRepository, MiMuting } from '@/models/_.js';
 import { IdService } from '@/core/IdService.js';
 import type { MiUser } from '@/models/User.js';
@@ -36,11 +36,23 @@ export class UserMutingService {
 	}
 
 	@bindThis
-	public async unmute(mutings: MiMuting[]): Promise<void> {
+	public async extendMute(userId: string, targetId: string, expiresAt: Date | null): Promise<boolean> {
+		await this.mutingsRepository.createQueryBuilder().update()
+			.set({ expiresAt })
+			.where('"muterId" = :userId AND "muteeId" = :targetId', { userId, targetId })
+			.andWhere('"expiresAt" IS NOT NULL AND (CAST(:expiry AS timestamptz) IS NULL OR "expiresAt" < CAST(:expiry AS timestamptz))', { expiry: expiresAt?.toISOString() ?? null })
+			.execute();
+		this.cacheService.userMutingsCache.refresh(userId);
+		return this.mutingsRepository.existsBy({ muterId: userId, muteeId: targetId });
+	}
+
+	@bindThis
+	public async unmute(mutings: MiMuting[], expiredOnly = false): Promise<void> {
 		if (mutings.length === 0) return;
 
 		await this.mutingsRepository.delete({
 			id: In(mutings.map(m => m.id)),
+			...(expiredOnly ? { expiresAt: LessThan(new Date()) } : {}),
 		});
 
 		const muterIds = [...new Set(mutings.map(m => m.muterId))];

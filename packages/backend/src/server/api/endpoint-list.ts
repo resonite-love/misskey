@@ -476,6 +476,7 @@ export * as 'gridspace/private-upload' from './endpoints/gridspace/private-uploa
 export * as 'gridspace/private-action' from './endpoints/gridspace/private-action.js';
 export * as 'gridspace/palette' from './endpoints/gridspace/palette.js';
 export * as 'gridspace/profile-import' from './endpoints/gridspace/profile-import.js';
+export * as 'gridspace/settings-import' from './endpoints/gridspace/settings-import.js';
 export * as 'gridspace/channels' from './endpoints/gridspace/channels.js';
 export * as 'gridspace/channel-post' from './endpoints/gridspace/channel-post.js';
 export * as 'gridspace/channel-delete' from './endpoints/gridspace/channel-delete.js';

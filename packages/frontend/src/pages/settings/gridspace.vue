@@ -42,6 +42,12 @@ SPDX-License-Identifier: AGPL-3.0-only
 					<MkInfo v-if="profileResult?.complete" role="status">{{ i18n.tsx._gridspace.profileCopied({ copied: profileResult.copied.length, skipped: profileResult.skipped.length }) }}</MkInfo>
 					<MkInfo v-if="profileError" warn role="alert">{{ i18n.ts._gridspace.profileCopyFailed }}</MkInfo>
 					<MkButton :disabled="busy || profileResult?.complete" @click="retryProfile">{{ profileError ? i18n.ts.retry : i18n.ts._gridspace.profileCopy }}</MkButton>
+					<MkInfo>{{ i18n.ts._gridspace.settingsCopyDescription }}</MkInfo>
+					<MkInfo v-if="settingsResult" role="status">{{ i18n.tsx._gridspace.settingsProgress({ done: settingsResult.done, total: settingsResult.total, failed: settingsResult.failed }) }}</MkInfo>
+					<MkInfo v-if="settingsComplete" role="status">{{ i18n.ts._gridspace.settingsCopied }}</MkInfo>
+					<MkInfo v-if="settingsError" warn role="alert">{{ i18n.ts._gridspace.settingsCopyFailed }}</MkInfo>
+					<MkButton :disabled="busy" @click="startSettings">{{ i18n.ts._gridspace.settingsCopy }}</MkButton>
+					<MkButton v-if="settingsError && prefer.s.gridspaceSettingsImportRequest" :disabled="busy" @click="retrySettings">{{ i18n.ts.retry }}</MkButton>
 				</template>
 			</section>
 			<template v-if="status.total">
@@ -68,6 +74,8 @@ import { i18n } from '@/i18n.js';
 import { store } from '@/store.js';
 import { prefer } from '@/preferences.js';
 import { gridspacePaletteSource, mergeGridspacePalette } from '@/utility/gridspace-palette.js';
+import { parseClientSettings, portableSettingKeys } from '@/utility/gridspace-settings.js';
+import { PREF_DEF } from '@/preferences/def.js';
 import { $i } from '@/i.js';
 import { updateCurrentAccount } from '@/accounts.js';
 import { definePage } from '@/page.js';
@@ -85,6 +93,11 @@ const paletteCopied = ref(false);
 const paletteError = ref(false);
 const profileResult = ref<entities.GridspaceProfileImportResponse | null>(null);
 const profileError = ref(false);
+const settingsResult = ref<entities.GridspaceSettingsImportResponse | null>(null);
+const settingsError = ref(false);
+const settingsComplete = ref(false);
+let settingsRunning = false;
+let settingsAttempted = false;
 const storageKey = `gridspace-link:${$i?.id}`;
 const query = new URLSearchParams(window.location.search);
 let poll: number | undefined;
@@ -138,6 +151,7 @@ async function start() {
 		sessionStorage.setItem(storageKey, result.clientKey);
 		sessionStorage.setItem(`${storageKey}:purpose`, 'link');
 		await prefer.cloudReady;
+		if (!status.value || ['unlinked', 'revoked'].includes(status.value.state)) prefer.commit('gridspaceSettingsImportRequest', crypto.randomUUID());
 		prefer.commit('gridspacePaletteImportPending', true);
 		prefer.commit('gridspaceProfileImportPending', true);
 		window.location.assign(result.authorizationUrl);
@@ -213,6 +227,47 @@ async function retryProfile() {
 	});
 }
 
+async function startSettings() {
+	await prefer.cloudReady;
+	prefer.commit('gridspaceSettingsImportRequest', crypto.randomUUID());
+	await start(); // The source browser exports its selected account's current display settings.
+}
+
+async function resumeSettings(retry = false) {
+	await prefer.cloudReady;
+	const requestId = prefer.s.gridspaceSettingsImportRequest;
+	if (!requestId || settingsRunning || status.value?.state !== 'active' || !status.value.initiator || !status.value.channelsEnabled) return;
+	settingsRunning = true; settingsAttempted = true; settingsError.value = false; settingsComplete.value = false;
+	try {
+		let result = await misskeyApi('gridspace/settings-import', { action: 'start', requestId });
+		if (retry && result.failed > 0) result = await misskeyApi('gridspace/settings-import', { action: 'retry', requestId });
+		if (prefer.s.gridspaceSettingsApplied !== requestId) {
+			if (!result.client) throw new Error('Source settings need authorization');
+			const snapshot = parseClientSettings(result.client);
+			for (const key of portableSettingKeys) {
+				if (!(key in snapshot.values)) continue;
+				if (!('accountDependent' in PREF_DEF[key]) || !PREF_DEF[key].accountDependent) prefer.setAccountOverride(key);
+				prefer.commit(key, snapshot.values[key] as never);
+			}
+			if (snapshot.visibility !== undefined) store.set('visibility', snapshot.visibility);
+			if (snapshot.localOnly !== undefined) store.set('localOnly', snapshot.localOnly);
+			prefer.commit('gridspaceSettingsApplied', requestId);
+		}
+		settingsResult.value = result;
+		while (result.pending > 0 && !stopped) {
+			await new Promise(resolve => window.setTimeout(resolve, 1200));
+			if (stopped) break;
+			result = await misskeyApi('gridspace/settings-import', { action: 'step', requestId });
+			settingsResult.value = result;
+		}
+		settingsError.value = result.failed > 0;
+		if (result.complete) { settingsComplete.value = true; prefer.commit('gridspaceSettingsImportRequest', null); }
+		try { updateCurrentAccount(await misskeyApi('i', {})); } catch { /* Refreshed by the next account update. */ }
+	} catch { settingsError.value = true; } finally { settingsRunning = false; }
+}
+
+async function retrySettings() { await perform(() => resumeSettings(true)); }
+
 async function revoke() {
 	const { canceled } = await os.confirm({ type: 'warning', text: i18n.ts._gridspace.revokeConfirm });
 	if (canceled) return;
@@ -221,6 +276,7 @@ async function revoke() {
 		sessionStorage.removeItem(storageKey);
 		prefer.commit('gridspacePaletteImportPending', false);
 		prefer.commit('gridspaceProfileImportPending', false);
+		prefer.commit('gridspaceSettingsImportRequest', null);
 	});
 }
 
@@ -243,6 +299,7 @@ onMounted(async () => {
 					prefer.commit('gridspaceProfileImportPending', true);
 					await resumePalette();
 					await resumeProfile();
+					await resumeSettings();
 				}
 				sessionStorage.removeItem(storageKey);
 				sessionStorage.removeItem(`${storageKey}:purpose`);
@@ -251,6 +308,7 @@ onMounted(async () => {
 			error.value = i18n.ts._gridspace.authorizationError;
 			prefer.commit('gridspacePaletteImportPending', false);
 			prefer.commit('gridspaceProfileImportPending', false);
+			prefer.commit('gridspaceSettingsImportRequest', null);
 		}
 	}
 	if (!status.value) {
@@ -261,6 +319,7 @@ onMounted(async () => {
 	if (stopped) return;
 	if (!paletteAttempted) await resumePalette();
 	if (!profileAttempted) await perform(resumeProfile);
+	if (!settingsAttempted) await perform(() => resumeSettings());
 	poll = window.setInterval(() => { if (status.value?.pending && !busy.value) void refresh(); }, 3000);
 });
 onUnmounted(() => { stopped = true; window.clearInterval(poll); });

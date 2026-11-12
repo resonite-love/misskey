@@ -38,7 +38,7 @@ export class CheckExpiredMutingsProcessorService {
 			.getMany();
 
 		if (expired.length > 0) {
-			await this.userMutingService.unmute(expired);
+			await this.userMutingService.unmute(expired, true);
 		}
 
 		await this.channelMutingService.eraseExpiredMutings();

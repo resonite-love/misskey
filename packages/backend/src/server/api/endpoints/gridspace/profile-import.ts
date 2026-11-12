@@ -8,6 +8,8 @@ import { DataSource } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
 import { MiUserProfile } from '@/models/UserProfile.js';
+import { MiAvatarDecoration } from '@/models/AvatarDecoration.js';
+import { RoleService } from '@/core/RoleService.js';
 import { DriveService } from '@/core/DriveService.js';
 import { RegistryApiService } from '@/core/RegistryApiService.js';
 import { GridspaceLinkError, GridspaceLinkService } from '@/core/gridspace/GridspaceLinkService.js';
@@ -40,6 +42,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		private drive: DriveService,
 		private registry: RegistryApiService,
 		@Inject('ep:i/update') private update: Update,
+		private roles: RoleService,
 	) {
 		super(meta, paramDef, async (_ps, me) => {
 			try { return await this.guard.runProfile(me.id, () => this.copy(me)); } catch (error) {
@@ -88,7 +91,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		for (const field of profileFields) {
 			if (copied.has(field) || skipped.has(field)) continue;
 			if (!profileValueIsEmpty(destination[field])) { skipped.add(field); continue; }
-			if (field === 'avatarId' || field === 'bannerId') continue;
+			if (field === 'avatarId' || field === 'bannerId' || field === 'avatarDecorations') continue;
 			if (profileValueIsEmpty(source.profile[field])) skipped.add(field);
 			else text[field] = source.profile[field];
 		}
@@ -101,6 +104,23 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			let file;
 			try { file = await this.drive.uploadFromUrl({ url, user: me }); } catch { failed.add(field); continue; }
 			await apply({ [field]: file.id }, [field]);
+		}
+		if (!copied.has('avatarDecorations') && !skipped.has('avatarDecorations')) {
+			const worn = source.profile.avatarDecorations;
+			if (worn === undefined) failed.add('avatarDecorations'); // Older peer: retry after its upgrade.
+			else if (worn.length === 0) { skipped.add('avatarDecorations'); await save(); } else {
+				const definitions = await this.db.getRepository(MiAvatarDecoration).find();
+				const allRoles = await this.roles.getRoles();
+				const myRoles = await this.roles.getUserRoles(me.id);
+				const mapped = worn.map(d => {
+					const candidates = definitions.filter(local => local.name === d.name && local.url === d.url);
+					const definition = candidates.length === 1 ? candidates[0] : null;
+					if (!definition || (definition.roleIdsThatCanBeUsedThisDecoration.some(id => allRoles.some(role => role.id === id)) && !myRoles.some(role => definition.roleIdsThatCanBeUsedThisDecoration.includes(role.id)))) return null;
+					return { id: definition.id, angle: d.angle, flipH: d.flipH, offsetX: d.offsetX, offsetY: d.offsetY };
+				});
+				if (mapped.some(d => d === null)) failed.add('avatarDecorations');
+				else await apply({ avatarDecorations: mapped }, ['avatarDecorations']);
+			}
 		}
 		return { copied: [...copied], skipped: [...skipped], failed: [...failed], complete: failed.size === 0 };
 	}

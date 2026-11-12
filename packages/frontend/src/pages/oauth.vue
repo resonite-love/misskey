@@ -28,6 +28,8 @@ import { host } from '@@/js/config.js';
 import { prefer } from '@/preferences.js';
 import { $i } from '@/i.js';
 import { snapshotGridspacePaletteForAccount } from '@/utility/gridspace-palette.js';
+import { snapshotClientSettings } from '@/utility/gridspace-settings.js';
+import { store } from '@/store.js';
 import type { GridspacePaletteSnapshot } from '@/utility/gridspace-palette.js';
 import { isSameScope } from '@/preferences/manager.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
@@ -46,7 +48,7 @@ const name = window.document.querySelector<HTMLMetaElement>('meta[name="misskey:
 const logo = window.document.querySelector<HTMLMetaElement>('meta[name="misskey:oauth:client-logo"]')?.content;
 const permissions = window.document.querySelector<HTMLMetaElement>('meta[name="misskey:oauth:scope"]')?.content.split(' ').filter((p): p is typeof Misskey.permissions[number] => (Misskey.permissions as readonly string[]).includes(p)) ?? [];
 
-function doPost(token: string, decision: 'accept' | 'deny', palette?: GridspacePaletteSnapshot) {
+function doPost(token: string, decision: 'accept' | 'deny', palette?: GridspacePaletteSnapshot, settings?: string) {
 	const form = window.document.createElement('form');
 	form.action = '/oauth/decision';
 	form.method = 'post';
@@ -69,6 +71,11 @@ function doPost(token: string, decision: 'accept' | 'deny', palette?: GridspaceP
 		field.type = 'hidden';
 		field.name = 'gridspace_palette';
 		field.value = JSON.stringify(palette);
+		form.appendChild(field);
+	}
+	if (settings) {
+		const field = window.document.createElement('input');
+		field.type = 'hidden'; field.name = 'gridspace_settings'; field.value = settings;
 		form.appendChild(field);
 	}
 
@@ -96,7 +103,14 @@ async function onAccept(token: string, userId: string) {
 				throw err;
 			}
 		}) : undefined;
-		doPost(token, 'accept', palette);
+		const settings = exportPalette ? await snapshotClientSettings(prefer.profile, host, userId, $i?.id, async (key, scope) => {
+			try {
+				const values = await misskeyApi('i/registry/get', { scope: ['client', 'preferences', 'sync'], key: `default:${key}` }, token) as [typeof scope, unknown][];
+				const target = values.find(([candidate]) => isSameScope(candidate, scope));
+				return target ? { value: target[1] } : null;
+			} catch (err) { if ((err as { code?: string }).code === 'NO_SUCH_KEY') return null; throw err; }
+		}, { visibility: store.s.visibility, localOnly: store.s.localOnly }) : undefined;
+		doPost(token, 'accept', palette, settings);
 	} catch {
 		authRoot.value?.showUI('failed');
 	}

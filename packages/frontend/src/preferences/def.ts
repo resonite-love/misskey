@@ -114,6 +114,14 @@ export const PREF_DEF = definePreferences({
 		accountDependent: true,
 		default: false,
 	},
+	gridspaceSettingsImportRequest: {
+		accountDependent: true,
+		default: null as string | null,
+	},
+	gridspaceSettingsApplied: {
+		accountDependent: true,
+		default: null as string | null,
+	},
 
 	emojiPalettes: {
 		serverDependent: true,
