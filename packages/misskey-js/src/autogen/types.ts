@@ -2385,6 +2385,34 @@ export type paths = {
          */
         post: operations['gridspace___member'];
     };
+    '/gridspace/private-file': {
+        /**
+         * gridspace/private-file
+         * @description No description provided.
+         *
+         *     **Credential required**: *Yes* / **Permission**: *read:gridspace-private*
+         */
+        post: operations['gridspace___private-file'];
+    };
+    '/gridspace/private-grant': {
+        /**
+         * gridspace/private-grant
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___private-grant'];
+    };
+    '/gridspace/private-notes': {
+        /**
+         * gridspace/private-notes
+         * @description No description provided.
+         *
+         *     **Credential required**: *Yes* / **Permission**: *read:gridspace-private*
+         */
+        post: operations['gridspace___private-notes'];
+    };
     '/gridspace/search': {
         /**
          * gridspace/search
@@ -24871,6 +24899,306 @@ export interface operations {
                         linked: boolean;
                         available: boolean;
                         accounts: components['schemas']['UserLite'][];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___private-file': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    noteId: string;
+                    fileId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        data: string;
+                        type: string;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___private-grant': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default status
+                     * @enum {string}
+                     */
+                    action?: 'status' | 'start' | 'finish' | 'revoke';
+                    state?: string;
+                    clientKey?: string;
+                    code?: string;
+                    issuer?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        enabled: boolean;
+                        granted: boolean;
+                        available: boolean;
+                        peerOrigin: string | null;
+                        authorizationUrl: string | null;
+                        clientKey: string | null;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___private-notes': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default home
+                     * @enum {string}
+                     */
+                    mode?: 'home' | 'search' | 'profile' | 'show' | 'validate';
+                    /** @enum {string} */
+                    contextMode?: 'home' | 'search' | 'profile' | 'show';
+                    query?: string;
+                    /** Format: misskey:id */
+                    userId?: string;
+                    noteId?: string;
+                    ids?: string[];
+                    rangeStartAt?: number;
+                    rangeEndAt?: number;
+                    /** @default true */
+                    withReplies?: boolean;
+                    /** @default true */
+                    withRenotes?: boolean;
+                    /** @default false */
+                    withFiles?: boolean;
+                    /** @default true */
+                    withChannelNotes?: boolean;
+                    /** @default 10 */
+                    limit?: number;
+                    cursor?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        notes: {
+                            id: string;
+                            createdAt: string;
+                            origin: string;
+                            text: string | null;
+                            cw: string | null;
+                            visibility: string;
+                            localOnly: boolean;
+                            author: {
+                                name: string | null;
+                                username: string;
+                                host: string;
+                                uri: string;
+                            };
+                            replyId: string | null;
+                            renoteId: string | null;
+                            files: {
+                                id: string;
+                                name: string;
+                                type: string;
+                                size: number;
+                                comment: string | null;
+                                isSensitive: boolean;
+                            }[];
+                            poll: {
+                                choices: {
+                                    text: string;
+                                    votes: number;
+                                }[];
+                                expiresAt: string | null;
+                                multiple: boolean;
+                            } | null;
+                        }[];
+                        cursor: string | null;
                     };
                 };
             };

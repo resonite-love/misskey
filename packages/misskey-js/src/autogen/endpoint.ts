@@ -405,6 +405,12 @@ import type {
 	GridspaceLinkResponse,
 	GridspaceMemberRequest,
 	GridspaceMemberResponse,
+	GridspacePrivateFileRequest,
+	GridspacePrivateFileResponse,
+	GridspacePrivateGrantRequest,
+	GridspacePrivateGrantResponse,
+	GridspacePrivateNotesRequest,
+	GridspacePrivateNotesResponse,
 	GridspaceSearchRequest,
 	GridspaceSearchResponse,
 	GridspaceSearchInfoResponse,
@@ -956,6 +962,9 @@ export type Endpoints = {
 	'gridspace/history': { req: GridspaceHistoryRequest; res: GridspaceHistoryResponse };
 	'gridspace/link': { req: GridspaceLinkRequest; res: GridspaceLinkResponse };
 	'gridspace/member': { req: GridspaceMemberRequest; res: GridspaceMemberResponse };
+	'gridspace/private-file': { req: GridspacePrivateFileRequest; res: GridspacePrivateFileResponse };
+	'gridspace/private-grant': { req: GridspacePrivateGrantRequest; res: GridspacePrivateGrantResponse };
+	'gridspace/private-notes': { req: GridspacePrivateNotesRequest; res: GridspacePrivateNotesResponse };
 	'gridspace/search': { req: GridspaceSearchRequest; res: GridspaceSearchResponse };
 	'gridspace/search-info': { req: EmptyRequest; res: GridspaceSearchInfoResponse };
 	'hashtags/list': { req: HashtagsListRequest; res: HashtagsListResponse };

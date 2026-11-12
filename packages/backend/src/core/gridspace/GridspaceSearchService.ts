@@ -54,7 +54,7 @@ export class GridspaceSearchService {
 
 	public info() { return { enabled: this.peer != null, origins: this.peer ? [this.peer.origin, this.peer.peerOrigin] : [] }; }
 
-	private async read<T extends ObjectLiteral>(query: SelectQueryBuilder<T>): Promise<T[]> {
+	public async read<T extends ObjectLiteral>(query: SelectQueryBuilder<T>): Promise<T[]> {
 		const runner = this.db.createQueryRunner();
 		try {
 			await runner.startTransaction();
@@ -68,7 +68,7 @@ export class GridspaceSearchService {
 		}
 	}
 
-	private userQuery(viewer: { id: string } | null) {
+	public userQuery(viewer: { id: string } | null) {
 		const query = this.db.getRepository(MiUser).createQueryBuilder('user')
 			.where('user.isDeleted = false AND user.isSuspended = false');
 		if (this.meta.blockedHosts.length) query.andWhere('(user.host IS NULL OR user.host NOT ILIKE ALL(ARRAY[:...blocked]))', { blocked: this.meta.blockedHosts.flatMap(host => [host, `%.${host}`]) });
@@ -81,14 +81,14 @@ export class GridspaceSearchService {
 		return query.orderBy('user.id', 'DESC');
 	}
 
-	private noteQuery(viewer: { id: string } | null, options: SearchOptions, source: boolean, authenticated = viewer != null) {
+	public noteQuery(viewer: { id: string } | null, options: SearchOptions, source: boolean, authenticated = viewer != null) {
 		const query = this.db.getRepository(MiNote).createQueryBuilder('note')
 			.innerJoinAndSelect('note.user', 'user')
 			.leftJoinAndSelect('note.channel', 'channel')
 			.leftJoinAndSelect('note.reply', 'reply').leftJoinAndSelect('reply.user', 'replyUser')
 			.leftJoinAndSelect('note.renote', 'renote').leftJoinAndSelect('renote.user', 'renoteUser')
-			.where('(note.text ILIKE :q OR note.cw ILIKE :q)', { q: `%${sqlLikeEscape(options.query)}%` })
-			.andWhere('user.isDeleted = false');
+			.where('user.isDeleted = false');
+		if (options.query) query.andWhere('(note.text ILIKE :q OR note.cw ILIKE :q)', { q: `%${sqlLikeEscape(options.query)}%` });
 		this.queries.generateBaseNoteFilteringQuery(query, viewer);
 		// These settings can hide an otherwise public note. Filter before matching/paging,
 		// so neither an ID nor a continuation token reveals a match in hidden text.

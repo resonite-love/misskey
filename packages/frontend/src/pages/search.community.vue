@@ -6,6 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <div class="_gaps" :aria-busy="loading">
 	<MkInfo>{{ i18n.ts._gridspace.searchScope }}</MkInfo>
+	<MkGridspacePrivateNotes v-if="$i && (params.kind ?? 'notes') === 'notes'" :params="{ mode: 'search', query: params.query, userId: params.userId, rangeStartAt: params.rangeStartAt, rangeEndAt: params.rangeEndAt }"/>
 	<div :class="$style.results">
 		<div v-for="note in displayedNotes" :key="note.id" :class="$style.entry">
 			<MkNote :note="note" :withHardMute="true"/>
@@ -37,6 +38,7 @@ import * as Misskey from 'misskey-js';
 import MkNote from '@/components/MkNote.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
+import MkGridspacePrivateNotes from '@/components/MkGridspacePrivateNotes.vue';
 import { i18n } from '@/i18n.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { userPage } from '@/filters/user.js';

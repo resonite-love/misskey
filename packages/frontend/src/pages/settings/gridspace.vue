@@ -27,6 +27,16 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<MkButton :disabled="busy" @click="refresh">{{ i18n.ts.reload }}</MkButton>
 			</div>
 			<MkInfo v-if="status.lastError" warn>{{ errorLabel(status.lastError) }}</MkInfo>
+			<section v-if="status.state === 'active'" class="_gaps_s">
+				<h2>{{ i18n.ts._gridspace.privateTitle }}</h2>
+				<p>{{ i18n.ts._gridspace.privateConsent }}</p>
+				<MkInfo v-if="readGrant?.granted">{{ i18n.ts._gridspace.privateGranted }}</MkInfo>
+				<div class="_buttons">
+					<MkButton :disabled="busy" @click="startPrivate">{{ i18n.ts._gridspace.privateAuthorize }}</MkButton>
+					<MkButton v-if="readGrant?.granted" danger :disabled="busy" @click="revokePrivate">{{ i18n.ts._gridspace.privateRevoke }}</MkButton>
+				</div>
+				<MkA to="/gridspace/private">{{ i18n.ts._gridspace.privateHome }}</MkA>
+			</section>
 			<template v-if="status.total">
 				<div aria-live="polite">{{ i18n.tsx._gridspace.progress({ total: status.total, done: status.done, pending: status.pending, requested: status.requested, failed: status.failed, skipped: status.skipped }) }}</div>
 				<div v-for="item in status.items" :key="item.uri" :class="$style.item">
@@ -53,6 +63,7 @@ import { definePage } from '@/page.js';
 import * as os from '@/os.js';
 
 const status = ref<entities.GridspaceLinkResponse | null>(null);
+const readGrant = ref<entities.GridspacePrivateGrantResponse | null>(null);
 const busy = ref(false);
 const error = ref('');
 const storageKey = `gridspace-link:${$i?.id}`;
@@ -91,7 +102,10 @@ async function perform(action: () => Promise<void>) {
 }
 
 async function refresh() {
-	await perform(async () => { status.value = await misskeyApi('gridspace/link', { action: 'status' }); });
+	await perform(async () => {
+		status.value = await misskeyApi('gridspace/link', { action: 'status' });
+		readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' });
+	});
 }
 
 async function start() {
@@ -99,7 +113,24 @@ async function start() {
 		const result = await misskeyApi('gridspace/link', { action: 'start' });
 		if (!result.authorizationUrl || !result.clientKey) throw new Error('Missing authorization URL');
 		sessionStorage.setItem(storageKey, result.clientKey);
+		sessionStorage.setItem(`${storageKey}:purpose`, 'link');
 		window.location.assign(result.authorizationUrl);
+	});
+}
+
+async function startPrivate() {
+	await perform(async () => {
+		const result = await misskeyApi('gridspace/private-grant', { action: 'start' });
+		if (!result.authorizationUrl || !result.clientKey) throw new Error('Missing authorization URL');
+		sessionStorage.setItem(storageKey, result.clientKey);
+		sessionStorage.setItem(`${storageKey}:purpose`, 'private');
+		window.location.assign(result.authorizationUrl);
+	});
+}
+
+async function revokePrivate() {
+	await perform(async () => {
+		try { readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'revoke' }); } finally { readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' }); }
 	});
 }
 
@@ -123,8 +154,11 @@ onMounted(async () => {
 		const clientKey = sessionStorage.getItem(storageKey);
 		if (query.has('code') && clientKey && query.get('state') && query.get('iss')) {
 			await perform(async () => {
-				status.value = await misskeyApi('gridspace/link', { action: 'finish', state: query.get('state')!, code: query.get('code')!, issuer: query.get('iss')!, clientKey });
+				const input = { action: 'finish' as const, state: query.get('state')!, code: query.get('code')!, issuer: query.get('iss')!, clientKey };
+				if (sessionStorage.getItem(`${storageKey}:purpose`) === 'private') readGrant.value = await misskeyApi('gridspace/private-grant', input);
+				else status.value = await misskeyApi('gridspace/link', input);
 				sessionStorage.removeItem(storageKey);
+				sessionStorage.removeItem(`${storageKey}:purpose`);
 			});
 		} else {
 			error.value = i18n.ts._gridspace.authorizationError;
@@ -133,6 +167,8 @@ onMounted(async () => {
 	if (!status.value) {
 		try { status.value = await misskeyApi('gridspace/link', { action: 'status' }); } catch { error.value ||= i18n.ts._gridspace.connectionError; }
 	}
+	if (stopped) return;
+	try { readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' }); } catch { error.value ||= i18n.ts._gridspace.connectionError; }
 	if (stopped) return;
 	poll = window.setInterval(() => { if (status.value?.pending && !busy.value) void refresh(); }, 3000);
 });

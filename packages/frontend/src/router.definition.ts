@@ -263,6 +263,11 @@ export const ROUTE_DEF = [{
 		origin: 'origin',
 	},
 }, {
+	path: '/gridspace/private',
+	component: page(() => import('@/pages/gridspace-private.vue')),
+	loginRequired: true,
+	query: { noteId: 'noteId' },
+}, {
 	// Legacy Compatibility
 	path: '/authorize-follow',
 	redirect: '/lookup',

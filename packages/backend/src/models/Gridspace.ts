@@ -24,6 +24,9 @@ export class MiGridspaceLink {
 	@Column('boolean') public initiator: boolean;
 	@Column('varchar', { length: 16 }) public state: 'preparing' | 'active' | 'revoked';
 	@Column('text', { nullable: true }) public tokenCipher: string | null;
+	@Column('text', { nullable: true }) public privateTokenCipher: string | null;
+	@Column('text', { nullable: true }) public privateRevocationCipher: string | null;
+	@Column('varchar', { length: 64, nullable: true }) public privateTokenHash: string | null;
 	@Column('jsonb', { nullable: true }) public snapshot: GridspaceSnapshotItem[] | null;
 	@Column('timestamp with time zone', { nullable: true }) public snapshotAt: Date | null;
 	@Column('timestamp with time zone') public createdAt: Date;
@@ -33,6 +36,7 @@ export class MiGridspaceLink {
 @Entity('gridspace_auth_session')
 export class MiGridspaceAuthSession {
 	@PrimaryColumn('uuid') public id: string;
+	@Column('varchar', { length: 16, default: 'link' }) public purpose: 'link' | 'private';
 	@Index() @Column(id()) public localUserId: string;
 	@ManyToOne(() => MiUser, { onDelete: 'CASCADE' }) @JoinColumn() public localUser: MiUser | null;
 	@Index({ unique: true }) @Column('varchar', { length: 64 }) public stateHash: string;

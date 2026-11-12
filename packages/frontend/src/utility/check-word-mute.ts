@@ -44,10 +44,13 @@ function getCleanedKeywords(filter: string[]): string[] {
 export function checkWordMute(note: Misskey.entities.Note, me: Misskey.entities.UserLite | null | undefined, mutedWords: Array<string | string[]>): WordMuteResult {
 	// 自分自身
 	if (me && (note.userId === me.id)) return false;
+	return checkTextWordMute((note.cw ?? '') + '\n' + (note.text ?? ''), mutedWords);
+}
 
+export function checkTextWordMute(value: string, mutedWords: Array<string | string[]>): WordMuteResult {
 	if (mutedWords.length === 0) return false;
 
-	const text = ((note.cw ?? '') + '\n' + (note.text ?? '')).trim();
+	const text = value.trim();
 
 	if (text !== '') {
 		const matched = mutedWords.filter(filter => {

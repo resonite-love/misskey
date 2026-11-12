@@ -33,6 +33,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		>
 		</MkTab>
 	</template>
+	<MkGridspacePrivateNotes v-if="tab !== 'featured'" :params="{ mode: 'profile', userId: user.id, withReplies: tab === 'all', withRenotes: tab === 'all', withFiles: tab === 'files', withChannelNotes: tab === 'all' }"/>
 	<MkNotesTimeline v-if="tab === 'featured'" :noGap="true" :paginator="featuredPaginator" :pullToRefresh="false" :class="$style.tl"/>
 	<XLinkedHistory v-else-if="member?.available && member.linked" ref="linkedHistory" :userId="user.id" :withReplies="tab === 'all'" :withRenotes="tab === 'all'" :withFiles="tab === 'files'" :withChannelNotes="tab === 'all'" @unavailable="loadMember"/>
 	<MkNotesTimeline v-else :noGap="true" :paginator="notesPaginator" :pullToRefresh="false" :class="$style.tl"/>
@@ -43,6 +44,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 import { ref, computed, markRaw, watch, onBeforeUnmount, useTemplateRef } from 'vue';
 import * as Misskey from 'misskey-js';
 import MkNotesTimeline from '@/components/MkNotesTimeline.vue';
+import MkGridspacePrivateNotes from '@/components/MkGridspacePrivateNotes.vue';
 import MkTab from '@/components/MkTab.vue';
 import MkButton from '@/components/MkButton.vue';
 import XLinkedHistory from './linked-history.vue';

@@ -1,0 +1,111 @@
+<!--
+SPDX-FileCopyrightText: syuilo and misskey-project
+SPDX-License-Identifier: AGPL-3.0-only
+-->
+
+<template>
+<article :class="$style.note" data-gridspace-private-note>
+	<header :class="$style.header">
+		<strong>{{ note.author.name || note.author.username }}</strong>
+		<span :class="$style.account">@{{ note.author.username }}@{{ note.author.host }}</span>
+		<MkA :to="`/gridspace/private?noteId=${note.id}`"><MkTime :time="note.createdAt"/></MkA>
+		<span><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateReadOnly }}</span>
+	</header>
+	<details v-if="note.cw != null" :class="$style.body" :open="expanded" @toggle="toggleContent">
+		<summary>{{ note.cw || i18n.ts._gridspace.privateContentWarning }}</summary>
+		<div :class="$style.text">{{ note.text }}</div>
+	</details>
+	<div v-else :class="[$style.body, $style.text]">{{ note.text }}</div>
+	<div v-if="note.cw == null || expanded" class="_gaps_s">
+		<div v-for="file in note.files" :key="file.id" class="_gaps_s">
+			<MkButton v-if="!blobs[file.id]" small :disabled="loading === file.id" @click="loadFile(file.id)">
+				{{ file.isSensitive ? i18n.ts._gridspace.privateSensitiveFile : i18n.ts._gridspace.privateFile }}: {{ file.name }}
+			</MkButton>
+			<template v-else>
+				<img v-if="imageTypes.includes(file.type)" :src="blobs[file.id]" :alt="file.comment || file.name" :class="$style.media">
+				<video v-else-if="file.type.startsWith('video/')" :src="blobs[file.id]" controls :class="$style.media"></video>
+				<audio v-else-if="file.type.startsWith('audio/')" :src="blobs[file.id]" controls :class="$style.media"></audio>
+				<a :href="blobs[file.id]" :download="file.name">{{ file.name }}</a>
+				<MkButton small @click="clearFile(file.id)">{{ i18n.ts.hide }}</MkButton>
+			</template>
+		</div>
+		<ul v-if="note.poll">
+			<li v-for="(choice, index) in note.poll.choices" :key="index">{{ choice.text }} — {{ choice.votes }}</li>
+		</ul>
+	</div>
+	<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateFileError }}</p>
+	<footer class="_buttons">
+		<MkA v-if="note.replyId" :to="`/gridspace/private?noteId=${note.replyId}`">{{ i18n.ts._gridspace.privateReply }}</MkA>
+		<MkA v-if="note.renoteId" :to="`/gridspace/private?noteId=${note.renoteId}`">{{ i18n.ts._gridspace.privateRenote }}</MkA>
+	</footer>
+</article>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onDeactivated, ref, watch } from 'vue';
+import type { entities } from 'misskey-js';
+import MkButton from '@/components/MkButton.vue';
+import { misskeyApi } from '@/utility/misskey-api.js';
+import { i18n } from '@/i18n.js';
+
+const props = defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number] }>();
+const emit = defineEmits<{ (event: 'unavailable'): void }>();
+const expanded = ref(false);
+const blobs = ref<Record<string, string>>({});
+const loading = ref<string | null>(null);
+const error = ref(false);
+const imageTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'];
+let generation = 0;
+
+function clearFile(id: string) {
+	if (blobs.value[id]) URL.revokeObjectURL(blobs.value[id]);
+	delete blobs.value[id];
+}
+
+function clear() {
+	generation++;
+	for (const id of Object.keys(blobs.value)) clearFile(id);
+	loading.value = null;
+}
+
+function toggleContent(event: Event) {
+	expanded.value = (event.target as HTMLDetailsElement).open;
+	if (!expanded.value) clear();
+}
+
+async function loadFile(fileId: string) {
+	if (loading.value) return;
+	const current = generation;
+	loading.value = fileId;
+	error.value = false;
+	try {
+		const result = await misskeyApi('gridspace/private-file', { noteId: props.note.id, fileId }, undefined, AbortSignal.timeout(15000));
+		if (current !== generation) return;
+		const data = Uint8Array.from(atob(result.data), character => character.charCodeAt(0));
+		const type = imageTypes.includes(result.type) || /^(?:video|audio)\//.test(result.type) ? result.type : 'application/octet-stream';
+		blobs.value[fileId] = URL.createObjectURL(new Blob([data], { type }));
+	} catch {
+		if (current !== generation) return;
+		error.value = true;
+		clear();
+		emit('unavailable');
+	} finally { if (current === generation) loading.value = null; }
+}
+
+watch(() => props.note.id, clear);
+watch(() => props.note.cw, () => { expanded.value = false; clear(); });
+watch(() => props.note.files, files => {
+	for (const id of Object.keys(blobs.value)) if (!files.some(file => file.id === id)) clearFile(id);
+});
+onBeforeUnmount(clear);
+onDeactivated(clear);
+</script>
+
+<style lang="scss" module>
+.note { padding: 20px; border-bottom: 1px solid var(--MI_THEME-divider); overflow-wrap: anywhere; }
+.header { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+.account { color: var(--MI_THEME-fgTransparentWeak); font-size: 0.85em; }
+.body { margin-block: 12px; }
+.text { white-space: pre-wrap; }
+.media { display: block; max-width: 100%; max-height: 420px; }
+</style>

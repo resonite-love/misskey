@@ -144,6 +144,17 @@ node scripts/gridspace/test-search-ui.mjs
 
 実際の停止・復旧は `node scripts/gridspace/test-search-outage.mjs prepare`、R の Misskey プロセスを停止して `during`、R を再開して `after` の順に実行する。これらの引数を省略しない。試験スクリプト自体はプロセスを停止しない。DB・Redis・トンネルは停止する必要がない。
 
+### 旧アカウントの権限で読む限定投稿の試験
+
+```powershell
+node scripts/gridspace/test-private.mjs
+node scripts/gridspace/test-private-ui.mjs
+```
+
+実 OAuth で追加認可し、フォロワー限定・宛先限定の閲覧と検索、呼び出し元のスコープ、本文・CW・添付、解除・失効、両方向の取得を確かめる。専用アカウントと履歴行を作り、一時ロールは終了時に削除する。認証情報は Git 管理外の `.config/gridspace-private-test-accounts.json` に保存する。画面試験は Chrome を使い、画像を `.config/private-search-*.png` に保存する。
+
+実際の停止・復旧は `node scripts/gridspace/test-private-outage.mjs prepare`、R の Misskey プロセスを停止して `during`、再起動して `after` の順に行う。停止中の閲覧拒否と許可取り消し、復旧後の失効通知の再送を確認する。最後にテストアカウントだけを再認可する。DB・Redis・トンネルは停止しない。
+
 ## 停止と再開
 
 試験環境を停止する場合は Misskey 本体とトンネルを停止し、次を実行する。DB のボリュームは保持される。

@@ -9569,6 +9569,10 @@ export interface Locale extends ILocale {
          */
         "read:account": string;
         /**
+         * 連携したアカウントの権限で限定投稿と添付ファイルを閲覧・検索する
+         */
+        "read:gridspace-private": string;
+        /**
          * アカウントの情報を変更する
          */
         "write:account": string;
@@ -13676,11 +13680,71 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * 連携先の権限で読む投稿
+         */
+        "privateTitle": string;
+        /**
+         * 連携先のアカウントが読める限定公開の投稿と添付ファイルを、このアカウントから閲覧・検索できるようにします。追加の認可が必要です。投稿や返信の権限は含みません。
+         */
+        "privateConsent": string;
+        /**
+         * 連携先で閲覧を許可する
+         */
+        "privateAuthorize": string;
+        /**
+         * 限定投稿の閲覧が許可されています。
+         */
+        "privateGranted": string;
+        /**
+         * 限定投稿の閲覧を解除する
+         */
+        "privateRevoke": string;
+        /**
+         * 連携先の限定投稿を読む
+         */
+        "privateHome": string;
+        /**
+         * 連携先のアカウントで読める限定投稿です。本文・CWを検索でき、添付ファイルも閲覧できます。表示中の投稿は定期的に権限を確認します。
+         */
+        "privateScope": string;
+        /**
+         * 閲覧のみ
+         */
+        "privateReadOnly": string;
+        /**
+         * 添付ファイルを表示
+         */
+        "privateFile": string;
+        /**
+         * センシティブな添付ファイルを表示
+         */
+        "privateSensitiveFile": string;
+        /**
+         * ファイルを取得できませんでした。権限が変わったか、連携先に接続できない可能性があります。16 MiBを超えるファイルは未対応です。
+         */
+        "privateFileError": string;
+        /**
+         * 返信先を読む
+         */
+        "privateReply": string;
+        /**
+         * 引用元を読む
+         */
+        "privateRenote": string;
+        /**
+         * 内容を表示
+         */
+        "privateContentWarning": string;
+        /**
+         * 限定投稿を取得できないため、表示を消しました。連携先への接続と閲覧の許可を確認して再試行してください。
+         */
+        "privateUnavailable": string;
+        /**
          * 両サーバー
          */
         "searchBoth": string;
         /**
-         * 両サーバーの名前・ユーザー名、投稿の本文・CWを検索します。人物を指定すると連携アカウントも対象になります。限定公開の投稿は、このサーバーに届いていて今のアカウントで読めるものが対象です。
+         * 両サーバーの名前・ユーザー名、投稿の本文・CWを検索します。人物を指定すると連携アカウントも対象になります。限定公開の投稿は今のアカウントで読めるものに加え、追加の閲覧許可があれば連携先のアカウントで読めるものも表示します。
          */
         "searchScope": string;
         /**
@@ -13728,7 +13792,7 @@ export interface Locale extends ILocale {
          */
         "permissions": string;
         /**
-         * 連携先の新しい公開投稿は、ローカル限定を含めてLTLに表示されます。ホームにはフォロー先と連携した自分の投稿が届きます。投稿者は元のサーバーのアカウントで表示します。鍵アカウントには新しいアカウントへの承認が必要です。過去投稿の一括取得は未対応です。ミュート・ブロック中の相手はフォローのコピーを省略します。
+         * 連携先の新しい公開投稿は、ローカル限定を含めてLTLに表示されます。ホームにはフォロー先と連携した自分の投稿が届きます。鍵アカウントへのフォローには新しいアカウントの承認が必要です。連携先だけで読める限定投稿は、下の設定で閲覧を許可すると検索やプロフィールから読めます。ミュート・ブロック中の相手はフォローのコピーを省略します。
          */
         "scope": string;
         /**

@@ -5,7 +5,8 @@
 
 import { GRIDSPACE_NONCE_TTL_MS, GRIDSPACE_PROTOCOL_VERSION, verifyGridspaceRequest } from '@/core/gridspace/peer-protocol.js';
 import type { GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
-import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH } from '@/core/gridspace/link-crypto.js';
+import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH, GRIDSPACE_PRIVATE_CLIENT_PATH } from '@/core/gridspace/link-crypto.js';
+import { privateOptionsSchema, type PrivatePeerRequest } from '@/core/gridspace/private-protocol.js';
 import type { GridspacePeerLinkRequest } from '@/core/gridspace/GridspaceLinkService.js';
 import type { HistoryPeerRequest } from '@/core/gridspace/history-protocol.js';
 import type { SearchPeerRequest } from '@/core/gridspace/search-protocol.js';
@@ -14,7 +15,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 export type ClaimGridspaceNonce = (key: string, ttlMs: number) => Promise<boolean>;
 
 /** Mounted under /gridspace/v1; independent from user-authorized /api endpoints. */
-export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>): void {
+export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>): void {
 	if (config === null) return;
 	// Preserve wire bytes for the signature without changing other server plugins' parsers.
 	const parseJson = fastify.getDefaultJsonParser('error', 'error');
@@ -58,7 +59,7 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			origin: config.origin,
 			peerOrigin: config.peerOrigin,
 			// Only advertise features once their authorization and persistence are implemented.
-			features: [...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : []), ...(history ? ['member-history'] : []), ...(search ? ['community-search'] : [])],
+			features: [...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : []), ...(history ? ['member-history'] : []), ...(search ? ['community-search'] : []), ...(privateAction ? ['private-note-read'] : [])],
 		};
 	});
 	if (search) {
@@ -107,6 +108,32 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			}, async (request, reply) => {
 				try { return await notes(name, request.body.noteId); } catch {
 					return reply.code(503).send({ error: 'PEER_NOTE_UNAVAILABLE' });
+				}
+			});
+		}
+	}
+	if (privateAction) {
+		fastify.get('/private-oauth-client', async () => ({
+			client_id: config.origin + GRIDSPACE_PRIVATE_CLIENT_PATH, client_uri: config.origin + '/',
+			client_name: 'GridSpace private note reader', redirect_uris: [config.origin + GRIDSPACE_CALLBACK_PATH],
+		}));
+		for (const name of ['authorize', 'check', 'revoke', 'notes', 'file']) {
+			const { userId: _userId, ...readOptions } = privateOptionsSchema;
+			fastify.post<{ Body: PrivatePeerRequest }>(`/private/${name}`, {
+				bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
+				schema: { body: { type: 'object', additionalProperties: false, required: ['accessToken', 'linkId', 'generation', 'localUserId'], properties: {
+					...readOptions,
+					accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' },
+					generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+					targetUris: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'string', maxLength: 512 } },
+					before: readOptions.noteId, head: readOptions.noteId, fileId: readOptions.noteId,
+					limit: { type: 'integer', minimum: 1, maximum: 20, default: 10 },
+				} } },
+			}, async (request, reply) => {
+				try { return await privateAction(name, request.body); } catch (error) {
+					const code = error instanceof Error && 'code' in error ? error.code : null;
+					const known = ['AUTHORIZATION_REVOKED', 'LINK_REVOKED'];
+					return reply.code(403).send({ error: typeof code === 'string' && known.includes(code) ? code : 'PEER_UNAVAILABLE' });
 				}
 			});
 		}
