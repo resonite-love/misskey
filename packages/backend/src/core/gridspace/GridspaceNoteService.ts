@@ -17,6 +17,8 @@ import { ApResolverService } from '@/core/activitypub/ApResolverService.js';
 import { NoteCreateService } from '@/core/NoteCreateService.js';
 import { NoteDeleteService } from '@/core/NoteDeleteService.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
+import { IdService } from '@/core/IdService.js';
+import { shouldHideNoteByTime } from '@/misc/should-hide-note-by-time.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { acquireApObjectLock } from '@/misc/distributed-lock.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
@@ -33,6 +35,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		@Inject(DI.config) private config: Config,
 		@Inject(DI.db) private db: DataSource,
 		@Inject(DI.redis) private redis: Redis.Redis,
+		private ids: IdService,
 		private renderer: ApRendererService,
 		private apNotes: ApNoteService,
 		private resolvers: ApResolverService,
@@ -82,13 +85,17 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		if (!this.peer) throw new Error('GridSpace disabled');
 		const note = await this.db.transaction(async manager => {
 			const current = await manager.findOne(MiNote, { where: { id: noteId }, lock: { mode: 'pessimistic_write' } });
-			if (!current || current.userHost != null || !canShareGridspaceNote(current)) return null;
+			if (!current) return null;
+			if (current.userHost != null || !canShareGridspaceNote(current)) return false;
 			const user = await manager.findOneBy(MiUser, { id: current.userId });
-			if (!user || user.isSuspended || user.isDeleted) return null;
+			if (!user || user.isSuspended || user.isDeleted) return false;
+			const createdAt = this.ids.parse(current.id).date;
+			if (shouldHideNoteByTime(user.makeNotesHiddenBefore, createdAt) || shouldHideNoteByTime(user.makeNotesFollowersOnlyBefore, createdAt)) return false;
 			await manager.update(MiNote, current.id, { gridspaceShared: true });
 			return current;
 		});
-		if (!note) return { deleted: true, notes: [] };
+		if (note === null) return { deleted: true, notes: [] };
+		if (note === false) return { deleted: false, unavailable: true, notes: [] };
 		const result = { deleted: false, notes: [{ object: await this.renderer.renderNote(note, false), localOnly: note.localOnly, reactionAcceptance: note.reactionAcceptance }] };
 		if (Buffer.byteLength(JSON.stringify(result)) > GRIDSPACE_NOTE_BODY_LIMIT) throw new Error('Note too large');
 		return result;
@@ -102,7 +109,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 
 	public async historyNote(noteId: string, budget: { remaining: number; deadline: number }): Promise<MiNote | null> {
 		if (!this.peer) throw new Error('GridSpace disabled');
-		await this.importNote(noteId, new Set(), false, budget);
+		if (!await this.importNote(noteId, new Set(), false, budget)) return null;
 		return this.apNotes.fetchNote(`${this.peer.peerOrigin}/notes/${noteId}`);
 	}
 
@@ -113,6 +120,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		if (visiting.has(uri)) throw new Error('Cyclic note references');
 		visiting.add(uri);
 		const bundle = validateGridspaceBundle(await this.request('read', noteId, budget?.deadline), this.peer.peerOrigin, noteId);
+		if (bundle.unavailable) { visiting.delete(uri); return false; }
 		const entry = bundle.notes[0];
 		const resolver = budget ? await this.resolvers.createResolver() : undefined;
 		if (resolver) resolver.historyBudget = budget;

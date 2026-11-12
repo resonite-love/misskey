@@ -40,6 +40,7 @@ import type { AccountMoveService } from '@/core/AccountMoveService.js';
 import { checkHttps } from '@/misc/check-https.js';
 import { getApId, getApType, getOneApHrefNullable, isActor, isCollection, isCollectionOrOrderedCollection, isPropertyValue } from '../type.js';
 import { extractApHashtags } from './tag.js';
+import { actorVisibility } from './actor-visibility.js';
 import type { OnModuleInit } from '@nestjs/common';
 import type { ApNoteService } from './ApNoteService.js';
 import type { ApMfmService } from '../ApMfmService.js';
@@ -389,9 +390,7 @@ export class ApPersonService implements OnModuleInit {
 					tags,
 					isBot,
 					isCat: (person as any).isCat === true,
-					requireSigninToViewContents: (person as any).requireSigninToViewContents === true,
-					makeNotesFollowersOnlyBefore: (person as any).makeNotesFollowersOnlyBefore ?? null,
-					makeNotesHiddenBefore: (person as any).makeNotesHiddenBefore ?? null,
+				...actorVisibility(person),
 					emojis,
 				})) as MiRemoteUser;
 
@@ -556,6 +555,7 @@ export class ApPersonService implements OnModuleInit {
 		}
 
 		const updates = {
+			...actorVisibility(person),
 			lastFetchedAt: new Date(),
 			inbox: person.inbox,
 			sharedInbox: person.sharedInbox ?? person.endpoints?.sharedInbox ?? null,

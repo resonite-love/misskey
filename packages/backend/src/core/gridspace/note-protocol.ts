@@ -9,7 +9,7 @@ import type { IPost } from '@/core/activitypub/type.js';
 export const GRIDSPACE_NOTE_PATH = '/gridspace/v1/notes/';
 export const GRIDSPACE_NOTE_BODY_LIMIT = 2 * 1024 * 1024;
 export type GridspaceNoteEntry = { object: IPost; localOnly: boolean; reactionAcceptance: MiNote['reactionAcceptance'] };
-export type GridspaceNoteBundle = { deleted: boolean; notes: GridspaceNoteEntry[] };
+export type GridspaceNoteBundle = { deleted: boolean; unavailable?: boolean; notes: GridspaceNoteEntry[] };
 
 export function canShareGridspaceNote(note: { visibility: string; channelId: string | null }): boolean {
 	return !note.channelId && (note.visibility === 'public' || note.visibility === 'home');
@@ -37,6 +37,11 @@ export function gridspaceNoteUris(uri: string, peerUrl?: string): string[] {
 export function validateGridspaceBundle(value: unknown, origin: string, rootId: string): GridspaceNoteBundle {
 	const bundle = value as GridspaceNoteBundle | null;
 	if (!bundle || typeof bundle.deleted !== 'boolean' || !Array.isArray(bundle.notes) || bundle.notes.length > 64) throw new Error('Invalid bundle');
+	if (bundle.unavailable !== undefined && typeof bundle.unavailable !== 'boolean') throw new Error('Invalid availability');
+	if (bundle.unavailable) {
+		if (bundle.deleted || bundle.notes.length !== 0) throw new Error('Invalid unavailable note');
+		return bundle;
+	}
 	if (bundle.deleted) {
 		if (bundle.notes.length !== 0) throw new Error('Invalid deletion');
 		return bundle;

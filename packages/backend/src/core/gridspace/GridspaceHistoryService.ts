@@ -22,6 +22,8 @@ import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protoco
 import { requestGridspacePeer } from './peer-client.js';
 import { decodeHistoryCursor, encodeHistoryCursor, mergeHistory, validateHistoryPage, type HistoryOptions, type HistoryPeerRequest, type HistoryViewOptions } from './history-protocol.js';
 
+import { filterNoteVisibility, noteNewerThanPolicySql, searchNoteTimeSql } from './search-visibility.js';
+
 export class GridspaceHistoryError extends Error {
 	constructor(public readonly code: 'LINK_UNAVAILABLE' | 'INVALID_CURSOR' | 'PEER_UNAVAILABLE') { super(code); }
 }
@@ -29,6 +31,7 @@ export class GridspaceHistoryError extends Error {
 @Injectable()
 export class GridspaceHistoryService {
 	private readonly peer: GridspacePeerConfig | null;
+	private readonly noteTime: string;
 
 	constructor(
 		@Inject(DI.db) private db: DataSource,
@@ -40,7 +43,10 @@ export class GridspaceHistoryService {
 		private notes: NoteEntityService,
 		private people: ApPersonService,
 		private sharedNotes: GridspaceNoteService,
-	) { this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env); }
+	) {
+		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
+		this.noteTime = searchNoteTimeSql(config.id);
+	}
 
 	public async findLink(userId: string): Promise<MiGridspaceLink | null> {
 		if (!this.peer) return null;
@@ -102,12 +108,13 @@ export class GridspaceHistoryService {
 		return query.orderBy('note.id', 'DESC');
 	}
 
-	private query(userId: string, viewer: { id: string } | null, options: HistoryOptions, before?: string, head?: string) {
+	private query(userId: string, viewer: { id: string } | null, options: HistoryOptions, before?: string, head?: string, authenticated = viewer != null) {
 		// Only public/home posts cross the peer API, even when its authenticated visitor is unknown here.
 		const query = this.baseQuery(viewer, options)
 			.andWhere('note.userId = :author', { author: userId })
 			.andWhere('note.channelId IS NULL')
 			.andWhere('note.visibility IN (:...visibility)', { visibility: ['public', 'home'] });
+		filterNoteVisibility(query, this.noteTime, viewer, true, authenticated);
 		if (before) query.andWhere('note.id < :before', { before });
 		if (head) query.andWhere('note.id <= :head', { head });
 		return query;
@@ -120,9 +127,11 @@ export class GridspaceHistoryService {
 					peer.where('user.uri = :peerAuthor', { peerAuthor: `${this.peer!.peerOrigin}/users/${link.peerUserId}` });
 					// Public peer posts have their own source keyset. Only already-delivered restricted
 					// posts join this server's keyset; linking never delegates the peer account's rights.
-					if (!includePeerPublic) peer.andWhere("(note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL)");
+					if (!includePeerPublic) peer.andWhere(`(note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL
+						OR NOT ${noteNewerThanPolicySql(this.noteTime, 'makeNotesFollowersOnlyBefore')})`);
 				}));
 		}));
+		filterNoteVisibility(query, this.noteTime, viewer, false);
 		this.queries.generateVisibilityQuery(query, viewer);
 		if (!viewer) this.queries.generateUgcVisibilityQueryForVisitor(query);
 		if (!options.withChannelNotes) {
@@ -150,7 +159,7 @@ export class GridspaceHistoryService {
 		if (!input.viewerId && this.meta.ugcVisibilityForVisitor === 'none') return { active: true, items: [] };
 		// A signed peer assertion authenticates its local visitor, even before their actor is cached here.
 		const viewer = input.viewerId ? await this.db.getRepository(MiUser).findOneBy({ uri: `${this.peer.peerOrigin}/users/${input.viewerId}` }) : null;
-		const query = this.query(input.userId, viewer, input, input.before, input.head);
+		const query = this.query(input.userId, viewer, input, input.before, input.head, input.viewerId != null);
 		const notes = await query.take(input.limit).getMany();
 		return { active: true, items: notes.map(note => ({ id: note.id, date: this.ids.parse(note.id).date.getTime() })) };
 	}

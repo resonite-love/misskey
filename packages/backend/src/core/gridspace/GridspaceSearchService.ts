@@ -25,7 +25,7 @@ import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protoco
 import { requestGridspacePeer } from './peer-client.js';
 import { decodeHistoryCursor, encodeHistoryCursor, mergeHistory, validateHistoryPage } from './history-protocol.js';
 import type { SearchOptions, SearchPeerRequest } from './search-protocol.js';
-import { searchNoteTimeSql } from './search-visibility.js';
+import { filterNoteVisibility, searchNoteTimeSql } from './search-visibility.js';
 
 export class GridspaceSearchError extends Error {
 	constructor(public readonly code: 'UNAVAILABLE' | 'INVALID_CURSOR' | 'LINK_UNAVAILABLE') { super(code); }
@@ -92,18 +92,10 @@ export class GridspaceSearchService {
 		this.queries.generateBaseNoteFilteringQuery(query, viewer);
 		// These settings can hide an otherwise public note. Filter before matching/paging,
 		// so neither an ID nor a continuation token reveals a match in hidden text.
-		const newerThan = (field: string) => `("user"."${field}" IS NULL OR ${this.noteTime} > CASE WHEN "user"."${field}" > 0 THEN "user"."${field}"::bigint * 1000 ELSE :nowMs::bigint + "user"."${field}"::bigint * 1000 END)`;
-		query.setParameters({ nowMs: Date.now(), privacyViewer: viewer?.id ?? null });
-		if (!authenticated) query.andWhere('user.requireSigninToViewContents = false');
-		query.andWhere(`(note.userId = :privacyViewer OR ${newerThan('makeNotesHiddenBefore')})`);
+		filterNoteVisibility(query, this.noteTime, viewer, source, authenticated);
 		if (source) {
 			query.andWhere("note.userHost IS NULL AND note.channelId IS NULL AND note.visibility IN ('public', 'home')");
-			// A dynamically followers-only note must not enter the shared public cache either.
-			query.andWhere(newerThan('makeNotesFollowersOnlyBefore'));
 		} else {
-			query.andWhere(`(note.visibility NOT IN ('public', 'home') OR ${newerThan('makeNotesFollowersOnlyBefore')}
-				OR note.userId = :privacyViewer OR note.replyUserId = :privacyViewer OR :privacyViewer = ANY(note.mentions)
-				OR EXISTS (SELECT 1 FROM following f WHERE f."followerId" = :privacyViewer AND f."followeeId" = note."userId"))`);
 			this.queries.generateVisibilityQuery(query, viewer);
 			// The general timeline helper also admits mentions. A mention alone is not
 			// a recipient of a specified note and must not reveal a search match.
