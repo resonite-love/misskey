@@ -17,7 +17,8 @@ import { MiAvatarDecoration } from '@/models/AvatarDecoration.js';
 import { parseSettingsSnapshot, selectAccountSettings, settingsScope, settingsKey, settingsDomain, type SettingsSnapshot } from './settings-protocol.js';
 import { MiUserList } from '@/models/UserList.js';
 import { MiUserListMembership } from '@/models/UserListMembership.js';
-import { parseLinkedLists, type LinkedList } from './collections-protocol.js';
+import { parseLinkedLists, parseLinkedAntennas, type LinkedList } from './collections-protocol.js';
+import { MiAntenna } from '@/models/Antenna.js';
 import { parseLinkedProfile, type LinkedProfile } from './profile-protocol.js';
 import { GRIDSPACE_PALETTE_SCOPE, GRIDSPACE_PALETTE_REGISTRY_SCOPE, GRIDSPACE_PALETTE_REGISTRY_KEY, parseGridspacePalette, type GridspacePalette } from './palette-protocol.js';
 import { MiAccessToken } from '@/models/AccessToken.js';
@@ -215,9 +216,16 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		}
 		const user = await this.authorized(input.accessToken);
 		if (action === 'identity') return { id: user.id, username: user.username };
-		if (action === 'check' || action === 'palette' || action === 'profile' || action === 'settings' || action === 'lists') {
+		if (action === 'check' || action === 'palette' || action === 'profile' || action === 'settings' || action === 'lists' || action === 'antennas') {
 			const exists = await this.db.getRepository(MiGridspaceLink).existsBy({ id: input.linkId, localUserId: user.id, peerUserId: input.localUserId, peerOrigin: peer.peerOrigin, generation: input.generation, state: 'active' });
 			if (!exists) throw new GridspaceLinkError('LINK_REVOKED');
+			if (action === 'antennas') {
+				if (this.config.gridspace?.channelRole !== 'source') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+				const antennas = await this.db.getRepository(MiAntenna).find({ where: { userId: user.id }, order: { id: 'ASC' }, take: 1001 });
+				const snapshot = parseLinkedAntennas(antennas);
+				await this.peerAction('check', input);
+				return { userId: user.id, antennas: snapshot };
+			}
 			if (action === 'lists') {
 				if (this.config.gridspace?.channelRole !== 'source') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 				const lists = await this.db.getRepository(MiUserList).find({ where: { userId: user.id }, order: { id: 'ASC' }, take: 1001 });
@@ -393,6 +401,17 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		const current = await this.checkSettingsAuthorization(user);
 		if (current.linkId !== link.id || current.generation !== link.generation || current.credentialHash !== gridspaceHash(link.tokenCipher) || result.userId !== link.peerUserId) throw new GridspaceLinkError('LINK_REVOKED');
 		return { ...current, lists: parseLinkedLists(result.lists) };
+	}
+
+	public async antennas(user: MiLocalUser) {
+		const binding = await this.checkSettingsAuthorization(user);
+		if (this.config.gridspace?.channelRole !== 'client') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const link = await this.privateLink(user.id);
+		if (!link.tokenCipher) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const result = await this.json<{ userId: string; antennas: unknown }>('/gridspace/v1/link/antennas', { linkId: link.id, generation: link.generation, localUserId: user.id, accessToken: openGridspaceSecret(this.enabled(), link.tokenCipher, link.id) });
+		const current = await this.checkSettingsAuthorization(user);
+		if (Object.keys(binding).some(key => binding[key as keyof typeof binding] !== current[key as keyof typeof current]) || result.userId !== binding.peerUserId) throw new GridspaceLinkError('LINK_REVOKED');
+		return { ...current, antennas: parseLinkedAntennas(result.antennas) };
 	}
 
 	public async hasCollectionScope(input: GridspacePeerLinkRequest, kind: 'favorites' | 'clips' | 'clip-favorites') {

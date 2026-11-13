@@ -13815,15 +13815,15 @@ export interface Locale extends ILocale {
          */
         "profileTitle": string;
         /**
-         * リストの引き継ぎ
+         * リスト・アンテナの引き継ぎ
          */
         "listsTitle": string;
         /**
-         * れぞらぶのリスト名・公開設定・メンバー・返信の表示設定を一度だけコピーします。同名のリストがぐりすぺにあっても、新しいリストとして追加します。コピー後の編集は同期しません。
+         * れぞらぶのリストとアンテナを一度だけコピーします。リストの公開設定・メンバー・返信の表示設定、アンテナのキーワード・除外条件・対象ユーザー・参照リストも引き継ぎます。同名のものがぐりすぺにあっても新しく追加し、コピー後の編集は同期しません。
          */
         "listsDescription": string;
         /**
-         * リスト・メンバーのコピー: {done} / {total}件完了、失敗 {failed}件
+         * リスト・メンバー・アンテナのコピー: {done} / {total}件完了、失敗 {failed}件
          */
         "listsProgress": ParameterizedString<"done" | "total" | "failed">;
         /**
@@ -13851,11 +13851,11 @@ export interface Locale extends ILocale {
          */
         "collectionsDescription": string;
         /**
-         * れぞらぶのリストを引き継ぐ
+         * れぞらぶのリスト・アンテナを引き継ぐ
          */
         "listsCopy": string;
         /**
-         * 引き継げないリストやメンバーがあります。接続やリストの上限を確認して再試行してください。
+         * 引き継げないリスト・メンバー・アンテナがあります。接続や作成数の上限を確認して再試行してください。
          */
         "listsCopyFailed": string;
         /**

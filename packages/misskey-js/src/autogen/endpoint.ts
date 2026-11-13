@@ -442,6 +442,8 @@ import type {
 	GridspacePrivateUploadRequest,
 	GridspacePrivateUploadResponse,
 	GridspaceProfileImportResponse,
+	GridspaceRenoteTargetRequest,
+	GridspaceRenoteTargetResponse,
 	GridspaceSearchRequest,
 	GridspaceSearchResponse,
 	GridspaceSearchInfoResponse,
@@ -1015,6 +1017,7 @@ export type Endpoints = {
 	'gridspace/private-reply': { req: GridspacePrivateReplyRequest; res: GridspacePrivateReplyResponse };
 	'gridspace/private-upload': { req: GridspacePrivateUploadRequest; res: GridspacePrivateUploadResponse };
 	'gridspace/profile-import': { req: EmptyRequest; res: GridspaceProfileImportResponse };
+	'gridspace/renote-target': { req: GridspaceRenoteTargetRequest; res: GridspaceRenoteTargetResponse };
 	'gridspace/search': { req: GridspaceSearchRequest; res: GridspaceSearchResponse };
 	'gridspace/search-info': { req: EmptyRequest; res: GridspaceSearchInfoResponse };
 	'gridspace/settings-import': { req: GridspaceSettingsImportRequest; res: GridspaceSettingsImportResponse };

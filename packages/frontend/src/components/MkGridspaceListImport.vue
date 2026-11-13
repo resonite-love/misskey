@@ -18,7 +18,7 @@ import type { entities } from 'misskey-js';
 import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
-import { userListsCache } from '@/cache.js';
+import { userListsCache, antennasCache } from '@/cache.js';
 import { i18n } from '@/i18n.js';
 
 const props = defineProps<{ autoStart?: boolean }>();
@@ -44,7 +44,9 @@ async function run(start = false, retry = false) {
 		}
 		error.value = state.failed > 0;
 		userListsCache.delete();
+		antennasCache.delete();
 		await userListsCache.fetch();
+		await antennasCache.fetch();
 	} catch { error.value = true; } finally { busy.value = false; }
 }
 

@@ -71,8 +71,8 @@ try {
 	const page = await context.newPage(); page.setDefaultTimeout(30000);
 	const errors = []; page.on('pageerror', error => errors.push(error.message));
 	await page.goto(`${g.origin}/my/lists`);
-	await page.getByRole('button', { name: 'れぞらぶのリストを引き継ぐ', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'れぞらぶのリストを引き継ぐ', exact: true })).toBeDisabled();
+	await page.getByRole('button', { name: 'れぞらぶのリスト・アンテナを引き継ぐ', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'れぞらぶのリスト・アンテナを引き継ぐ', exact: true })).toBeDisabled();
 	await expect.poll(async () => (await api(g, 'gridspace/list-import', {}, grid.token)).complete).toBe(true);
 	const lists = await api(g, 'users/lists/list', {}, grid.token); assert.equal(lists.filter(l => l.name === sourceList.name).length, 2);
 	const copied = lists.find(l => l.id !== localList.id); assert.ok(copied); assert.equal(copied.userIds.length, 1);

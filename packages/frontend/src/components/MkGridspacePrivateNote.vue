@@ -29,7 +29,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateFileError }}</p>
 	<footer :class="$style.footer">
 		<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.reply" :title="i18n.ts.reply" @click="reply"><i class="ti ti-arrow-back-up"></i></button>
-		<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.renote" disabled><i class="ti ti-ban"></i></button>
+		<button ref="renoteButton" class="_button" :class="$style.footerButton" :aria-label="i18n.ts.renote" :title="canRenote ? i18n.ts.renote : i18n.ts.cantRenote" :disabled="!canRenote || renoteLoading" @click="renote"><i :class="renoteLoading ? 'ti ti-loader ti-spin' : canRenote ? 'ti ti-repeat' : 'ti ti-ban'"></i></button>
 		<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.reaction" :title="i18n.ts.reaction" @click="actions?.react($event)"><i class="ti ti-plus"></i></button>
 		<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.more" :title="i18n.ts.more" @click="showMenu"><i class="ti ti-dots"></i></button>
 	</footer>
@@ -54,6 +54,7 @@ import { extractUrlFromMfm } from '@/utility/extract-url-from-mfm.js';
 import { isEnabledUrlPreview } from '@/utility/url-preview.js';
 import { DI } from '@/di.js';
 import { gridspacePost } from '@/utility/gridspace-post.js';
+import { getRenoteMenu } from '@/utility/get-note-menu.js';
 import { copyToClipboard } from '@/utility/copy-to-clipboard.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
@@ -77,6 +78,9 @@ watch(() => props.note, () => { updated.value = null; });
 const emit = defineEmits<{ (event: 'unavailable'): void; (event: 'replied'): void }>();
 const actions = useTemplateRef('actions');
 const article = useTemplateRef('article');
+const renoteButton = useTemplateRef('renoteButton');
+const canRenote = computed(() => !!$i && !note.value.channelId && ['public', 'home'].includes(note.value.visibility));
+const renoteLoading = ref(false);
 const expanded = defineModel<boolean>('expanded', { default: false });
 const deleted = ref(false);
 const deleting = ref(false);
@@ -98,6 +102,20 @@ const visible = ref(false);
 
 function reply() {
 	void gridspacePost({ channelId: note.value.channelId ?? undefined, reply: note.value }, () => emit('replied'));
+}
+
+async function renote() {
+	if (!canRenote.value || renoteLoading.value) return;
+	const current = generation;
+	renoteLoading.value = true;
+	try {
+		const target = await misskeyApi('gridspace/renote-target', { noteId: note.value.id }, undefined, AbortSignal.timeout(20000));
+		if (current !== generation) return;
+		const { menu } = getRenoteMenu({ note: target, renoteButton });
+		await os.popupMenu(menu, renoteButton.value);
+	} catch (error) {
+		if (current === generation) await os.alert({ type: 'error', text: (error as { code?: string }).code === 'GRIDSPACE_RENOTE_UNAVAILABLE' ? i18n.ts.cantRenote : i18n.ts._gridspace.connectionError });
+	} finally { renoteLoading.value = false; }
 }
 
 function showMenu(event: MouseEvent) {

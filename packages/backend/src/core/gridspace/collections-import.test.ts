@@ -11,6 +11,8 @@ import { MiUser, type MiLocalUser } from '@/models/User.js';
 import { MiUserList } from '@/models/UserList.js';
 import { MiUserListMembership } from '@/models/UserListMembership.js';
 import { MiRegistryItem } from '@/models/RegistryItem.js';
+import { MiAntenna } from '@/models/Antenna.js';
+import type { GlobalEventService } from '@/core/GlobalEventService.js';
 import type { IdService } from '@/core/IdService.js';
 import type { RoleService } from '@/core/RoleService.js';
 import type { UserListService } from '@/core/UserListService.js';
@@ -19,7 +21,9 @@ import type { ApPersonService } from '@/core/activitypub/models/ApPersonService.
 import ListImport from '@/server/api/endpoints/gridspace/list-import.js';
 import type { GridspaceFollowGuardService } from './GridspaceFollowGuardService.js';
 import { GridspaceLinkError, type GridspaceLinkService } from './GridspaceLinkService.js';
-import { parseLinkedLists, type LinkedList } from './collections-protocol.js';
+import { parseLinkedLists, parseLinkedAntennas, migrateAntennaUsers, type LinkedList, type LinkedAntenna } from './collections-protocol.js';
+
+const antenna = (): LinkedAntenna => ({ id: 'a1', name: 'Human', src: 'users', userListId: null, users: ['alice', '@bob@g.example', 'cat@other.example'], keywords: [['a', 'b'], ['c']], excludeKeywords: [['hide']], expression: null, caseSensitive: true, localOnly: false, excludeBots: true, withReplies: true, withFile: false, excludeNotesInSensitiveChannel: true });
 
 function fixture(members = 8) {
 	const user = { id: 'me' } as MiLocalUser;
@@ -27,6 +31,8 @@ function fixture(members = 8) {
 	const binding = { linkId: 'link', generation: 1, credentialHash: 'credential', peerUserId: 'old', peerOrigin: 'https://r.example' };
 	const source: LinkedList[] = [{ id: 'source', name: 'Friends', isPublic: false, members: Array.from({ length: members }, (_, i) => ({ uri: `https://r.example/users/u${i}`, withReplies: i % 2 === 0 })) }];
 	links.lists.mockImplementation(async () => ({ ...binding, lists: structuredClone(source) }));
+	const sourceAntennas: LinkedAntenna[] = [];
+	links.antennas.mockImplementation(async () => ({ ...binding, antennas: structuredClone(sourceAntennas) }));
 	links.checkSettingsAuthorization.mockImplementation(async () => ({ ...binding }));
 	const guard = mockDeep<GridspaceFollowGuardService>(); guard.runProfile.mockImplementation(async (_id, action) => action());
 	const registry = mockDeep<RegistryApiService>(); let saved: any;
@@ -39,18 +45,21 @@ function fixture(members = 8) {
 	const people = mockDeep<ApPersonService>(); people.resolvePerson.mockImplementation(async uri => ({ id: String(uri).split('/').at(-1) }) as never);
 	const db = mockDeep<DataSource>(); const manager = mockDeep<EntityManager>();
 	const targets = new Map<string, any>(); const memberships = new Set<string>();
+	const antennas = new Map<string, any>();
 	db.getRepository.mockImplementation(((entity: unknown) => entity === MiUserList ? {
 		findOneBy: async ({ id }: { id: string }) => targets.get(id) ?? null,
-		findOneByOrFail: async ({ id }: { id: string }) => { if (!targets.has(id)) throw new Error('Missing'); return targets.get(id); }, countBy: async () => targets.size,
-	} : entity === MiUser ? { findOneBy: async () => null } : entity === MiUserListMembership ? { existsBy: async ({ userId }: { userId: string }) => memberships.has(userId) } : { existsBy: async () => false }) as DataSource['getRepository']);
-	manager.insert.mockImplementation((async (entity: unknown, value: any) => { if (entity === MiUserList) targets.set(value.id, structuredClone(value)); return {}; }) as never);
+		findOneByOrFail: async ({ id }: { id: string }) => { if (!targets.has(id)) throw new Error('Missing'); return targets.get(id); }, countBy: async () => targets.size, existsBy: async ({ id }: { id: string }) => targets.has(id),
+	} : entity === MiAntenna ? { countBy: async () => antennas.size } : entity === MiUser ? { findOneBy: async () => null } : entity === MiUserListMembership ? { existsBy: async ({ userId }: { userId: string }) => memberships.has(userId) } : { existsBy: async () => false }) as DataSource['getRepository']);
+	manager.create.mockImplementation(((_entity: unknown, value: any) => value) as never);
+	manager.insert.mockImplementation((async (entity: unknown, value: any) => { if (entity === MiUserList) targets.set(value.id, structuredClone(value)); if (entity === MiAntenna) antennas.set(value.id, structuredClone(value)); return {}; }) as never);
 	manager.update.mockImplementation((async (entity: unknown, _id: unknown, value: any) => { if (entity === MiRegistryItem) saved = structuredClone(value.value); return { affected: 1 }; }) as never);
 	db.transaction.mockImplementation((async (action: (m: EntityManager) => Promise<unknown>) => action(manager)) as never);
 	const ids = mockDeep<IdService>(); let next = 0; ids.gen.mockImplementation(() => `new${next++}`);
-	const roles = mockDeep<RoleService>(); roles.getUserPolicies.mockResolvedValue({ userListLimit: 10 } as never);
+	const roles = mockDeep<RoleService>(); roles.getUserPolicies.mockResolvedValue({ userListLimit: 10, antennaLimit: 10 } as never);
 	const lists = mockDeep<UserListService>(); lists.addMember.mockImplementation(async (target, _list, _me, options) => { memberships.add(target.id); await options?.receipt?.(manager); });
-	const endpoint = new ListImport(links, guard, registry, people, ids, roles, lists, db, { url: 'https://g.example', gridspace: { channelRole: 'client' } } as Config);
-	return { links, binding, source, people, lists, targets, memberships, registry, failSave: (after: number) => { failSaveAfter = after; }, call: (action = 'start') => endpoint.exec({ action }, user, null) };
+	const events = mockDeep<GlobalEventService>();
+	const endpoint = new ListImport(links, guard, registry, people, ids, roles, lists, db, { url: 'https://g.example', gridspace: { channelRole: 'client' } } as Config, events);
+	return { links, binding, source, sourceAntennas, antennas, roles, events, people, lists, targets, memberships, registry, legacyReceipt: () => { delete saved.antennas; }, failSave: (after: number) => { failSaveAfter = after; }, call: (action = 'start') => endpoint.exec({ action }, user, null) };
 }
 
 describe('list import receipts', () => {
@@ -93,5 +102,39 @@ describe('list import receipts', () => {
 		const list = { id: 'a', name: 'List', isPublic: false, members: [] };
 		expect(() => parseLinkedLists([list, list])).toThrow();
 		for (const uri of ['file:///etc/passwd', 'https://u:p@example.com/users/u']) expect(() => parseLinkedLists([{ ...list, members: [{ uri, withReplies: false }] }])).toThrow();
+	});
+	test('copies antenna conditions and remaps a source list and local account names once', async () => {
+		const f = fixture(0);
+		f.sourceAntennas.push(antenna(), { ...antenna(), id: 'a2', src: 'list', userListId: 'source' });
+		expect(await f.call()).toMatchObject({ complete: true, done: 3 });
+		const copy = [...f.antennas.values()][0];
+		expect(copy).toMatchObject({ ...antenna(), id: 'new1', userId: 'me', users: ['alice@r.example', 'bob', 'cat@other.example'], isActive: true });
+		expect([...f.antennas.values()][1].userListId).toBe('new0');
+		expect(f.events.publishInternalEvent).toHaveBeenCalledTimes(2);
+		f.antennas.clear(); await f.call('retry');
+		expect(f.antennas.size).toBe(0);
+	});
+	test('does not create a list antenna with incomplete members and can retry after recovery', async () => {
+		const f = fixture(1); f.sourceAntennas.push({ ...antenna(), src: 'list', userListId: 'source' });
+		f.people.resolvePerson.mockRejectedValueOnce(new Error('Offline'));
+		expect(await f.call()).toMatchObject({ failed: 2 }); expect(f.antennas.size).toBe(0);
+		expect(await f.call('retry')).toMatchObject({ complete: true }); expect(f.antennas.size).toBe(1);
+	});
+	test('enforces antenna limits without overwriting existing data', async () => {
+		const f = fixture(0); f.sourceAntennas.push(antenna()); f.roles.getUserPolicies.mockResolvedValue({ userListLimit: 10, antennaLimit: 0 } as never);
+		expect(await f.call()).toMatchObject({ failed: 1 }); expect(f.antennas.size).toBe(0);
+	});
+	test('upgrades a completed older receipt without recreating lists', async () => {
+		const f = fixture(0); await f.call(); f.legacyReceipt(); f.sourceAntennas.push(antenna());
+		expect(await f.call('status')).toMatchObject({ complete: false });
+		expect(await f.call()).toMatchObject({ complete: true, done: 2 });
+		expect(f.targets.size).toBe(1); expect(f.antennas.size).toBe(1);
+	});
+	test('validates antenna payloads and account origin mapping', () => {
+		expect(parseLinkedAntennas([antenna()])).toEqual([antenna()]);
+		expect(() => parseLinkedAntennas([antenna(), antenna()])).toThrow();
+		expect(() => parseLinkedAntennas([{ ...antenna(), localOnly: 'false' }])).toThrow();
+		expect(() => parseLinkedAntennas([{ ...antenna(), keywords: ['bad'] }])).toThrow();
+		expect(migrateAntennaUsers(['local', '@other@outside.example'], 'https://r.example', 'https://g.example')).toEqual(['local@r.example', 'other@outside.example']);
 	});
 });

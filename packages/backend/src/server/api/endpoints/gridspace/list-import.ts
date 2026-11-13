@@ -12,6 +12,8 @@ import { MiUserList } from '@/models/UserList.js';
 import { MiUserListMembership } from '@/models/UserListMembership.js';
 import { MiRegistryItem } from '@/models/RegistryItem.js';
 import { MiBlocking } from '@/models/Blocking.js';
+import { MiAntenna } from '@/models/Antenna.js';
+import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { IdService } from '@/core/IdService.js';
 import { RoleService } from '@/core/RoleService.js';
 import { UserListService } from '@/core/UserListService.js';
@@ -21,7 +23,7 @@ import { GridspaceLinkError, GridspaceLinkService } from '@/core/gridspace/Grids
 import { GridspaceFollowGuardService } from '@/core/gridspace/GridspaceFollowGuardService.js';
 import { settingsDomain } from '@/core/gridspace/settings-protocol.js';
 import { gridspaceHash } from '@/core/gridspace/link-crypto.js';
-import type { LinkedList } from '@/core/gridspace/collections-protocol.js';
+import { migrateAntennaUsers, type LinkedList, type LinkedAntenna } from '@/core/gridspace/collections-protocol.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { ApiError } from '@/server/api/error.js';
 
@@ -37,7 +39,8 @@ export const meta = {
 } as const;
 export const paramDef = { type: 'object', properties: { action: { type: 'string', enum: ['start', 'step', 'status', 'retry'], default: 'status' } }, required: [] } as const;
 type State = 'pending' | 'done' | 'failed';
-type Job = { binding: Awaited<ReturnType<GridspaceLinkService['checkSettingsAuthorization']>>; lists: { source: LinkedList; targetId: string; created: boolean; state: State; members: State[] }[] };
+type Job = { binding: Awaited<ReturnType<GridspaceLinkService['checkSettingsAuthorization']>>; lists: { source: LinkedList; targetId: string; created: boolean; state: State; members: State[] }[];
+	antennas?: { source: LinkedAntenna; targetId: string; state: State }[] };
 const scope = ['gridspace', 'listImport'];
 
 @Injectable()
@@ -46,6 +49,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		private links: GridspaceLinkService, private guard: GridspaceFollowGuardService, private registry: RegistryApiService,
 		private people: ApPersonService, private ids: IdService, private roles: RoleService, private lists: UserListService,
 		@Inject(DI.db) private db: DataSource, @Inject(DI.config) private config: Config,
+		private events: GlobalEventService,
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			try { return await guard.runProfile(me.id, () => this.run(ps.action, me)); } catch (error) {
@@ -68,6 +72,12 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				const { lists: _lists, ...snapshotBinding } = snapshot;
 				job = { binding: snapshotBinding, lists: snapshot.lists.map(source => ({ source, targetId: this.ids.gen(), created: false, state: 'pending', members: source.members.map(() => 'pending') })) };
 			} else job.binding = binding; // A new grant for the same source owner may resume its receipt.
+			if (!job.antennas) {
+				const snapshot = await this.links.antennas(me);
+				const expected = job.binding;
+				if (Object.keys(expected).some(k => snapshot[k as keyof typeof expected] !== expected[k as keyof typeof expected])) throw new GridspaceLinkError('LINK_REVOKED');
+				job.antennas = snapshot.antennas.map(source => ({ source, targetId: this.ids.gen(), state: 'pending' }));
+			}
 			await save();
 		}
 		if (!job) return { started: false, complete: false, total: 0, done: 0, failed: 0, pending: 0 };
@@ -84,6 +94,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		};
 		if (action === 'retry') {
 			for (const list of job.lists) { if (list.state === 'failed') list.state = 'pending'; list.members = list.members.map(s => s === 'failed' ? 'pending' : s); }
+			for (const antenna of job.antennas ?? []) if (antenna.state === 'failed') antenna.state = 'pending';
 			await save();
 		}
 		if (action !== 'status') {
@@ -139,12 +150,39 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					await save();
 				}
 			}
+			for (const antenna of job.antennas ?? []) {
+				if (processed >= 5 || Date.now() >= deadline) break;
+				if (antenna.state !== 'pending') continue;
+				processed++;
+				try {
+					await check();
+					const source = antenna.source;
+					const list = source.src === 'list' ? job.lists.find(item => item.source.id === source.userListId) : null;
+					if (source.src === 'list' && (!list || list.state !== 'done' || list.members.some(s => s !== 'done') ||
+						!await this.db.getRepository(MiUserList).existsBy({ id: list.targetId, userId: me.id }))) throw new Error('List import incomplete');
+					if (await this.db.getRepository(MiAntenna).countBy({ userId: me.id }) >= (await this.roles.getUserPolicies(me.id)).antennaLimit) throw new Error('Antenna limit');
+					const { id: _id, userListId: _sourceListId, ...settings } = source;
+					const created = await this.db.transaction(async manager => {
+						const value = manager.create(MiAntenna, { ...settings, users: migrateAntennaUsers(source.users, binding.peerOrigin, this.config.url), id: antenna.targetId, userId: me.id, userListId: list?.targetId ?? null, lastUsedAt: new Date(), isActive: true });
+						await manager.insert(MiAntenna, value);
+						antenna.state = 'done';
+						await saveAtomic(manager);
+						return value;
+					});
+					this.events.publishInternalEvent('antennaCreated', created);
+				} catch (error) {
+					if (error instanceof GridspaceLinkError) throw error;
+					const persisted = (await this.registry.getItem(me.id, settingsDomain, scope, key))!.value as Job;
+					antenna.state = persisted.antennas?.find(item => item.targetId === antenna.targetId)?.state === 'done' ? 'done' : 'failed';
+				}
+				await save();
+			}
 		}
-		const states = job.lists.flatMap(list => [list.state, ...list.members]);
+		const states = [...job.lists.flatMap(list => [list.state, ...list.members]), ...(job.antennas ?? []).map(antenna => antenna.state)];
 		const done = states.filter(s => s === 'done').length;
 		const failed = states.filter(s => s === 'failed').length;
 		// A failed list cannot advance its children until explicitly retried.
-		const pending = job.lists.reduce((n, list) => n + (list.state === 'pending' ? 1 : 0) + (list.state === 'failed' ? 0 : list.members.filter(s => s === 'pending').length), 0);
-		return { started: true, complete: done === states.length, total: states.length, done, failed, pending };
+		const pending = job.lists.reduce((n, list) => n + (list.state === 'pending' ? 1 : 0) + (list.state === 'failed' ? 0 : list.members.filter(s => s === 'pending').length), 0) + (job.antennas ?? []).filter(a => a.state === 'pending').length;
+		return { started: true, complete: job.antennas !== undefined && done === states.length, total: states.length, done, failed, pending };
 	}
 }
