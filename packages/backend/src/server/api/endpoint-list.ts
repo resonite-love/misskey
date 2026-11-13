@@ -493,3 +493,5 @@ export * as 'admin/gridspace/jobs' from './endpoints/admin/gridspace/jobs.js';
 export * as 'admin/gridspace/retry' from './endpoints/admin/gridspace/retry.js';
 
 export * as 'gridspace/content' from './endpoints/gridspace/content.js';
+
+export * as 'admin/gridspace/drive' from './endpoints/admin/gridspace/drive.js';

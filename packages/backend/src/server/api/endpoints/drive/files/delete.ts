@@ -4,6 +4,7 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
+import { sharedDriveUnavailable } from '@/core/gridspace/shared-drive-protocol.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import type { DriveFilesRepository } from '@/models/_.js';
 import { DriveService } from '@/core/DriveService.js';
@@ -22,6 +23,7 @@ export const meta = {
 	description: 'Delete an existing drive file.',
 
 	errors: {
+		sharedDriveUnavailable,
 		noSuchFile: {
 			message: 'No such file.',
 			code: 'NO_SUCH_FILE',

@@ -21,6 +21,8 @@ export const meta = {
 		type: 'object', optional: false, nullable: false,
 		properties: {
 			enabled: { type: 'boolean', optional: false, nullable: false },
+			driveShared: { type: 'boolean', optional: false, nullable: false },
+			driveSeeded: { type: 'boolean', optional: false, nullable: false },
 			channelsEnabled: { type: 'boolean', optional: false, nullable: false },
 			peerOrigin: text, state: { ...text, nullable: false }, peerUsername: text, peerUserId: text,
 			initiator: { type: 'boolean', optional: false, nullable: false }, lastError: text,

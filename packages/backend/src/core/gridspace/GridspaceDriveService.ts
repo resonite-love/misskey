@@ -20,6 +20,7 @@ import { DownloadService } from '@/core/DownloadService.js';
 import { RoleService } from '@/core/RoleService.js';
 import { createTemp } from '@/misc/create-temp.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
+import { GridspaceSharedDriveService } from './GridspaceSharedDriveService.js';
 import { GridspaceFollowGuardService } from './GridspaceFollowGuardService.js';
 import { validateDrivePage, type DriveOptions, type DrivePage, type DrivePeerRequest } from './drive-protocol.js';
 
@@ -29,6 +30,7 @@ export class GridspaceDriveService {
 		@Inject(DI.config) private config: Config, @Inject(DI.db) private db: DataSource,
 		private links: GridspaceLinkService, private filePacker: DriveFileEntityService, private folderPacker: DriveFolderEntityService,
 		private downloads: DownloadService, private drive: DriveService, private roles: RoleService, private guard: GridspaceFollowGuardService,
+		private sharedDrive: GridspaceSharedDriveService,
 	) {}
 
 	private empty(enabled: boolean, origin: string | null): DrivePage {
@@ -80,6 +82,7 @@ export class GridspaceDriveService {
 	}
 
 	public async list(user: MiLocalUser, input: DriveOptions): Promise<DrivePage> {
+		if (input.mode === 'status' && (await this.links.privateLink(user.id).catch(() => null))?.driveShared) return this.empty(false, null);
 		const origin = this.config.gridspace?.peerUrl ? new URL(this.config.gridspace.peerUrl).origin : null;
 		const enabled = this.config.gridspace?.enabled === true && this.config.gridspace?.channelRole === 'client';
 		if (!enabled) {
@@ -96,6 +99,8 @@ export class GridspaceDriveService {
 	}
 
 	public async importFile(user: MiLocalUser, fileId: string) {
+		const reference = await this.sharedDrive.referenceFile(user, fileId);
+		if (reference) return reference;
 		const source = (await this.list(user, { mode: 'file', fileId })).files[0];
 		if (!source) throw new GridspaceLinkError('FILE_REJECTED');
 		if (!this.filePacker.validateFileName(source.name)) throw new GridspaceLinkError('FILE_REJECTED');

@@ -14,6 +14,8 @@ export type GridspaceSnapshotItem = { uri: string; withReplies: boolean; skip: s
 @Index('IDX_gridspace_active_local', ['localUserId'], { unique: true, where: '"state" <> \'revoked\'' })
 @Index('IDX_gridspace_active_peer', ['peerOrigin', 'peerUserId'], { unique: true, where: '"state" <> \'revoked\'' })
 export class MiGridspaceLink {
+	@Column('boolean', { default: true }) public driveShared: boolean;
+	@Column('boolean', { default: false }) public driveSeeded: boolean;
 	@PrimaryColumn('uuid') public id: string;
 	@Column(id()) public localUserId: string;
 	@ManyToOne(() => MiUser, { onDelete: 'CASCADE' }) @JoinColumn() public localUser: MiUser | null;

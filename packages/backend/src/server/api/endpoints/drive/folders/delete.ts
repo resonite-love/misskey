@@ -7,6 +7,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import type { DriveFoldersRepository, DriveFilesRepository } from '@/models/_.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
+import { GridspaceSharedDriveService } from '@/core/gridspace/GridspaceSharedDriveService.js';
+import { sharedDriveUnavailable } from '@/core/gridspace/shared-drive-protocol.js';
 import { DI } from '@/di-symbols.js';
 import { ApiError } from '../../../error.js';
 
@@ -18,6 +20,7 @@ export const meta = {
 	kind: 'write:drive',
 
 	errors: {
+		sharedDriveUnavailable,
 		noSuchFolder: {
 			message: 'No such folder.',
 			code: 'NO_SUCH_FOLDER',
@@ -43,6 +46,7 @@ export const paramDef = {
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
 	constructor(
+		private sharedDrive: GridspaceSharedDriveService,
 		@Inject(DI.driveFilesRepository)
 		private driveFilesRepository: DriveFilesRepository,
 
@@ -62,6 +66,8 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				throw new ApiError(meta.errors.noSuchFolder);
 			}
 
+			if (await this.sharedDrive.deleteFolder(folder)) return;
+
 			const [childFoldersCount, childFilesCount] = await Promise.all([
 				this.driveFoldersRepository.countBy({ parentId: folder.id }),
 				this.driveFilesRepository.countBy({ folderId: folder.id }),
@@ -72,6 +78,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			}
 
 			await this.driveFoldersRepository.delete(folder.id);
+			await this.sharedDrive.changed('folder', folder.id, me.id, true);
 
 			// Publish folderCreated event
 			this.globalEventService.publishDriveStream(me.id, 'folderDeleted', folder.id);

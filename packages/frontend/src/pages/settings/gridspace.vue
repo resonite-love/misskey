@@ -23,14 +23,21 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<div class="_buttons">
 				<MkButton v-if="status.state === 'unlinked' || status.state === 'revoked'" primary :disabled="busy" @click="start">{{ i18n.ts._gridspace.start }}</MkButton>
 				<MkButton v-else-if="status.initiator" :disabled="busy" @click="start">{{ i18n.ts._gridspace.reauthorize }}</MkButton>
-				<MkButton v-if="status.state === 'active' || status.state === 'preparing'" danger :disabled="busy" @click="revoke">{{ i18n.ts._gridspace.revoke }}</MkButton>
+				<MkButton v-if="!status.driveShared && (status.state === 'active' || status.state === 'preparing')" danger :disabled="busy" @click="revoke">{{ i18n.ts._gridspace.revoke }}</MkButton>
 				<MkButton :disabled="busy" @click="refresh">{{ i18n.ts.reload }}</MkButton>
 			</div>
+			<section v-if="status.state === 'active' && status.driveShared" class="_gaps_s">
+				<h2>{{ i18n.ts._gridspace.sharedDriveTitle }}</h2>
+				<p>{{ i18n.ts._gridspace.sharedDriveDescription }}</p>
+				<MkInfo>{{ i18n.ts._gridspace.sharedDriveLocked }}</MkInfo>
+				<MkInfo v-if="!status.driveSeeded">{{ i18n.ts._gridspace.sharedDrivePreparing }}</MkInfo>
+				<MkA to="/my/drive">{{ i18n.ts.drive }}</MkA>
+			</section>
 			<MkInfo v-if="status.lastError" warn>{{ errorLabel(status.lastError) }}</MkInfo>
 			<section v-if="status.state === 'active'" class="_gaps_s">
 				<h2>{{ i18n.ts._gridspace.linkPermissions }}</h2>
 				<MkInfo v-if="readGrant && !readGrant.available" warn>{{ i18n.ts._gridspace.connectionError }}</MkInfo>
-				<MkInfo v-else-if="readGrant?.granted && readGrant.canReply && readGrant.canInteract && readGrant.canReadNotifications && readGrant.canWriteChannels && readGrant.canManageFollowRequests && (!status.channelsEnabled || (collectionsGrant?.favorites && collectionsGrant.clipFavorites && driveGrant?.granted))">{{ i18n.ts._gridspace.allGranted }}</MkInfo>
+				<MkInfo v-else-if="readGrant?.granted && readGrant.canReply && readGrant.canInteract && readGrant.canReadNotifications && readGrant.canWriteChannels && readGrant.canManageFollowRequests && (!status.channelsEnabled || (collectionsGrant?.favorites && collectionsGrant.clipFavorites && (status.driveShared || driveGrant?.granted)))">{{ i18n.ts._gridspace.allGranted }}</MkInfo>
 				<MkInfo v-else>{{ i18n.ts._gridspace.upgradePermissions }}</MkInfo>
 				<MkButton v-if="!status.initiator" :disabled="busy" @click="startPrivate">{{ i18n.ts._gridspace.authorizeAll }}</MkButton>
 			</section>
@@ -73,7 +80,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<MkA to="/my/clips">{{ i18n.ts.clip }}</MkA>
 					</div>
 				</section>
-				<section class="_gaps_s">
+				<section v-if="!status.driveShared" class="_gaps_s">
 					<h2>{{ i18n.ts._gridspace.driveTitle }}</h2>
 					<p>{{ i18n.ts._gridspace.driveDescription }}</p>
 					<MkInfo v-if="driveGrant && !driveGrant.granted" warn>{{ i18n.ts._gridspace.driveNeedsGrant }}</MkInfo>

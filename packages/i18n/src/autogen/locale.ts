@@ -13803,6 +13803,38 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * 共有ドライブ
+         */
+        "sharedDriveTitle": string;
+        /**
+         * 両アカウントのファイルとフォルダーを、通常のドライブから使えます。名前変更・移動・削除も両方に反映されます。ファイル本体は保存元のサーバーに残ります。
+         */
+        "sharedDriveDescription": string;
+        /**
+         * ドライブを共有しているため、このアカウント連携は管理者が解除します。
+         */
+        "sharedDriveLocked": string;
+        /**
+         * 共有ドライブの参照情報を準備しています。ファイル本体のコピーは行いません。
+         */
+        "sharedDrivePreparing": string;
+        /**
+         * 共有アカウント {accounts} 件・準備中 {preparing} 件・参照 {total} 件・更新待ち {pending} 件・失敗 {failed} 件
+         */
+        "sharedDriveProgress": ParameterizedString<"accounts" | "preparing" | "total" | "pending" | "failed">;
+        /**
+         * 共有ドライブの更新を再試行
+         */
+        "sharedDriveRetry": string;
+        /**
+         * このユーザーのドライブ共有を停止
+         */
+        "sharedDriveRelease": string;
+        /**
+         * {user} の共有ドライブの更新を両サーバーで停止します。その後、アカウント連携を解除できます。
+         */
+        "sharedDriveReleaseConfirm": ParameterizedString<"user">;
+        /**
          * れぞらぶのドライブ
          */
         "driveTitle": string;

@@ -16,6 +16,7 @@ import type { DriveFolderEntityService } from '@/core/entities/DriveFolderEntity
 import type { DownloadService } from '@/core/DownloadService.js';
 import type { DriveService } from '@/core/DriveService.js';
 import type { RoleService } from '@/core/RoleService.js';
+import type { GridspaceSharedDriveService } from './GridspaceSharedDriveService.js';
 import { GridspaceDriveService } from './GridspaceDriveService.js';
 import { GridspaceLinkError, type GridspaceLinkService } from './GridspaceLinkService.js';
 import { validateDrivePage, type DrivePage } from './drive-protocol.js';
@@ -40,7 +41,7 @@ function fixture(role: 'source' | 'client' = 'client') {
 	drive.addFile.mockResolvedValue({ ...file, id: 'local', userId: 'viewer' } as never);
 	files.pack.mockImplementation(async value => value as never);
 	files.validateFileName.mockReturnValue(true);
-	return { db, links, files, folders, downloads, drive, roles, guard, service: new GridspaceDriveService(config, db, links, files, folders, downloads, drive, roles, guard), user: { id: 'viewer' } as MiLocalUser };
+	return { db, links, files, folders, downloads, drive, roles, guard, service: new GridspaceDriveService(config, db, links, files, folders, downloads, drive, roles, guard, mockDeep<GridspaceSharedDriveService>()), user: { id: 'viewer' } as MiLocalUser };
 }
 
 describe('linked drive', () => {

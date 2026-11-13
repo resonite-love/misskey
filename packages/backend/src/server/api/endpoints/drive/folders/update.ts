@@ -8,6 +8,8 @@ import { Endpoint } from '@/server/api/endpoint-base.js';
 import type { DriveFoldersRepository } from '@/models/_.js';
 import { DriveFolderEntityService } from '@/core/entities/DriveFolderEntityService.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
+import { GridspaceSharedDriveService } from '@/core/gridspace/GridspaceSharedDriveService.js';
+import { sharedDriveUnavailable } from '@/core/gridspace/shared-drive-protocol.js';
 import { DI } from '@/di-symbols.js';
 import { ApiError } from '../../../error.js';
 
@@ -19,6 +21,7 @@ export const meta = {
 	kind: 'write:drive',
 
 	errors: {
+		sharedDriveUnavailable,
 		noSuchFolder: {
 			message: 'No such folder.',
 			code: 'NO_SUCH_FOLDER',
@@ -58,6 +61,7 @@ export const paramDef = {
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
 	constructor(
+		private sharedDrive: GridspaceSharedDriveService,
 		@Inject(DI.driveFoldersRepository)
 		private driveFoldersRepository: DriveFoldersRepository,
 
@@ -75,6 +79,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				throw new ApiError(meta.errors.noSuchFolder);
 			}
 
+			if (await this.sharedDrive.updateFolder(folder, ps)) return this.driveFolderEntityService.pack(folder.id);
 			if (ps.name) folder.name = ps.name;
 
 			if (ps.parentId !== undefined) {
@@ -125,6 +130,8 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			});
 
 			const folderObj = await this.driveFolderEntityService.pack(folder);
+
+			await this.sharedDrive.changed('folder', folder.id, me.id);
 
 			// Publish folderUpdated event
 			this.globalEventService.publishDriveStream(me.id, 'folderUpdated', folderObj);

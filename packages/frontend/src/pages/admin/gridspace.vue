@@ -14,6 +14,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<MkA to="/admin/modlog">{{ t.auditLog }}</MkA>
 			</div>
 			<MkLoading v-if="!status && loading"/>
+			<section v-if="sharedDrive" class="_panel _gaps_s" :class="$style.section">
+				<h2>{{ i18n.ts._gridspace.sharedDriveTitle }}</h2>
+				<p>{{ i18n.tsx._gridspace.sharedDriveProgress(sharedDrive) }}</p>
+				<div class="_buttons">
+					<MkButton :disabled="loading || busy" @click="retrySharedDrive">{{ i18n.ts._gridspace.sharedDriveRetry }}</MkButton>
+					<MkButton v-if="userId.trim()" danger :disabled="loading || busy" @click="releaseSharedDrive">{{ i18n.ts._gridspace.sharedDriveRelease }}</MkButton>
+				</div>
+			</section>
 			<template v-if="status">
 				<section class="_panel _gaps_s" :class="$style.section">
 					<h2>{{ t.connection }}</h2>
@@ -122,6 +130,7 @@ const jobsAfter = ref<string>(); const jobsNext = ref<string | null>(null);
 const loading = ref(false); const busy = ref(false);
 const summaryError = ref(false); const linksError = ref(false); const jobsError = ref(false);
 const error = computed(() => summaryError.value || linksError.value || jobsError.value);
+const sharedDrive = ref<Endpoints['admin/gridspace/drive']['res'] | null>(null);
 const userId = ref(''); const issuesOnly = ref(false); const failedOnly = ref(true);
 const kind = ref<Job['kind']>('import');
 const kindItems = computed(() => [{ value: 'import', label: t.imports }, { value: 'expansion', label: t.expansions }, { value: 'delivery', label: t.delivery }]);
@@ -149,9 +158,28 @@ function reasonLabel(value: string) {
 	return t.checkFailure;
 }
 
+async function retrySharedDrive() {
+	if (busy.value) return;
+	busy.value = true;
+	try { await os.apiWithDialog('admin/gridspace/drive', { action: 'retry' }); await refresh(); } finally { busy.value = false; }
+}
+
+async function releaseSharedDrive() {
+	if (busy.value) return;
+	const targetId = userId.value.trim();
+	if (!targetId) return;
+	const target = links.value.find(link => link.localUserId === targetId);
+	busy.value = true;
+	try {
+		const { canceled } = await os.confirm({ type: 'warning', text: i18n.tsx._gridspace.sharedDriveReleaseConfirm({ user: target ? `@${target.localUsername} (${targetId})` : targetId }) });
+		if (!canceled) { await os.apiWithDialog('admin/gridspace/drive', { action: 'release', userId: targetId }); await refresh(); }
+	} finally { busy.value = false; }
+}
+
 async function summary() {
 	try {
-		const result = await misskeyApi('admin/gridspace/status', {});
+		const [result, drive] = await Promise.all([misskeyApi('admin/gridspace/status', {}), misskeyApi('admin/gridspace/drive', {})]);
+		sharedDrive.value = drive;
 		if (!disposed) { status.value = result; summaryError.value = false; }
 	} catch (failure) { if (!disposed) summaryError.value = true; throw failure; }
 }

@@ -4,6 +4,7 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
+import { sharedDriveUnavailable } from '@/core/gridspace/shared-drive-protocol.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { DI } from '@/di-symbols.js';
 import { DriveService } from '@/core/DriveService.js';
@@ -17,6 +18,7 @@ export const meta = {
 	kind: 'write:drive',
 
 	errors: {
+		sharedDriveUnavailable,
 	},
 } as const;
 

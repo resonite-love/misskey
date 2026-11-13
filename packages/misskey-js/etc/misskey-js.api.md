@@ -257,6 +257,12 @@ type AdminGetUserIpsRequest = operations['admin___get-user-ips']['requestBody'][
 type AdminGetUserIpsResponse = operations['admin___get-user-ips']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
+type AdminGridspaceDriveRequest = operations['admin___gridspace___drive']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type AdminGridspaceDriveResponse = operations['admin___gridspace___drive']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
 type AdminGridspaceJobsRequest = operations['admin___gridspace___jobs']['requestBody']['content']['application/json'];
 
 // @public (undocumented)
@@ -1763,6 +1769,8 @@ declare namespace entities {
         AdminGetTableStatsResponse,
         AdminGetUserIpsRequest,
         AdminGetUserIpsResponse,
+        AdminGridspaceDriveRequest,
+        AdminGridspaceDriveResponse,
         AdminGridspaceJobsRequest,
         AdminGridspaceJobsResponse,
         AdminGridspaceLinksRequest,

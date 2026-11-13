@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { ModuleRef } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import { Inject, Injectable } from '@nestjs/common';
@@ -11,6 +12,7 @@ import type { Sharp } from 'sharp';
 import { sharpBmp } from '@misskey-dev/sharp-read-bmp';
 import { In, IsNull } from 'typeorm';
 import { DeleteObjectCommandInput, PutObjectCommandInput, NoSuchKey } from '@aws-sdk/client-s3';
+import { GridspaceSharedDriveService } from '@/core/gridspace/GridspaceSharedDriveService.js';
 import { DI } from '@/di-symbols.js';
 import type { DriveFilesRepository, UsersRepository, DriveFoldersRepository, UserProfilesRepository, MiMeta } from '@/models/_.js';
 import type { Config } from '@/config.js';
@@ -131,12 +133,15 @@ export class DriveService {
 		private perUserDriveChart: PerUserDriveChart,
 		private instanceChart: InstanceChart,
 		private utilityService: UtilityService,
+		private modules: ModuleRef,
 	) {
 		const logger = new Logger('drive', 'blue');
 		this.registerLogger = logger.createSubLogger('register', 'yellow');
 		this.downloaderLogger = logger.createSubLogger('downloader');
 		this.deleteLogger = logger.createSubLogger('delete');
 	}
+
+	private get sharedDrive() { return this.modules.get(GridspaceSharedDriveService, { strict: false }); }
 
 	/***
 	 * Save file
@@ -680,6 +685,7 @@ export class DriveService {
 			}
 		}
 
+		await this.sharedDrive.changed('file', file.id, file.userId);
 		return file;
 	}
 
@@ -706,6 +712,7 @@ export class DriveService {
 			}
 		}
 
+		if (await this.sharedDrive.updateFile(file, values)) return this.driveFileEntityService.pack(file.id, { self: true });
 		await this.driveFilesRepository.update(file.id, values);
 
 		const fileObj = await this.driveFileEntityService.pack(file.id, { self: true });
@@ -736,26 +743,20 @@ export class DriveService {
 			}
 		}
 
+		await this.sharedDrive.changed('file', file.id, file.userId);
 		return fileObj;
 	}
 
 	@bindThis
 	public async moveFiles(fileIds: MiDriveFile['id'][], folderId: MiDriveFolder['id'] | null, userId: MiUser['id']) {
-		const folder = folderId ? await this.driveFoldersRepository.findOneByOrFail({
-			id: folderId,
-			userId: userId,
-		}) : null;
-
-		await this.driveFilesRepository.update({
-			id: In(fileIds),
-			userId: userId,
-		}, {
-			folderId: folder ? folder.id : null,
-		});
+		const user = await this.usersRepository.findOneByOrFail({ id: userId });
+		const files = await this.driveFilesRepository.findBy({ id: In(fileIds), userId });
+		for (const file of files) await this.updateFile(file, { folderId }, user);
 	}
 
 	@bindThis
 	public async deleteFile(file: MiDriveFile, isExpired = false, deleter?: MiUser) {
+		if (!isExpired && deleter && await this.sharedDrive.deleteFile(file)) return;
 		if (isExpired && file.uri == null) return;
 		if (file.storedInternal) {
 			this.internalStorageService.del(file.accessKey!);
@@ -779,11 +780,12 @@ export class DriveService {
 			}
 		}
 
-		this.deletePostProcess(file, isExpired, deleter);
+		await this.deletePostProcess(file, isExpired, deleter);
 	}
 
 	@bindThis
 	public async deleteFileSync(file: MiDriveFile, isExpired = false, deleter?: MiUser) {
+		if (!isExpired && deleter && await this.sharedDrive.deleteFile(file)) return;
 		if (isExpired && file.uri == null) return;
 		if (file.storedInternal) {
 			this.internalStorageService.del(file.accessKey!);
@@ -833,6 +835,7 @@ export class DriveService {
 			await this.driveFilesRepository.delete(file.id);
 		}
 
+		await this.sharedDrive.changed('file', file.id, file.userId, true);
 		this.driveChart.update(file, false);
 		if (file.userHost == null) {
 			// ローカルユーザーのみ

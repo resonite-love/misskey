@@ -313,6 +313,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 	}
 
 	private async commitRevocation(link: MiGridspaceLink): Promise<void> {
+		if (link.driveShared && link.state === 'active') throw new GridspaceLinkError('SHARED_DRIVE_LOCKED');
 		await this.db.transaction(async manager => {
 			await manager.getRepository(MiGridspaceAuthSession).delete({ localUserId: link.localUserId });
 			await manager.getRepository(MiAccessToken).delete({ userId: link.localUserId, name: In([link.peerOrigin + GRIDSPACE_CLIENT_PATH, link.peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH]) });
@@ -355,6 +356,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		}));
 		return {
 			enabled: !!this.peer, channelsEnabled: !!this.peer && this.config.gridspace?.channelRole === 'client', peerOrigin: this.peer?.peerOrigin ?? null, state: link?.state ?? 'unlinked', peerUsername: link?.peerUsername ?? null,
+			driveShared: link?.driveShared ?? false, driveSeeded: link?.driveSeeded ?? false,
 			peerUserId: link?.peerUserId ?? null, initiator: link?.initiator ?? false, lastError: link?.lastError ?? null,
 			total: items.length, pending: packed.filter(item => item.state === 'pending').length, done: packed.filter(item => item.state === 'done').length,
 			requested: packed.filter(item => item.state === 'requested').length, failed: packed.filter(item => item.state === 'failed').length,
