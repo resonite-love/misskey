@@ -19,13 +19,16 @@ import type { GridspaceFollowGuardService } from './GridspaceFollowGuardService.
 import { GridspaceFollowExpansionService } from './GridspaceFollowExpansionService.js';
 import { sealGridspaceSecret } from './link-crypto.js';
 import { resolveGridspaceConfig } from './peer-protocol.js';
+import { GridspaceHistoryService } from './GridspaceHistoryService.js';
+import { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
 
 afterEach(() => vi.unstubAllEnvs());
 
-function fixture() {
+function fixture(sourceSide = false) {
 	vi.stubEnv('GRIDSPACE_EXPANSION_TEST_KEY', Buffer.alloc(32, 1).toString('base64'));
 	const config = { url: 'https://g.example', gridspace: { enabled: true, communityId: 'test', peerUrl: 'https://r.example', keyId: 'test', secretEnv: 'GRIDSPACE_EXPANSION_TEST_KEY' } } as Config;
 	const peer = resolveGridspaceConfig(config.gridspace, config.url, process.env)!;
+	if (sourceSide) config.gridspace!.channelRole = 'source';
 	const db = mockDeep<DataSource>();
 	const following = mockDeep<UserFollowingService>();
 	const links = mockDeep<GridspaceLinkService>();
@@ -38,11 +41,11 @@ function fixture() {
 		upsert: vi.fn(async value => { hasRow = true; Object.assign(row, value); }),
 		update: vi.fn(async (_, value) => { Object.assign(row, value); }),
 	};
-	const source = { id: 'source', host: 'r.example', uri: 'https://r.example/users/old-target' } as MiUser;
+	const source = { id: 'source', host: sourceSide ? null : 'r.example', uri: sourceSide ? null : 'https://r.example/users/old-target' } as MiUser;
 	const user = { id: 'viewer', host: null } as MiUser;
-	const target = { id: 'target', host: null } as MiUser;
-	const users = { findOneBy: vi.fn(async ({ id }) => ({ viewer: user, target, source })[id as 'viewer' | 'target' | 'source']) };
-	const binding = (id: string) => ({ id, localUserId: id, generation: 1, peerUserId: 'old-target', tokenCipher: sealGridspaceSecret(peer, `token-${id}`, id) });
+	const target = { id: 'target', host: sourceSide ? 'r.example' : null, uri: sourceSide ? 'https://r.example/users/new-target' : null } as MiUser;
+	const users = { findOneBy: vi.fn(async ({ id, uri }) => uri ? target : ({ viewer: user, target, source })[id as 'viewer' | 'target' | 'source']) };
+	const binding = (id: string) => ({ id, localUserId: id, generation: 1, peerUserId: sourceSide ? 'new-target' : 'old-target', tokenCipher: sourceSide ? null : sealGridspaceSecret(peer, `token-${id}`, id) });
 	const bindings = { findOneBy: vi.fn(async ({ localUserId }) => binding(localUserId)) };
 	const subscriptions = { findOneBy: vi.fn(async () => ({ withReplies: true })), existsBy: vi.fn(async () => false) };
 	const requests = { findOneBy: vi.fn(async () => null as { withReplies: boolean } | null), existsBy: vi.fn(async () => false) };
@@ -54,12 +57,46 @@ function fixture() {
 		[MiFollowRequest, requests], [MiGridspaceFollowOverride, overrides], [MiBlocking, blocks], [MiMuting, mutes],
 	]);
 	db.getRepository.mockImplementation(entity => repositories.get(entity) as never);
-	const service = new GridspaceFollowExpansionService(config, db, following, links, guard);
-	const run = () => service['expand']({ followerId: user.id, targetId: target.id, sourceId: source.id });
-	return { run, row, following, links, guard, subscriptions, requests, overrides, blocks, mutes, target, bindings, user };
+	const history = mockDeep<GridspaceHistoryService>(); history.verifyLink.mockResolvedValue(true);
+	const people = mockDeep<ApPersonService>(); people.resolvePerson.mockResolvedValue(target as never);
+	const service = new GridspaceFollowExpansionService(config, db, following, links, guard, history, people);
+	const run = () => sourceSide ? service['expandSource']({ followerId: user.id, sourceId: source.id, linkId: source.id, generation: 1 }) : service['expand']({ followerId: user.id, targetId: target.id, sourceId: source.id });
+	return { run, row, following, links, guard, subscriptions, requests, overrides, blocks, mutes, target, bindings, user, users, history, people };
 }
 
 describe('linked-account follow expansion', () => {
+	test('source followers need no link or OAuth token and follow the verified remote counterpart once', async () => {
+		const f = fixture(true);
+		await f.run(); await f.run();
+		expect(f.following.follow).toHaveBeenCalledExactlyOnceWith(f.user, f.target, { withReplies: true });
+		expect(f.bindings.findOneBy).toHaveBeenCalledWith(expect.objectContaining({ localUserId: 'source', initiator: false }));
+		expect(f.links.json).not.toHaveBeenCalled();
+		expect(f.history.verifyLink).toHaveBeenCalledOnce();
+	});
+	test.each(['override', 'block', 'mute', 'suspended', 'existing', 'no-source-follow'] as const)('source expansion respects %s', async reason => {
+		const f = fixture(true);
+		if (reason === 'override') f.overrides.existsBy.mockResolvedValue(true);
+		if (reason === 'block') f.blocks.exists.mockResolvedValue(true);
+		if (reason === 'mute') f.mutes.findBy.mockResolvedValue([{ expiresAt: null }]);
+		if (reason === 'suspended') f.target.isSuspended = true;
+		if (reason === 'existing') f.requests.existsBy.mockResolvedValue(true);
+		if (reason === 'no-source-follow') f.subscriptions.findOneBy.mockResolvedValue(null as never);
+		await f.run(); expect(f.following.follow).not.toHaveBeenCalled();
+	});
+	test('source expansion retries remote verification failures, preserving locked account approval', async () => {
+		const f = fixture(true); f.target.isLocked = true;
+		f.history.verifyLink.mockResolvedValueOnce(false);
+		await f.run(); expect(f.following.follow).not.toHaveBeenCalled(); expect(f.row.state).toBe('pending');
+		f.row.retryAt = new Date(0); await f.run();
+		expect(f.following.follow).toHaveBeenCalledExactlyOnceWith(f.user, f.target, { withReplies: true });
+	});
+	test('source remote actor failures back off before retrying resolution', async () => {
+		const f = fixture(true);
+		f.users.findOneBy.mockImplementation(async ({ id, uri }) => uri ? null as never : id === 'viewer' ? f.user : { id: 'source', host: null } as MiUser);
+		f.people.resolvePerson.mockRejectedValue(new Error('offline'));
+		await f.run(); await f.run();
+		expect(f.people.resolvePerson).toHaveBeenCalledOnce(); expect(f.following.follow).not.toHaveBeenCalled();
+	});
 	test('uses ordinary follow once with replies and validates both peer bindings', async () => {
 		const f = fixture();
 		await f.run(); await f.run();

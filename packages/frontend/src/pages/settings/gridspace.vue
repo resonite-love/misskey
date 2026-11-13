@@ -76,7 +76,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</template>
 			<section class="_gaps_s">
 				<h2>{{ i18n.ts._gridspace.followsTitle }}</h2>
-				<p>{{ i18n.ts._gridspace.description }}</p>
+				<p>{{ status.channelsEnabled ? i18n.ts._gridspace.description : i18n.ts._gridspace.sourceFollowDescription }}</p>
 				<p>{{ i18n.ts._gridspace.followCopyConditions }}</p>
 				<MkButton v-if="status.failed && status.state === 'active'" :disabled="busy" @click="retry">{{ i18n.ts._gridspace.retry }}</MkButton>
 				<template v-if="status.total">

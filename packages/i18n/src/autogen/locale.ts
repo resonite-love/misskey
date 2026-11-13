@@ -13835,6 +13835,10 @@ export interface Locale extends ILocale {
          */
         "followsTitle": string;
         /**
+         * れぞらぶでフォローしている人がぐりすぺのアカウントを連携すると、新しいアカウントも自動でフォローします。自分自身のアカウント連携は不要です。旧アカウントへのフォローは残ります。新しいアカウントへのフォローを手動で解除した場合は、自動で復活させません。
+         */
+        "sourceFollowDescription": string;
+        /**
          * 連携後の投稿の見え方
          */
         "notesTitle": string;

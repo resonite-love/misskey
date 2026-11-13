@@ -88,6 +88,12 @@ export class GridspaceHistoryService {
 		}
 	}
 
+	/** Confirm the public account pair without retrieving posts or delegated credentials. */
+	public async verifyLink(link: MiGridspaceLink): Promise<boolean> {
+		const remote = await this.remote(this.input(link, null, { withReplies: false, withRenotes: false, withFiles: false }, 0));
+		return remote.active && await this.active(link);
+	}
+
 	private active(link: MiGridspaceLink) {
 		return this.db.getRepository(MiGridspaceLink).existsBy({ id: link.id, generation: link.generation, state: 'active' });
 	}

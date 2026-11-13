@@ -17,9 +17,12 @@ import { UserFollowingService } from '@/core/UserFollowingService.js';
 import { GridspaceFollowGuardService } from './GridspaceFollowGuardService.js';
 import { GridspaceLinkService } from './GridspaceLinkService.js';
 import { openGridspaceSecret } from './link-crypto.js';
+import { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
+import { GridspaceHistoryService } from './GridspaceHistoryService.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
 
 type Candidate = { followerId: string; targetId: string; sourceId: string };
+type SourceCandidate = { followerId: string; sourceId: string; linkId: string; generation: number };
 
 /** Adds a local counterpart once; it never synchronizes later unfollows between actors. */
 @Injectable()
@@ -28,6 +31,9 @@ export class GridspaceFollowExpansionService implements OnModuleInit, OnApplicat
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private working = false;
 	private cursor: Pick<Candidate, 'followerId' | 'targetId'> | null = null;
+	private sourceCursor: Pick<SourceCandidate, 'followerId' | 'sourceId'> | null = null;
+	private sourceSide: boolean;
+	private resolutionRetry = new Map<string, number>();
 
 	constructor(
 		@Inject(DI.config) config: Config,
@@ -35,8 +41,11 @@ export class GridspaceFollowExpansionService implements OnModuleInit, OnApplicat
 		private following: UserFollowingService,
 		private links: GridspaceLinkService,
 		private guard: GridspaceFollowGuardService,
+		private history: GridspaceHistoryService,
+		private people: ApPersonService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
+		this.sourceSide = config.gridspace?.channelRole === 'source';
 	}
 
 	public onModuleInit(): void {
@@ -51,6 +60,7 @@ export class GridspaceFollowExpansionService implements OnModuleInit, OnApplicat
 		if (!this.peer || this.working) return;
 		this.working = true;
 		try {
+			if (this.sourceSide) { await this.workSource(); return; }
 			// Both links must have been initiated here. A mirrored source-side link is
 			// not permission to change the source account's subscriptions.
 			const candidates = await this.db.query<Candidate[]>(`
@@ -75,6 +85,70 @@ export class GridspaceFollowExpansionService implements OnModuleInit, OnApplicat
 				try { await this.expand(candidate); } catch { /* A database outage must not starve the remaining page. */ }
 			}
 		} catch { /* Retry discovery after startup or database recovery. */ } finally { this.working = false; }
+	}
+
+	private async workSource(): Promise<void> {
+		const peer = this.peer!;
+		const candidates = await this.db.query<SourceCandidate[]>(`
+			SELECT subscription."followerId", target."localUserId" AS "sourceId", target.id AS "linkId", target.generation
+			FROM gridspace_link target
+			JOIN "user" source ON source.id = target."localUserId" AND source.host IS NULL
+			JOIN following subscription ON subscription."followeeId" = source.id
+			JOIN "user" viewer ON viewer.id = subscription."followerId" AND viewer.host IS NULL
+			LEFT JOIN "user" remote ON remote.uri = $1 || '/users/' || target."peerUserId" AND remote.host = $2
+			LEFT JOIN gridspace_follow_expansion receipt ON receipt."followerId" = viewer.id AND receipt."targetId" = remote.id
+			WHERE target.state = 'active' AND target.initiator = FALSE AND target."peerOrigin" = $1
+			AND viewer.id <> source.id
+			AND (receipt."followerId" IS NULL OR (receipt.state = 'pending' AND receipt."retryAt" <= NOW()))
+			AND ($3::varchar IS NULL OR (viewer.id, source.id) > ($3, $4))
+			ORDER BY viewer.id, source.id LIMIT 20
+		`, [peer.peerOrigin, new URL(peer.peerOrigin).host, this.sourceCursor?.followerId ?? null, this.sourceCursor?.sourceId ?? null]);
+		this.sourceCursor = candidates.at(-1) ?? null;
+		for (const candidate of candidates) {
+			try { await this.expandSource(candidate); } catch { /* Retry independent followers after recovery. */ }
+		}
+	}
+
+	private async expandSource(candidate: SourceCandidate): Promise<void> {
+		const peer = this.peer!;
+		await this.guard.runMany([candidate.followerId, candidate.sourceId], async () => {
+			const { followerId, sourceId } = candidate;
+			const link = await this.db.getRepository(MiGridspaceLink).findOneBy({ id: candidate.linkId, generation: candidate.generation, localUserId: sourceId, peerOrigin: peer.peerOrigin, initiator: false, state: 'active' });
+			if (!link) return;
+			const users = this.db.getRepository(MiUser);
+			const user = await users.findOneBy({ id: followerId, host: IsNull() });
+			const source = await users.findOneBy({ id: sourceId, host: IsNull() });
+			const subscription = await this.db.getRepository(MiFollowing).findOneBy({ followerId, followeeId: sourceId });
+			if (!user || !source || !subscription || followerId === sourceId) return;
+			const uri = `${peer.peerOrigin}/users/${link.peerUserId}`;
+			let target = await users.findOneBy({ uri, host: new URL(peer.peerOrigin).host });
+			if (!target) {
+				if ((this.resolutionRetry.get(sourceId) ?? 0) > Date.now()) return;
+				try { target = await this.people.resolvePerson(uri); this.resolutionRetry.delete(sourceId); } catch { this.resolutionRetry.set(sourceId, Date.now() + 60000); return; }
+			}
+			if (target.uri !== uri || target.host !== new URL(peer.peerOrigin).host) return;
+			const key = { followerId, targetId: target.id };
+			const receipts = this.db.getRepository(MiGridspaceFollowExpansion);
+			const receipt = await receipts.findOneBy(key);
+			if (receipt && (receipt.state !== 'pending' || receipt.retryAt.getTime() > Date.now())) return;
+			await receipts.upsert({ ...key, state: 'pending', reason: null, attempts: receipt?.attempts ?? 0, retryAt: new Date() }, ['followerId', 'targetId']);
+			const complete = (state: 'done' | 'skipped', reason: string | null = null) => receipts.update(key, { state, reason });
+			try {
+				const destination = { followerId, followeeId: target.id };
+				if (await this.db.getRepository(MiFollowing).existsBy(destination) || await this.db.getRepository(MiFollowRequest).existsBy(destination)) { await complete('done'); return; }
+				if (await this.db.getRepository(MiGridspaceFollowOverride).existsBy({ localUserId: followerId, targetUserId: target.id })) { await complete('skipped', 'USER_UNFOLLOWED'); return; }
+				const ids = [sourceId, target.id];
+				const blocked = await this.db.getRepository(MiBlocking).exists({ where: [{ blockerId: followerId, blockeeId: In(ids) }, { blockerId: In(ids), blockeeId: followerId }] });
+				const mutes = await this.db.getRepository(MiMuting).findBy({ muterId: followerId, muteeId: In(ids) });
+				if ([user, source, target].some(account => account.isSuspended || account.isDeleted || account.movedToUri) || blocked || mutes.some(mute => !mute.expiresAt || mute.expiresAt.getTime() > Date.now())) { await complete('skipped', 'TARGET_RESTRICTED'); return; }
+				if (!await this.history.verifyLink(link)) throw new Error('Link unavailable');
+				await this.following.follow(user, target, { withReplies: subscription.withReplies });
+				await complete('done');
+			} catch {
+				const attempts = (receipt?.attempts ?? 0) + 1;
+				await receipts.update(key, { attempts, reason: 'FOLLOW_FAILED', retryAt: new Date(Date.now() + Math.min(300000, 3000 * 2 ** Math.min(attempts, 7))) });
+			}
+		});
 	}
 
 	private async expand(candidate: Candidate): Promise<void> {
