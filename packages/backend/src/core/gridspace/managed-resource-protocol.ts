@@ -5,11 +5,11 @@
 
 export const managedKinds = ['antenna', 'page', 'clip', 'gallery'] as const;
 export type ManagedKind = typeof managedKinds[number];
-export type ManagedInput = { kind: ManagedKind; action: 'list' | 'show' | 'update' | 'delete' | 'lists'; id?: string; data?: Record<string, unknown> };
+export type ManagedInput = { kind: ManagedKind; action: 'list' | 'show' | 'update' | 'delete' | 'lists' | 'add-note' | 'remove-note'; id?: string; data?: Record<string, unknown> };
 export type ManagedPeerInput = ManagedInput & { linkId: string; generation: number; localUserId: string; peerUserId: string };
 export const managedInputProperties = {
 	kind: { type: 'string', enum: managedKinds },
-	action: { type: 'string', enum: ['list', 'show', 'update', 'delete', 'lists'] },
+	action: { type: 'string', enum: ['list', 'show', 'update', 'delete', 'lists', 'add-note', 'remove-note'] },
 	id: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	data: { type: 'object', additionalProperties: true },
 } as const;

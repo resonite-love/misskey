@@ -6,6 +6,11 @@ import { describe, expect, test, vi } from 'vitest';
 import { routeManagedApi, sharedAntennaUnavailable } from '@/utility/gridspace-managed-api.js';
 
 describe('shared resource API adapter', () => {
+	test('routes shared clip membership and preserves the duplicate confirmation', async () => {
+		const call = vi.fn().mockResolvedValue({ item: null, clipNoteError: 'already-added' });
+		await expect(routeManagedApi('clips/add-note', { clipId: 'gridspace:clip:clip1', noteId: 'native', i: 'secret' }, call)).rejects.toMatchObject({ code: 'ALREADY_CLIPPED' });
+		expect(call).toHaveBeenCalledWith('gridspace/managed-resource', { kind: 'clip', action: 'add-note', id: 'clip1', data: { noteId: 'native' } });
+	});
 	test('keeps ordinary APIs and mismatched resource IDs on their native path', () => {
 		const call = vi.fn();
 		expect(routeManagedApi('pages/update', { pageId: 'native1' }, call)).toBeUndefined();

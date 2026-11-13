@@ -19,6 +19,8 @@ import { ApNoteService } from '@/core/activitypub/models/ApNoteService.js';
 import { MiRegistryItem } from '@/models/RegistryItem.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { CustomEmojiService } from '@/core/CustomEmojiService.js';
+import { UtilityService } from '@/core/UtilityService.js';
+import { GridspaceNoteService } from './GridspaceNoteService.js';
 import { attachContentEmojis, type ContentEmojiCarrier } from './content-emojis.js';
 import { ApiError } from '@/server/api/error.js';
 import { GridspaceLinkService } from './GridspaceLinkService.js';
@@ -28,7 +30,7 @@ import { settingsDomain } from './settings-protocol.js';
 import { managedError, managedId, type ManagedInput, type ManagedPeerInput, type ManagedKind } from './managed-resource-protocol.js';
 
 type Item = Record<string, unknown>;
-type Result = { enabled: boolean; origin: string | null; item: Item | null; items: Item[]; aliases: { sourceId: string; targetId: string }[] };
+type Result = { enabled: boolean; origin: string | null; item: Item | null; items: Item[]; aliases: { sourceId: string; targetId: string }[]; clipNoteError?: 'already-added' | 'too-many' };
 const resources = {
 	antenna: { entity: MiAntenna, prefix: 'antennas', key: 'antennaId', list: 'antennas/list' },
 	page: { entity: MiPage, prefix: 'pages', key: 'pageId', list: 'i/pages' },
@@ -80,10 +82,23 @@ export class GridspaceManagedResourceService {
 		} else {
 			if (!input.id || !await this.db.getRepository(resource.entity).existsBy({ id: input.id, userId: user.id })) throw new ApiError(managedError);
 			const action = input.action;
-			if (!['show', 'update', 'delete'].includes(action)) throw new ApiError(managedError);
-			const data = input.kind === 'page' && input.data ? await this.pageNotes(input.data, user as MiLocalUser, link) as Item : input.data;
-			const response = await this.native(`${resource.prefix}/${action}`, { ...(data ?? {}), [resource.key]: input.id }, user as MiLocalUser);
-			if (action !== 'delete') result.item = (response ?? await this.native(`${resource.prefix}/show`, { [resource.key]: input.id }, user as MiLocalUser)) as Item;
+			if (input.kind === 'clip' && (action === 'add-note' || action === 'remove-note')) {
+				const noteId = await this.clipNote(input.data?.noteUrl, user as MiLocalUser, link, action === 'add-note');
+				const current = await this.pair(user.id);
+				if (!current || current.id !== link.id || current.generation !== link.generation) throw new ApiError(managedError);
+				try {
+					await this.native(`clips/${action}`, { clipId: input.id, noteId }, user as MiLocalUser);
+				} catch (error) {
+					if (error instanceof ApiError && error.code === 'ALREADY_CLIPPED') result.clipNoteError = 'already-added';
+					else if (error instanceof ApiError && error.code === 'TOO_MANY_CLIP_NOTES') result.clipNoteError = 'too-many';
+					else throw error;
+				}
+			} else {
+				if (!['show', 'update', 'delete'].includes(action)) throw new ApiError(managedError);
+				const data = input.kind === 'page' && input.data ? await this.pageNotes(input.data, user as MiLocalUser, link) as Item : input.data;
+				const response = await this.native(`${resource.prefix}/${action}`, { ...(data ?? {}), [resource.key]: input.id }, user as MiLocalUser);
+				if (action !== 'delete') result.item = (response ?? await this.native(`${resource.prefix}/show`, { [resource.key]: input.id }, user as MiLocalUser)) as Item;
+			}
 		}
 		// Revocation/suspension during a request must not return private resource data.
 		const current = await this.pair(user.id);
@@ -92,6 +107,31 @@ export class GridspaceManagedResourceService {
 			await Promise.all((result.item ? [result.item] : result.items).map(item => attachContentEmojis(item as ContentEmojiCarrier, this.emojis, result.origin!)));
 		}
 		return result;
+	}
+
+	private async clipNote(value: unknown, user: MiLocalUser, link: MiGridspaceLink, adding: boolean): Promise<string> {
+		if (typeof value !== 'string') throw new ApiError(managedError);
+		const uri = new URL(value);
+		if (!['https:', 'http:'].includes(uri.protocol) || uri.username || uri.password || uri.hash) throw new ApiError(managedError);
+		let note: MiNote | null;
+		if (uri.origin === new URL(this.config.url).origin) {
+			if (!/^\/notes\/[a-zA-Z0-9]{1,32}$/.test(uri.pathname) || uri.search) throw new ApiError(managedError);
+			note = await this.db.getRepository(MiNote).findOneBy({ id: uri.pathname.split('/').at(-1)! });
+		} else {
+			note = await this.db.getRepository(MiNote).findOneBy({ uri: uri.href });
+			if (adding && !note && uri.origin === link.peerOrigin && /^\/notes\/[a-zA-Z0-9]{1,32}$/.test(uri.pathname) && !uri.search) {
+				note = await this.modules.get(GridspaceNoteService, { strict: false }).historyNote(uri.pathname.split('/').at(-1)!, { remaining: 20, deadline: Date.now() + 8000 });
+			} else if (adding && !note) {
+				if (!this.modules.get(UtilityService, { strict: false }).isFederationAllowedUri(uri.href)) throw new ApiError(managedError);
+				note = await this.modules.get(ApNoteService, { strict: false }).resolveNote(uri.href);
+			}
+		}
+		if (!note) throw new ApiError(managedError);
+		if (adding) {
+			const visible = await this.native('notes/show', { noteId: note.id }, user) as Item;
+			if (visible.isHidden) throw new ApiError(managedError);
+		}
+		return note.id;
 	}
 
 	private async pageNotes(value: unknown, user: MiLocalUser, link: MiGridspaceLink): Promise<unknown> {
@@ -134,8 +174,19 @@ export class GridspaceManagedResourceService {
 			if (input.action === 'list') return { enabled: false, origin: null, item: null, items: [], aliases: [] };
 			throw new ApiError(managedError);
 		}
-		const data = input.data && ['page', 'gallery'].includes(input.kind)
+		let data = input.data && ['page', 'gallery'].includes(input.kind)
 			? await this.files(input.data, id => this.drive.fileIdOnPeer(user, id)) as Item : input.data;
+		if (input.kind === 'clip' && ['add-note', 'remove-note'].includes(input.action)) {
+			if (typeof input.data?.noteId !== 'string' || !/^[a-zA-Z0-9]{1,32}$/.test(input.data.noteId)) throw new ApiError(managedError);
+			const note = await this.db.getRepository(MiNote).findOneBy({ id: input.data.noteId });
+			if (!note) throw new ApiError(managedError);
+			if (input.action === 'add-note') {
+				const visible = await this.native('notes/show', { noteId: note.id }, user) as Item;
+				if (visible.isHidden) throw new ApiError(managedError);
+			}
+			// Use a server-owned canonical URI. Never forward a browser-supplied URL or credentials.
+			data = { noteUrl: note.uri ?? `${new URL(this.config.url).origin}/notes/${note.id}` };
+		}
 		const result = await this.links.json<Result>('/gridspace/v1/managed-resource', { ...input, data, linkId: link.id, generation: link.generation, localUserId: user.id, peerUserId: link.peerUserId });
 		const current = await this.pair(user.id);
 		if (!current || current.id !== link.id || current.generation !== link.generation || result.origin !== link.peerOrigin) throw new ApiError(managedError);

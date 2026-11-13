@@ -25,6 +25,7 @@ import { genEmbedCode } from '@/utility/get-embed-code.js';
 import { prefer } from '@/preferences.js';
 import { getPluginHandlers } from '@/plugin.js';
 import { globalEvents } from '@/events.js';
+import { loadClipMenu } from '@/utility/clip-menu.js';
 
 const isInBrowserTranslationAvailable = (
 	'LanguageDetector' in window &&
@@ -45,9 +46,10 @@ export async function getNoteClipMenu(props: {
 
 	const appearNote = getAppearNote(props.note) ?? props.note;
 
-	const clips = await clipsCache.fetch();
+	const { clips, peerUnavailable } = await loadClipMenu((path, data) => misskeyApi(path as keyof Misskey.Endpoints, data));
 	const menu: MenuItem[] = [...clips.map(clip => ({
 		text: getClipName(clip),
+		caption: clip.gridspaceOrigin ? new URL(clip.gridspaceOrigin).host : undefined,
 		action: () => {
 			claimAchievement('noteClipped1');
 			os.promiseDialog(
@@ -61,16 +63,7 @@ export async function getNoteClipMenu(props: {
 						});
 						if (!confirm.canceled) {
 							os.apiWithDialog('clips/remove-note', { clipId: clip.id, noteId: appearNote.id }).then(() => {
-								clipsCache.set(clips.map(c => {
-									if (c.id === clip.id) {
-										return {
-											...c,
-											notesCount: Math.max(0, ((c.notesCount ?? 0) - 1)),
-										};
-									} else {
-										return c;
-									}
-								}));
+								clipsCache.delete();
 							});
 						}
 					} else if (err.id === 'f0dba960-ff73-4615-8df4-d6ac5d9dc118') {
@@ -86,19 +79,10 @@ export async function getNoteClipMenu(props: {
 					}
 				},
 			).then(() => {
-				clipsCache.set(clips.map(c => {
-					if (c.id === clip.id) {
-						return {
-							...c,
-							notesCount: (c.notesCount ?? 0) + 1,
-						};
-					} else {
-						return c;
-					}
-				}));
+				clipsCache.delete();
 			});
 		},
-	})), { type: 'divider' }, {
+	})), ...(peerUnavailable ? [{ type: 'label' as const, text: i18n.ts._gridspace.collectionsPartial }] : []), { type: 'divider' }, {
 		icon: 'ti ti-plus',
 		text: i18n.ts.createNew,
 		action: async () => {

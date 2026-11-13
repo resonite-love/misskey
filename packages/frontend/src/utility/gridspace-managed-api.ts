@@ -24,11 +24,16 @@ export function managedId(kind: Kind, id: string) { return `gridspace:${kind}:${
 export function routeManagedApi(endpoint: string, data: Data, call: Call): Promise<unknown> | undefined {
 	for (const [prefix, { kind, key }] of Object.entries(paths)) {
 		const action = endpoint.slice(prefix.length + 1);
-		if (!endpoint.startsWith(prefix + '/') || !['show', 'update', 'delete'].includes(action)) continue;
+		if (!endpoint.startsWith(prefix + '/') || !['show', 'update', 'delete', ...(kind === 'clip' ? ['add-note', 'remove-note'] : [])].includes(action)) continue;
 		const parsed = parseManagedId(data[key]);
 		if (parsed?.kind !== kind) continue;
 		const { [key]: _id, i: _token, ...values } = data;
-		return call('gridspace/managed-resource', { kind, action, id: parsed.id, data: values }).then(response => (response as { item: unknown }).item ?? undefined);
+		return call('gridspace/managed-resource', { kind, action, id: parsed.id, data: values }).then(response => {
+			const result = response as { item: unknown; clipNoteError?: string };
+			if (result.clipNoteError === 'already-added') throw Object.assign(new Error('The note has already been clipped.'), { id: '734806c4-542c-463a-9311-15c512803965', code: 'ALREADY_CLIPPED' });
+			if (result.clipNoteError === 'too-many') throw Object.assign(new Error('You cannot add notes to the clip any more.'), { id: 'f0dba960-ff73-4615-8df4-d6ac5d9dc118', code: 'TOO_MANY_CLIP_NOTES' });
+			return result.item ?? undefined;
+		});
 	}
 	if (endpoint === 'antennas/list') {
 		const peer = call('gridspace/managed-resource', { kind: 'antenna', action: 'list' }).then(value => {

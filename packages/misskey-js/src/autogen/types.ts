@@ -26375,7 +26375,7 @@ export interface operations {
                     /** @enum {string} */
                     kind: 'antenna' | 'page' | 'clip' | 'gallery';
                     /** @enum {string} */
-                    action: 'list' | 'show' | 'update' | 'delete' | 'lists';
+                    action: 'list' | 'show' | 'update' | 'delete' | 'lists' | 'add-note' | 'remove-note';
                     id?: string;
                     data?: {
                         [key: string]: unknown;
@@ -26403,6 +26403,8 @@ export interface operations {
                             sourceId: string;
                             targetId: string;
                         }[];
+                        /** @enum {string} */
+                        clipNoteError?: 'already-added' | 'too-many';
                     };
                 };
             };
