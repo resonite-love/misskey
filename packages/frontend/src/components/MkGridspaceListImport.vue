@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <div v-if="available" class="_gaps_s">
 	<MkButton :disabled="busy || result?.complete" @click="run(true)">{{ i18n.ts._gridspace.listsCopy }}</MkButton>
-	<div v-if="result?.started" role="status">{{ i18n.tsx._gridspace.settingsProgress({ done: result.done, total: result.total, failed: result.failed }) }}</div>
+	<div v-if="result?.started" role="status">{{ i18n.tsx._gridspace.listsProgress({ done: result.done, total: result.total, failed: result.failed }) }}</div>
 	<MkInfo v-if="error" warn>{{ i18n.ts._gridspace.listsCopyFailed }}</MkInfo>
 	<MkButton v-if="error" :disabled="busy" @click="run(true, true)">{{ i18n.ts.retry }}</MkButton>
 </div>
