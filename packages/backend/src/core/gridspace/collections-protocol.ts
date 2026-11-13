@@ -32,7 +32,9 @@ export function parseLinkedAntennas(value: unknown): LinkedAntenna[] {
 
 /** A bare account name belongs to the source server, not to the destination. */
 export function migrateAntennaUsers(users: string[], sourceOrigin: string, destinationOrigin: string): string[] {
-	return users.map(value => {
+	// The native editor serializes an unused/empty textarea as [''].
+	// Empty rows never match an account, including in exclusion lists.
+	return users.filter(value => value.trim() !== '').map(value => {
 		const account = value.replace(/^@/, '');
 		const [username, host] = account.split('@');
 		if (!username || account.split('@').length > 2) throw new Error('Invalid antenna user');

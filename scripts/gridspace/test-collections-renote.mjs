@@ -16,6 +16,7 @@ await api(r, 'users/lists/push', { listId: list.id, userId: old.id }, old.token)
 const antennaParams = { name: 'Antenna import', src: 'users', userListId: null, users: [old.username], keywords: [['collections24']], excludeKeywords: [['exclude']], caseSensitive: true, localOnly: false, excludeBots: true, withReplies: true, withFile: false, excludeNotesInSensitiveChannel: true };
 await api(r, 'antennas/create', antennaParams, old.token);
 await api(r, 'antennas/create', { ...antennaParams, name: 'List antenna', src: 'list', userListId: list.id }, old.token);
+await api(r, 'antennas/create', { ...antennaParams, name: 'All posts with blank users', src: 'all', users: [''] }, old.token);
 const started = await api(g, 'gridspace/link', { action: 'start' }, grid.token);
 const transaction = (await (await fetch(started.authorizationUrl)).text()).match(/name="misskey:oauth:transaction-id" content="([^"]+)"/)?.[1]; assert.ok(transaction);
 const decision = await fetch(`${r.origin}/oauth/decision`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ transaction_id: transaction, login_token: old.token }) });
@@ -26,14 +27,15 @@ let state = await api(g, 'gridspace/list-import', { action: 'start' }, grid.toke
 for (let i = 0; state.pending && i < 20; i++) state = await api(g, 'gridspace/list-import', { action: 'step' }, grid.token);
 assert.equal(state.complete, true); assert.equal(state.failed, 0);
 const antennas = await api(g, 'antennas/list', {}, grid.token);
-assert.equal(antennas.length, 2);
+assert.equal(antennas.length, 3);
+assert.deepEqual(antennas.find(a => a.src === 'all').users, []);
 const copied = antennas.find(a => a.name === antennaParams.name);
 for (const key of ['keywords', 'excludeKeywords', 'caseSensitive', 'localOnly', 'excludeBots', 'withReplies', 'withFile', 'excludeNotesInSensitiveChannel']) assert.deepEqual(copied[key], antennaParams[key], key);
 assert.deepEqual(copied.users, [`${old.username}@${new URL(r.origin).host}`]);
 const lists = await api(g, 'users/lists/list', {}, grid.token);
 assert.equal(antennas.find(a => a.src === 'list').userListId, lists[0].id);
 await api(g, 'gridspace/list-import', { action: 'start' }, grid.token);
-assert.equal((await api(g, 'antennas/list', {}, grid.token)).length, 2);
+assert.equal((await api(g, 'antennas/list', {}, grid.token)).length, 3);
 console.log('PASS: antenna conditions, list IDs and source account hosts copied without duplication');
 
 const publicNote = (await api(r, 'notes/create', { text: `collections24 public ${old.id}`, localOnly: true }, old.token)).createdNote;
@@ -93,7 +95,7 @@ try {
 
 await api(g, 'antennas/delete', { antennaId: copied.id }, grid.token);
 await api(g, 'gridspace/list-import', { action: 'retry' }, grid.token);
-assert.equal((await api(g, 'antennas/list', {}, grid.token)).length, 1);
+assert.equal((await api(g, 'antennas/list', {}, grid.token)).length, 2);
 await api(g, 'gridspace/link', { action: 'revoke' }, grid.token);
 await assert.rejects(api(g, 'gridspace/renote-target', { noteId: publicNote.id }, grid.token));
 console.log('PASS: manual antenna deletion retained and link revocation blocks RN preparation');

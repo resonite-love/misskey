@@ -130,11 +130,19 @@ describe('list import receipts', () => {
 		expect(await f.call()).toMatchObject({ complete: true, done: 2 });
 		expect(f.targets.size).toBe(1); expect(f.antennas.size).toBe(1);
 	});
+	test('copies native all-post antennas with an unused blank users field', async () => {
+		const f = fixture(0);
+		f.sourceAntennas.push({ ...antenna(), src: 'all', users: [''] });
+		expect(await f.call()).toMatchObject({ complete: true, failed: 0 });
+		expect([...f.antennas.values()][0]).toMatchObject({ src: 'all', users: [], keywords: antenna().keywords, excludeKeywords: antenna().excludeKeywords });
+		expect(await f.call('retry')).toMatchObject({ complete: true }); expect(f.antennas.size).toBe(1);
+	});
 	test('validates antenna payloads and account origin mapping', () => {
 		expect(parseLinkedAntennas([antenna()])).toEqual([antenna()]);
 		expect(() => parseLinkedAntennas([antenna(), antenna()])).toThrow();
 		expect(() => parseLinkedAntennas([{ ...antenna(), localOnly: 'false' }])).toThrow();
 		expect(() => parseLinkedAntennas([{ ...antenna(), keywords: ['bad'] }])).toThrow();
 		expect(migrateAntennaUsers(['local', '@other@outside.example'], 'https://r.example', 'https://g.example')).toEqual(['local@r.example', 'other@outside.example']);
+		expect(migrateAntennaUsers(['', ' \t', 'local', ''], 'https://r.example', 'https://g.example')).toEqual(['local@r.example']);
 	});
 });
