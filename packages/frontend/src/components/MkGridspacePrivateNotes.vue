@@ -4,7 +4,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<section v-if="enabled || alwaysShow" ref="root" class="_panel _gaps_s" :class="$style.root" data-gridspace-private :aria-label="params.channelId ? i18n.ts.channel : i18n.ts._gridspace.privateTitle">
+<component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" v-if="enabled || alwaysShow" :refresher="reload">
+<section ref="root" class="_panel _gaps_s" :class="$style.root" data-gridspace-private :aria-label="params.channelId ? i18n.ts.channel : i18n.ts._gridspace.privateTitle">
 	<div v-if="!plain || !enabled" :class="$style.heading" class="_gaps_s">
 		<h2 v-if="!plain" :class="$style.title"><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateTitle }}</h2>
 		<p v-if="!plain">{{ i18n.ts._gridspace.privateScope }}</p>
@@ -24,6 +25,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</div>
 	</template>
 </section>
+</component>
 </template>
 
 <script setup lang="ts">
@@ -32,6 +34,7 @@ import { isHeadVisible, onScrollTop, scrollToTop } from '@@/js/scroll.js';
 import type { entities } from 'misskey-js';
 import type { GridspaceNoteEntry } from '@/utility/gridspace-note-suspension.js';
 import MkButton from '@/components/MkButton.vue';
+import MkPullToRefresh from '@/components/MkPullToRefresh.vue';
 import MkGridspacePrivateNoteRow from '@/components/MkGridspacePrivateNoteRow.vue';
 import { prefer } from '@/preferences.js';
 import { misskeyApi } from '@/utility/misskey-api.js';

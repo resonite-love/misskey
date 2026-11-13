@@ -7,6 +7,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DataSource, In, IsNull, type QueryRunner } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
+import type { Packed } from '@/misc/json-schema.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
 import { MiUserProfile } from '@/models/UserProfile.js';
 import { MiClip } from '@/models/Clip.js';
@@ -173,11 +174,13 @@ export class GridspacePrivateService {
 		return result;
 	}
 
-	private async pack(note: MiNote, viewerId: string, readableRelated: Set<string>, reactionState: Awaited<ReturnType<GridspaceReactionService['show']>>[number] | undefined): Promise<PrivateWireNote> {
+	private async pack(note: MiNote, viewerId: string, readableRelated: Set<string>, reactionState: Awaited<ReturnType<GridspaceReactionService['show']>>[number] | undefined, authors = new Map<string, Promise<Packed<'UserLite'>>>()): Promise<PrivateWireNote> {
 		const files = note.fileIds.length ? await this.db.getRepository(MiDriveFile).findBy({ id: In(note.fileIds) }) : [];
 		const poll = note.hasPoll ? await this.db.getRepository(MiPoll).findOneBy({ noteId: note.id }) : null;
 		const votes = poll ? await this.db.getRepository(MiPollVote).findBy({ noteId: note.id, userId: viewerId }) : [];
 		const emojiUrls = await this.emojiUrls(note.emojis, note.userHost);
+		if (!authors.has(note.userId)) authors.set(note.userId, this.users.pack(note.user!, { id: viewerId }, { schema: 'UserLite' }));
+		const author = await authors.get(note.userId)!;
 		if (!reactionState) throw new GridspaceLinkError('UNAVAILABLE');
 		const { reactions, myReaction, myReactions } = reactionState;
 		const reactionEmojis = { ...reactionState.reactionEmojis, ...await this.emojiUrls(Object.keys(reactions).map(value => value.replace(/^:|:$/g, '')), note.userHost) };
@@ -191,7 +194,8 @@ export class GridspacePrivateService {
 			channelId: note.channelId, canDelete: !!note.channelId && note.userId === viewerId,
 			reactions, reactionEmojis, myReaction, myReactions, extendedReactions: !!note.channelId || supportsGridspaceReactions(note, this.peer),
 			reactionPreviews: reactionState.reactionPreviews?.filter(row => Object.keys(reactions).some(reaction => reaction.replace('@.:', ':') === row.reaction.replace('@.:', ':'))),
-			author: { ...this.actor(note.user!), avatarUrl: (note.user!.avatarId == null ? null : note.user!.avatarUrl) ?? this.users.getIdenticonUrl(note.user!) }, filterActors: actors.map(user => this.actor(user)),
+			author: { ...this.actor(note.user!), avatarUrl: author.avatarUrl, emojis: await this.emojiUrls(note.user!.emojis, note.user!.host), avatarBlurhash: author.avatarBlurhash, avatarDecorations: author.avatarDecorations, isBot: author.isBot, isCat: author.isCat,
+				instance: note.user!.host ? author.instance && { name: author.instance.name, faviconUrl: author.instance.faviconUrl, themeColor: author.instance.themeColor } : { name: this.meta.name, faviconUrl: this.meta.iconUrl, themeColor: this.meta.themeColor } }, filterActors: actors.map(user => this.actor(user)),
 			replyId: note.replyId && readableRelated.has(note.replyId) ? note.replyId : null,
 			renoteId: note.renoteId && readableRelated.has(note.renoteId) ? note.renoteId : null,
 			files: files.map(file => ({ id: file.id, name: file.name, type: file.type, size: file.size, comment: file.comment, isSensitive: file.isSensitive || file.maybeSensitive })),
@@ -212,7 +216,8 @@ export class GridspacePrivateService {
 		const relatedIds = selected.flatMap(note => [note.replyId, note.renoteId]).filter((id): id is string => id != null);
 		const related = relatedIds.length ? await this.search.read(this.query(link.localUserId, { mode: 'show', channelId: input.channelId, withChannelNotes: !link.initiator }).andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
 		const reactionStates = new Map((selected.length ? await this.extendedReactions.show(selected.map(note => note.id), { id: link.localUserId }, true) : []).map(state => [state.noteId, state]));
-		const packed = await Promise.all(selected.map(note => this.pack(note, link.localUserId, new Set(related.map(item => item.id)), reactionStates.get(note.id))));
+		const authors = new Map<string, Promise<Packed<'UserLite'>>>();
+		const packed = await Promise.all(selected.map(note => this.pack(note, link.localUserId, new Set(related.map(item => item.id)), reactionStates.get(note.id), authors)));
 		// Recheck after packing attachments/polls, not just before the asynchronous work.
 		await this.authorizeRead(input);
 		const fresh = selected.length ? await this.search.read(this.query(link.localUserId, sourceInput).andWhere('note.id IN (:...selected)', { selected: selected.map(note => note.id) })) : [];

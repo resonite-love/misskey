@@ -5,15 +5,20 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <article v-if="!deleted" ref="article" :class="$style.note" data-gridspace-private-note>
-	<MkA :to="authorPage" :class="$style.avatar" :aria-label="note.author.name || note.author.username"><img :src="avatarUrl" alt="" loading="lazy" decoding="async"></MkA>
+	<div v-if="channel" :class="$style.colorBar" :style="{ background: channel.color }"></div>
+	<MkAvatar :user="displayAuthor" :class="$style.avatar" link/>
 	<div :class="$style.content">
-	<MkNoteHeader :note="headerNote" :noteUrl="noteLink(note.id)"/>
+	<MkNoteHeader :note="headerNote" :noteUrl="noteLink(note.id)" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/>
+	<MkInstanceTicker v-if="showTicker" :host="displayAuthor.host" :instance="displayAuthor.instance"/>
 	<div v-if="(note.replyId || note.renoteId)" :class="$style.parentLinks"><MkA v-if="note.replyId" :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA><MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA></div>
 	<template v-if="note.cw != null">
 		<div :class="$style.body"><Mfm :text="note.cw || i18n.ts._gridspace.privateContentWarning" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false"/><MkCwButton v-model="expanded" :text="note.text" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/></div>
 		<div v-if="expanded" :class="[$style.body, $style.text]"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
 	</template>
 	<div v-else :class="[$style.body, $style.text]"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
+	<div v-if="visible && isEnabledUrlPreview && (note.cw == null || expanded)">
+		<MkUrlPreview v-for="link in urls" :key="link" :url="link" :compact="true" :detail="false" :class="$style.urlPreview"/>
+	</div>
 	<div v-if="note.cw == null || expanded" class="_gaps_s">
 		<MkMediaList v-if="media.length" :mediaList="media" :raw="true" ephemeral/>
 		<MkButton v-for="file in note.files.filter(item => !blobs[item.id])" :key="file.id" small :disabled="loading === file.id" @click="loadFile(file.id)">
@@ -34,19 +39,25 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onDeactivated, onMounted, ref, useTemplateRef, watch } from 'vue';
+import { computed, inject, onBeforeUnmount, onDeactivated, onMounted, ref, useTemplateRef, watch } from 'vue';
+import * as mfm from 'mfm-js';
 import type { entities } from 'misskey-js';
 import MkGridspaceNoteActions from '@/components/MkGridspaceNoteActions.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkMediaList from '@/components/MkMediaList.vue';
 import MkCwButton from '@/components/MkCwButton.vue';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
+import MkAvatar from '@/components/global/MkAvatar.vue';
+import MkInstanceTicker from '@/components/MkInstanceTicker.vue';
+import MkUrlPreview from '@/components/MkUrlPreview.vue';
+import { extractUrlFromMfm } from '@/utility/extract-url-from-mfm.js';
+import { isEnabledUrlPreview } from '@/utility/url-preview.js';
+import { DI } from '@/di.js';
 import { gridspacePost } from '@/utility/gridspace-post.js';
 import { copyToClipboard } from '@/utility/copy-to-clipboard.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 import { prefer } from '@/preferences.js';
-import { getStaticImageUrl } from '@/utility/media-proxy.js';
 import { url } from '@@/js/config.js';
 import { $i } from '@/i.js';
 import * as os from '@/os.js';
@@ -54,13 +65,18 @@ import * as os from '@/os.js';
 const props = defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number] }>();
 const updated = ref<entities.GridspacePrivateNotesResponse['notes'][number] | null>(null);
 const note = computed(() => updated.value ?? props.note);
-const headerNote = computed(() => ({ id: note.value.id, createdAt: note.value.createdAt, user: note.value.author, visibility: (['public', 'home', 'followers', 'specified'].includes(note.value.visibility) ? note.value.visibility : 'specified') as entities.Note['visibility'], localOnly: note.value.localOnly, channel: note.value.channelId ? { name: i18n.ts.channel } : null }));
+const displayAuthor = computed<entities.UserLite>(() => ({ ...note.value.author, id: note.value.author.uri, host: note.value.author.host === new URL(url).host ? null : note.value.author.host,
+	avatarBlurhash: note.value.author.avatarBlurhash ?? null, avatarDecorations: note.value.author.avatarDecorations ?? [], isBot: note.value.author.isBot ?? false, isCat: note.value.author.isCat ?? false,
+	emojis: note.value.author.emojis ?? {}, onlineStatus: 'unknown', instance: note.value.author.instance ? { name: null, faviconUrl: null, themeColor: null, softwareName: null, softwareVersion: null, iconUrl: null, ...note.value.author.instance } : undefined }));
+const channelContext = inject(DI.linkedChannel, undefined);
+const channel = computed(() => { const value = channelContext?.value; return value && value.id === note.value.channelId ? value : undefined; });
+const headerNote = computed(() => ({ id: note.value.id, createdAt: note.value.createdAt, user: displayAuthor.value, visibility: (['public', 'home', 'followers', 'specified'].includes(note.value.visibility) ? note.value.visibility : 'specified') as entities.Note['visibility'], localOnly: note.value.localOnly, channel: note.value.channelId ? { name: channel.value?.name ?? i18n.ts.channel } : null }));
+const showTicker = computed(() => prefer.s.instanceTicker === 'always' || (prefer.s.instanceTicker === 'remote' && displayAuthor.value.host != null && displayAuthor.value.instance != null));
+const urls = computed(() => extractUrlFromMfm(mfm.parse(note.value.text ?? '')));
 watch(() => props.note, () => { updated.value = null; });
 const emit = defineEmits<{ (event: 'unavailable'): void; (event: 'replied'): void }>();
 const actions = useTemplateRef('actions');
 const article = useTemplateRef('article');
-const authorPage = computed(() => `/@${props.note.author.username}@${props.note.author.host}`);
-const avatarUrl = computed(() => prefer.s.disableShowingAnimatedImages || prefer.s.dataSaver.avatar ? getStaticImageUrl(props.note.author.avatarUrl) : props.note.author.avatarUrl);
 const expanded = defineModel<boolean>('expanded', { default: false });
 const deleted = ref(false);
 const deleting = ref(false);
@@ -160,8 +176,9 @@ onDeactivated(clear);
 </script>
 
 <style lang="scss" module>
-.note { display: flex; gap: 14px; padding: 28px 32px; border-bottom: 1px solid var(--MI_THEME-divider); overflow-wrap: anywhere; }
-.avatar { flex: none; width: 58px; height: 58px; img { width: 100%; height: 100%; border-radius: 100%; object-fit: cover; } }
+.note { position: relative; display: flex; gap: 14px; padding: 28px 32px; border-bottom: 1px solid var(--MI_THEME-divider); overflow-wrap: anywhere; }
+.colorBar { position: absolute; top: 8px; left: 8px; width: 5px; height: calc(100% - 16px); border-radius: 999px; pointer-events: none; }
+.avatar { flex: none; display: block; width: 58px; height: 58px; }
 .content { flex: 1; min-width: 0; }
 .header { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: 0.95em; }
 .account { color: var(--MI_THEME-fgTransparentWeak); font-size: 0.85em; }
@@ -170,7 +187,8 @@ onDeactivated(clear);
 .text { overflow-wrap: anywhere; }
 .media { display: block; max-width: 100%; max-height: 420px; }
 .footer { display: flex; align-items: center; margin-top: 4px; }
-.footerButton { margin: 0 28px 0 0; padding: 8px; font-size: 1.1em; color: var(--MI_THEME-fgTransparentWeak); &:hover { color: var(--MI_THEME-accent); } }
+.footerButton { margin: 0; padding: 8px; color: color-mix(in srgb, var(--MI_THEME-panel), var(--MI_THEME-fg) 70%); &:not(:last-child) { margin-right: 28px; } &:hover { color: var(--MI_THEME-fgHighlighted); } }
+.urlPreview { margin-top: 8px; }
 @container (max-width: 500px) {
 	.note { gap: 12px; padding: 20px 16px; }
 	.avatar { width: 46px; height: 46px; }

@@ -13,6 +13,11 @@ export function supportsGridspaceReactions(note: { userHost: string | null; uri:
 	return note.userHost === null || (note.userHost === new URL(peer.peerOrigin).host && note.uri?.startsWith(prefix) === true && gridspaceNoteId(note.uri.slice(prefix.length)));
 }
 
+/** Peer-authored channel posts live here; reactions never use the federation merge path. */
+export function supportsGridspaceChannelReactions(note: { userHost: string | null; uri: string | null; channelId: string | null; localOnly: boolean }, peer: GridspacePeerConfig | null): boolean {
+	return !!peer && note.channelId != null && note.localOnly && note.uri === null && note.userHost === new URL(peer.peerOrigin).host;
+}
+
 export const GRIDSPACE_REACTIONS_PATH = '/gridspace/v1/reactions';
 export type ReactionUpdate = { uris: string[] };
 export type ReactionPosition = { time: number; id: string; origin: string };

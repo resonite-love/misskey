@@ -24,7 +24,7 @@ import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protoco
 import { requestGridspacePeer } from './peer-client.js';
 import { gridspaceNoteId } from './note-protocol.js';
 import { searchNoteTimeSql } from './search-visibility.js';
-import { canonicalReaction, localReaction, compareReactionRows, encodeReactionPosition, reactionPosition, validateReactionSnapshots, supportsGridspaceReactions, GRIDSPACE_REACTIONS_PATH, type ReactionPeerRequest, type ReactionPosition, type ReactionRow, type ReactionSnapshot, type ReactionPreview } from './reaction-protocol.js';
+import { canonicalReaction, localReaction, compareReactionRows, encodeReactionPosition, reactionPosition, validateReactionSnapshots, supportsGridspaceReactions, supportsGridspaceChannelReactions, GRIDSPACE_REACTIONS_PATH, type ReactionPeerRequest, type ReactionPosition, type ReactionRow, type ReactionSnapshot, type ReactionPreview } from './reaction-protocol.js';
 
 // A reactor's home server owns its complete set. Do not add a peer's replicated
 // ActivityPub primary reaction a second time, or resurrect it after cancellation.
@@ -187,7 +187,7 @@ export class GridspaceReactionService {
 	}
 
 	public async prepareMutation(user: MiLocalUser, note: MiNote): Promise<MiNote> {
-		if (note.userHost === null) return note;
+		if (note.userHost === null || supportsGridspaceChannelReactions(note, this.peer)) return note;
 		if (!this.shared(note)) throw new IdentifiableError('extended-local-only');
 		if (!(await this.visible([note], user)).length) throw new IdentifiableError('68e9d2d1-48bf-42c2-b90a-b20e09fd3d48');
 		let state: ReactionSnapshot | undefined;
@@ -198,11 +198,11 @@ export class GridspaceReactionService {
 	}
 
 	public async create(user: MiLocalUser, note: MiNote, reaction: string) {
-		return this.extended.create(user, await this.prepareMutation(user, note), reaction, this.shared(note));
+		return this.extended.create(user, await this.prepareMutation(user, note), reaction, this.shared(note) || supportsGridspaceChannelReactions(note, this.peer));
 	}
 
 	public async delete(user: MiLocalUser, note: MiNote, reaction: string) {
-		return this.extended.delete(user, await this.prepareMutation(user, note), reaction, this.shared(note));
+		return this.extended.delete(user, await this.prepareMutation(user, note), reaction, this.shared(note) || supportsGridspaceChannelReactions(note, this.peer));
 	}
 
 	public async list(note: MiNote, me: { id: string } | null, type: string | null | undefined, limit: number, sinceId?: string, untilId?: string): Promise<Packed<'NoteReaction'>[]> {

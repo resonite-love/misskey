@@ -5,6 +5,8 @@
 
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import type { ReactionPreview } from './reaction-protocol.js';
+import { packedUserLiteSchema } from '@/models/json-schema/user.js';
+import type { Packed } from '@/misc/json-schema.js';
 
 export type PrivateOptions = {
 	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'validate';
@@ -20,7 +22,7 @@ export type PrivatePeerRequest = GridspacePeerLinkRequest & Omit<PrivateOptions,
 export type PrivateActor = { name: string | null; username: string; host: string; uri: string };
 export type PrivateNote = {
 	id: string; uri: string; createdAt: string; origin: string; text: string | null; cw: string | null;
-	visibility: string; localOnly: boolean; author: PrivateActor & { avatarUrl: string };
+	visibility: string; localOnly: boolean; author: PrivateActor & { avatarUrl: string; emojis?: Record<string, string>; instance?: { name?: string | null; faviconUrl?: string | null; themeColor?: string | null } } & Partial<Pick<Packed<'UserLite'>, 'avatarBlurhash' | 'avatarDecorations' | 'isBot' | 'isCat'>>;
 	channelId?: string | null;
 	canDelete?: boolean;
 	collectionId?: string; collectionAt?: string;
@@ -48,7 +50,12 @@ export const privateNoteSchema = {
 		channelId: { ...nullableText, optional: true },
 		collectionId: { ...text, optional: true }, collectionAt: { ...text, optional: true },
 		canDelete: { ...flag, optional: true },
-		author: { type: 'object', optional: false, nullable: false, properties: { name: nullableText, username: text, host: text, uri: text, avatarUrl: text } },
+		author: { type: 'object', optional: false, nullable: false, properties: {
+			name: nullableText, username: text, host: text, uri: text, avatarUrl: text, emojis: { type: 'object', optional: true, nullable: false, additionalProperties: text },
+			avatarBlurhash: { ...nullableText, optional: true }, avatarDecorations: { ...packedUserLiteSchema.properties.avatarDecorations, optional: true },
+			isBot: { ...flag, optional: true }, isCat: { ...flag, optional: true },
+			instance: { type: 'object', optional: true, nullable: false, properties: { name: { ...nullableText, optional: true }, faviconUrl: { ...nullableText, optional: true }, themeColor: { ...nullableText, optional: true } } },
+		} },
 		emojis: { type: 'object', optional: true, nullable: false, additionalProperties: text },
 		reactions: { type: 'object', optional: true, nullable: false, additionalProperties: integer },
 		reactionEmojis: { type: 'object', optional: true, nullable: false, additionalProperties: text },

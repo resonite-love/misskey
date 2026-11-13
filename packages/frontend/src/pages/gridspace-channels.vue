@@ -51,7 +51,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef, useTemplateRef, watch } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, provide, ref, shallowRef, useTemplateRef, watch } from 'vue';
+import { DI } from '@/di.js';
 import type { entities } from 'misskey-js';
 import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
@@ -71,6 +72,7 @@ const props = defineProps<{ channelId?: string }>();
 type Channel = entities.GridspaceChannelsResponse['channels'][number];
 const channels = shallowRef<Channel[]>([]);
 const selected = computed(() => props.channelId ? channels.value.find(channel => channel.id === props.channelId) : undefined);
+provide(DI.linkedChannel, selected);
 const query = ref('');
 const followed = ref(false);
 const origin = ref('');

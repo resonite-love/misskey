@@ -40,6 +40,23 @@ function fixture(remote = false) {
 }
 
 describe('paired reaction authorization and failures', () => {
+	test('allows multiple reactions and removal on a locally stored peer-authored channel post without federation', async () => {
+		const f = fixture(true);
+		Object.assign(f.note, { uri: null, channelId: 'channel', localOnly: true });
+		await f.service.create(f.viewer, f.note, '👍');
+		await f.service.create(f.viewer, f.note, '🎉');
+		await f.service.delete(f.viewer, f.note, '👍');
+		expect(f.extended.create).toHaveBeenNthCalledWith(1, f.viewer, f.note, '👍', true);
+		expect(f.extended.create).toHaveBeenNthCalledWith(2, f.viewer, f.note, '🎉', true);
+		expect(f.extended.delete).toHaveBeenCalledWith(f.viewer, f.note, '👍', true);
+		expect(requestGridspacePeer).not.toHaveBeenCalled();
+	});
+	test.each([{ userHost: 'other.example' }, { localOnly: false }, { uri: 'https://r.example/notes/remote' }])('rejects non-local channel reaction scope %j', async mismatch => {
+		const f = fixture(true);
+		Object.assign(f.note, { uri: null, channelId: 'channel', localOnly: true }, mismatch);
+		await expect(f.service.create(f.viewer, f.note, '👍')).rejects.toMatchObject({ id: 'extended-local-only' });
+		expect(f.extended.create).not.toHaveBeenCalled();
+	});
 	test('omits a newly added emoji preview when its count snapshot predates the insert', async () => {
 		const f = fixture();
 		const actor = { id: 'actor', username: 'actor', host: null, name: null, avatarId: 'avatar', avatarUrl: 'https://g.example/avatar.png', uri: null };

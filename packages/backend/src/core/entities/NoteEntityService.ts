@@ -9,7 +9,7 @@ import { ModuleRef } from '@nestjs/core';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
-import { supportsGridspaceReactions } from '@/core/gridspace/reaction-protocol.js';
+import { supportsGridspaceReactions, supportsGridspaceChannelReactions } from '@/core/gridspace/reaction-protocol.js';
 import type { Packed } from '@/misc/json-schema.js';
 import { awaitAll } from '@/misc/prelude/await-all.js';
 import type { MiUser } from '@/models/User.js';
@@ -443,7 +443,7 @@ export class NoteEntityService implements OnModuleInit {
 			visibility: note.visibility,
 			localOnly: note.localOnly,
 			gridspaceShared: note.gridspaceShared,
-			gridspaceReactions: supportsGridspaceReactions(note, this.gridspacePeer),
+			gridspaceReactions: supportsGridspaceReactions(note, this.gridspacePeer) || supportsGridspaceChannelReactions(note, this.gridspacePeer),
 			reactionAcceptance: note.reactionAcceptance,
 			visibleUserIds: note.visibility === 'specified' ? note.visibleUserIds : undefined,
 			renoteCount: note.renoteCount,

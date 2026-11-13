@@ -25356,6 +25356,27 @@ export interface operations {
                             host: string;
                             uri: string;
                             avatarUrl: string;
+                            emojis?: {
+                                [key: string]: string;
+                            };
+                            avatarBlurhash?: string | null;
+                            avatarDecorations?: {
+                                /** Format: id */
+                                id: string;
+                                angle?: number;
+                                flipH?: boolean;
+                                /** Format: url */
+                                url: string;
+                                offsetX?: number;
+                                offsetY?: number;
+                            }[];
+                            isBot?: boolean;
+                            isCat?: boolean;
+                            instance?: {
+                                name?: string | null;
+                                faviconUrl?: string | null;
+                                themeColor?: string | null;
+                            };
                         };
                         /** @enum {string} */
                         visibility: 'followers' | 'specified' | 'public';
@@ -25366,6 +25387,27 @@ export interface operations {
                             host: string;
                             uri: string;
                             avatarUrl: string;
+                            emojis?: {
+                                [key: string]: string;
+                            };
+                            avatarBlurhash?: string | null;
+                            avatarDecorations?: {
+                                /** Format: id */
+                                id: string;
+                                angle?: number;
+                                flipH?: boolean;
+                                /** Format: url */
+                                url: string;
+                                offsetX?: number;
+                                offsetY?: number;
+                            }[];
+                            isBot?: boolean;
+                            isCat?: boolean;
+                            instance?: {
+                                name?: string | null;
+                                faviconUrl?: string | null;
+                                themeColor?: string | null;
+                            };
                         }[];
                         maxTextLength: number;
                         createdNoteId: string | null;
@@ -26055,6 +26097,27 @@ export interface operations {
                                     host: string;
                                     uri: string;
                                     avatarUrl: string;
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    avatarBlurhash?: string | null;
+                                    avatarDecorations?: {
+                                        /** Format: id */
+                                        id: string;
+                                        angle?: number;
+                                        flipH?: boolean;
+                                        /** Format: url */
+                                        url: string;
+                                        offsetX?: number;
+                                        offsetY?: number;
+                                    }[];
+                                    isBot?: boolean;
+                                    isCat?: boolean;
+                                    instance?: {
+                                        name?: string | null;
+                                        faviconUrl?: string | null;
+                                        themeColor?: string | null;
+                                    };
                                 };
                                 emojis?: {
                                     [key: string]: string;
@@ -26119,6 +26182,27 @@ export interface operations {
                                     host: string;
                                     uri: string;
                                     avatarUrl: string;
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    avatarBlurhash?: string | null;
+                                    avatarDecorations?: {
+                                        /** Format: id */
+                                        id: string;
+                                        angle?: number;
+                                        flipH?: boolean;
+                                        /** Format: url */
+                                        url: string;
+                                        offsetX?: number;
+                                        offsetY?: number;
+                                    }[];
+                                    isBot?: boolean;
+                                    isCat?: boolean;
+                                    instance?: {
+                                        name?: string | null;
+                                        faviconUrl?: string | null;
+                                        themeColor?: string | null;
+                                    };
                                 };
                                 emojis?: {
                                     [key: string]: string;
@@ -26513,6 +26597,27 @@ export interface operations {
                             host: string;
                             uri: string;
                             avatarUrl: string;
+                            emojis?: {
+                                [key: string]: string;
+                            };
+                            avatarBlurhash?: string | null;
+                            avatarDecorations?: {
+                                /** Format: id */
+                                id: string;
+                                angle?: number;
+                                flipH?: boolean;
+                                /** Format: url */
+                                url: string;
+                                offsetX?: number;
+                                offsetY?: number;
+                            }[];
+                            isBot?: boolean;
+                            isCat?: boolean;
+                            instance?: {
+                                name?: string | null;
+                                faviconUrl?: string | null;
+                                themeColor?: string | null;
+                            };
                         };
                         note: {
                             id: string;
@@ -26533,6 +26638,27 @@ export interface operations {
                                 host: string;
                                 uri: string;
                                 avatarUrl: string;
+                                emojis?: {
+                                    [key: string]: string;
+                                };
+                                avatarBlurhash?: string | null;
+                                avatarDecorations?: {
+                                    /** Format: id */
+                                    id: string;
+                                    angle?: number;
+                                    flipH?: boolean;
+                                    /** Format: url */
+                                    url: string;
+                                    offsetX?: number;
+                                    offsetY?: number;
+                                }[];
+                                isBot?: boolean;
+                                isCat?: boolean;
+                                instance?: {
+                                    name?: string | null;
+                                    faviconUrl?: string | null;
+                                    themeColor?: string | null;
+                                };
                             };
                             emojis?: {
                                 [key: string]: string;
@@ -26585,6 +26711,27 @@ export interface operations {
                                 host: string;
                                 uri: string;
                                 avatarUrl: string;
+                                emojis?: {
+                                    [key: string]: string;
+                                };
+                                avatarBlurhash?: string | null;
+                                avatarDecorations?: {
+                                    /** Format: id */
+                                    id: string;
+                                    angle?: number;
+                                    flipH?: boolean;
+                                    /** Format: url */
+                                    url: string;
+                                    offsetX?: number;
+                                    offsetY?: number;
+                                }[];
+                                isBot?: boolean;
+                                isCat?: boolean;
+                                instance?: {
+                                    name?: string | null;
+                                    faviconUrl?: string | null;
+                                    themeColor?: string | null;
+                                };
                             };
                         }[];
                     };
@@ -26889,6 +27036,27 @@ export interface operations {
                                 host: string;
                                 uri: string;
                                 avatarUrl: string;
+                                emojis?: {
+                                    [key: string]: string;
+                                };
+                                avatarBlurhash?: string | null;
+                                avatarDecorations?: {
+                                    /** Format: id */
+                                    id: string;
+                                    angle?: number;
+                                    flipH?: boolean;
+                                    /** Format: url */
+                                    url: string;
+                                    offsetX?: number;
+                                    offsetY?: number;
+                                }[];
+                                isBot?: boolean;
+                                isCat?: boolean;
+                                instance?: {
+                                    name?: string | null;
+                                    faviconUrl?: string | null;
+                                    themeColor?: string | null;
+                                };
                             };
                             emojis?: {
                                 [key: string]: string;
@@ -27034,6 +27202,27 @@ export interface operations {
                             host: string;
                             uri: string;
                             avatarUrl: string;
+                            emojis?: {
+                                [key: string]: string;
+                            };
+                            avatarBlurhash?: string | null;
+                            avatarDecorations?: {
+                                /** Format: id */
+                                id: string;
+                                angle?: number;
+                                flipH?: boolean;
+                                /** Format: url */
+                                url: string;
+                                offsetX?: number;
+                                offsetY?: number;
+                            }[];
+                            isBot?: boolean;
+                            isCat?: boolean;
+                            instance?: {
+                                name?: string | null;
+                                faviconUrl?: string | null;
+                                themeColor?: string | null;
+                            };
                         };
                         /** @enum {string} */
                         visibility: 'followers' | 'specified' | 'public';
@@ -27044,6 +27233,27 @@ export interface operations {
                             host: string;
                             uri: string;
                             avatarUrl: string;
+                            emojis?: {
+                                [key: string]: string;
+                            };
+                            avatarBlurhash?: string | null;
+                            avatarDecorations?: {
+                                /** Format: id */
+                                id: string;
+                                angle?: number;
+                                flipH?: boolean;
+                                /** Format: url */
+                                url: string;
+                                offsetX?: number;
+                                offsetY?: number;
+                            }[];
+                            isBot?: boolean;
+                            isCat?: boolean;
+                            instance?: {
+                                name?: string | null;
+                                faviconUrl?: string | null;
+                                themeColor?: string | null;
+                            };
                         }[];
                         maxTextLength: number;
                         createdNoteId: string | null;
