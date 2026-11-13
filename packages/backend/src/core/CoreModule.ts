@@ -16,6 +16,7 @@ import { GridspaceIdentityService } from './gridspace/GridspaceIdentityService.j
 import { GridspaceFollowExpansionService } from './gridspace/GridspaceFollowExpansionService.js';
 import { GridspaceAdminService } from './gridspace/GridspaceAdminService.js';
 import { GridspaceLinkService } from './gridspace/GridspaceLinkService.js';
+import { GridspaceDriveService } from './gridspace/GridspaceDriveService.js';
 import { GridspaceChannelAuthService } from './gridspace/GridspaceChannelAuthService.js';
 import { GridspaceChannelService } from './gridspace/GridspaceChannelService.js';
 import { GridspaceFollowGuardService } from './gridspace/GridspaceFollowGuardService.js';
@@ -335,6 +336,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		QueueModule,
 	],
 	providers: [
+		GridspaceDriveService,
 		GridspaceLinkService,
 		GridspaceChannelService,
 		GridspaceChannelAuthService,
@@ -659,6 +661,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		//#endregion
 	],
 	exports: [
+		GridspaceDriveService,
 		GridspaceLinkService,
 		GridspaceChannelService,
 		GridspaceChannelAuthService,

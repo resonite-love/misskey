@@ -30,7 +30,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<section v-if="status.state === 'active'" class="_gaps_s">
 				<h2>{{ i18n.ts._gridspace.linkPermissions }}</h2>
 				<MkInfo v-if="readGrant && !readGrant.available" warn>{{ i18n.ts._gridspace.connectionError }}</MkInfo>
-				<MkInfo v-else-if="readGrant?.granted && readGrant.canReply && readGrant.canInteract && readGrant.canReadNotifications && readGrant.canWriteChannels && readGrant.canManageFollowRequests && (!status.channelsEnabled || (collectionsGrant?.favorites && collectionsGrant.clipFavorites))">{{ i18n.ts._gridspace.allGranted }}</MkInfo>
+				<MkInfo v-else-if="readGrant?.granted && readGrant.canReply && readGrant.canInteract && readGrant.canReadNotifications && readGrant.canWriteChannels && readGrant.canManageFollowRequests && (!status.channelsEnabled || (collectionsGrant?.favorites && collectionsGrant.clipFavorites && driveGrant?.granted))">{{ i18n.ts._gridspace.allGranted }}</MkInfo>
 				<MkInfo v-else>{{ i18n.ts._gridspace.upgradePermissions }}</MkInfo>
 				<MkButton v-if="!status.initiator" :disabled="busy" @click="startPrivate">{{ i18n.ts._gridspace.authorizeAll }}</MkButton>
 			</section>
@@ -72,6 +72,12 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<MkA to="/my/favorites">{{ i18n.ts.favorites }}</MkA>
 						<MkA to="/my/clips">{{ i18n.ts.clip }}</MkA>
 					</div>
+				</section>
+				<section class="_gaps_s">
+					<h2>{{ i18n.ts._gridspace.driveTitle }}</h2>
+					<p>{{ i18n.ts._gridspace.driveDescription }}</p>
+					<MkInfo v-if="driveGrant && !driveGrant.granted" warn>{{ i18n.ts._gridspace.driveNeedsGrant }}</MkInfo>
+					<MkA to="/my/drive">{{ i18n.ts.drive }}</MkA>
 				</section>
 			</template>
 			<section class="_gaps_s">
@@ -130,6 +136,7 @@ const profileResult = ref<entities.GridspaceProfileImportResponse | null>(null);
 const profileError = ref(false);
 const listsAutoStart = ref(false);
 const collectionsGrant = ref<entities.GridspaceCollectionsResponse | null>(null);
+const driveGrant = ref<entities.GridspaceDriveResponse | null>(null);
 const settingsResult = ref<entities.GridspaceSettingsImportResponse | null>(null);
 const settingsError = ref(false);
 const settingsComplete = ref(false);
@@ -177,6 +184,7 @@ async function refresh() {
 		status.value = await misskeyApi('gridspace/link', { action: 'status' });
 		readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' });
 		if (status.value?.channelsEnabled && status.value.state === 'active') collectionsGrant.value = await misskeyApi('gridspace/collections', { kind: 'status' });
+		if (status.value?.channelsEnabled && status.value.state === 'active') driveGrant.value = await misskeyApi('gridspace/drive', { mode: 'status' });
 		if (!paletteAttempted) await resumePalette();
 		if (!profileAttempted) await resumeProfile();
 	});
@@ -357,6 +365,7 @@ onMounted(async () => {
 	try {
 		readGrant.value = await misskeyApi('gridspace/private-grant', { action: 'status' });
 		if (status.value?.channelsEnabled && status.value.state === 'active') collectionsGrant.value = await misskeyApi('gridspace/collections', { kind: 'status' });
+		if (status.value?.channelsEnabled && status.value.state === 'active') driveGrant.value = await misskeyApi('gridspace/drive', { mode: 'status' });
 	} catch { error.value ||= i18n.ts._gridspace.connectionError; }
 	if (stopped) return;
 	if (!paletteAttempted) await resumePalette();

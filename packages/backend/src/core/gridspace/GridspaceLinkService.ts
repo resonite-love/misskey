@@ -429,6 +429,24 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		return { linkId: link.id, generation: link.generation, credentialHash: gridspaceHash(link.tokenCipher), peerUserId: link.peerUserId, peerOrigin: link.peerOrigin };
 	}
 
+	public async driveActor(input: GridspacePeerLinkRequest) {
+		if (this.config.gridspace?.channelRole !== 'source') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		await this.peerAction('check', input);
+		const user = await this.authorized(input.accessToken);
+		const token = await this.db.getRepository(MiAccessToken).findOneBy({ token: input.accessToken, name: this.enabled().peerOrigin + GRIDSPACE_CLIENT_PATH });
+		return { user, granted: token?.permission.includes('read:drive') === true };
+	}
+
+	public async driveRequest<T>(user: MiLocalUser, options: object): Promise<T> {
+		if (this.config.gridspace?.channelRole !== 'client') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const link = await this.privateLink(user.id);
+		if (!link.initiator || !link.tokenCipher) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const result = await this.json<T>('/gridspace/v1/drive', { ...options, linkId: link.id, generation: link.generation, localUserId: user.id, accessToken: openGridspaceSecret(this.enabled(), link.tokenCipher, link.id) });
+		const current = await this.privateLink(user.id);
+		if (current.id !== link.id || current.generation !== link.generation || current.tokenCipher !== link.tokenCipher) throw new GridspaceLinkError('LINK_REVOKED');
+		return result;
+	}
+
 	public async privateLink(userId: string): Promise<MiGridspaceLink> {
 		const peer = this.enabled();
 		const link = await this.db.getRepository(MiGridspaceLink).findOneBy({ localUserId: userId, peerOrigin: peer.peerOrigin, state: 'active' });

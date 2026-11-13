@@ -2105,6 +2105,10 @@ declare namespace entities {
         GridspaceChannelsResponse,
         GridspaceCollectionsRequest,
         GridspaceCollectionsResponse,
+        GridspaceDriveRequest,
+        GridspaceDriveResponse,
+        GridspaceDriveImportRequest,
+        GridspaceDriveImportResponse,
         GridspaceHistoryRequest,
         GridspaceHistoryResponse,
         GridspaceLinkRequest,
@@ -2756,6 +2760,18 @@ type GridspaceCollectionsRequest = operations['gridspace___collections']['reques
 
 // @public (undocumented)
 type GridspaceCollectionsResponse = operations['gridspace___collections']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceDriveImportRequest = operations['gridspace___drive-import']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceDriveImportResponse = operations['gridspace___drive-import']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceDriveRequest = operations['gridspace___drive']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceDriveResponse = operations['gridspace___drive']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type GridspaceHistoryRequest = operations['gridspace___history']['requestBody']['content']['application/json'];

@@ -479,6 +479,8 @@ export * as 'gridspace/profile-import' from './endpoints/gridspace/profile-impor
 export * as 'gridspace/collections' from './endpoints/gridspace/collections.js';
 export * as 'gridspace/list-import' from './endpoints/gridspace/list-import.js';
 export * as 'gridspace/renote-target' from './endpoints/gridspace/renote-target.js';
+export * as 'gridspace/drive' from './endpoints/gridspace/drive.js';
+export * as 'gridspace/drive-import' from './endpoints/gridspace/drive-import.js';
 export * as 'gridspace/settings-import' from './endpoints/gridspace/settings-import.js';
 export * as 'gridspace/channels' from './endpoints/gridspace/channels.js';
 export * as 'gridspace/channel-post' from './endpoints/gridspace/channel-post.js';

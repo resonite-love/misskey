@@ -49,6 +49,7 @@ export const Default = {
 		msw: {
 			handlers: [
 				...commonHandlers,
+				http.post('/api/gridspace/drive', () => HttpResponse.json({ enabled: false, granted: false, origin: null, files: [], folders: [], path: [], filesNext: null, foldersNext: null })),
 				http.post('/api/drive/files', async ({ request }) => {
 					action('POST /api/drive/files')(await request.json());
 					return HttpResponse.json([file()]);

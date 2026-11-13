@@ -13803,6 +13803,26 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * れぞらぶのドライブ
+         */
+        "driveTitle": string;
+        /**
+         * 連携したれぞらぶアカウントのファイルです。添付に使うと、ぐりすぺのドライブへ取り込みます。元のファイルはそのまま残ります。
+         */
+        "driveDescription": string;
+        /**
+         * れぞらぶのドライブを開くには、アカウント連携設定からもう一度認可してください。
+         */
+        "driveNeedsGrant": string;
+        /**
+         * ドライブを取得できませんでした。接続を確認して再試行してください。
+         */
+        "driveError": string;
+        /**
+         * ファイルを取り込めませんでした。連携の認可、ファイルサイズ、ドライブの空き容量を確認してください。
+         */
+        "driveImportError": string;
+        /**
          * 別のサーバーにある自分のアカウントと連携し、投稿や通知をまとめて見たり、設定を引き継いだりできます。
          */
         "introduction": string;

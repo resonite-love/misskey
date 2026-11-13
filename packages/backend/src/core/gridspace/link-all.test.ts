@@ -18,11 +18,11 @@ import { GridspaceLinkService } from './GridspaceLinkService.js';
 import { GRIDSPACE_ALL_SCOPES, GRIDSPACE_CLIENT_PATH, GRIDSPACE_PRIVATE_CLIENT_PATH, GRIDSPACE_LINK_SCOPES, gridspaceHash } from './link-crypto.js';
 import { GRIDSPACE_PALETTE_SCOPE } from './palette-protocol.js';
 
-function setup() {
+function setup(role: 'source' | 'client' = 'client') {
 	const db = mockDeep<DataSource>();
 	const guard = mockDeep<GridspaceFollowGuardService>();
 	guard.run.mockImplementation(async (_id, action) => action());
-	const service = new GridspaceLinkService({ url: 'https://g.example' } as Config, db, mockDeep<UserFollowingService>(), mockDeep<ApPersonService>(), guard, mockDeep<IdService>());
+	const service = new GridspaceLinkService({ url: 'https://g.example', gridspace: { channelRole: role } } as Config, db, mockDeep<UserFollowingService>(), mockDeep<ApPersonService>(), guard, mockDeep<IdService>());
 	service['peer'] = { origin: 'https://g.example', peerOrigin: 'https://r.example', communityId: 'test', keyId: 'test', secret: Buffer.alloc(32, 7) };
 	return { service, db };
 }
@@ -57,10 +57,23 @@ test.each([GRIDSPACE_CLIENT_PATH, GRIDSPACE_PRIVATE_CLIENT_PATH])('revoking a bo
 	const link = { localUserId: 'user', privateTokenHash: gridspaceHash(token.token) } as MiGridspaceLink;
 	await service['deletePrivateBinding'](manager, link);
 	if (path === GRIDSPACE_CLIENT_PATH) {
-		expect(update).toHaveBeenCalledExactlyOnceWith('bound', { permission: [...GRIDSPACE_LINK_SCOPES, GRIDSPACE_PALETTE_SCOPE] });
+		expect(update).toHaveBeenCalledExactlyOnceWith('bound', { permission: [...GRIDSPACE_LINK_SCOPES, GRIDSPACE_PALETTE_SCOPE, 'read:drive'] });
 		expect(remove).not.toHaveBeenCalled();
 	} else {
 		expect(remove).toHaveBeenCalledExactlyOnceWith('bound');
 		expect(update).not.toHaveBeenCalled();
 	}
+});
+
+test('drive read access requires its own explicit scope and a valid source-side link', async () => {
+	const { service, db } = setup('source');
+	const check = vi.spyOn(service, 'peerAction').mockResolvedValue({ ok: true });
+	vi.spyOn(service as never, 'authorized' as never).mockResolvedValue({ id: 'owner' } as never);
+	const find = vi.fn().mockResolvedValue({ permission: GRIDSPACE_LINK_SCOPES });
+	db.getRepository.mockReturnValue({ findOneBy: find } as never);
+	expect(await service.driveActor({ accessToken: 'token' })).toMatchObject({ granted: false });
+	find.mockResolvedValue({ permission: [...GRIDSPACE_LINK_SCOPES, 'read:drive'] });
+	expect(await service.driveActor({ accessToken: 'token' })).toMatchObject({ granted: true });
+	check.mockRejectedValue(new Error('revoked'));
+	await expect(service.driveActor({ accessToken: 'token' })).rejects.toThrow('revoked');
 });

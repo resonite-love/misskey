@@ -4,7 +4,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<MkStickyContainer style="background: var(--MI_THEME-bg);">
+<MkGridspaceDrive v-if="linkedDrive" :select="select === 'file'" :selected="selectedFiles" :excludeSensitive="excludeSensitive" :type="type" @close="linkedDrive = false" @selected="onLinkedSelected"/>
+<MkStickyContainer v-else style="background: var(--MI_THEME-bg);">
 	<template #header>
 		<nav :class="$style.nav">
 			<div :class="$style.navPath" @contextmenu.prevent.stop="() => {}">
@@ -65,6 +66,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</div>
 
 			<div :class="$style.folders">
+				<button v-if="linkedDriveAvailable && folder == null && select !== 'folder'" class="_button" @click="linkedDrive = true"><XFolder :folder="linkedDriveFolder" readOnly/></button>
 				<XFolder
 					v-for="(f, i) in foldersPaginator.items.value"
 					:key="f.id"
@@ -148,7 +150,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				{{ i18n.ts.loadMore }}
 			</MkButton>
 
-			<div v-if="filesPaginator.items.value.length == 0 && foldersPaginator.items.value.length == 0 && !fetching" :class="$style.empty">
+			<div v-if="filesPaginator.items.value.length == 0 && foldersPaginator.items.value.length == 0 && !fetching && !(linkedDriveAvailable && folder == null && select !== 'folder')" :class="$style.empty">
 				<div v-if="draghover">{{ i18n.ts.dropHereToUpload }}</div>
 				<div v-if="!draghover && folder == null"><strong>{{ i18n.ts.emptyDrive }}</strong></div>
 				<div v-if="!draghover && folder != null">{{ i18n.ts.emptyFolder }}</div>
@@ -170,6 +172,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 import { nextTick, onActivated, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, computed, TransitionGroup, markRaw } from 'vue';
 import * as Misskey from 'misskey-js';
 import MkButton from './MkButton.vue';
+import MkGridspaceDrive from './MkGridspaceDrive.vue';
 import type { MenuItem } from '@/types/menu.js';
 import XNavFolder from '@/components/MkDrive.navFolder.vue';
 import XFolder from '@/components/MkDrive.folder.vue';
@@ -226,6 +229,19 @@ const isDragSource = ref(false);
 const isEditMode = ref(false);
 
 const selectedFiles = ref<Misskey.entities.DriveFile[]>([]);
+const linkedDrive = ref(false);
+const linkedDriveAvailable = ref(false);
+const linkedDriveFolder: Misskey.entities.DriveFolder = { id: 'gridspace-drive-root', createdAt: new Date(0).toISOString(), name: i18n.ts._gridspace.driveTitle, parentId: null };
+
+function onLinkedSelected(file: Misskey.entities.DriveFile) {
+	if (props.select !== 'file') return;
+	if (props.multiple && selectedFiles.value.some(selected => selected.id === file.id)) selectedFiles.value = selectedFiles.value.filter(selected => selected.id !== file.id);
+	else selectedFiles.value = props.multiple ? [...selectedFiles.value, file] : [file];
+}
+
+onMounted(async () => {
+	try { linkedDriveAvailable.value = (await misskeyApi('gridspace/drive', { mode: 'status' })).enabled; } catch { /* The ordinary Drive remains available when linking is unavailable. */ }
+});
 const selectedFolders = ref<Misskey.entities.DriveFolder[]>([]);
 const isRootSelected = ref(false);
 
