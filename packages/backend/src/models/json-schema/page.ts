@@ -109,6 +109,7 @@ export const packedPageSchema = {
 	type: 'object',
 	properties: {
 		gridspaceOrigin: { type: 'string', optional: true, nullable: false },
+		gridspaceEmojis: { type: 'object', optional: true, nullable: false, additionalProperties: { type: 'string' } },
 		gridspaceManagedId: { type: 'string', optional: true, nullable: false },
 		gridspaceOriginalId: { type: 'string', optional: true, nullable: false },
 		id: {

@@ -16,7 +16,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					</div>
 					<div class="body">
 						<div class="title">{{ post.title }}</div>
-						<div class="description"><Mfm v-if="post.description != null" :text="post.description" :author="post.user"/></div>
+						<div class="description"><Mfm v-if="post.description != null" :text="post.description" :author="post.user" :emojiUrls="post.gridspaceEmojis"/></div>
 						<div class="info">
 							<i class="ti ti-clock"></i> <MkTime :time="post.createdAt" mode="detail"/>
 						</div>

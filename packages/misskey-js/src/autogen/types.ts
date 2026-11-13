@@ -2508,6 +2508,7 @@ export type paths = {
          * gridspace/managed-resource
          * @description No description provided.
          *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
          *     **Credential required**: *Yes* / **Permission**: *write:account*
          */
         post: operations['gridspace___managed-resource'];
@@ -5375,6 +5376,9 @@ export type components = {
         };
         Page: {
             gridspaceOrigin?: string;
+            gridspaceEmojis?: {
+                [key: string]: string;
+            };
             gridspaceManagedId?: string;
             gridspaceOriginalId?: string;
             /**
@@ -5581,6 +5585,9 @@ export type components = {
         };
         GalleryPost: {
             gridspaceOrigin?: string;
+            gridspaceEmojis?: {
+                [key: string]: string;
+            };
             gridspaceManagedId?: string;
             gridspaceOriginalId?: string;
             /**

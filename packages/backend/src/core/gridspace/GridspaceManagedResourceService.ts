@@ -18,6 +18,8 @@ import { MiNote } from '@/models/Note.js';
 import { ApNoteService } from '@/core/activitypub/models/ApNoteService.js';
 import { MiRegistryItem } from '@/models/RegistryItem.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
+import { CustomEmojiService } from '@/core/CustomEmojiService.js';
+import { attachContentEmojis, type ContentEmojiCarrier } from './content-emojis.js';
 import { ApiError } from '@/server/api/error.js';
 import { GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspaceSharedDriveService } from './GridspaceSharedDriveService.js';
@@ -39,7 +41,7 @@ const resources = {
 export class GridspaceManagedResourceService {
 	constructor(@Inject(DI.db) private db: DataSource, @Inject(DI.config) private config: Config,
 		private modules: ModuleRef, private links: GridspaceLinkService, private drive: GridspaceSharedDriveService,
-		private events: GlobalEventService) {}
+		private events: GlobalEventService, private emojis: CustomEmojiService) {}
 
 	private async pair(userId: string) {
 		if (!this.config.gridspace?.enabled) return null;
@@ -86,6 +88,9 @@ export class GridspaceManagedResourceService {
 		// Revocation/suspension during a request must not return private resource data.
 		const current = await this.pair(user.id);
 		if (!current || current.id !== link.id || current.generation !== link.generation) throw new ApiError(managedError);
+		if (input.kind === 'page' || input.kind === 'gallery') {
+			await Promise.all((result.item ? [result.item] : result.items).map(item => attachContentEmojis(item as ContentEmojiCarrier, this.emojis, result.origin!)));
+		}
 		return result;
 	}
 

@@ -16,6 +16,8 @@ import { PageEntityService } from '@/core/entities/PageEntityService.js';
 import { GalleryPostEntityService } from '@/core/entities/GalleryPostEntityService.js';
 import { IdService } from '@/core/IdService.js';
 import { MetaService } from '@/core/MetaService.js';
+import { CustomEmojiService } from '@/core/CustomEmojiService.js';
+import { attachContentEmojis } from './content-emojis.js';
 import { GridspaceHistoryService } from './GridspaceHistoryService.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
 import type { ContentOptions, ContentPage } from './content-protocol.js';
@@ -26,6 +28,7 @@ export class GridspaceContentService {
 		@Inject(DI.db) private db: DataSource, @Inject(DI.config) private config: Config,
 		private pages: PageEntityService, private gallery: GalleryPostEntityService,
 		private links: GridspaceLinkService, private history: GridspaceHistoryService, private meta: MetaService, private ids: IdService,
+		private emojis: CustomEmojiService,
 	) {}
 
 	/** Public content only: a guessed ID must never bypass Page.visibility. */
@@ -47,9 +50,11 @@ export class GridspaceContentService {
 		const limit = input.itemId ? 1 : input.limit ?? 12;
 		const rows = await query.take(limit + 1).getMany();
 		const selected = rows.slice(0, limit);
-		return { origin, pages: input.kind === 'pages' ? await this.pages.packMany(selected as MiPage[]) : [],
+		const result = { origin, pages: input.kind === 'pages' ? await this.pages.packMany(selected as MiPage[]) : [],
 			gallery: input.kind === 'gallery' ? await this.gallery.packMany(selected as MiGalleryPost[]) : [],
 			next: input.mode !== 'featured' && rows.length > limit ? selected.at(-1)!.id : null };
+		await Promise.all([...result.pages, ...result.gallery].map(item => attachContentEmojis(item, this.emojis, origin)));
+		return result;
 	}
 
 	public async list(input: ContentOptions, authenticated: boolean, viewerId?: string): Promise<ContentPage> {

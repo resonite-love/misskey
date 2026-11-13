@@ -8,6 +8,7 @@ import { mockDeep } from 'vitest-mock-extended';
 import type { DataSource } from 'typeorm';
 import type { Config } from '@/config.js';
 import type { IdService } from '@/core/IdService.js';
+import type { CustomEmojiService } from '@/core/CustomEmojiService.js';
 import type { MetaService } from '@/core/MetaService.js';
 import type { PageEntityService } from '@/core/entities/PageEntityService.js';
 import type { GalleryPostEntityService } from '@/core/entities/GalleryPostEntityService.js';
@@ -22,7 +23,7 @@ function fixture() {
 	const config = { url: 'https://g.example', gridspace: { enabled: true, peerUrl: 'https://r.example' } } as Config;
 	meta.fetch.mockResolvedValue({ ugcVisibilityForVisitor: 'all' } as never);
 	db.getRepository.mockReturnValue({ findBy: async () => [] } as never);
-	const service = new GridspaceContentService(db, config, pages, gallery, links, history, meta, mockDeep<IdService>());
+	const service = new GridspaceContentService(db, config, pages, gallery, links, history, meta, mockDeep<IdService>(), mockDeep<CustomEmojiService>());
 	return { service, db, config, links, history, pages, gallery, meta };
 }
 
