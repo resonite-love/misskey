@@ -382,7 +382,9 @@ export class GridspaceSharedDriveService implements OnModuleInit, OnApplicationS
 					let complete = true;
 					for (const kind of ['folder', 'file'] as const) {
 						const rows = await this.repository(this.db.manager, kind).createQueryBuilder('item').where('item.userId = :userId', { userId: link.localUserId })
-							.andWhere('NOT EXISTS (SELECT 1 FROM gridspace_drive_entry e WHERE e.kind = :kind AND e."localId" = item.id)', { kind }).orderBy('item.id', 'ASC').take(2).getMany();
+							.andWhere('NOT EXISTS (SELECT 1 FROM gridspace_drive_entry e WHERE e.kind = :kind AND e."localId" = item.id)', { kind })
+							// Match the existing (userId, folderId, id) index instead of scanning every owner's primary-key entries.
+							.orderBy(kind === 'file' ? 'item.folderId' : 'item.id', 'ASC').addOrderBy('item.id', 'ASC').take(2).getMany();
 						for (const row of rows) await this.changed(kind, row.id, link.localUserId);
 						if (rows.length === 2) complete = false;
 					}
