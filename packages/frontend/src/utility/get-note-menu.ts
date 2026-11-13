@@ -48,8 +48,7 @@ export async function getNoteClipMenu(props: {
 
 	const { clips, peerUnavailable } = await loadClipMenu((path, data) => misskeyApi(path as keyof Misskey.Endpoints, data));
 	const menu: MenuItem[] = [...clips.map(clip => ({
-		text: getClipName(clip),
-		caption: clip.gridspaceOrigin ? new URL(clip.gridspaceOrigin).host : undefined,
+		text: clip.gridspaceOrigin ? `${getClipName(clip)} · ${new URL(clip.gridspaceOrigin).host}` : getClipName(clip),
 		action: () => {
 			claimAchievement('noteClipped1');
 			os.promiseDialog(
