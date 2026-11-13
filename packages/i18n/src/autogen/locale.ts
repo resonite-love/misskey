@@ -13803,6 +13803,10 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * {host} のデータを編集しています。保存・削除は連携元にも反映されます。
+         */
+        "manageOnSource": ParameterizedString<"host">;
+        /**
          * 共有ドライブ
          */
         "sharedDriveTitle": string;

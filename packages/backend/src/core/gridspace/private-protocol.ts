@@ -9,9 +9,9 @@ import { packedUserLiteSchema } from '@/models/json-schema/user.js';
 import type { Packed } from '@/misc/json-schema.js';
 
 export type PrivateOptions = {
-	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'validate';
-	contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip';
-	channelId?: string; clipId?: string;
+	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna' | 'validate';
+	contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna';
+	channelId?: string; clipId?: string; antennaId?: string;
 	query?: string; userId?: string; noteId?: string; ids?: string[];
 	rangeStartAt?: number; rangeEndAt?: number;
 	withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean; withChannelNotes?: boolean;
@@ -77,8 +77,9 @@ export const privateNoteSchema = {
 } as const;
 
 export const privateOptionsSchema = {
-	mode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip', 'validate'], default: 'home' },
-	contextMode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip'] },
+	mode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip', 'antenna', 'validate'], default: 'home' },
+	contextMode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip', 'antenna'] },
+	antennaId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	clipId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	query: { type: 'string', minLength: 1, maxLength: 200 },

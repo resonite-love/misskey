@@ -21,6 +21,7 @@ import { GridspaceReactionDeliveryService } from '@/core/gridspace/GridspaceReac
 import { GridspaceReplyService } from '@/core/gridspace/GridspaceReplyService.js';
 import { GridspaceChannelService } from '@/core/gridspace/GridspaceChannelService.js';
 import { GridspaceSharedDriveService } from '@/core/gridspace/GridspaceSharedDriveService.js';
+import { GridspaceManagedResourceService } from '@/core/gridspace/GridspaceManagedResourceService.js';
 import { GridspaceContentService } from '@/core/gridspace/GridspaceContentService.js';
 import { GridspaceDriveService } from '@/core/gridspace/GridspaceDriveService.js';
 import { RoleService } from '@/core/RoleService.js';
@@ -52,6 +53,7 @@ export class GridSpaceServerService {
 		private drive: GridspaceDriveService,
 		private content: GridspaceContentService,
 		private sharedDrive: GridspaceSharedDriveService,
+		private managed: GridspaceManagedResourceService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 	}
@@ -73,7 +75,7 @@ export class GridSpaceServerService {
 		}), (action, input) => this.notifications.peer(action, input),
 		input => this.actions.peerAction(input, userId => this.limitAction(userId, 'gridspace/action', 60)),
 		input => this.actions.peerUpload(input, userId => this.limitAction(userId, 'drive/files/create', 20)),
-		input => this.reactions.peerRead(input), input => this.reactionDelivery.receive(input), noteIds => this.notes.readMany(noteIds), input => this.channels.peerList(input), input => this.channels.peerDelete(input), input => this.drive.peer(input), input => this.content.peer(input), input => this.sharedDrive.peer(input));
+		input => this.reactions.peerRead(input), input => this.reactionDelivery.receive(input), noteIds => this.notes.readMany(noteIds), input => this.channels.peerList(input), input => this.channels.peerDelete(input), input => this.drive.peer(input), input => this.content.peer(input), input => this.sharedDrive.peer(input), input => this.managed.peer(input));
 		done();
 	}
 }

@@ -18,6 +18,7 @@ import { $i } from '@/i.js';
 export type GridspaceNoteSource =
 	| { kind: 'favorites' }
 	| { kind: 'clip'; clipId: string }
+	| { kind: 'antenna'; antennaId: string }
 	| { kind: 'mentions'; direct: boolean }
 	| { kind: 'profile'; userId: string; linked: boolean; withReplies: boolean; withRenotes: boolean; withFiles: boolean; withChannelNotes: boolean }
 	| ({ kind: 'search' } & Omit<entities.GridspaceSearchRequest, 'kind' | 'cursor' | 'limit'>);
@@ -45,6 +46,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	const pagingKey = ref(0);
 	let normalCursor: string | undefined;
 	let privateCursor: string | undefined;
+	let antennaHeadCursor: string | undefined;
 	let normalGeneration = 0;
 	let privateGeneration = 0;
 	let normalController = new AbortController();
@@ -55,6 +57,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 		const { kind, ...params } = source.value;
 		if (source.value.kind === 'favorites') return { mode: 'favorites' };
 		if (source.value.kind === 'clip') return { mode: 'clip', clipId: source.value.clipId };
+		if (source.value.kind === 'antenna') return { mode: 'antenna', antennaId: source.value.antennaId };
 		if (kind === 'search') return { ...params, mode: 'search' };
 		if (source.value.kind === 'mentions') return { mode: source.value.direct ? 'direct' : 'mentions' };
 		const profile = source.value as Extract<GridspaceNoteSource, { kind: 'profile' }>;
@@ -76,6 +79,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 		privateGeneration++; privateController.abort(); privateController = new AbortController();
 		enabled.value = false; suspended = false; privatePageLoaded = false;
 		delegated.value = []; privateCursor = undefined; privateMore.value = false; privateBoundary.value = Infinity;
+		antennaHeadCursor = undefined;
 		privateBusy.value = false; authorizing.value = false; checking = null;
 	}
 
@@ -117,7 +121,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 				if (!background) enabled.value = true;
 				privateMore.value = true; await loadPrivate();
 				if (current === privateGeneration) enabled.value = true;
-			}
+			} else if (source.value.kind === 'antenna' && !status.granted) needsAuthorization.value = true;
 		} catch { if (current === privateGeneration) failPrivate(); } finally {
 			if (current === privateGeneration) { privateReady.value = true; authorizing.value = false; }
 		}
@@ -129,7 +133,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 		try {
 			const input = source.value;
 			let items: (entities.Note & { collectionAt?: string })[]; let cursor: string | null; let partial = false;
-			if (input.kind === 'clip') {
+			if (input.kind === 'clip' || input.kind === 'antenna') {
 				items = []; cursor = null;
 			} else if (input.kind === 'favorites') {
 				const page = await misskeyApi('i/favorites', { untilId: normalCursor, limit: 20 }, undefined, signal(normalController));
@@ -209,6 +213,17 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 			const previous = new Set(snapshot.map(item => item.uri));
 			delegated.value = delegated.value.flatMap(item => !previous.has(item.uri) ? [item] : allowed.has(item.uri) ? [allowed.get(item.uri)!] : []);
 			suspended = false;
+			if (source.value.kind === 'antenna') {
+				// Drain bursts in bounded pages, keeping the older-page cursor intact.
+				for (let pageNumber = 0; pageNumber < 3; pageNumber++) {
+					const page = await misskeyApi('gridspace/private-notes', { ...privateParams.value, cursor: antennaHeadCursor, limit: 20 }, undefined, signal(privateController));
+					if (current !== privateGeneration) return;
+					const reachedKnown = page.notes.some(item => previous.has(item.uri));
+					delegated.value = [...new Map([...delegated.value, ...page.notes].map(item => [item.uri, item])).values()];
+					antennaHeadCursor = reachedKnown ? undefined : page.cursor ?? undefined;
+					if (!antennaHeadCursor) break;
+				}
+			}
 		} catch { if (current === privateGeneration) failPrivate(); } finally { if (checking === current) checking = null; }
 	}
 

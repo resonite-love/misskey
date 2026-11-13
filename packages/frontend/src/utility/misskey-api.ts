@@ -7,6 +7,7 @@ import * as Misskey from 'misskey-js';
 import { ref } from 'vue';
 import { apiUrl } from '@@/js/config.js';
 import { $i } from '@/i.js';
+import { routeManagedApi } from '@/utility/gridspace-managed-api.js';
 export const pendingApiRequestsCount = ref(0);
 
 // Implements Misskey.api.ApiClient.request
@@ -22,6 +23,14 @@ export function misskeyApi<
 	signal?: AbortSignal,
 ): Promise<_ResT> {
 	if (endpoint.includes('://')) throw new Error('invalid endpoint');
+	if ($i) {
+		const routed = routeManagedApi(endpoint, data as Record<string, unknown>, (path, params) => rawMisskeyApi(path as E, params as P & { i?: string | null }, token, signal));
+		if (routed) return routed as Promise<_ResT>;
+	}
+	return rawMisskeyApi(endpoint, data, token, signal);
+}
+
+function rawMisskeyApi<ResT = void, E extends keyof Misskey.Endpoints = keyof Misskey.Endpoints, P extends Misskey.Endpoints[E]['req'] = Misskey.Endpoints[E]['req'], _ResT = ResT extends void ? Misskey.api.SwitchCaseResponseType<E, P> : ResT>(endpoint: E, data: P & { i?: string | null }, token?: string | null, signal?: AbortSignal): Promise<_ResT> {
 	pendingApiRequestsCount.value++;
 
 	const onFinally = () => {

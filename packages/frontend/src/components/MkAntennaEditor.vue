@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <div class="_spacer" style="--MI_SPACER-w: 700px;">
 	<div>
 		<div class="_gaps_m">
+			<MkInfo v-if="sharedOrigin">{{ i18n.tsx._gridspace.manageOnSource({ host: sharedOrigin }) }}</MkInfo>
 			<MkInput v-model="name">
 				<template #label>{{ i18n.ts.name }}</template>
 			</MkInput>
@@ -54,6 +55,9 @@ import MkInput from '@/components/MkInput.vue';
 import MkTextarea from '@/components/MkTextarea.vue';
 import MkSelect from '@/components/MkSelect.vue';
 import MkSwitch from '@/components/MkSwitch.vue';
+import MkInfo from '@/components/MkInfo.vue';
+import { parseManagedId } from '@/utility/gridspace-managed-api.js';
+import { host } from '@@/js/config.js';
 import * as os from '@/os.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
@@ -87,6 +91,7 @@ const initialAntenna = deepMerge<PartialAllowedAntenna>(props.antenna ?? {}, {
 	hasUnreadNote: false,
 	notify: false,
 });
+const sharedOrigin = (props.antenna as { gridspaceOrigin?: string } | undefined)?.gridspaceOrigin;
 
 const emit = defineEmits<{
 	(ev: 'created', newAntenna: Misskey.entities.Antenna): void,
@@ -136,7 +141,9 @@ const userLists = ref<Misskey.entities.UserList[] | null>(null);
 
 watch(() => src.value, async () => {
 	if (src.value === 'list' && userLists.value === null) {
-		userLists.value = await misskeyApi('users/lists/list');
+		userLists.value = parseManagedId(initialAntenna.id)
+			? (await misskeyApi('gridspace/managed-resource', { kind: 'antenna', action: 'lists' })).items as unknown as Misskey.entities.UserList[]
+			: await misskeyApi('users/lists/list');
 	}
 });
 
@@ -185,7 +192,7 @@ async function deleteAntenna() {
 function addUser() {
 	os.selectUser({ includeSelf: true }).then(user => {
 		users.value = users.value.trim();
-		users.value += '\n@' + Misskey.acct.toString(user);
+		users.value += '\n@' + Misskey.acct.toString(parseManagedId(initialAntenna.id) && !user.host ? { ...user, host } : user);
 		users.value = users.value.trim();
 	});
 }

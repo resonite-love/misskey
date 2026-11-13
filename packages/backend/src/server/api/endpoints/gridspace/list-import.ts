@@ -13,6 +13,7 @@ import { MiUserListMembership } from '@/models/UserListMembership.js';
 import { MiRegistryItem } from '@/models/RegistryItem.js';
 import { MiBlocking } from '@/models/Blocking.js';
 import { MiAntenna } from '@/models/Antenna.js';
+import { MiGridspaceLink } from '@/models/Gridspace.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { IdService } from '@/core/IdService.js';
 import { RoleService } from '@/core/RoleService.js';
@@ -62,6 +63,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 	private async run(action: string, me: MiLocalUser) {
 		if (this.config.gridspace?.channelRole !== 'client') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const binding = await this.links.checkSettingsAuthorization(me);
+		const shared = await this.db.getRepository(MiGridspaceLink).existsBy({ localUserId: me.id, state: 'active', driveShared: true });
 		const key = gridspaceHash(`${binding.peerOrigin}:${binding.peerUserId}`);
 		let job = (await this.registry.getItem(me.id, settingsDomain, scope, key))?.value as Job | undefined;
 		const save = () => this.registry.set(me.id, settingsDomain, scope, key, job!);
@@ -72,7 +74,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				const { lists: _lists, ...snapshotBinding } = snapshot;
 				job = { binding: snapshotBinding, lists: snapshot.lists.map(source => ({ source, targetId: this.ids.gen(), created: false, state: 'pending', members: source.members.map(() => 'pending') })) };
 			} else job.binding = binding; // A new grant for the same source owner may resume its receipt.
-			if (!job.antennas) {
+			if (!job.antennas && !shared) {
 				const snapshot = await this.links.antennas(me);
 				const expected = job.binding;
 				if (Object.keys(expected).some(k => snapshot[k as keyof typeof expected] !== expected[k as keyof typeof expected])) throw new GridspaceLinkError('LINK_REVOKED');
@@ -150,7 +152,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					await save();
 				}
 			}
-			for (const antenna of job.antennas ?? []) {
+			for (const antenna of shared ? [] : job.antennas ?? []) {
 				if (processed >= 5 || Date.now() >= deadline) break;
 				if (antenna.state !== 'pending') continue;
 				processed++;
@@ -178,11 +180,11 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				await save();
 			}
 		}
-		const states = [...job.lists.flatMap(list => [list.state, ...list.members]), ...(job.antennas ?? []).map(antenna => antenna.state)];
+		const states = [...job.lists.flatMap(list => [list.state, ...list.members]), ...(shared ? [] : job.antennas ?? []).map(antenna => antenna.state)];
 		const done = states.filter(s => s === 'done').length;
 		const failed = states.filter(s => s === 'failed').length;
 		// A failed list cannot advance its children until explicitly retried.
-		const pending = job.lists.reduce((n, list) => n + (list.state === 'pending' ? 1 : 0) + (list.state === 'failed' ? 0 : list.members.filter(s => s === 'pending').length), 0) + (job.antennas ?? []).filter(a => a.state === 'pending').length;
-		return { started: true, complete: job.antennas !== undefined && done === states.length, total: states.length, done, failed, pending };
+		const pending = job.lists.reduce((n, list) => n + (list.state === 'pending' ? 1 : 0) + (list.state === 'failed' ? 0 : list.members.filter(s => s === 'pending').length), 0) + (shared ? [] : job.antennas ?? []).filter(a => a.state === 'pending').length;
+		return { started: true, complete: (shared || job.antennas !== undefined) && done === states.length, total: states.length, done, failed, pending };
 	}
 }

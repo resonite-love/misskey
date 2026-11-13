@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <PageWithHeader :actions="headerActions" :tabs="headerTabs">
 	<div class="_spacer" style="--MI_SPACER-w: 700px;">
 		<div>
-			<MkGridspaceListImport/>
+			<MkInfo v-if="sharedAntennaUnavailable" warn>{{ i18n.ts._gridspace.connectionError }}</MkInfo>
 			<MkResult v-if="antennas.length === 0" type="empty"/>
 
 			<MkButton type="routerLink" to="/my/antennas/create" primary :class="$style.add"><i class="ti ti-plus"></i> {{ i18n.ts.add }}</MkButton>
@@ -25,7 +25,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script lang="ts" setup>
 import { onActivated, computed } from 'vue';
 import MkButton from '@/components/MkButton.vue';
-import MkGridspaceListImport from '@/components/MkGridspaceListImport.vue';
+import MkInfo from '@/components/MkInfo.vue';
+import { sharedAntennaUnavailable } from '@/utility/gridspace-managed-api.js';
 import { i18n } from '@/i18n.js';
 import { definePage } from '@/page.js';
 import { antennasCache } from '@/cache.js';

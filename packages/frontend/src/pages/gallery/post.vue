@@ -27,7 +27,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 							</div>
 							<a v-if="post.gridspaceOrigin" :href="sourceUrl" target="_blank" rel="noopener noreferrer" class="_link">{{ i18n.ts.showOnRemote }} <i class="ti ti-external-link"></i></a>
 							<div class="other">
-								<button v-if="!post.gridspaceOrigin && $i && $i.id === post.user.id" v-tooltip="i18n.ts.edit" v-click-anime class="_button" @click="edit"><i class="ti ti-pencil ti-fw"></i></button>
+								<button v-if="post.gridspaceManagedId || (!post.gridspaceOrigin && $i && $i.id === post.user.id)" v-tooltip="i18n.ts.edit" v-click-anime class="_button" @click="edit"><i class="ti ti-pencil ti-fw"></i></button>
 								<button v-tooltip="i18n.ts.shareWithNote" v-click-anime class="_button" @click="shareWithNote"><i class="ti ti-repeat ti-fw"></i></button>
 								<button v-tooltip="i18n.ts.copyLink" v-click-anime class="_button" @click="copyLink"><i class="ti ti-link ti-fw"></i></button>
 								<button v-if="isSupportShare()" v-tooltip="i18n.ts.share" v-click-anime class="_button" @click="share"><i class="ti ti-share ti-fw"></i></button>
@@ -71,6 +71,7 @@ import MkMediaImage from '@/components/MkMediaImage.vue';
 import MkButton from '@/components/MkButton.vue';
 import * as os from '@/os.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
+import { parseManagedId } from '@/utility/gridspace-managed-api.js';
 import MkContainer from '@/components/MkContainer.vue';
 import MkPagination from '@/components/MkPagination.vue';
 import MkGalleryPostPreview from '@/components/MkGalleryPostPreview.vue';
@@ -93,7 +94,7 @@ const props = defineProps<{
 
 const post = ref<Misskey.entities.GalleryPost | null>(null);
 const error = ref<any>(null);
-const sourceUrl = computed(() => post.value ? `${post.value.gridspaceOrigin ?? url}/gallery/${post.value.id}` : '');
+const sourceUrl = computed(() => post.value ? `${post.value.gridspaceOrigin ?? url}/gallery/${post.value.gridspaceOriginalId ?? post.value.id}` : '');
 const otherPostsPaginator = markRaw(new Paginator('users/gallery/posts', {
 	limit: 6,
 	computedParams: computed(() => ({
@@ -108,7 +109,7 @@ function fetchPost() {
 	const current = ++requestGeneration;
 	error.value = null;
 	post.value = null;
-	(props.linkedId ? misskeyApi('gridspace/content', { kind: 'gallery', itemId: props.linkedId }).then(result => {
+	(props.linkedId && parseManagedId(props.linkedId) ? misskeyApi('gallery/posts/show', { postId: props.linkedId }) : props.linkedId ? misskeyApi('gridspace/content', { kind: 'gallery', itemId: props.linkedId }).then(result => {
 		if (!result.gallery[0]) throw new Error('POST_NOT_FOUND');
 		return result.gallery[0];
 	}) : misskeyApi('gallery/posts/show', { postId: props.postId! })).then(_post => {
@@ -169,7 +170,7 @@ async function unlike() {
 function edit() {
 	router.push('/gallery/:postId/edit', {
 		params: {
-			postId: props.postId!,
+			postId: post.value!.gridspaceManagedId ?? props.postId!,
 		},
 	});
 }

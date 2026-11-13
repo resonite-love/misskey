@@ -4,6 +4,7 @@
  */
 
 import { sharedDriveRequestSchema, type SharedDriveRequest } from '@/core/gridspace/shared-drive-protocol.js';
+import { managedPeerSchema, type ManagedPeerInput } from '@/core/gridspace/managed-resource-protocol.js';
 import { channelOptionsSchema, type ChannelPeerRequest } from '@/core/gridspace/channel-protocol.js';
 import { contentOptionsSchema, type ContentOptions } from '@/core/gridspace/content-protocol.js';
 import { driveOptionsSchema, type DrivePeerRequest } from '@/core/gridspace/drive-protocol.js';
@@ -24,7 +25,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 export type ClaimGridspaceNonce = (key: string, ttlMs: number) => Promise<boolean>;
 
 /** Mounted under /gridspace/v1; independent from user-authorized /api endpoints. */
-export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>, channels?: (input: ChannelPeerRequest) => Promise<object>, channelDelete?: (input: GridspacePeerLinkRequest & { noteId: string; channelId: string }) => Promise<object>, drive?: (input: DrivePeerRequest) => Promise<object>, content?: (input: ContentOptions) => Promise<object>, sharedDrive?: (input: SharedDriveRequest) => Promise<object>): void {
+export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>, channels?: (input: ChannelPeerRequest) => Promise<object>, channelDelete?: (input: GridspacePeerLinkRequest & { noteId: string; channelId: string }) => Promise<object>, drive?: (input: DrivePeerRequest) => Promise<object>, content?: (input: ContentOptions) => Promise<object>, sharedDrive?: (input: SharedDriveRequest) => Promise<object>, managed?: (input: ManagedPeerInput) => Promise<object>): void {
 	if (config === null) return;
 	// Preserve wire bytes for the signature without changing other server plugins' parsers.
 	const parseJson = fastify.getDefaultJsonParser('error', 'error');
@@ -76,6 +77,13 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			bodyLimit: 512 * 1024, config: { rawBody: true }, preHandler: authenticate, schema: { body: sharedDriveRequestSchema },
 		}, async (request, reply) => {
 			try { return await sharedDrive(request.body); } catch { return reply.code(409).send({ error: 'SHARED_DRIVE_UNAVAILABLE' }); }
+		});
+	}
+	if (managed) {
+		fastify.post<{ Body: ManagedPeerInput }>('/managed-resource', {
+			bodyLimit: 1024 * 1024, config: { rawBody: true }, preHandler: authenticate, schema: { body: managedPeerSchema },
+		}, async (request, reply) => {
+			try { return await managed(request.body); } catch { return reply.code(403).send({ error: 'RESOURCE_UNAVAILABLE' }); }
 		});
 	}
 	if (content) {

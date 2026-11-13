@@ -10,6 +10,8 @@ import type { Config } from '@/config.js';
 import { MiPage } from '@/models/Page.js';
 import { MiGalleryPost } from '@/models/GalleryPost.js';
 import { MiUser } from '@/models/User.js';
+import { MiGridspaceLink } from '@/models/Gridspace.js';
+import { managedId } from './managed-resource-protocol.js';
 import { PageEntityService } from '@/core/entities/PageEntityService.js';
 import { GalleryPostEntityService } from '@/core/entities/GalleryPostEntityService.js';
 import { IdService } from '@/core/IdService.js';
@@ -50,7 +52,7 @@ export class GridspaceContentService {
 			next: input.mode !== 'featured' && rows.length > limit ? selected.at(-1)!.id : null };
 	}
 
-	public async list(input: ContentOptions, authenticated: boolean): Promise<ContentPage> {
+	public async list(input: ContentOptions, authenticated: boolean, viewerId?: string): Promise<ContentPage> {
 		const empty: ContentPage = { origin: null, pages: [], gallery: [], next: null };
 		if (!this.config.gridspace?.enabled) return empty;
 		if (!authenticated && (await this.meta.fetch()).ugcVisibilityForVisitor !== 'all') return empty;
@@ -76,9 +78,11 @@ export class GridspaceContentService {
 
 		const authors = items.map(item => `${origin}/users/${item.userId}`);
 		const known = authors.length ? await this.db.getRepository(MiUser).findBy({ uri: In(authors) }) : [];
+		const ownLink = viewerId ? await this.db.getRepository(MiGridspaceLink).findOneBy({ localUserId: viewerId, peerOrigin: origin, state: 'active', driveShared: true }) : null;
 		for (const item of items) {
 			if (!/^[a-zA-Z0-9]{1,32}$/.test(item.id) || !/^[a-zA-Z0-9]{1,32}$/.test(item.userId) || item.user.host != null) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 			item.gridspaceOrigin = origin;
+			if (ownLink?.peerUserId === item.userId) item.gridspaceManagedId = managedId(input.kind === 'pages' ? 'page' : 'gallery', item.id);
 			const files = 'attachedFiles' in item ? [...item.attachedFiles, ...(item.eyeCatchingImage ? [item.eyeCatchingImage] : [])] : item.files ?? [];
 			for (const file of files) file.gridspaceOrigin = origin;
 			item.user = { ...item.user, host: new URL(origin).host, id: known.find(user => user.uri === `${origin}/users/${item.userId}`)?.id ?? `gridspace:${item.userId}` };

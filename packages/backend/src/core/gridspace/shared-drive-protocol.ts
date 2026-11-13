@@ -14,7 +14,7 @@ export type SharedDriveWire = SharedDriveRef & {
 export type SharedDriveValues = { name?: string; comment?: string | null; isSensitive?: boolean; parent?: SharedDriveRef | null };
 export type SharedDriveRequest = {
 	linkId: string; generation: number; localUserId: string; peerUserId: string;
-	action: 'put' | 'get' | 'mutate' | 'release'; kind?: 'file' | 'folder'; id?: string;
+	action: 'put' | 'get' | 'resolve' | 'mutate' | 'release'; kind?: 'file' | 'folder'; id?: string;
 	wire?: SharedDriveWire; ancestors?: SharedDriveWire[]; values?: SharedDriveValues; deleted?: boolean;
 };
 export const sharedDriveRequestSchema = {
@@ -22,7 +22,7 @@ export const sharedDriveRequestSchema = {
 	properties: {
 		linkId: { type: 'string', format: 'uuid' }, generation: { type: 'integer', minimum: 1 },
 		localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, peerUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
-		action: { type: 'string', enum: ['put', 'get', 'mutate', 'release'] }, kind: { type: 'string', enum: ['file', 'folder'] },
+		action: { type: 'string', enum: ['put', 'get', 'resolve', 'mutate', 'release'] }, kind: { type: 'string', enum: ['file', 'folder'] },
 		id: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, wire: { type: 'object' },
 		ancestors: { type: 'array', maxItems: 64, items: { type: 'object' } }, values: { type: 'object' }, deleted: { type: 'boolean' },
 	},

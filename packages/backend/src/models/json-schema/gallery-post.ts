@@ -7,6 +7,8 @@ export const packedGalleryPostSchema = {
 	type: 'object',
 	properties: {
 		gridspaceOrigin: { type: 'string', optional: true, nullable: false },
+		gridspaceManagedId: { type: 'string', optional: true, nullable: false },
+		gridspaceOriginalId: { type: 'string', optional: true, nullable: false },
 		id: {
 			type: 'string',
 			optional: false, nullable: false,

@@ -9,6 +9,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkInfo v-if="peerError" warn>{{ i18n.ts._gridspace.collectionsPartial }}</MkInfo>
 		<MkButton v-if="peerError" @click="loadClip">{{ i18n.ts.retry }}</MkButton>
 		<div v-if="clip" class="_gaps">
+			<MkInfo v-if="managedClipId">{{ i18n.tsx._gridspace.manageOnSource({ host: peerHost }) }}</MkInfo>
 			<div class="_panel">
 				<div class="_gaps_s" :class="$style.description">
 					<div v-if="clip.description">
@@ -65,9 +66,11 @@ const props = defineProps<{
 
 const clip = ref<Misskey.entities.Clip | null>(CTX_CLIP);
 const favorited = ref(false);
+const managedClipId = ref<string | null>(null);
 const isPeer = computed(() => props.peer === 'linked');
 const peerOrigin = ref('');
 const peerHost = computed(() => peerOrigin.value ? new URL(peerOrigin.value).host : '');
+const sourceUrl = computed(() => `${isPeer.value ? peerOrigin.value : url}/clips/${props.clipId}`);
 const peerError = ref(false);
 let generation = 0;
 let active = true;
@@ -80,7 +83,7 @@ const paginator = markRaw(new Paginator('clips/notes', {
 	})),
 }));
 
-const isOwned = computed<boolean | null>(() => !isPeer.value && $i && clip.value && ($i.id === clip.value.userId));
+const isOwned = computed<boolean | null>(() => isPeer.value ? managedClipId.value != null : $i && clip.value && ($i.id === clip.value.userId));
 
 async function loadClip() {
 	if (checking || !active || (isPeer.value && window.document.hidden)) return;
@@ -92,6 +95,8 @@ async function loadClip() {
 			if (current !== generation) return;
 			if (!page.clipsList.length || !page.origin) throw new Error('Unavailable clip');
 			clip.value = page.clipsList[0]; peerOrigin.value = page.origin; peerError.value = false;
+			const editable = await misskeyApi('gridspace/managed-resource', { kind: 'clip', action: 'show', id: props.clipId }).catch(() => null);
+			if (current === generation) managedClipId.value = typeof editable?.item?.id === 'string' ? editable.item.id : null;
 		} else {
 			const loaded = CTX_CLIP?.id === props.clipId ? CTX_CLIP : await misskeyApi('clips/show', { clipId: props.clipId });
 			if (current !== generation) return;
@@ -101,7 +106,7 @@ async function loadClip() {
 	} catch { if (current === generation) { clip.value = null; peerError.value = true; } } finally { if (current === generation) checking = false; }
 }
 
-watch(() => [props.clipId, props.peer], () => { generation++; checking = false; clip.value = null; void loadClip(); }, { immediate: true });
+watch(() => [props.clipId, props.peer], () => { generation++; checking = false; clip.value = null; managedClipId.value = null; void loadClip(); }, { immediate: true });
 provide('currentClip', computed(() => isPeer.value ? null : clip.value));
 
 function suspendPeer() { if (isPeer.value) { generation++; checking = false; clip.value = null; } }
@@ -164,10 +169,11 @@ const headerActions = computed<PageHeaderItem[] | null>(() => clip.value && isOw
 
 		if (canceled) return;
 
-		os.apiWithDialog('clips/update', {
-			clipId: clip.value.id,
+		await os.apiWithDialog('clips/update', {
+			clipId: managedClipId.value ?? clip.value.id,
 			...result,
 		});
+		await loadClip();
 
 		clipsCache.delete();
 	},
@@ -181,13 +187,14 @@ const headerActions = computed<PageHeaderItem[] | null>(() => clip.value && isOw
 			icon: 'ti ti-link',
 			text: i18n.ts.copyUrl,
 			action: () => {
-				copyToClipboard(`${url}/clips/${clip.value!.id}`);
+				copyToClipboard(sourceUrl.value);
 			},
 		}, {
 			icon: 'ti ti-code',
 			text: i18n.ts.embed,
 			action: () => {
-				genEmbedCode('clips', clip.value!.id);
+				if (isPeer.value) copyToClipboard(`<iframe src="${peerOrigin.value}/embed/clips/${props.clipId}" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" style="border:none;width:100%;height:700px"></iframe>\n<script defer src="${peerOrigin.value}/embed.js"><\/script>`);
+				else genEmbedCode('clips', clip.value!.id);
 			},
 		});
 
@@ -199,7 +206,7 @@ const headerActions = computed<PageHeaderItem[] | null>(() => clip.value && isOw
 					navigator.share({
 						title: clip.value!.name,
 						text: clip.value!.description ?? '',
-						url: `${url}/clips/${clip.value!.id}`,
+						url: sourceUrl.value,
 					});
 				},
 			});
@@ -221,8 +228,9 @@ const headerActions = computed<PageHeaderItem[] | null>(() => clip.value && isOw
 		if (canceled) return;
 
 		await os.apiWithDialog('clips/delete', {
-			clipId: clip.value.id,
+			clipId: managedClipId.value ?? clip.value.id,
 		});
+		clip.value = null;
 
 		clipsCache.delete();
 	},

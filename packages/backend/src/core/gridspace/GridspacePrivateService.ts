@@ -11,6 +11,9 @@ import type { Packed } from '@/misc/json-schema.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
 import { MiUserProfile } from '@/models/UserProfile.js';
 import { MiClip } from '@/models/Clip.js';
+import { MiAntenna } from '@/models/Antenna.js';
+import { FanoutTimelineService } from '@/core/FanoutTimelineService.js';
+import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { MiClipNote } from '@/models/ClipNote.js';
 import { MiClipFavorite } from '@/models/ClipFavorite.js';
 import { MiNoteFavorite } from '@/models/NoteFavorite.js';
@@ -65,6 +68,8 @@ export class GridspacePrivateService {
 		private channelAuth: GridspaceChannelAuthService,
 		private queries: QueryService,
 		private clips: ClipEntityService,
+		private fanout?: FanoutTimelineService,
+		private events?: GlobalEventService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 		this.noteTime = searchNoteTimeSql(config.id);
@@ -76,6 +81,7 @@ export class GridspacePrivateService {
 		if (!input.channelActorId) {
 			const link = await this.links.authorizePrivate(input);
 			const mode = input.mode === 'validate' ? input.contextMode : input.mode;
+			if (mode === 'antenna' && (!input.antennaId || !await this.db.getRepository(MiAntenna).existsBy({ id: input.antennaId, userId: link.localUserId }))) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 			if (mode === 'favorites' || mode === 'clip') {
 				if (link.initiator || !await this.links.hasCollectionScope(input, mode === 'favorites' ? 'favorites' : 'clips')) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 			}
@@ -90,7 +96,8 @@ export class GridspacePrivateService {
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
 		if ((mode === 'channel' && !input.channelId) || (input.channelId && mode !== 'channel' && mode !== 'show')) throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((mode === 'clip' && !input.clipId) || (input.clipId && mode !== 'clip')) throw new GridspaceLinkError('INVALID_REQUEST');
-		const query = this.search.noteQuery({ id: viewerId }, { query: input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length, mode === 'mentions' || mode === 'direct' || mode === 'favorites' || mode === 'clip');
+		if ((mode === 'antenna' && !input.antennaId) || (input.antennaId && mode !== 'antenna')) throw new GridspaceLinkError('INVALID_REQUEST');
+		const query = this.search.noteQuery({ id: viewerId }, { query: input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length, mode === 'mentions' || mode === 'direct' || mode === 'favorites' || mode === 'clip' || mode === 'antenna');
 		if (mode === 'favorites') {
 			query.innerJoinAndMapOne('note.gridspaceCollection', MiNoteFavorite, 'collection', 'collection.noteId = note.id AND collection.userId = :collectionViewer', { collectionViewer: viewerId });
 			query.orderBy('collection.id', 'DESC');
@@ -106,9 +113,9 @@ export class GridspacePrivateService {
 			this.queries.generateMutedNoteThreadQuery(query, { id: viewerId });
 			// As in notes/mentions, avoid a primary-key scan over the whole timeline.
 			query.orderBy('CONCAT(note.id)', 'DESC');
-		} else if (mode && mode !== 'show' && mode !== 'channel' && authors?.every(author => author.makeNotesFollowersOnlyBefore == null)) {
+		} else if (mode && mode !== 'show' && mode !== 'channel' && mode !== 'antenna' && authors?.every(author => author.makeNotesFollowersOnlyBefore == null)) {
 			query.andWhere("note.visibility IN ('followers', 'specified')");
-		} else if (mode && mode !== 'show' && mode !== 'channel') {
+		} else if (mode && mode !== 'show' && mode !== 'channel' && mode !== 'antenna') {
 			query.andWhere(`(note.visibility IN ('followers', 'specified') OR ("user"."makeNotesFollowersOnlyBefore" IS NOT NULL
 				AND ${this.noteTime} <= CASE WHEN "user"."makeNotesFollowersOnlyBefore" > 0 THEN "user"."makeNotesFollowersOnlyBefore"::bigint * 1000
 				ELSE :nowMs::bigint + "user"."makeNotesFollowersOnlyBefore"::bigint * 1000 END))`);
@@ -140,6 +147,17 @@ export class GridspacePrivateService {
 		// Resolve author policies before planning the scan. The final body packing
 		// still rechecks current visibility and authorization without this shortcut.
 		const query = this.query(viewerId, input, authors);
+		if ((input.contextMode ?? input.mode) === 'antenna') {
+			if (!this.fanout || !input.antennaId) throw new GridspaceLinkError('INVALID_REQUEST');
+			const antenna = await this.db.getRepository(MiAntenna).findOneBy({ id: input.antennaId, userId: viewerId });
+			if (!antenna) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			// Reading the shared timeline activates the same native collection.
+			await this.db.getRepository(MiAntenna).update(antenna.id, { isActive: true, lastUsedAt: new Date() });
+			if (!antenna.isActive) this.events?.publishInternalEvent('antennaUpdated', { ...antenna, isActive: true });
+			const ids = await this.fanout.get(`antennaTimeline:${antenna.id}`, input.mode === 'validate' ? null : input.before ?? null, null);
+			if (!ids.length) return [];
+			query.andWhere('note.id IN (:...antennaNotes)', { antennaNotes: ids });
+		}
 		if (input.mode === 'show') query.andWhere('note.id = :noteId', { noteId: input.noteId });
 		if (input.mode === 'validate') query.andWhere('note.id IN (:...ids)', { ids: input.ids });
 		const order = (input.contextMode ?? input.mode) === 'favorites' ? 'collection' : 'note';
@@ -272,7 +290,7 @@ export class GridspacePrivateService {
 		if ((input.query || input.mode === 'search' || input.contextMode === 'search') && (!input.query?.trim() || !(await this.roles.getUserPolicies(viewer.id)).canSearchNotes)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if ((input.mode === 'profile' && !input.userId) || (input.mode === 'show' && !input.noteId) || (input.mode === 'validate' && !input.ids?.length)) throw new GridspaceLinkError('INVALID_REQUEST');
 		const options: PrivateOptions = {
-			mode: input.mode, contextMode: input.contextMode, query: input.query?.trim(), userId: input.userId, noteId: input.noteId, channelId: input.channelId, clipId: input.clipId,
+			mode: input.mode, contextMode: input.contextMode, query: input.query?.trim(), userId: input.userId, noteId: input.noteId, channelId: input.channelId, clipId: input.clipId, antennaId: input.antennaId,
 			ids: input.ids, rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt,
 			withReplies: input.withReplies ?? true, withRenotes: input.withRenotes ?? true, withFiles: input.withFiles ?? false, withChannelNotes: input.withChannelNotes ?? true,
 		};

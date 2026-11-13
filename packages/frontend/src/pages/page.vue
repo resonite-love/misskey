@@ -46,7 +46,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 									<MkAvatar :user="page.user" :class="$style.avatar" indicator link :preview="!page.user.id.startsWith('gridspace:')"/> <MkA :to="`/@${page.user.username}${page.user.host ? '@' + page.user.host : ''}`"><MkUserName :user="page.user" :nowrap="false"/></MkA>
 								</div>
 								<div :class="$style.pageBannerTitleSubActions">
-									<MkA v-if="!page.gridspaceOrigin && page.userId === $i?.id" v-tooltip="i18n.ts._pages.editThisPage" :to="`/pages/edit/${page.id}`" class="_button" :class="$style.generalActionButton"><i class="ti ti-pencil ti-fw"></i></MkA>
+									<MkA v-if="page.gridspaceManagedId || (!page.gridspaceOrigin && page.userId === $i?.id)" v-tooltip="i18n.ts._pages.editThisPage" :to="`/pages/edit/${page.gridspaceManagedId ?? page.id}`" class="_button" :class="$style.generalActionButton"><i class="ti ti-pencil ti-fw"></i></MkA>
 									<button v-tooltip="i18n.ts.share" class="_button" :class="$style.generalActionButton" @click="share"><i class="ti ti-share ti-fw"></i></button>
 								</div>
 							</div>
@@ -62,7 +62,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 						</div>
 						<a v-if="page.gridspaceOrigin" :href="sourceUrl" target="_blank" rel="noopener noreferrer" class="_link">{{ i18n.ts.showOnRemote }} <i class="ti ti-external-link"></i></a>
 						<div :class="$style.other">
-							<MkA v-if="!page.gridspaceOrigin && page.userId === $i?.id" v-tooltip="i18n.ts._pages.editThisPage" :to="`/pages/edit/${page.id}`" class="_button" :class="$style.generalActionButton"><i class="ti ti-pencil ti-fw"></i></MkA>
+							<MkA v-if="page.gridspaceManagedId || (!page.gridspaceOrigin && page.userId === $i?.id)" v-tooltip="i18n.ts._pages.editThisPage" :to="`/pages/edit/${page.gridspaceManagedId ?? page.id}`" class="_button" :class="$style.generalActionButton"><i class="ti ti-pencil ti-fw"></i></MkA>
 							<button v-tooltip="i18n.ts.copyLink" class="_button" :class="$style.generalActionButton" @click="copyLink"><i class="ti ti-link ti-fw"></i></button>
 							<button v-tooltip="i18n.ts.share" class="_button" :class="$style.generalActionButton" @click="share"><i class="ti ti-share ti-fw"></i></button>
 							<button v-if="$i && !page.gridspaceOrigin" v-click-anime class="_button" :class="$style.generalActionButton" @click="showMenu"><i class="ti ti-dots ti-fw"></i></button>
@@ -106,6 +106,7 @@ import XPage from '@/components/page/page.vue';
 import MkButton from '@/components/MkButton.vue';
 import * as os from '@/os.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
+import { parseManagedId } from '@/utility/gridspace-managed-api.js';
 import MkMediaImage from '@/components/MkMediaImage.vue';
 import MkImgWithBlurhash from '@/components/MkImgWithBlurhash.vue';
 import MkFollowButton from '@/components/MkFollowButton.vue';
@@ -151,7 +152,7 @@ function fetchPage() {
 	const current = ++requestGeneration;
 	error.value = null;
 	page.value = null;
-	(props.linkedId ? misskeyApi('gridspace/content', { kind: 'pages', itemId: props.linkedId }).then(result => {
+	(props.linkedId && parseManagedId(props.linkedId) ? misskeyApi('pages/show', { pageId: props.linkedId }) : props.linkedId ? misskeyApi('gridspace/content', { kind: 'pages', itemId: props.linkedId }).then(result => {
 		if (!result.pages[0]) throw new Error('PAGE_NOT_FOUND');
 		return result.pages[0];
 	}) : misskeyApi('pages/show', { name: props.pageName!, username: props.username! })).then(async _page => {

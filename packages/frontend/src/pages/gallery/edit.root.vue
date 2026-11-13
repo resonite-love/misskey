@@ -24,6 +24,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 		<MkSwitch v-model="isSensitive">{{ i18n.ts.markAsSensitive }}</MkSwitch>
 
+		<MkInfo v-if="props.post?.gridspaceOrigin">{{ i18n.tsx._gridspace.manageOnSource({ host: props.post.gridspaceOrigin }) }}</MkInfo>
 		<div class="_buttons">
 			<MkButton v-if="props.post != null" primary @click="save"><i class="ti ti-device-floppy"></i> {{ i18n.ts.save }}</MkButton>
 			<MkButton v-else primary @click="save"><i class="ti ti-device-floppy"></i> {{ i18n.ts.publish }}</MkButton>
@@ -44,6 +45,7 @@ import MkSwitch from '@/components/MkSwitch.vue';
 import { selectFile } from '@/utility/drive.js';
 import * as os from '@/os.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
+import MkInfo from '@/components/MkInfo.vue';
 import { i18n } from '@/i18n.js';
 import { useRouter } from '@/router.js';
 

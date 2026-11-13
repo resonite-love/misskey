@@ -35,7 +35,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			try {
 				this.links.assertPrivateCaller(token);
 				const mode = options.mode === 'validate' ? options.contextMode : options.mode;
-				if (token && ((mode === 'favorites' && !token.permission.includes('read:favorites')) || (mode === 'clip' && !token.permission.includes('read:account')))) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+				if (token && ((mode === 'favorites' && !token.permission.includes('read:favorites')) || ((mode === 'clip' || mode === 'antenna') && !token.permission.includes('read:account')))) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 				return await this.reader.notes(me, options, limit, cursor);
 			} catch (error) {
 				if (error instanceof GridspaceLinkError) throw new ApiError(meta.errors.unavailable, { reason: error.code });

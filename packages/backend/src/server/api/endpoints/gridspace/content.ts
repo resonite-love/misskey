@@ -21,7 +21,7 @@ export const paramDef = { type: 'object', properties: contentOptionsSchema, requ
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
 	constructor(private content: GridspaceContentService) {
 		super(meta, paramDef, async (ps, me) => {
-			try { return await this.content.list(ps, me != null); } catch (error) {
+			try { return await this.content.list(ps, me != null, me?.id); } catch (error) {
 				if (error instanceof GridspaceLinkError) throw new ApiError(meta.errors.unavailable);
 				throw error;
 			}

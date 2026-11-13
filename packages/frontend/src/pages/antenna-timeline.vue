@@ -7,7 +7,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 <PageWithHeader :actions="headerActions" :tabs="headerTabs">
 	<div class="_spacer" style="--MI_SPACER-w: 800px;">
 		<div :class="$style.tl">
-			<MkStreamingNotesTimeline
+			<MkGridspaceNoteList v-if="sharedAntenna" :source="{ kind: 'antenna', antennaId: sharedAntenna.id }"/>
+			<MkStreamingNotesTimeline v-else
 				ref="tlEl" :key="antennaId"
 				src="antenna"
 				:antenna="antennaId"
@@ -22,6 +23,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 import { computed, watch, ref, useTemplateRef, provide } from 'vue';
 import * as Misskey from 'misskey-js';
 import MkStreamingNotesTimeline from '@/components/MkStreamingNotesTimeline.vue';
+import MkGridspaceNoteList from '@/components/MkGridspaceNoteList.vue';
+import { parseManagedId } from '@/utility/gridspace-managed-api.js';
 import * as os from '@/os.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { definePage } from '@/page.js';
@@ -35,6 +38,7 @@ const props = defineProps<{
 }>();
 
 const antenna = ref<Misskey.entities.Antenna | null>(null);
+const sharedAntenna = computed(() => parseManagedId(props.antennaId));
 const tlEl = useTemplateRef('tlEl');
 
 provide('currentAntenna', antenna);

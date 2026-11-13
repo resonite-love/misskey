@@ -264,6 +264,11 @@ export class GridspaceSharedDriveService implements OnModuleInit, OnApplicationS
 		if (!input.id || !input.kind) throw new ApiError(sharedDriveUnavailable);
 		const row = await this.repository(this.db.manager, input.kind).findOneBy({ id: input.id, userId: user.id });
 		const existing = await this.db.getRepository(MiGridspaceDriveEntry).findOneBy({ kind: input.kind, localId: input.id });
+		if (input.action === 'resolve' && row && input.kind === 'file') {
+			const wire = await this.snapshot(this.db.manager, 'file', row.id, user.id, existing?.revision ?? 0);
+			if (!wire || existing?.deleted) throw new ApiError(sharedDriveUnavailable);
+			return { wire, ancestors: await this.ancestors(link, wire) };
+		}
 		if (existing && existing.origin !== this.origin || !row && !existing?.deleted) throw new ApiError(sharedDriveUnavailable);
 		if (input.action === 'mutate') {
 			validateSharedDriveValues(input.values ?? {}, [this.origin, this.peerOrigin]);
@@ -347,9 +352,27 @@ export class GridspaceSharedDriveService implements OnModuleInit, OnApplicationS
 	public async referenceFile(user: MiLocalUser, sourceId: string) {
 		const link = await this.link(user.id);
 		if (!link) return null;
-		const response = await this.request<{ wire: SharedDriveWire; ancestors: SharedDriveWire[] }>(link, { action: 'get', kind: 'file', id: sourceId });
-		if (response.wire.kind !== 'file' || response.wire.id !== sourceId || response.wire.deleted) throw new ApiError(sharedDriveUnavailable);
+		const response = await this.request<{ wire: SharedDriveWire; ancestors: SharedDriveWire[] }>(link, { action: 'resolve', kind: 'file', id: sourceId });
+		if (response.wire.kind !== 'file' || response.wire.deleted) throw new ApiError(sharedDriveUnavailable);
+		if (response.wire.origin === this.origin) {
+			if (!await this.db.getRepository(MiDriveFile).existsBy({ id: response.wire.id, userId: user.id })) throw new ApiError(sharedDriveUnavailable);
+			return this.files.pack(response.wire.id, { self: true });
+		}
+		if (response.wire.id !== sourceId) throw new ApiError(sharedDriveUnavailable);
 		return this.files.pack(await this.accept(link, response.wire, response.ancestors), { self: true });
+	}
+
+	public async fileIdOnPeer(user: MiLocalUser, fileId: string): Promise<string> {
+		const link = await this.link(user.id);
+		if (!link || !await this.db.getRepository(MiDriveFile).existsBy({ id: fileId, userId: user.id })) throw new ApiError(sharedDriveUnavailable);
+		const entry = await this.db.getRepository(MiGridspaceDriveEntry).findOneBy({ kind: 'file', localId: fileId });
+		if (entry?.origin === this.peerOrigin && !entry.deleted && entry.linkId === link.id) return entry.sourceId;
+		await this.changed('file', fileId, user.id);
+		const original = await this.db.getRepository(MiGridspaceDriveEntry).findOneByOrFail({ kind: 'file', localId: fileId, linkId: link.id, origin: this.origin });
+		const { binding: _binding, ...wire } = original.payload as unknown as StoredWire;
+		const result = await this.request<{ id: string }>(link, { action: 'put', wire, ancestors: await this.ancestors(link, wire) });
+		if (!/^[a-zA-Z0-9]{1,32}$/.test(result.id)) throw new ApiError(sharedDriveUnavailable);
+		return result.id;
 	}
 
 	public async status(userId?: string) {

@@ -3693,6 +3693,7 @@ _autoTranslation:
   showTranslation: "翻訳を表示"
   failed: "翻訳できなかったため、原文を表示しています。"
 _gridspace:
+  manageOnSource: "{host} のデータを編集しています。保存・削除は連携元にも反映されます。"
   sharedDriveTitle: "共有ドライブ"
   sharedDriveDescription: "両アカウントのファイルとフォルダーを、通常のドライブから使えます。名前変更・移動・削除も両方に反映されます。ファイル本体は保存元のサーバーに残ります。"
   sharedDriveLocked: "ドライブを共有しているため、このアカウント連携は管理者が解除します。"

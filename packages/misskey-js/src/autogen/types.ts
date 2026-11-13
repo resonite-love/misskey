@@ -2503,6 +2503,15 @@ export type paths = {
          */
         post: operations['gridspace___list-import'];
     };
+    '/gridspace/managed-resource': {
+        /**
+         * gridspace/managed-resource
+         * @description No description provided.
+         *
+         *     **Credential required**: *Yes* / **Permission**: *write:account*
+         */
+        post: operations['gridspace___managed-resource'];
+    };
     '/gridspace/member': {
         /**
          * gridspace/member
@@ -5366,6 +5375,8 @@ export type components = {
         };
         Page: {
             gridspaceOrigin?: string;
+            gridspaceManagedId?: string;
+            gridspaceOriginalId?: string;
             /**
              * Format: id
              * @example xxxxxxxxxx
@@ -5570,6 +5581,8 @@ export type components = {
         };
         GalleryPost: {
             gridspaceOrigin?: string;
+            gridspaceManagedId?: string;
+            gridspaceOriginalId?: string;
             /**
              * Format: id
              * @example xxxxxxxxxx
@@ -26348,6 +26361,100 @@ export interface operations {
             };
         };
     };
+    'gridspace___managed-resource': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** @enum {string} */
+                    kind: 'antenna' | 'page' | 'clip' | 'gallery';
+                    /** @enum {string} */
+                    action: 'list' | 'show' | 'update' | 'delete' | 'lists';
+                    id?: string;
+                    data?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        enabled: boolean;
+                        origin: string | null;
+                        item: {
+                            [key: string]: unknown;
+                        } | null;
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        aliases: {
+                            sourceId: string;
+                            targetId: string;
+                        }[];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
     gridspace___member: {
         requestBody: {
             content: {
@@ -27384,9 +27491,10 @@ export interface operations {
                      * @default home
                      * @enum {string}
                      */
-                    mode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'validate';
+                    mode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna' | 'validate';
                     /** @enum {string} */
-                    contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip';
+                    contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna';
+                    antennaId?: string;
                     clipId?: string;
                     channelId?: string;
                     query?: string;

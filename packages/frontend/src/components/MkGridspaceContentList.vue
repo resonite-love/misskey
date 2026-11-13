@@ -98,6 +98,16 @@ async function load() {
 		localMore.value = props.mode !== 'featured' && !(props.kind === 'pages' && !userId) && rows.length === limit;
 	})());
 	if (remoteMore.value) requests.push((async () => {
+		if (props.mode === 'mine') {
+			const result = await misskeyApi('gridspace/managed-resource', { kind: props.kind === 'pages' ? 'page' : 'gallery', action: 'list', data: { limit, untilId: remoteBefore } });
+			if (current !== generation) return;
+			const rows = result.items as unknown as Item[];
+			const ids = new Set(remote.value.map(item => item.id));
+			remote.value.push(...rows.filter(item => !ids.has(item.id)));
+			remoteBefore = rows.at(-1)?.gridspaceOriginalId;
+			remoteMore.value = rows.length === limit;
+			return;
+		}
 		const result = await misskeyApi('gridspace/content', { kind: props.kind, mode: props.mode === 'featured' ? 'featured' : 'recent', userId, ...(ascending.value ? { after: remoteBefore ?? (control.initialDate ? undefined : '0'), sinceDate: remoteBefore ? undefined : control.initialDate ?? undefined } : { before: remoteBefore, untilDate: remoteBefore ? undefined : control.initialDate ?? undefined }), limit });
 		if (current !== generation) return;
 		const rows = props.kind === 'pages' ? result.pages : result.gallery;
