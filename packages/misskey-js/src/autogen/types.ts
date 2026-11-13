@@ -2435,6 +2435,15 @@ export type paths = {
          */
         post: operations['gridspace___collections'];
     };
+    '/gridspace/content': {
+        /**
+         * gridspace/content
+         * @description No description provided.
+         *
+         *     **Credential required**: *No*
+         */
+        post: operations['gridspace___content'];
+    };
     '/gridspace/drive': {
         /**
          * gridspace/drive
@@ -5197,6 +5206,7 @@ export type components = {
             type: 'test';
         };
         DriveFile: {
+            gridspaceOrigin?: string;
             /**
              * Format: id
              * @example xxxxxxxxxx
@@ -5345,6 +5355,7 @@ export type components = {
             used: boolean;
         };
         Page: {
+            gridspaceOrigin?: string;
             /**
              * Format: id
              * @example xxxxxxxxxx
@@ -5548,6 +5559,7 @@ export type components = {
             moderationNote?: string | null;
         };
         GalleryPost: {
+            gridspaceOrigin?: string;
             /**
              * Format: id
              * @example xxxxxxxxxx
@@ -25639,6 +25651,99 @@ export interface operations {
                         origin: string | null;
                         next: string | null;
                         clipsList: components['schemas']['Clip'][];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    gridspace___content: {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** @enum {string} */
+                    kind: 'pages' | 'gallery';
+                    /**
+                     * @default recent
+                     * @enum {string}
+                     */
+                    mode?: 'recent' | 'featured';
+                    userId?: string;
+                    itemId?: string;
+                    after?: string;
+                    before?: string;
+                    sinceDate?: number;
+                    untilDate?: number;
+                    /** @default 12 */
+                    limit?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        origin: string | null;
+                        pages: components['schemas']['Page'][];
+                        gallery: components['schemas']['GalleryPost'][];
+                        next: string | null;
                     };
                 };
             };

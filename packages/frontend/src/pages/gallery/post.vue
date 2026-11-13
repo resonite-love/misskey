@@ -11,30 +11,31 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<div v-if="post" class="rkxwuolj">
 					<div class="files">
 						<div v-for="file in post.files" :key="file.id" class="file">
-							<img :src="file.url"/>
+							<MkMediaImage :image="{ ...file, isSensitive: post.isSensitive || file.isSensitive }" raw/>
 						</div>
 					</div>
 					<div class="body">
 						<div class="title">{{ post.title }}</div>
-						<div class="description"><Mfm v-if="post.description != null" :text="post.description"/></div>
+						<div class="description"><Mfm v-if="post.description != null" :text="post.description" :author="post.user"/></div>
 						<div class="info">
 							<i class="ti ti-clock"></i> <MkTime :time="post.createdAt" mode="detail"/>
 						</div>
 						<div class="actions">
-							<div class="like">
+							<div v-if="!post.gridspaceOrigin" class="like">
 								<MkButton v-if="post.isLiked" v-tooltip="i18n.ts._gallery.unlike" class="button" primary @click="unlike()"><i class="ti ti-heart-off"></i><span v-if="post.likedCount > 0" class="count">{{ post.likedCount }}</span></MkButton>
 								<MkButton v-else v-tooltip="i18n.ts._gallery.like" class="button" @click="like()"><i class="ti ti-heart"></i><span v-if="post.likedCount > 0" class="count">{{ post.likedCount }}</span></MkButton>
 							</div>
+							<a v-if="post.gridspaceOrigin" :href="sourceUrl" target="_blank" rel="noopener noreferrer" class="_link">{{ i18n.ts.showOnRemote }} <i class="ti ti-external-link"></i></a>
 							<div class="other">
-								<button v-if="$i && $i.id === post.user.id" v-tooltip="i18n.ts.edit" v-click-anime class="_button" @click="edit"><i class="ti ti-pencil ti-fw"></i></button>
+								<button v-if="!post.gridspaceOrigin && $i && $i.id === post.user.id" v-tooltip="i18n.ts.edit" v-click-anime class="_button" @click="edit"><i class="ti ti-pencil ti-fw"></i></button>
 								<button v-tooltip="i18n.ts.shareWithNote" v-click-anime class="_button" @click="shareWithNote"><i class="ti ti-repeat ti-fw"></i></button>
 								<button v-tooltip="i18n.ts.copyLink" v-click-anime class="_button" @click="copyLink"><i class="ti ti-link ti-fw"></i></button>
 								<button v-if="isSupportShare()" v-tooltip="i18n.ts.share" v-click-anime class="_button" @click="share"><i class="ti ti-share ti-fw"></i></button>
-								<button v-if="$i && $i.id !== post.user.id" v-click-anime class="_button" @click="showMenu"><i class="ti ti-dots ti-fw"></i></button>
+								<button v-if="!post.gridspaceOrigin && $i && $i.id !== post.user.id" v-click-anime class="_button" @click="showMenu"><i class="ti ti-dots ti-fw"></i></button>
 							</div>
 						</div>
 						<div class="user">
-							<MkAvatar :user="post.user" class="avatar" link preview/>
+							<MkAvatar :user="post.user" class="avatar" link :preview="!post.user.id.startsWith('gridspace:')"/>
 							<div class="name">
 								<MkUserName :user="post.user" style="display: block;"/>
 								<MkAcct :user="post.user"/>
@@ -43,7 +44,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 						</div>
 					</div>
 					<MkAd :preferForms="['horizontal', 'horizontal-big']"/>
-					<MkContainer :max-height="300" :foldable="true" class="other">
+					<MkContainer v-if="!post.gridspaceOrigin" :max-height="300" :foldable="true" class="other">
 						<template #icon><i class="ti ti-clock"></i></template>
 						<template #header>{{ i18n.ts.recentPosts }}</template>
 						<MkPagination v-slot="{items}" :paginator="otherPostsPaginator">
@@ -62,10 +63,11 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { computed, watch, ref, defineAsyncComponent, markRaw } from 'vue';
+import { computed, watch, ref, defineAsyncComponent, markRaw, onBeforeUnmount } from 'vue';
 import * as Misskey from 'misskey-js';
 import { url } from '@@/js/config.js';
 import type { MenuItem } from '@/types/menu.js';
+import MkMediaImage from '@/components/MkMediaImage.vue';
 import MkButton from '@/components/MkButton.vue';
 import * as os from '@/os.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
@@ -85,11 +87,13 @@ import { Paginator } from '@/utility/paginator.js';
 const router = useRouter();
 
 const props = defineProps<{
-	postId: string;
+	postId?: string;
+	linkedId?: string;
 }>();
 
 const post = ref<Misskey.entities.GalleryPost | null>(null);
 const error = ref<any>(null);
+const sourceUrl = computed(() => post.value ? `${post.value.gridspaceOrigin ?? url}/gallery/${post.value.id}` : '');
 const otherPostsPaginator = markRaw(new Paginator('users/gallery/posts', {
 	limit: 6,
 	computedParams: computed(() => ({
@@ -97,20 +101,27 @@ const otherPostsPaginator = markRaw(new Paginator('users/gallery/posts', {
 	})),
 }));
 
+let requestGeneration = 0;
+onBeforeUnmount(() => { requestGeneration++; });
+
 function fetchPost() {
+	const current = ++requestGeneration;
+	error.value = null;
 	post.value = null;
-	misskeyApi('gallery/posts/show', {
-		postId: props.postId,
-	}).then(_post => {
+	(props.linkedId ? misskeyApi('gridspace/content', { kind: 'gallery', itemId: props.linkedId }).then(result => {
+		if (!result.gallery[0]) throw new Error('POST_NOT_FOUND');
+		return result.gallery[0];
+	}) : misskeyApi('gallery/posts/show', { postId: props.postId! })).then(_post => {
+		if (current !== requestGeneration) return;
 		post.value = _post;
 	}).catch(_error => {
-		error.value = _error;
+		if (current === requestGeneration) error.value = _error;
 	});
 }
 
 function copyLink() {
 	if (!post.value) return;
-	copyToClipboard(`${url}/gallery/${post.value.id}`);
+	copyToClipboard(sourceUrl.value);
 }
 
 function share() {
@@ -118,14 +129,14 @@ function share() {
 	navigator.share({
 		title: post.value.title,
 		text: post.value.description ?? undefined,
-		url: `${url}/gallery/${post.value.id}`,
+		url: sourceUrl.value,
 	});
 }
 
 function shareWithNote() {
 	if (!post.value) return;
 	os.post({
-		initialText: `${post.value.title} ${url}/gallery/${post.value.id}`,
+		initialText: `${post.value.title} ${sourceUrl.value}`,
 		instant: true,
 	});
 }
@@ -133,7 +144,7 @@ function shareWithNote() {
 function like() {
 	if (!post.value) return;
 	os.apiWithDialog('gallery/posts/like', {
-		postId: props.postId,
+		postId: props.postId!,
 	}).then(() => {
 		post.value!.isLiked = true;
 		post.value!.likedCount++;
@@ -148,7 +159,7 @@ async function unlike() {
 	});
 	if (confirm.canceled) return;
 	os.apiWithDialog('gallery/posts/unlike', {
-		postId: props.postId,
+		postId: props.postId!,
 	}).then(() => {
 		post.value!.isLiked = false;
 		post.value!.likedCount--;
@@ -158,7 +169,7 @@ async function unlike() {
 function edit() {
 	router.push('/gallery/:postId/edit', {
 		params: {
-			postId: props.postId,
+			postId: props.postId!,
 		},
 	});
 }
@@ -166,7 +177,7 @@ function edit() {
 async function reportAbuse() {
 	if (!post.value) return;
 
-	const pageUrl = `${url}/gallery/${post.value.id}`;
+	const pageUrl = sourceUrl.value;
 
 	const { dispose } = await os.popupAsyncWithDialog(import('@/components/MkAbuseReportWindow.vue').then(x => x.default), {
 		user: post.value.user,
@@ -210,7 +221,7 @@ function showMenu(ev: PointerEvent) {
 	os.popupMenu(menuItems, ev.currentTarget ?? ev.target);
 }
 
-watch(() => props.postId, fetchPost, { immediate: true });
+watch(() => props.linkedId ?? props.postId, fetchPost, { immediate: true });
 
 const headerActions = computed(() => []);
 

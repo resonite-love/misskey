@@ -37,7 +37,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </div>
 </template>
 
-<script lang="ts" setup generic="T extends IPaginator">
+<script lang="ts" setup generic="T extends Pick<IPaginator, 'order' | 'initialDirection' | 'initialDate' | 'canSearch' | 'searchQuery' | 'reload'>">
 import { ref, watch } from 'vue';
 import type { IPaginator } from '@/utility/paginator.js';
 import MkButton from '@/components/MkButton.vue';

@@ -9,19 +9,11 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div v-if="tab === 'explore'">
 			<MkFoldableSection class="_margin">
 				<template #header><i class="ti ti-clock"></i>{{ i18n.ts.recentPosts }}</template>
-				<MkPagination v-slot="{items}" :paginator="recentPostsPaginator">
-					<div :class="$style.items">
-						<MkGalleryPostPreview v-for="post in items" :key="post.id" :post="post" class="post"/>
-					</div>
-				</MkPagination>
+			<MkGridspaceContentList kind="gallery" mode="recent"/>
 			</MkFoldableSection>
 			<MkFoldableSection class="_margin">
 				<template #header><i class="ti ti-comet"></i>{{ i18n.ts.popularPosts }}</template>
-				<MkPagination v-slot="{items}" :paginator="popularPostsPaginator">
-					<div :class="$style.items">
-						<MkGalleryPostPreview v-for="post in items" :key="post.id" :post="post" class="post"/>
-					</div>
-				</MkPagination>
+			<MkGridspaceContentList kind="gallery" mode="featured"/>
 			</MkFoldableSection>
 		</div>
 		<div v-else-if="tab === 'liked'">
@@ -33,11 +25,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</div>
 		<div v-else-if="tab === 'my'">
 			<MkA to="/gallery/new" class="_link" style="margin: 16px;"><i class="ti ti-plus"></i> {{ i18n.ts.postToGallery }}</MkA>
-			<MkPagination v-slot="{items}" :paginator="myPostsPaginator">
-				<div :class="$style.items">
-					<MkGalleryPostPreview v-for="post in items" :key="post.id" :post="post" class="post"/>
-				</div>
-			</MkPagination>
+			<MkGridspaceContentList kind="gallery" mode="mine"/>
 		</div>
 	</div>
 </PageWithHeader>
@@ -45,6 +33,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script lang="ts" setup>
 import { watch, ref, computed, markRaw } from 'vue';
+import MkGridspaceContentList from '@/components/MkGridspaceContentList.vue';
 import MkFoldableSection from '@/components/MkFoldableSection.vue';
 import MkPagination from '@/components/MkPagination.vue';
 import MkGalleryPostPreview from '@/components/MkGalleryPostPreview.vue';
@@ -62,15 +51,6 @@ const props = defineProps<{
 const tab = ref('explore');
 const tagsRef = ref();
 
-const recentPostsPaginator = markRaw(new Paginator('gallery/posts', {
-	limit: 6,
-}));
-const popularPostsPaginator = markRaw(new Paginator('gallery/featured', {
-	noPaging: true,
-}));
-const myPostsPaginator = markRaw(new Paginator('i/gallery/posts', {
-	limit: 5,
-}));
 const likedPostsPaginator = markRaw(new Paginator('i/gallery/likes', {
 	limit: 5,
 }));

@@ -13975,7 +13975,7 @@ export interface Locale extends ILocale {
          */
         "allGranted": string;
         /**
-         * まだ許可されていない連携機能があります。「連携機能をまとめて許可する」から、連携先で許可してください。
+         * まだ許可されていない連携機能があります。認可のボタンから、連携先で許可してください。
          */
         "upgradePermissions": string;
         /**

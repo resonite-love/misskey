@@ -43,10 +43,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 							<h1>{{ page.title || page.name }}</h1>
 							<div :class="$style.pageBannerTitleSub">
 								<div v-if="page.user" :class="$style.pageBannerTitleUser">
-									<MkAvatar :user="page.user" :class="$style.avatar" indicator link preview/> <MkA :to="`/@${username}`"><MkUserName :user="page.user" :nowrap="false"/></MkA>
+									<MkAvatar :user="page.user" :class="$style.avatar" indicator link :preview="!page.user.id.startsWith('gridspace:')"/> <MkA :to="`/@${page.user.username}${page.user.host ? '@' + page.user.host : ''}`"><MkUserName :user="page.user" :nowrap="false"/></MkA>
 								</div>
 								<div :class="$style.pageBannerTitleSubActions">
-									<MkA v-if="page.userId === $i?.id" v-tooltip="i18n.ts._pages.editThisPage" :to="`/pages/edit/${page.id}`" class="_button" :class="$style.generalActionButton"><i class="ti ti-pencil ti-fw"></i></MkA>
+									<MkA v-if="!page.gridspaceOrigin && page.userId === $i?.id" v-tooltip="i18n.ts._pages.editThisPage" :to="`/pages/edit/${page.id}`" class="_button" :class="$style.generalActionButton"><i class="ti ti-pencil ti-fw"></i></MkA>
 									<button v-tooltip="i18n.ts.share" class="_button" :class="$style.generalActionButton" @click="share"><i class="ti ti-share ti-fw"></i></button>
 								</div>
 							</div>
@@ -56,20 +56,21 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<XPage :page="page"/>
 					</div>
 					<div :class="$style.pageActions">
-						<div>
+						<div v-if="!page.gridspaceOrigin">
 							<MkButton v-if="page.isLiked" v-tooltip="i18n.ts._pages.unlike" class="button" asLike primary @click="unlike()"><i class="ti ti-heart-off"></i><span v-if="page.likedCount > 0" class="count">{{ page.likedCount }}</span></MkButton>
 							<MkButton v-else v-tooltip="i18n.ts._pages.like" class="button" asLike @click="like()"><i class="ti ti-heart"></i><span v-if="page.likedCount > 0" class="count">{{ page.likedCount }}</span></MkButton>
 						</div>
+						<a v-if="page.gridspaceOrigin" :href="sourceUrl" target="_blank" rel="noopener noreferrer" class="_link">{{ i18n.ts.showOnRemote }} <i class="ti ti-external-link"></i></a>
 						<div :class="$style.other">
-							<MkA v-if="page.userId === $i?.id" v-tooltip="i18n.ts._pages.editThisPage" :to="`/pages/edit/${page.id}`" class="_button" :class="$style.generalActionButton"><i class="ti ti-pencil ti-fw"></i></MkA>
+							<MkA v-if="!page.gridspaceOrigin && page.userId === $i?.id" v-tooltip="i18n.ts._pages.editThisPage" :to="`/pages/edit/${page.id}`" class="_button" :class="$style.generalActionButton"><i class="ti ti-pencil ti-fw"></i></MkA>
 							<button v-tooltip="i18n.ts.copyLink" class="_button" :class="$style.generalActionButton" @click="copyLink"><i class="ti ti-link ti-fw"></i></button>
 							<button v-tooltip="i18n.ts.share" class="_button" :class="$style.generalActionButton" @click="share"><i class="ti ti-share ti-fw"></i></button>
-							<button v-if="$i" v-click-anime class="_button" :class="$style.generalActionButton" @click="showMenu"><i class="ti ti-dots ti-fw"></i></button>
+							<button v-if="$i && !page.gridspaceOrigin" v-click-anime class="_button" :class="$style.generalActionButton" @click="showMenu"><i class="ti ti-dots ti-fw"></i></button>
 						</div>
 					</div>
 					<div :class="$style.pageUser">
-						<MkAvatar :user="page.user" :class="$style.avatar" link preview/>
-						<MkA :to="`/@${username}`">
+						<MkAvatar :user="page.user" :class="$style.avatar" link :preview="!page.user.id.startsWith('gridspace:')"/>
+						<MkA :to="`/@${page.user.username}${page.user.host ? '@' + page.user.host : ''}`">
 							<MkUserName :user="page.user" :class="$style.name"/>
 							<MkAcct :user="page.user" :class="$style.acct"/>
 						</MkA>
@@ -81,7 +82,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					</div>
 				</div>
 				<MkAd :preferForms="['horizontal', 'horizontal-big']"/>
-				<MkContainer :max-height="300" :foldable="true" class="other">
+				<MkContainer v-if="!page.gridspaceOrigin" :max-height="300" :foldable="true" class="other">
 					<template #icon><i class="ti ti-clock"></i></template>
 					<template #header>{{ i18n.ts.recentPosts }}</template>
 					<MkPagination v-slot="{items}" :paginator="otherPostsPaginator" :class="$style.relatedPagesRoot" class="_gaps">
@@ -97,7 +98,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { computed, watch, ref, defineAsyncComponent, markRaw } from 'vue';
+import { computed, watch, ref, defineAsyncComponent, markRaw, onBeforeUnmount } from 'vue';
 import * as Misskey from 'misskey-js';
 import { url } from '@@/js/config.js';
 import type { MenuItem } from '@/types/menu.js';
@@ -127,8 +128,9 @@ import { Paginator } from '@/utility/paginator.js';
 const router = useRouter();
 
 const props = defineProps<{
-	pageName: string;
-	username: string;
+	pageName?: string;
+	username?: string;
+	linkedId?: string;
 }>();
 
 const page = ref<Misskey.entities.Page | null>(null);
@@ -139,14 +141,21 @@ const otherPostsPaginator = markRaw(new Paginator('users/pages', {
 		userId: page.value.user.id,
 	}) : undefined),
 }));
-const path = computed(() => props.username + '/' + props.pageName);
+const path = computed(() => props.linkedId ?? props.username + '/' + props.pageName);
+const sourceUrl = computed(() => page.value ? `${page.value.gridspaceOrigin ?? url}/@${page.value.user.username}/pages/${encodeURIComponent(page.value.name)}` : '');
+
+let requestGeneration = 0;
+onBeforeUnmount(() => { requestGeneration++; });
 
 function fetchPage() {
+	const current = ++requestGeneration;
+	error.value = null;
 	page.value = null;
-	misskeyApi('pages/show', {
-		name: props.pageName,
-		username: props.username,
-	}).then(async _page => {
+	(props.linkedId ? misskeyApi('gridspace/content', { kind: 'pages', itemId: props.linkedId }).then(result => {
+		if (!result.pages[0]) throw new Error('PAGE_NOT_FOUND');
+		return result.pages[0];
+	}) : misskeyApi('pages/show', { name: props.pageName!, username: props.username! })).then(async _page => {
+		if (current !== requestGeneration) return;
 		page.value = _page;
 
 		// plugin
@@ -156,10 +165,10 @@ function fetchPage() {
 			for (const interruptor of pageViewInterruptors) {
 				result = await interruptor.handler(result);
 			}
-			page.value = result;
+			if (current === requestGeneration) page.value = result;
 		}
 	}).catch(err => {
-		error.value = err;
+		if (current === requestGeneration) error.value = err;
 	});
 }
 
@@ -188,14 +197,14 @@ function share(ev: PointerEvent) {
 function copyLink() {
 	if (!page.value) return;
 
-	copyToClipboard(`${url}/@${page.value.user.username}/pages/${page.value.name}`);
+	copyToClipboard(sourceUrl.value);
 }
 
 function shareWithNote() {
 	if (!page.value) return;
 
 	os.post({
-		initialText: `${page.value.title || page.value.name}\n${url}/@${page.value.user.username}/pages/${page.value.name}`,
+		initialText: `${page.value.title || page.value.name}\n${sourceUrl.value}`,
 		instant: true,
 	});
 }
@@ -206,7 +215,7 @@ function shareWithNavigator() {
 	navigator.share({
 		title: page.value.title ?? page.value.name,
 		text: page.value.summary ?? undefined,
-		url: `${url}/@${page.value.user.username}/pages/${page.value.name}`,
+		url: sourceUrl.value,
 	});
 }
 
@@ -326,7 +335,7 @@ definePage(() => ({
 	title: page.value ? page.value.title || page.value.name : i18n.ts.pages,
 	...page.value ? {
 		avatar: page.value.user,
-		path: `/@${page.value.user.username}/pages/${page.value.name}`,
+		path: page.value.gridspaceOrigin ? `/gridspace/pages/${page.value.id}` : `/@${page.value.user.username}/pages/${page.value.name}`,
 		share: {
 			title: page.value.title || page.value.name,
 			text: page.value.summary,

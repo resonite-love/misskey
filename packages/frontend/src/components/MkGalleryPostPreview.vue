@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<MkA :to="`/gallery/${post.id}`" class="ttasepnz _panel" tabindex="-1" @pointerenter="enterHover" @pointerleave="leaveHover">
+<MkA :to="post.gridspaceOrigin ? `/gridspace/gallery/${post.id}` : `/gallery/${post.id}`" class="ttasepnz _panel" tabindex="-1" @pointerenter="enterHover" @pointerleave="leaveHover">
 	<div class="thumbnail">
 		<Transition>
 			<MkImgWithBlurhash
@@ -22,10 +22,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</div>
 	<article>
 		<header>
-			<MkAvatar :user="post.user" class="avatar" link preview/>
+			<MkAvatar :user="post.user" class="avatar" link :preview="!post.user.id.startsWith('gridspace:')"/>
 		</header>
 		<footer>
-			<span class="title">{{ post.title }}</span>
+			<span class="title">{{ post.title }}<small v-if="post.gridspaceOrigin"> · {{ post.user.host }}</small></span>
 		</footer>
 	</article>
 </MkA>

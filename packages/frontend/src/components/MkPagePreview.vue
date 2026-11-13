@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<MkA :to="`/@${page.user.username}/pages/${page.name}`" class="vhpxefrj">
+<MkA :to="page.gridspaceOrigin ? `/gridspace/pages/${page.id}` : `/@${page.user.username}/pages/${page.name}`" class="vhpxefrj">
 	<div v-if="page.eyeCatchingImage" class="thumbnail">
 		<MediaImage
 			:image="page.eyeCatchingImage"
@@ -21,7 +21,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<p v-if="page.summary" :title="page.summary">{{ page.summary.length > 85 ? page.summary.slice(0, 85) + '…' : page.summary }}</p>
 		<footer>
 			<img v-if="page.user.avatarUrl" class="icon" :src="page.user.avatarUrl"/>
-			<p>{{ userName(page.user) }}</p>
+			<p>{{ userName(page.user) }}<span v-if="page.gridspaceOrigin"> · {{ page.user.host }}</span></p>
 		</footer>
 	</article>
 </MkA>

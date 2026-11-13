@@ -26,7 +26,7 @@ export function getFileMenu(file: Misskey.entities.DriveFile, onHideStateUpdated
 	}
 
 	// Authorized blob media has a source-server ID, never a local drive ID.
-	if (file.url.startsWith('blob:')) return menuItems;
+	if (file.gridspaceOrigin || file.url.startsWith('blob:')) return menuItems;
 
 	if (iAmModerator) {
 		menuItems.push({

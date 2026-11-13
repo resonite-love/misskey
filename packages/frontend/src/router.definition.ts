@@ -29,6 +29,12 @@ export const ROUTE_DEF = [{
 	path: '/timeline',
 	component: PageTimeline,
 }, {
+	path: '/gridspace/pages/:linkedId',
+	component: page(() => import('@/pages/page.vue')),
+}, {
+	path: '/gridspace/gallery/:linkedId',
+	component: page(() => import('@/pages/gallery/post.vue')),
+}, {
 	path: '/@:username/pages/:pageName(*)',
 	component: page(() => import('@/pages/page.vue')),
 }, {
