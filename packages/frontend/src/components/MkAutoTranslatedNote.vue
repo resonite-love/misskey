@@ -45,7 +45,13 @@ const enabled = prefer.r['autoTranslation.enabled'];
 const targetLang = prefer.r['autoTranslation.targetLang'];
 let observer: IntersectionObserver | undefined;
 let generation = 0;
-const translated = computed(() => result.value?.status === 'translated');
+const translated = computed(() => {
+	const value = result.value;
+	if (value?.status !== 'translated') return false;
+	const normalize = (text: string | null | undefined) => (text ?? '').replace(/\r\n?/g, '\n').trim().normalize('NFC');
+	return normalize(value.text ?? props.note.text) !== normalize(props.note.text) ||
+		normalize(value.cw ?? props.note.cw) !== normalize(props.note.cw);
+});
 const displayText = computed(() => translated.value && !showOriginal.value ? result.value?.text ?? props.note.text : props.note.text);
 
 onMounted(() => {

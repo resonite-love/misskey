@@ -113,4 +113,46 @@ describe('automatic translation display', () => {
 		expect(view.container.querySelector('.body')!.textContent).toBe('Original text');
 		expect(view.container.textContent).toContain('Failed');
 	});
+	test.each([
+		['土日祝日', '土日祝日'],
+		['高市早苗', '高市早苗'],
+		['ラーメン', 'ラーメン'],
+		['土日祝日', ' \n土日祝日\n '],
+		['一行目\n二行目', '一行目\r\n二行目'],
+		['が', 'か\u3099'],
+	])('hides unchanged translation metadata for %s', async (text, translatedText) => {
+		mocks.request.mockResolvedValue(result(translatedText));
+		const view = create(); await view.rerender({ note: { ...note, text } });
+		await visible();
+		expect(view.container.querySelector('.body')!.textContent).toBe(text);
+		expect(view.queryByText('Translated')).toBeNull();
+		expect(view.queryByRole('button')).toBeNull();
+	});
+	test('keeps a translation when only the CW changes', async () => {
+		mocks.request.mockResolvedValue({ ...result(note.text!), cw: '訳した注意書き' });
+		const view = create(); await view.rerender({ note: { ...note, cw: 'Warning' } });
+		await visible();
+		expect(view.getByText('Translated')).toBeTruthy();
+		expect(view.getByRole('button', { name: 'Original' })).toBeTruthy();
+	});
+	test('hides metadata when both the body and CW are unchanged', async () => {
+		mocks.request.mockResolvedValue({ ...result(note.text!), cw: 'Warning' });
+		const view = create(); await view.rerender({ note: { ...note, cw: 'Warning' } });
+		await visible();
+		expect(view.queryByText('Translated')).toBeNull();
+		expect(view.queryByRole('button')).toBeNull();
+	});
+	test('does not hide meaningful spacing or punctuation changes', async () => {
+		mocks.request.mockResolvedValue(result('Originaltext!'));
+		const view = create(); await visible();
+		expect(view.getByText('Translated')).toBeTruthy();
+		expect(view.container.querySelector('.body')!.textContent).toBe('Originaltext!');
+	});
+	test('treats a missing result field as the displayed original rather than a change', async () => {
+		mocks.request.mockResolvedValue({ ...result(''), text: null, cw: null });
+		const view = create(); await view.rerender({ note: { ...note, cw: 'Warning' } });
+		await visible();
+		expect(view.container.querySelector('.body')!.textContent).toBe(note.text);
+		expect(view.queryByText('Translated')).toBeNull();
+	});
 });
