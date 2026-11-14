@@ -15,6 +15,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div :class="$style.body"><Mfm :text="note.cw || i18n.ts._gridspace.privateContentWarning" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false"/><MkCwButton v-model="expanded" :text="note.text" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/></div>
 		<div v-if="expanded" :class="[$style.body, $style.text]"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
 	</template>
+	<div v-else-if="isUnavailableGridspaceNote(note, true)" :class="$style.body"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</div>
 	<div v-else :class="[$style.body, $style.text]"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
 	<div v-if="visible && isEnabledUrlPreview && (note.cw == null || expanded)">
 		<MkUrlPreview v-for="link in urls" :key="link" :url="link" :compact="true" :detail="false" :class="$style.urlPreview"/>
@@ -58,6 +59,7 @@ import { getRenoteMenu } from '@/utility/get-note-menu.js';
 import { copyToClipboard } from '@/utility/copy-to-clipboard.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
+import { isUnavailableGridspaceNote } from '@/utility/is-unavailable-gridspace-note.js';
 import { prefer } from '@/preferences.js';
 import { url } from '@@/js/config.js';
 import { $i } from '@/i.js';

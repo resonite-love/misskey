@@ -66,6 +66,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<div v-show="appearNote.cw == null || showContent" :class="[{ [$style.contentCollapsed]: collapsed }]">
 					<div :class="$style.text">
 						<span v-if="appearNote.isHidden" style="opacity: 0.5">({{ i18n.ts.private }})</span>
+						<span v-else-if="isUnavailableGridspaceNote(appearNote)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span>
 						<MkA v-if="appearNote.replyId" :class="$style.replyIcon" :to="`/notes/${appearNote.replyId}`"><i class="ti ti-arrow-back-up"></i></MkA>
 						<MkAutoTranslatedNote v-slot="{ text, translated }" :note="appearNote" :active="!mock && (appearNote.cw == null || showContent)">
 							<Mfm
@@ -207,6 +208,7 @@ import type { Ref } from 'vue';
 import type { Keymap } from '@/utility/hotkey.js';
 import MkAutoTranslatedNote from '@/components/MkAutoTranslatedNote.vue';
 import { useNote } from '@/composables/use-note.js';
+import { isUnavailableGridspaceNote } from '@/utility/is-unavailable-gridspace-note.js';
 import { prefer } from '@/preferences.js';
 import { i18n } from '@/i18n.js';
 import { userPage } from '@@/js/user.js';

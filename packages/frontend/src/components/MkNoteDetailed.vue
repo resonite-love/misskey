@@ -90,6 +90,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</p>
 				<div v-show="appearNote.cw == null || showContent">
 					<span v-if="appearNote.isHidden" style="opacity: 0.5">({{ i18n.ts.private }})</span>
+					<span v-else-if="isUnavailableGridspaceNote(appearNote)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span>
 					<MkA v-if="appearNote.replyId" :class="$style.noteReplyTarget" :to="`/notes/${appearNote.replyId}`"><i class="ti ti-arrow-back-up"></i></MkA>
 					<MkAutoTranslatedNote v-slot="{ text, translated }" :note="appearNote" :active="appearNote.cw == null || showContent">
 						<Mfm
@@ -249,6 +250,7 @@ import * as Misskey from 'misskey-js';
 import type { Keymap } from '@/utility/hotkey.js';
 import MkAutoTranslatedNote from '@/components/MkAutoTranslatedNote.vue';
 import { useNote } from '@/composables/use-note.js';
+import { isUnavailableGridspaceNote } from '@/utility/is-unavailable-gridspace-note.js';
 import { prefer } from '@/preferences.js';
 import { i18n } from '@/i18n.js';
 import { userPage } from '@@/js/user.js';

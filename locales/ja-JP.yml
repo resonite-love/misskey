@@ -3852,6 +3852,7 @@ _gridspace:
   privateReply: "返信先を読む"
   privateRenote: "引用元を読む"
   privateContentWarning: "内容を表示"
+  unavailableNote: "このノートは表示できません"
   privateUnavailable: "限定投稿を取得できないため、表示を消しました。連携先への接続と閲覧の許可を確認して再試行してください。"
   searchBoth: "両サーバー"
   searchScope: "両サーバーの名前・ユーザー名、投稿の本文・CWを検索します。人物を指定すると連携アカウントも対象になります。限定公開の投稿は今のアカウントで読めるものに加え、追加の閲覧許可があれば連携先のアカウントで読めるものも表示します。"

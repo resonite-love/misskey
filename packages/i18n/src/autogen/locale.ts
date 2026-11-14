@@ -14435,6 +14435,10 @@ export interface Locale extends ILocale {
          */
         "privateContentWarning": string;
         /**
+         * このノートは表示できません
+         */
+        "unavailableNote": string;
+        /**
          * 限定投稿を取得できないため、表示を消しました。連携先への接続と閲覧の許可を確認して再試行してください。
          */
         "privateUnavailable": string;
