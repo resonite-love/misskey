@@ -9,7 +9,7 @@ import type { entities } from 'misskey-js';
 import { note as noteUtils } from 'misskey-js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { mergeHomeRows } from '@/utility/gridspace-home-merge.js';
-import { isVisiblePrivateNote, suspendPrivateNotes } from '@/utility/gridspace-note-suspension.js';
+import { isVisiblePrivateNote, isRevokedGridspaceRead, suspendPrivateNotes } from '@/utility/gridspace-note-suspension.js';
 import type { GridspaceNoteEntry } from '@/utility/gridspace-note-suspension.js';
 import { checkNoteWordMute } from '@/composables/use-note.js';
 import { url } from '@@/js/config.js';
@@ -53,6 +53,9 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	let privateController = new AbortController();
 	let checking: number | null = null;
 	let active = true;
+	let retryAt = 0;
+	let retryDelay = 15000;
+	let transientFailure = false;
 	const privateParams = computed<entities.GridspacePrivateNotesRequest>(() => {
 		const { kind, ...params } = source.value;
 		if (source.value.kind === 'favorites') return { mode: 'favorites' };
@@ -85,6 +88,12 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 
 	function failPrivate() { clearPrivate(); privateReady.value = true; privateError.value = true; }
 
+	function readFailed(error: unknown) {
+		if (isRevokedGridspaceRead(error)) { transientFailure = false; failPrivate(); return; }
+		suspend(); privateReady.value = true; privateError.value = true; transientFailure = true;
+		retryAt = Date.now() + retryDelay; retryDelay = Math.min(120000, retryDelay * 2);
+	}
+
 	async function loadPrivate() {
 		if (!usable() || suspended || privateBusy.value || !privateMore.value) return;
 		const current = privateGeneration; privateBusy.value = true;
@@ -97,7 +106,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 			privateCursor = page.cursor ?? undefined; privateMore.value = page.cursor != null;
 			privateBoundary.value = privateMore.value ? boundary : -Infinity;
 			privatePageLoaded = true;
-		} catch { if (current === privateGeneration) failPrivate(); } finally {
+		} catch (error) { if (current === privateGeneration) readFailed(error); } finally {
 			if (current === privateGeneration) { privateBusy.value = false; pagingKey.value++; }
 		}
 	}
@@ -116,13 +125,13 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 			}
 			const status = await misskeyApi('gridspace/private-grant', {}, undefined, signal(privateController));
 			if (current !== privateGeneration) return;
-			if (!status.available && status.granted) { failPrivate(); return; }
+			if (!status.available && status.granted) { readFailed(new Error('Peer unavailable')); return; }
 			if (status.available && status.granted) {
 				if (!background) enabled.value = true;
 				privateMore.value = true; await loadPrivate();
 				if (current === privateGeneration) enabled.value = true;
 			} else if (source.value.kind === 'antenna' && !status.granted) needsAuthorization.value = true;
-		} catch { if (current === privateGeneration) failPrivate(); } finally {
+		} catch (error) { if (current === privateGeneration) readFailed(error); } finally {
 			if (current === privateGeneration) { privateReady.value = true; authorizing.value = false; }
 		}
 	}
@@ -191,11 +200,11 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 
 	async function retry() {
 		if (normalError.value === 'INVALID_CURSOR' || normalError.value === 'LINK_UNAVAILABLE') { await reload(); return; }
-		await Promise.all([...(normalError.value ? [loadNormal()] : []), ...(privateError.value ? [initPrivate()] : [])]);
+		await Promise.all([...(normalError.value ? [loadNormal()] : []), ...(privateError.value ? [delegated.value.length ? revalidate(true) : initPrivate()] : [])]);
 	}
 
-	async function revalidate() {
-		if (!usable() || checking != null || !enabled.value || privateError.value || authorizing.value) return;
+	async function revalidate(retry = false) {
+		if (!usable() || checking != null || !enabled.value || (privateError.value && !retry) || authorizing.value) return;
 		const current = privateGeneration; checking = current;
 		const snapshot = delegated.value;
 		try {
@@ -213,6 +222,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 			const previous = new Set(snapshot.map(item => item.uri));
 			delegated.value = delegated.value.flatMap(item => !previous.has(item.uri) ? [item] : allowed.has(item.uri) ? [allowed.get(item.uri)!] : []);
 			suspended = false;
+			privateError.value = false; transientFailure = false; retryDelay = 15000;
 			if (source.value.kind === 'antenna') {
 				// Drain bursts in bounded pages, keeping the older-page cursor intact.
 				for (let pageNumber = 0; pageNumber < 3; pageNumber++) {
@@ -224,7 +234,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 					if (!antennaHeadCursor) break;
 				}
 			}
-		} catch { if (current === privateGeneration) failPrivate(); } finally { if (checking === current) checking = null; }
+		} catch (error) { if (current === privateGeneration) readFailed(error); } finally { if (checking === current) checking = null; }
 	}
 
 	function suspend() {
@@ -238,14 +248,17 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 
 	function focus() {
 		if (!usable()) return;
-		if ((!enabled.value || !privatePageLoaded) && !privateError.value) void initPrivate(true); else void revalidate();
+		if (privateError.value && transientFailure) void retry();
+		else if ((!enabled.value || !privatePageLoaded) && !privateError.value) void initPrivate(true); else void revalidate();
 	}
 
 	function visibility() { if (window.document.hidden) suspend(); else focus(); }
 
 	function removeNormal(id: string) { normal.value = normal.value.filter(item => item.id !== id); preview.value = preview.value.filter(item => item.id !== id); }
 
-	const timer = window.setInterval(revalidate, 15000);
+	const timer = window.setInterval(() => {
+		if (transientFailure && privateError.value && Date.now() >= retryAt) { if (usable()) void retry(); } else void revalidate();
+	}, 15000);
 	window.document.addEventListener('visibilitychange', visibility);
 	window.addEventListener('focus', focus);
 	watch(() => JSON.stringify(source.value), reload, { immediate: true });

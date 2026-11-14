@@ -5,6 +5,7 @@
 
 import { expect, test, vi } from 'vitest';
 import { mockDeep } from 'vitest-mock-extended';
+import type { ModuleRef } from '@nestjs/core';
 import type { DataSource, EntityManager } from 'typeorm';
 import type { Config } from '@/config.js';
 import type { UserFollowingService } from '@/core/UserFollowingService.js';
@@ -22,7 +23,7 @@ function setup(role: 'source' | 'client' = 'client') {
 	const db = mockDeep<DataSource>();
 	const guard = mockDeep<GridspaceFollowGuardService>();
 	guard.run.mockImplementation(async (_id, action) => action());
-	const service = new GridspaceLinkService({ url: 'https://g.example', gridspace: { channelRole: role } } as Config, db, mockDeep<UserFollowingService>(), mockDeep<ApPersonService>(), guard, mockDeep<IdService>());
+	const service = new GridspaceLinkService({ url: 'https://g.example', gridspace: { channelRole: role } } as Config, db, mockDeep<UserFollowingService>(), mockDeep<ApPersonService>(), guard, mockDeep<IdService>(), mockDeep<ModuleRef>());
 	service['peer'] = { origin: 'https://g.example', peerOrigin: 'https://r.example', communityId: 'test', keyId: 'test', secret: Buffer.alloc(32, 7) };
 	return { service, db };
 }

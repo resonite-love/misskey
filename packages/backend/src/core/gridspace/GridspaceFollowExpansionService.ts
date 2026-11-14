@@ -34,6 +34,8 @@ export class GridspaceFollowExpansionService implements OnModuleInit, OnApplicat
 	private sourceCursor: Pick<SourceCandidate, 'followerId' | 'sourceId'> | null = null;
 	private sourceSide: boolean;
 	private resolutionRetry = new Map<string, number>();
+	private refreshedProfiles = new Set<string>();
+	private profileReadiness = new Map<string, number>();
 
 	constructor(
 		@Inject(DI.config) config: Config,
@@ -120,13 +122,29 @@ export class GridspaceFollowExpansionService implements OnModuleInit, OnApplicat
 			const source = await users.findOneBy({ id: sourceId, host: IsNull() });
 			const subscription = await this.db.getRepository(MiFollowing).findOneBy({ followerId, followeeId: sourceId });
 			if (!user || !source || !subscription || followerId === sourceId) return;
+			if ((this.resolutionRetry.get(sourceId) ?? 0) > Date.now()) return;
+			// Do not discover/cache the destination actor while it still has its default profile.
+			const profileKey = `${link.id}:${link.generation}`;
+			const readyAt = this.profileReadiness.get(profileKey) ?? 0;
+			if (readyAt !== Infinity) {
+				if (readyAt > Date.now()) return;
+				let readiness: { ready: boolean };
+				try { readiness = await this.links.json<{ ready: boolean }>('/gridspace/v1/link/profile-ready', { linkId: link.id, generation: link.generation, localUserId: sourceId }); } catch { this.resolutionRetry.set(sourceId, Date.now() + 60000); return; }
+				this.profileReadiness.set(profileKey, readiness.ready ? Infinity : Date.now() + 30000);
+				if (!readiness.ready) return;
+			}
 			const uri = `${peer.peerOrigin}/users/${link.peerUserId}`;
 			let target = await users.findOneBy({ uri, host: new URL(peer.peerOrigin).host });
+			if (target && !this.refreshedProfiles.has(profileKey)) {
+				try { await this.people.updatePerson(uri); } catch { this.resolutionRetry.set(sourceId, Date.now() + 60000); return; }
+				target = await users.findOneBy({ uri, host: new URL(peer.peerOrigin).host });
+			}
 			if (!target) {
 				if ((this.resolutionRetry.get(sourceId) ?? 0) > Date.now()) return;
 				try { target = await this.people.resolvePerson(uri); this.resolutionRetry.delete(sourceId); } catch { this.resolutionRetry.set(sourceId, Date.now() + 60000); return; }
 			}
 			if (target.uri !== uri || target.host !== new URL(peer.peerOrigin).host) return;
+			this.refreshedProfiles.add(profileKey);
 			const key = { followerId, targetId: target.id };
 			const receipts = this.db.getRepository(MiGridspaceFollowExpansion);
 			const receipt = await receipts.findOneBy(key);
@@ -154,6 +172,17 @@ export class GridspaceFollowExpansionService implements OnModuleInit, OnApplicat
 	private async expand(candidate: Candidate): Promise<void> {
 		if (!this.peer) return;
 		const peer = this.peer;
+		// Profile imports take the profile lock. Never do this under following locks:
+		// settings import takes those locks in the opposite order while copying blocks.
+		const prepared = await Promise.all([candidate.followerId, candidate.targetId].map(localUserId =>
+			this.db.getRepository(MiGridspaceLink).findOneBy({ localUserId, peerOrigin: peer.peerOrigin, state: 'active', initiator: true })));
+		let profileFailed = false;
+		try {
+			for (const link of prepared) {
+				if (!link) throw new Error('Link unavailable');
+				await this.links.ensureProfileBeforeFollowing(link);
+			}
+		} catch { profileFailed = true; }
 		await this.guard.runMany([candidate.followerId, candidate.targetId], async () => {
 			const { followerId, targetId, sourceId } = candidate;
 			const key = { followerId, targetId };
@@ -176,6 +205,8 @@ export class GridspaceFollowExpansionService implements OnModuleInit, OnApplicat
 			await receipts.upsert({ ...key, state: 'pending', reason: null, attempts: receipt?.attempts ?? 0, retryAt: new Date() }, ['followerId', 'targetId']);
 			const complete = (state: 'done' | 'skipped', reason: string | null = null) => receipts.update(key, { state, reason });
 			try {
+				if (profileFailed || [viewer, targetLink].some((link, index) => !prepared[index] ||
+					link.id !== prepared[index]!.id || link.generation !== prepared[index]!.generation || link.tokenCipher !== prepared[index]!.tokenCipher)) throw new Error('Profile pending');
 				const destinationKey = { followerId, followeeId: targetId };
 				if (await subscriptions.existsBy(destinationKey) || await requests.existsBy(destinationKey)) {
 					await complete('done'); return;

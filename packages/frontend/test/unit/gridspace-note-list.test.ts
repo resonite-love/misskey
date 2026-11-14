@@ -39,6 +39,30 @@ function mount(sourceValue: GridspaceNoteSource = { kind: 'search', query: 'quer
 }
 
 describe('one profile/search note list', () => {
+	it('recovers automatically when the grant status initially reports a peer outage', async () => {
+		let available = false;
+		respond = async endpoint => endpoint === 'gridspace/private-grant' ? { available, granted: true } : page([privateNote(5)]);
+		const { list } = mount({ kind: 'antenna', antennaId: 'antenna' }); await settle();
+		expect(list.privateError.value).toBe(true); expect(list.rows.value).toHaveLength(0);
+		available = true; await vi.advanceTimersByTimeAsync(15000); await settle();
+		expect(list.privateError.value).toBe(false); expect(list.rows.value[0].note.id).toBe('p5');
+	});
+	it('keeps antenna row positions and the older cursor through a transient validation failure, then recovers automatically', async () => {
+		let offline = false;
+		respond = async (endpoint, params) => {
+			if (endpoint === 'gridspace/private-grant') return { available: true, granted: true };
+			if (offline) throw new Error('temporary timeout');
+			if (params.mode === 'validate') return page([privateNote(5)]);
+			return params.cursor ? page([privateNote(1)]) : page([privateNote(5)], 'older', 3);
+		};
+		const { list } = mount({ kind: 'antenna', antennaId: 'antenna' }); await settle();
+		offline = true; await vi.advanceTimersByTimeAsync(15000); await settle();
+		expect(list.privateError.value).toBe(true);
+		expect(list.rows.value).toHaveLength(1); expect(list.rows.value[0].note).not.toHaveProperty('text');
+		offline = false; await vi.advanceTimersByTimeAsync(15000); await settle();
+		expect(list.privateError.value).toBe(false); expect(list.rows.value[0].note).toHaveProperty('text', 'p5');
+		await list.load(); expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ cursor: 'older' });
+	});
 	it.each([false, true])('merges old-account mentions with local mentions (direct=%s) and revalidates the same scope', async direct => {
 		respond = async (endpoint, params) => {
 			if (endpoint === 'gridspace/private-grant') return { available: true, granted: true };
@@ -72,7 +96,7 @@ describe('one profile/search note list', () => {
 		respond = async (endpoint, params) => {
 			if (endpoint === 'gridspace/private-grant') return { available: true, granted: true };
 			if (endpoint === 'gridspace/search') return params.cursor ? searchPage([normal(1)]) : searchPage([normal(9), normal(4)], 'normal-next');
-			if (params.mode === 'validate') { if (revoked) throw new Error('revoked'); return page([privateNote(8), privateNote(2)]); }
+			if (params.mode === 'validate') { if (revoked) throw { info: { reason: 'AUTHORIZATION_REVOKED' } }; return page([privateNote(8), privateNote(2)]); }
 			return params.cursor ? page([privateNote(1)]) : page([privateNote(8), privateNote(2)], 'private-next', 6);
 		};
 		const { list } = mount(); await settle();
@@ -176,7 +200,7 @@ describe('one profile/search note list', () => {
 		respond = async (endpoint, params) => {
 			if (endpoint === 'gridspace/private-grant') return { available: true, granted: true };
 			if (endpoint === 'gridspace/search') return searchPage([normal(7), normal(5)], 'more');
-			if (params.mode === 'validate') { expect(params).toMatchObject({ contextMode: 'search', query: 'query', ids: ['p8', 'p1'] }); if (revoked) throw new Error('revoked'); }
+			if (params.mode === 'validate') { expect(params).toMatchObject({ contextMode: 'search', query: 'query', ids: ['p8', 'p1'] }); if (revoked) throw { info: { reason: 'AUTHORIZATION_REVOKED' } }; }
 			return page([privateNote(8), privateNote(1)]);
 		};
 		const { list } = mount(); await settle();

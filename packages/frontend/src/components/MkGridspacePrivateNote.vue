@@ -13,10 +13,11 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<div v-if="(note.replyId || note.renoteId)" :class="$style.parentLinks"><MkA v-if="note.replyId" :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA><MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA></div>
 	<template v-if="note.cw != null">
 		<div :class="$style.body"><Mfm :text="note.cw || i18n.ts._gridspace.privateContentWarning" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false"/><MkCwButton v-model="expanded" :text="note.text" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/></div>
-		<div v-if="expanded" :class="[$style.body, $style.text]"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
+		<div v-if="expanded" :class="[$style.body, $style.text]"><Mfm :text="translation?.text ?? note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
 	</template>
 	<div v-else-if="isUnavailableGridspaceNote(note, true)" :class="$style.body"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</div>
-	<div v-else :class="[$style.body, $style.text]"><Mfm :text="note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
+	<div v-else :class="[$style.body, $style.text]"><Mfm :text="translation?.text ?? note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
+	<button v-if="translation" class="_textButton" @click="translation = null">{{ i18n.ts._autoTranslation.showOriginal }}</button>
 	<div v-if="visible && isEnabledUrlPreview && (note.cw == null || expanded)">
 		<MkUrlPreview v-for="link in urls" :key="link" :url="link" :compact="true" :detail="false" :class="$style.urlPreview"/>
 	</div>
@@ -56,7 +57,7 @@ import { isEnabledUrlPreview } from '@/utility/url-preview.js';
 import { DI } from '@/di.js';
 import { gridspacePost } from '@/utility/gridspace-post.js';
 import { getRenoteMenu } from '@/utility/get-note-menu.js';
-import { copyToClipboard } from '@/utility/copy-to-clipboard.js';
+import { getGridspaceNoteMenu } from '@/utility/gridspace-note-menu.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 import { isUnavailableGridspaceNote } from '@/utility/is-unavailable-gridspace-note.js';
@@ -85,6 +86,8 @@ const canRenote = computed(() => !!$i && !note.value.channelId && ['public', 'ho
 const renoteLoading = ref(false);
 const expanded = defineModel<boolean>('expanded', { default: false });
 const deleted = ref(false);
+const translation = ref<entities.NotesTranslateResponse | null>(null);
+const translating = ref(false);
 const deleting = ref(false);
 const deleteError = ref(false);
 const isOwnGridNote = computed(() => !!$i && props.note.author.uri === `${url}/users/${$i.id}`);
@@ -120,10 +123,17 @@ async function renote() {
 	} finally { renoteLoading.value = false; }
 }
 
-function showMenu(event: MouseEvent) {
-	os.popupMenu([{
-		text: i18n.ts.copyLink, icon: 'ti ti-link', action: () => copyToClipboard(`${url}${noteLink(note.value.id)}`),
-	}, ...(note.value.channelId && (note.value.canDelete || isOwnGridNote.value) ? [{ text: i18n.ts.delete, icon: 'ti ti-trash', danger: true, action: deleteNote }] : [])], event.currentTarget ?? event.target);
+let disposeMenu: (() => void) | null = null;
+
+async function showMenu(event: MouseEvent) {
+	disposeMenu?.();
+	const anchor = event.currentTarget ?? event.target;
+	const current = generation;
+	const { menu, cleanup } = await getGridspaceNoteMenu(note.value, noteLink(note.value.id), translation, translating);
+	if (current !== generation) { cleanup(); return; }
+	disposeMenu = cleanup;
+	if (note.value.channelId && (note.value.canDelete || isOwnGridNote.value)) menu.push({ text: i18n.ts.delete, icon: 'ti ti-trash', danger: true, action: deleteNote });
+	await os.popupMenu(menu, anchor).finally(() => { cleanup(); if (disposeMenu === cleanup) disposeMenu = null; });
 }
 
 async function deleteNote() {
@@ -148,6 +158,8 @@ function clearFile(id: string) {
 
 function clear() {
 	generation++;
+	disposeMenu?.(); disposeMenu = null;
+	translation.value = null;
 	updated.value = null;
 	for (const id of Object.keys(blobs.value)) clearFile(id);
 	loading.value = null;

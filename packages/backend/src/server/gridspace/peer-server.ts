@@ -322,7 +322,7 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 		client_name: 'GridSpace account link',
 		redirect_uris: [config.origin + GRIDSPACE_CALLBACK_PATH],
 	}));
-	for (const name of ['identity', 'prepare', 'check', 'revoke', 'palette', 'profile', 'settings', 'lists', 'antennas', 'plays']) {
+	for (const name of ['identity', 'prepare', 'check', 'revoke', 'profile-ready', 'palette', 'profile', 'settings', 'lists', 'antennas', 'plays']) {
 		fastify.post<{ Body: GridspacePeerLinkRequest }>(`/link/${name}`, {
 			bodyLimit: 4096, config: { rawBody: true }, preHandler: authenticate,
 			schema: {
@@ -336,7 +336,7 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 						localUsername: { type: 'string', minLength: 1, maxLength: 128 },
 						playId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 					},
-					required: name === 'identity' ? ['accessToken'] : name === 'revoke' ? ['linkId', 'generation', 'localUserId'] : (name === 'check' || name === 'palette' || name === 'profile' || name === 'settings' || name === 'lists' || name === 'antennas' || name === 'plays') ? ['accessToken', 'linkId', 'generation', 'localUserId'] : ['accessToken', 'linkId', 'generation', 'localUserId', 'localUsername'],
+					required: name === 'identity' ? ['accessToken'] : (name === 'revoke' || name === 'profile-ready') ? ['linkId', 'generation', 'localUserId'] : (name === 'check' || name === 'palette' || name === 'profile' || name === 'settings' || name === 'lists' || name === 'antennas' || name === 'plays') ? ['accessToken', 'linkId', 'generation', 'localUserId'] : ['accessToken', 'linkId', 'generation', 'localUserId', 'localUsername'],
 				},
 			},
 		}, async (request, reply) => {

@@ -6,6 +6,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import fetch from 'node-fetch';
 import { Inject, Injectable, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { DataSource, In, IsNull, LessThan, Raw, type EntityManager } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
@@ -22,6 +23,8 @@ import { MiAntenna } from '@/models/Antenna.js';
 import { MiFlash } from '@/models/Flash.js';
 import { parseLinkedPlay, parseLinkedPlayIndex } from './play-import-protocol.js';
 import { parseLinkedProfile, type LinkedProfile } from './profile-protocol.js';
+import { profileFields } from './profile-protocol.js';
+import type ProfileImport from '@/server/api/endpoints/gridspace/profile-import.js';
 import { GRIDSPACE_PALETTE_SCOPE, GRIDSPACE_PALETTE_REGISTRY_SCOPE, GRIDSPACE_PALETTE_REGISTRY_KEY, parseGridspacePalette, type GridspacePalette } from './palette-protocol.js';
 import { MiAccessToken } from '@/models/AccessToken.js';
 import { MiFollowing } from '@/models/Following.js';
@@ -51,6 +54,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private working = false;
 	private workCursor: string | null = null;
+	private profileRetry = new Map<string, number>();
 
 	constructor(
 		@Inject(DI.config) private config: Config,
@@ -59,6 +63,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		private people: ApPersonService,
 		private guard: GridspaceFollowGuardService,
 		private ids: IdService,
+		private modules: ModuleRef,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 	}
@@ -187,7 +192,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 				}
 				await manager.getRepository(MiGridspaceLink).update(link.id, {
 					state: 'active', snapshot: prepared.snapshot,
-					snapshotAt: new Date(prepared.snapshotAt), tokenCipher: sealGridspaceSecret(peer, accessToken, link.id), lastError: null
+					snapshotAt: new Date(prepared.snapshotAt), tokenCipher: sealGridspaceSecret(peer, accessToken, link.id), lastError: 'PROFILE_PENDING'
 				});
 				if (session.purpose === 'link') await manager.getRepository(MiGridspaceAuthSession).update(session.id, { completed: true, tokenCipher: null, verifierCipher: '' });
 			});
@@ -211,6 +216,19 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 
 	public async peerAction(action: string, input: GridspacePeerLinkRequest): Promise<object> {
 		const peer = this.enabled();
+		if (action === 'profile-ready') {
+			// This route is authenticated by the configured peer signature, not OAuth.
+			const link = await this.db.getRepository(MiGridspaceLink).findOneBy({ id: input.linkId, peerOrigin: peer.peerOrigin, peerUserId: input.localUserId, generation: input.generation, initiator: true, state: 'active' });
+			if (!link || this.config.gridspace?.channelRole !== 'client') throw new GridspaceLinkError('LINK_REVOKED');
+			const ready = await this.profileReady(link);
+			if (!ready) {
+				// Also resume profiles left incomplete by older releases after their
+				// initial follow queue had already drained. Do not block the peer on imports.
+				await this.db.getRepository(MiGridspaceLink).update({ id: link.id, generation: link.generation, state: 'active' }, { lastError: 'PROFILE_PENDING' });
+				void this.work();
+			}
+			return { ready };
+		}
 		if (action === 'revoke') {
 			const link = await this.db.getRepository(MiGridspaceLink).findOneBy({ id: input.linkId, peerOrigin: peer.peerOrigin, peerUserId: input.localUserId, generation: input.generation });
 			if (link) await this.revokeLocal(link);
@@ -771,6 +789,32 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		await this.db.getRepository(MiGridspaceLink).update({ id: link.id, generation: link.generation, privateRevocationCipher: link.privateRevocationCipher }, { privateRevocationCipher: null });
 	}
 
+	public async profileReady(link: MiGridspaceLink): Promise<boolean> {
+		const item = await this.db.getRepository(MiRegistryItem).findOneBy({ userId: link.localUserId, domain: IsNull(),
+			scope: Raw(alias => `${alias} = :scope`, { scope: ['gridspace', 'profileImport'] }), key: JSON.stringify([link.peerOrigin, link.peerUserId]) });
+		const done = [...(Array.isArray(item?.value?.copied) ? item.value.copied : []), ...(Array.isArray(item?.value?.skipped) ? item.value.skipped : [])];
+		return profileFields.every(field => done.includes(field));
+	}
+
+	public async ensureProfileBeforeFollowing(link: MiGridspaceLink): Promise<void> {
+		if (this.config.gridspace?.channelRole !== 'client' || !link.initiator) return;
+		if (await this.profileReady(link)) return;
+		const key = `${link.id}:${link.generation}`;
+		if ((this.profileRetry.get(key) ?? 0) > Date.now()) throw new GridspaceLinkError('PROFILE_PENDING');
+		try {
+			const user = await this.db.getRepository(MiUser).findOneBy({ id: link.localUserId, host: IsNull(), isSuspended: false, isDeleted: false });
+			if (!user) throw new GridspaceLinkError('LINK_REVOKED');
+			// Resolve lazily: the endpoint itself depends on this service and serializes
+			// profile writes with ordinary edits, without a constructor dependency cycle.
+			const result = await this.modules.get<ProfileImport>('ep:gridspace/profile-import', { strict: false }).exec({}, user as MiLocalUser, null);
+			if (!result.complete || !await this.profileReady(link)) throw new GridspaceLinkError('PROFILE_PENDING');
+			this.profileRetry.delete(key);
+		} catch {
+			this.profileRetry.set(key, Date.now() + 60000);
+			throw new GridspaceLinkError('PROFILE_PENDING');
+		}
+	}
+
 	private async work(): Promise<void> {
 		if (this.working || !this.peer) return;
 		this.working = true;
@@ -781,7 +825,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 				try { await this.sendPrivateRevocation(link); } catch { break; /* Retry next pass; reads already disabled. */ }
 			}
 			const query = this.db.getRepository(MiGridspaceLink).createQueryBuilder('link')
-				.where('((link.state = \'active\' AND link.initiator = TRUE AND EXISTS (SELECT 1 FROM gridspace_import_item item WHERE item."linkId" = link.id AND item.state = \'pending\')) OR (link.state = \'revoked\' AND link."lastError" = \'REVOKE_PENDING\'))')
+				.where('((link.state = \'active\' AND link.initiator = TRUE AND (link."lastError" = \'PROFILE_PENDING\' OR EXISTS (SELECT 1 FROM gridspace_import_item item WHERE item."linkId" = link.id AND item.state = \'pending\'))) OR (link.state = \'revoked\' AND link."lastError" = \'REVOKE_PENDING\'))')
 				.orderBy('link.id', 'ASC').take(20);
 			if (this.workCursor) query.andWhere('link.id > :cursor', { cursor: this.workCursor });
 			const links = await query.getMany();
@@ -792,8 +836,9 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 					continue;
 				}
 				const items = await this.db.getRepository(MiGridspaceImportItem).find({ where: { linkId: link.id, state: 'pending' }, take: 5 });
-				if (items.length === 0 || !link.tokenCipher) continue;
+				if (!link.tokenCipher) continue;
 				try {
+					await this.ensureProfileBeforeFollowing(link);
 					await this.json('/gridspace/v1/link/check', { linkId: link.id, localUserId: link.localUserId, generation: link.generation, accessToken: openGridspaceSecret(this.peer, link.tokenCipher, link.id) });
 					for (const item of items) await this.importItem(link, item);
 					await this.db.getRepository(MiGridspaceLink).update({ id: link.id, generation: link.generation, state: 'active' }, { lastError: null });

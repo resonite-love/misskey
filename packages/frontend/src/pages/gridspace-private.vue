@@ -12,8 +12,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</MkInput>
 		<MkButton v-if="!noteId" @click="search = query.trim()">{{ i18n.ts.search }}</MkButton>
 		<MkA v-if="channelId" :to="`/gridspace/channels/${channelId}`">{{ i18n.ts.channel }}</MkA>
-		<MkA v-else-if="noteId" to="/gridspace/private">{{ i18n.ts._gridspace.privateHome }}</MkA>
-		<MkGridspacePrivateNotes :params="noteId ? { mode: 'show', noteId, channelId } : search ? { mode: 'search', query: search } : { mode: 'home' }" :plain="!!channelId" :alwaysShow="true"/>
+		<MkGridspacePrivateNotes :params="noteId ? { mode: 'show', noteId, channelId } : search ? { mode: 'search', query: search } : { mode: 'home' }" :plain="!!noteId || !!channelId" :alwaysShow="true"/>
 	</div>
 </PageWithHeader>
 </template>
@@ -29,5 +28,5 @@ import { definePage } from '@/page.js';
 const props = defineProps<{ noteId?: string; channelId?: string }>();
 const query = ref('');
 const search = ref('');
-definePage(() => ({ title: props.channelId ? i18n.ts.channel : i18n.ts._gridspace.privateTitle, icon: props.channelId ? 'ti ti-device-tv' : 'ti ti-lock' }));
+definePage(() => ({ title: props.channelId ? i18n.ts.channel : props.noteId ? i18n.ts.note : i18n.ts._gridspace.privateTitle, icon: props.channelId ? 'ti ti-device-tv' : 'ti ti-note' }));
 </script>

@@ -32,6 +32,7 @@ function fixture(sourceSide = false) {
 	const db = mockDeep<DataSource>();
 	const following = mockDeep<UserFollowingService>();
 	const links = mockDeep<GridspaceLinkService>();
+	links.json.mockResolvedValue({ ready: true });
 	const guard = mockDeep<GridspaceFollowGuardService>();
 	guard.runMany.mockImplementation(async (_, action) => action());
 	const row = { state: 'pending', retryAt: new Date(0), attempts: 0 } as MiGridspaceFollowExpansion;
@@ -45,7 +46,8 @@ function fixture(sourceSide = false) {
 	const user = { id: 'viewer', host: null } as MiUser;
 	const target = { id: 'target', host: sourceSide ? 'r.example' : null, uri: sourceSide ? 'https://r.example/users/new-target' : null } as MiUser;
 	const users = { findOneBy: vi.fn(async ({ id, uri }) => uri ? target : ({ viewer: user, target, source })[id as 'viewer' | 'target' | 'source']) };
-	const binding = (id: string) => ({ id, localUserId: id, generation: 1, peerUserId: sourceSide ? 'new-target' : 'old-target', tokenCipher: sourceSide ? null : sealGridspaceSecret(peer, `token-${id}`, id) });
+	const tokens = new Map(['viewer', 'target'].map(id => [id, sealGridspaceSecret(peer, `token-${id}`, id)]));
+	const binding = (id: string) => ({ id, localUserId: id, generation: 1, peerUserId: sourceSide ? 'new-target' : 'old-target', tokenCipher: sourceSide ? null : tokens.get(id) });
 	const bindings = { findOneBy: vi.fn(async ({ localUserId }) => binding(localUserId)) };
 	const subscriptions = { findOneBy: vi.fn(async () => ({ withReplies: true })), existsBy: vi.fn(async () => false) };
 	const requests = { findOneBy: vi.fn(async () => null as { withReplies: boolean } | null), existsBy: vi.fn(async () => false) };
@@ -65,12 +67,46 @@ function fixture(sourceSide = false) {
 }
 
 describe('linked-account follow expansion', () => {
+	test.each(['readiness', 'profile'] as const)('backs off failed source %s requests across candidates', async failure => {
+		const f = fixture(true);
+		if (failure === 'readiness') f.links.json.mockRejectedValue(new Error('offline'));
+		else f.people.updatePerson.mockRejectedValue(new Error('offline'));
+		await f.run(); await f.run();
+		expect(f.links.json).toHaveBeenCalledOnce();
+		expect(f.following.follow).not.toHaveBeenCalled();
+		if (failure === 'profile') expect(f.people.updatePerson).toHaveBeenCalledOnce();
+	});
+	test('prepares both profiles before taking following locks', async () => {
+		const f = fixture(); let locked = false;
+		f.guard.runMany.mockImplementation(async (_, action) => { locked = true; try { return await action(); } finally { locked = false; } });
+		f.links.ensureProfileBeforeFollowing.mockImplementation(async () => { expect(locked).toBe(false); });
+		await f.run();
+		expect(f.links.ensureProfileBeforeFollowing).toHaveBeenCalledTimes(2);
+		expect(f.following.follow).toHaveBeenCalledOnce();
+	});
+	test('source expansion waits for the new profile before resolving or following the destination', async () => {
+		vi.useFakeTimers();
+		try {
+			const f = fixture(true); f.links.json.mockResolvedValueOnce({ ready: false });
+			await f.run();
+			expect(f.people.resolvePerson).not.toHaveBeenCalled(); expect(f.people.updatePerson).not.toHaveBeenCalled();
+			expect(f.following.follow).not.toHaveBeenCalled();
+			vi.advanceTimersByTime(30001); await f.run();
+			expect(f.people.updatePerson).toHaveBeenCalledWith(f.target.uri);
+			expect(f.people.updatePerson.mock.invocationCallOrder[0]).toBeLessThan(f.following.follow.mock.invocationCallOrder[0]);
+		} finally { vi.useRealTimers(); }
+	});
+	test('destination expansion leaves follows pending when either profile has not completed', async () => {
+		const f = fixture(); f.links.ensureProfileBeforeFollowing.mockRejectedValueOnce(new Error('pending'));
+		await f.run(); expect(f.following.follow).not.toHaveBeenCalled(); expect(f.row.state).toBe('pending');
+		f.row.retryAt = new Date(0); await f.run(); expect(f.following.follow).toHaveBeenCalledOnce();
+	});
 	test('source followers need no link or OAuth token and follow the verified remote counterpart once', async () => {
 		const f = fixture(true);
 		await f.run(); await f.run();
 		expect(f.following.follow).toHaveBeenCalledExactlyOnceWith(f.user, f.target, { withReplies: true });
 		expect(f.bindings.findOneBy).toHaveBeenCalledWith(expect.objectContaining({ localUserId: 'source', initiator: false }));
-		expect(f.links.json).not.toHaveBeenCalled();
+		expect(f.links.json).toHaveBeenCalledWith('/gridspace/v1/link/profile-ready', expect.objectContaining({ localUserId: 'source' }));
 		expect(f.history.verifyLink).toHaveBeenCalledOnce();
 	});
 	test.each(['override', 'block', 'mute', 'suspended', 'existing', 'no-source-follow'] as const)('source expansion respects %s', async reason => {

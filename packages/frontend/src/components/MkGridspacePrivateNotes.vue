@@ -20,7 +20,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<p v-if="error" role="alert">{{ params.channelId ? i18n.ts._gridspace.channelNotesUnavailable : i18n.ts._gridspace.privateUnavailable }}</p>
 			<MkLoading v-if="loading"/>
 			<p v-else-if="!error && notes.length === 0 && !hasMore">{{ i18n.ts.noNotes }}</p>
-			<MkButton v-if="error" :disabled="loading" @click="reload">{{ i18n.ts.retry }}</MkButton>
+			<MkButton v-if="error" :disabled="loading" @click="refresh">{{ i18n.ts.retry }}</MkButton>
 			<MkButton v-else-if="hasMore" :disabled="loading" @click="load">{{ i18n.ts.loadMore }}</MkButton>
 		</div>
 	</template>
@@ -40,7 +40,7 @@ import { prefer } from '@/preferences.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 import { $i } from '@/i.js';
-import { clearLeavingPrivateNote, isVisiblePrivateNote, suspendPrivateNotes } from '@/utility/gridspace-note-suspension.js';
+import { clearLeavingPrivateNote, isRevokedGridspaceRead, isVisiblePrivateNote, suspendPrivateNotes } from '@/utility/gridspace-note-suspension.js';
 
 const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; alwaysShow?: boolean; plain?: boolean }>();
 const emit = defineEmits<{ (event: 'loaded'): void }>();
@@ -73,6 +73,12 @@ function fail() {
 	retryAt = Date.now() + retryDelay; retryDelay = Math.min(retryDelay * 2, 120000);
 }
 
+function readFailed(err: unknown) {
+	if (isRevokedGridspaceRead(err)) { fail(); return; }
+	suspend(); error.value = true;
+	retryAt = Date.now() + retryDelay; retryDelay = Math.min(retryDelay * 2, 120000);
+}
+
 async function load() {
 	if (suspended || loading.value || !hasMore.value || window.document.hidden || !active) return;
 	const current = generation;
@@ -87,7 +93,7 @@ async function load() {
 		hasMore.value = result.cursor != null;
 		retryDelay = 30000;
 		emit('loaded');
-	} catch { if (current === generation) fail(); } finally { if (current === generation) loading.value = false; }
+	} catch (err) { if (current === generation) readFailed(err); } finally { if (current === generation) loading.value = false; }
 }
 
 async function reload() {
@@ -109,8 +115,8 @@ async function reload() {
 
 // Reauthorize every loaded ID, including pages scrolled out of view. No private
 // results are written into the normal note cache, localStorage or IndexedDB.
-async function revalidate() {
-	if (checking != null || !enabled.value || error.value || window.document.hidden || !active) return;
+async function revalidate(retry = false) {
+	if (checking != null || !enabled.value || (error.value && !retry) || window.document.hidden || !active) return;
 	const current = generation; checking = current;
 	const snapshot = [...notes.value, ...queued.value, ...(newer?.notes ?? [])];
 	try {
@@ -134,6 +140,7 @@ async function revalidate() {
 		notes.value = valid(notes.value); queued.value = valid(queued.value);
 		if (newer) newer.notes = valid(newer.notes);
 		suspended = false;
+		error.value = false; retryDelay = 30000;
 		if (props.params.mode === 'channel' && !loading.value && lastSync != null) {
 			newer ??= { start: Math.max(1, lastSync - 1001), notes: [] };
 			for (let index = 0; index < 5; index++) {
@@ -151,7 +158,7 @@ async function revalidate() {
 			}
 			emit('loaded');
 		}
-	} catch { if (current === generation) fail(); } finally {
+	} catch (err) { if (current === generation) readFailed(err); } finally {
 		if (checking === current) {
 			checking = null;
 			if (refreshPending) { refreshPending = false; void refresh(); }
@@ -183,7 +190,7 @@ onMounted(() => { if (root.value) stopScroll = onScrollTop(root.value, visible =
 async function recover() {
 	if (recovering || loading.value || stopped || !active || window.document.hidden) return;
 	recovering = true;
-	try { await reload(); } finally { recovering = false; }
+	try { if (notes.value.length) await revalidate(true); else await reload(); } finally { recovering = false; }
 }
 
 function focus() {

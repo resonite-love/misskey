@@ -5,6 +5,7 @@
 
 import { describe, expect, test, vi } from 'vitest';
 import { mockDeep } from 'vitest-mock-extended';
+import type { ModuleRef } from '@nestjs/core';
 import type { DataSource } from 'typeorm';
 import type { Config } from '@/config.js';
 import type { UserFollowingService } from '@/core/UserFollowingService.js';
@@ -21,7 +22,7 @@ describe('delayed link revocation', () => {
 		guard.run.mockImplementation(async (_id, action) => action());
 		const old = { id: 'old-link', localUserId: 'viewer', generation: 1, state: 'active' } as MiGridspaceLink;
 		db.getRepository.mockReturnValue({ findOneBy: vi.fn().mockResolvedValue({ ...old, state }) } as never);
-		const service = new GridspaceLinkService({ url: 'https://g.example' } as Config, db, mockDeep<UserFollowingService>(), mockDeep<ApPersonService>(), guard, mockDeep<IdService>());
+		const service = new GridspaceLinkService({ url: 'https://g.example' } as Config, db, mockDeep<UserFollowingService>(), mockDeep<ApPersonService>(), guard, mockDeep<IdService>(), mockDeep<ModuleRef>());
 		await service['revokeLocal'](old);
 		expect(guard.run).toHaveBeenCalledWith('viewer', expect.any(Function));
 		// A repeated old revoke must never enter the transaction that deletes this

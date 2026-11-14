@@ -6,7 +6,7 @@
 import { randomBytes } from 'node:crypto';
 import Fastify from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createGridspaceHeaders, GRIDSPACE_HANDSHAKE_PATH, GRIDSPACE_NONCE_TTL_MS, resolveGridspaceConfig } from '@/core/gridspace/peer-protocol.js';
 import { registerGridspacePeer } from './peer-server.js';
 import type { FastifyInstance } from 'fastify';
@@ -179,6 +179,18 @@ describe('GridSpace account link transport', () => {
 		const response = await app.inject({ method: 'POST', url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) });
 		expect(response.json()).toEqual({ error: 'PEER_UNAVAILABLE' });
 		expect(response.headers['cache-control']).toBe('no-store');
+	});
+	test('profile readiness requires a peer signature and the complete link binding without an OAuth token', async () => {
+		const action = vi.fn(async () => ({ ready: true }));
+		const app = await server(true, undefined, action);
+		const url = '/gridspace/v1/link/profile-ready';
+		const input = { linkId: '10e3aca9-d07c-409d-8dcc-721380d495ad', generation: 1, localUserId: 'source' };
+		const payload = Buffer.from(JSON.stringify(input));
+		expect((await app.inject({ method: 'POST', url, payload, headers: { 'content-type': 'application/json' } })).statusCode).toBe(403);
+		expect(action).not.toHaveBeenCalled();
+		const response = await app.inject({ method: 'POST', url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) });
+		expect(response.statusCode).toBe(200); expect(response.json()).toEqual({ ready: true });
+		expect(action).toHaveBeenCalledWith('profile-ready', input);
 	});
 
 	test('does not register link or client routes when disabled', async () => {

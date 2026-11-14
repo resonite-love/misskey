@@ -11,6 +11,11 @@ export type GridspacePrivateNote = entities.GridspacePrivateNotesResponse['notes
 export type GridspaceNoteReference = Pick<GridspacePrivateNote, 'id' | 'uri' | 'createdAt' | 'collectionAt'> & { suspended: true; visible: boolean };
 export type GridspaceNoteEntry = GridspacePrivateNote | GridspaceNoteReference;
 
+export function isRevokedGridspaceRead(error: unknown): boolean {
+	const reason = (error as { info?: { reason?: string } } | null)?.info?.reason;
+	return reason === 'AUTHORIZATION_REVOKED' || reason === 'LINK_REVOKED';
+}
+
 export function isSuspendedNote(note: GridspaceNoteEntry): note is GridspaceNoteReference {
 	return 'suspended' in note;
 }
