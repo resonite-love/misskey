@@ -109,7 +109,7 @@ async function onAccept(token: string, userId: string) {
 				const target = values.find(([candidate]) => isSameScope(candidate, scope));
 				return target ? { value: target[1] } : null;
 			} catch (err) { if ((err as { code?: string }).code === 'NO_SUCH_KEY') return null; throw err; }
-		}, { visibility: store.s.visibility, localOnly: store.s.localOnly }) : undefined;
+		}, { visibility: store.s.visibility, localOnly: store.s.localOnly, memo: store.s.memo, memo2: store.s.memo2 }) : undefined;
 		doPost(token, 'accept', palette, settings);
 	} catch {
 		authRoot.value?.showUI('failed');

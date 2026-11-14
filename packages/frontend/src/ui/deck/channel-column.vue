@@ -4,12 +4,16 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<XColumn :menu="menu" :column="column" :isStacked="isStacked" :refresher="async () => { await timeline?.reloadTimeline() }">
+<XColumn :menu="menu" :column="column" :isStacked="isStacked" :refresher="async () => { await (sharedChannel ? sharedTimeline?.refresh() : timeline?.reloadTimeline()) }">
 	<template #header>
 		<i class="ti ti-device-tv"></i><span style="margin-left: 8px;">{{ column.name || column.timelineNameCache || i18n.ts._deck._columns.channel }}</span>
 	</template>
 
-	<div v-if="column.channelId" class="_gaps_s">
+	<div v-if="sharedChannel" class="_gaps_s">
+		<MkButton primary rounded @click="gridspacePost({ channelId: sharedChannel })">{{ i18n.ts.note }}</MkButton>
+		<MkGridspacePrivateNotes ref="sharedTimeline" :params="{ mode: 'channel', channelId: sharedChannel }" plain alwaysShow/>
+	</div>
+	<div v-else-if="column.channelId" class="_gaps_s">
 		<MkPostForm v-if="$i && channel != null && channel.id === column.channelId && prefer.r.showFixedPostFormInChannel.value" :key="channel.id" :channel="channel" :class="$style.postForm" fixed :autofocus="false"/>
 		<div v-else style="padding: 10px 8px 0; text-align: center;">
 			<MkButton primary gradate rounded inline small @click="post"><i class="ti ti-pencil"></i></MkButton>
@@ -20,7 +24,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { onMounted, ref, shallowRef, watch, useTemplateRef } from 'vue';
+import { computed, onMounted, ref, shallowRef, watch, useTemplateRef } from 'vue';
+import MkGridspacePrivateNotes from '@/components/MkGridspacePrivateNotes.vue';
+import { gridspacePost } from '@/utility/gridspace-post.js';
 import * as Misskey from 'misskey-js';
 import XColumn from './column.vue';
 import type { Column } from '@/deck.js';
@@ -38,16 +44,20 @@ import { $i } from '@/i.js';
 import { i18n } from '@/i18n.js';
 import { soundSettingsButton } from '@/ui/deck/tl-note-notification.js';
 
+const sharedTimeline = useTemplateRef('sharedTimeline');
+
 const props = defineProps<{
 	column: Column;
 	isStacked: boolean;
 }>();
 
 const timeline = useTemplateRef('timeline');
+const sharedChannel = computed(() => props.column.channelId?.startsWith('gridspace:channel:') ? props.column.channelId.slice('gridspace:channel:'.length) : null);
 const channel = shallowRef<Misskey.entities.Channel>();
 const soundSetting = ref<SoundStore>(props.column.soundSetting ?? { type: null, volume: 1 });
 
 watch([() => props.column.channelId, () => prefer.r.showFixedPostFormInChannel.value], ([newChannelId, showFixedPostForm], oldValue, onCleanup) => {
+	if (sharedChannel.value) return;
 	if (newChannelId == null) {
 		// 設定値の変更だけで選択ダイアログを開かないよう、初回実行時か channelId が変わったときのみ
 		// (複数ソースの immediate watcher では初回の oldValue が空配列になる)

@@ -24,12 +24,16 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<div :class="[$style.widget, $style.customizeContainer]" data-testid="customize-container">
 					<button :class="$style.customizeContainerConfig" class="_button" @click.prevent.stop="configWidget(item.id)"><i class="ti ti-settings"></i></button>
 					<button :class="$style.customizeContainerRemove" data-testid="customize-container-remove" class="_button" @click.prevent.stop="removeWidget(item)"><i class="ti ti-x"></i></button>
-					<component :is="`widget-${item.name}`" :ref="(el: any) => widgetRefs[item.id] = el" :class="$style.customizeContainerHandleWidget" :widget="item" @updateProps="updateWidget(item.id, $event)"/>
+					<MkInfo v-if="item.data.gridspaceImportError" warn>{{ item.name }}: {{ item.data.gridspaceImportError }}</MkInfo>
+					<component :is="`widget-${item.name}`" v-else :ref="(el: any) => widgetRefs[item.id] = el" :class="$style.customizeContainerHandleWidget" :widget="item" @updateProps="updateWidget(item.id, $event)"/>
 				</div>
 			</template>
 		</MkDraggable>
 	</template>
-	<component :is="`widget-${widget.name}`" v-for="widget in _widgets" v-else :key="widget.id" :ref="(el: any) => widgetRefs[widget.id] = el" :class="$style.widget" :widget="widget" @updateProps="updateWidget(widget.id, $event)" @contextmenu.stop="onContextmenu(widget, $event)"/>
+	<template v-for="widget in _widgets" v-else :key="widget.id">
+		<MkInfo v-if="widget.data.gridspaceImportError" warn>{{ widget.name }}: {{ widget.data.gridspaceImportError }}</MkInfo>
+		<component :is="`widget-${widget.name}`" v-else :ref="(el: any) => widgetRefs[widget.id] = el" :class="$style.widget" :widget="widget" @updateProps="updateWidget(widget.id, $event)" @contextmenu.stop="onContextmenu(widget, $event)"/>
+	</template>
 </div>
 </template>
 
@@ -51,6 +55,7 @@ import type { Component } from 'vue';
 import { genId } from '@/utility/id.js';
 import MkSelect from '@/components/MkSelect.vue';
 import MkButton from '@/components/MkButton.vue';
+import MkInfo from '@/components/MkInfo.vue';
 import MkDraggable from '@/components/MkDraggable.vue';
 import { widgets as widgetDefs, federationWidgets } from '@/widgets/index.js';
 import * as os from '@/os.js';
@@ -84,7 +89,11 @@ const emit = defineEmits<{
 const widgetRefs = {} as Record<string, Component & { configure: () => void }>;
 
 function configWidget(id: string) {
-	widgetRefs[id].configure();
+	if (widgetRefs[id]) widgetRefs[id].configure();
+	else {
+		const widget = props.widgets.find(item => item.id === id);
+		if (widget) updateWidget(id, { ...widget.data, gridspaceImportError: undefined, folderId: null, listId: null, list: null, antenna: null });
+	}
 }
 
 const {

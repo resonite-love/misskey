@@ -25,7 +25,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<p :class="$style.disabledDescription">{{ i18n.ts._disabledTimeline.description }}</p>
 		</div>
 		<div v-else>
+			<MkGridspaceNoteList v-if="sharedAntenna" :source="{ kind: 'antenna', antennaId: sharedAntenna.id }"/>
 			<MkStreamingNotesTimeline
+				v-else
 				:key="widgetProps.src === 'list' ? `list:${widgetProps.list?.id}` : widgetProps.src === 'antenna' ? `antenna:${widgetProps.antenna?.id}` : widgetProps.src"
 				:src="widgetProps.src"
 				:list="widgetProps.list ? widgetProps.list.id : undefined"
@@ -46,6 +48,8 @@ import * as os from '@/os.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import MkContainer from '@/components/MkContainer.vue';
 import MkStreamingNotesTimeline from '@/components/MkStreamingNotesTimeline.vue';
+import MkGridspaceNoteList from '@/components/MkGridspaceNoteList.vue';
+import { parseManagedId } from '@/utility/gridspace-managed-api.js';
 import { i18n } from '@/i18n.js';
 import { availableBasicTimelines, isAvailableBasicTimeline, isBasicTimeline, basicTimelineIconClass, basicTimelineTypes } from '@/timelines.js';
 
@@ -91,6 +95,7 @@ const { widgetProps, configure, save } = useWidgetPropsManager(name,
 );
 
 const menuOpened = ref(false);
+const sharedAntenna = computed(() => widgetProps.src === 'antenna' ? parseManagedId(widgetProps.antenna?.id) : null);
 
 const headerTitle = computed<string>(() => {
 	if (widgetProps.src === 'list') {

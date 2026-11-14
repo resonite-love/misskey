@@ -9,6 +9,7 @@ import type { GalleryLikesRepository } from '@/models/_.js';
 import { QueryService } from '@/core/QueryService.js';
 import { GalleryLikeEntityService } from '@/core/entities/GalleryLikeEntityService.js';
 import { DI } from '@/di-symbols.js';
+import { IdService } from '@/core/IdService.js';
 
 export const meta = {
 	tags: ['account', 'gallery'],
@@ -24,6 +25,7 @@ export const meta = {
 			type: 'object',
 			optional: false, nullable: false,
 			properties: {
+				createdAt: { type: 'string', optional: true },
 				id: {
 					type: 'string',
 					optional: false, nullable: false,
@@ -59,6 +61,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 
 		private galleryLikeEntityService: GalleryLikeEntityService,
 		private queryService: QueryService,
+		private idService: IdService,
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			const query = this.queryService.makePaginationQuery(this.galleryLikesRepository.createQueryBuilder('like'), ps.sinceId, ps.untilId, ps.sinceDate, ps.untilDate)
@@ -69,7 +72,8 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				.limit(ps.limit)
 				.getMany();
 
-			return await this.galleryLikeEntityService.packMany(likes, me);
+			const packed = await this.galleryLikeEntityService.packMany(likes, me);
+			return packed.map(item => ({ ...item, createdAt: this.idService.parse(item.id).date.toISOString() }));
 		});
 	}
 }

@@ -264,8 +264,8 @@ export class GridspaceSharedDriveService implements OnModuleInit, OnApplicationS
 		if (!input.id || !input.kind) throw new ApiError(sharedDriveUnavailable);
 		const row = await this.repository(this.db.manager, input.kind).findOneBy({ id: input.id, userId: user.id });
 		const existing = await this.db.getRepository(MiGridspaceDriveEntry).findOneBy({ kind: input.kind, localId: input.id });
-		if (input.action === 'resolve' && row && input.kind === 'file') {
-			const wire = await this.snapshot(this.db.manager, 'file', row.id, user.id, existing?.revision ?? 0);
+		if (input.action === 'resolve' && row) {
+			const wire = await this.snapshot(this.db.manager, input.kind, row.id, user.id, existing?.revision ?? 0);
 			if (!wire || existing?.deleted) throw new ApiError(sharedDriveUnavailable);
 			return { wire, ancestors: await this.ancestors(link, wire) };
 		}
@@ -360,6 +360,19 @@ export class GridspaceSharedDriveService implements OnModuleInit, OnApplicationS
 		}
 		if (response.wire.id !== sourceId) throw new ApiError(sharedDriveUnavailable);
 		return this.files.pack(await this.accept(link, response.wire, response.ancestors), { self: true });
+	}
+
+	public async referenceFolder(user: MiLocalUser, sourceId: string) {
+		const link = await this.link(user.id);
+		if (!link) throw new ApiError(sharedDriveUnavailable);
+		const response = await this.request<{ wire: SharedDriveWire; ancestors: SharedDriveWire[] }>(link, { action: 'resolve', kind: 'folder', id: sourceId });
+		if (response.wire.kind !== 'folder' || response.wire.deleted) throw new ApiError(sharedDriveUnavailable);
+		if (response.wire.origin === this.origin) {
+			if (!await this.db.getRepository(MiDriveFolder).existsBy({ id: response.wire.id, userId: user.id })) throw new ApiError(sharedDriveUnavailable);
+			return this.folders.pack(response.wire.id);
+		}
+		if (response.wire.id !== sourceId) throw new ApiError(sharedDriveUnavailable);
+		return this.folders.pack(await this.accept(link, response.wire, response.ancestors));
 	}
 
 	public async fileIdOnPeer(user: MiLocalUser, fileId: string): Promise<string> {

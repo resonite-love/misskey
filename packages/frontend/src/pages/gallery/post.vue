@@ -21,9 +21,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 							<i class="ti ti-clock"></i> <MkTime :time="post.createdAt" mode="detail"/>
 						</div>
 						<div class="actions">
-							<div v-if="!post.gridspaceOrigin" class="like">
-								<MkButton v-if="post.isLiked" v-tooltip="i18n.ts._gallery.unlike" class="button" primary @click="unlike()"><i class="ti ti-heart-off"></i><span v-if="post.likedCount > 0" class="count">{{ post.likedCount }}</span></MkButton>
-								<MkButton v-else v-tooltip="i18n.ts._gallery.like" class="button" @click="like()"><i class="ti ti-heart"></i><span v-if="post.likedCount > 0" class="count">{{ post.likedCount }}</span></MkButton>
+							<div v-if="!post.gridspaceOrigin || post.gridspaceLikeTarget" class="like">
+								<MkButton v-if="post.isLiked" v-tooltip="i18n.ts._gallery.unlike" :disabled="likeBusy" class="button" primary @click="unlike()"><i class="ti ti-heart-off"></i><span v-if="post.likedCount > 0" class="count">{{ post.likedCount }}</span></MkButton>
+								<MkButton v-else v-tooltip="i18n.ts._gallery.like" :disabled="likeBusy" class="button" @click="like()"><i class="ti ti-heart"></i><span v-if="post.likedCount > 0" class="count">{{ post.likedCount }}</span></MkButton>
 							</div>
 							<a v-if="post.gridspaceOrigin" :href="sourceUrl" target="_blank" rel="noopener noreferrer" class="_link">{{ i18n.ts.showOnRemote }} <i class="ti ti-external-link"></i></a>
 							<div class="other">
@@ -92,6 +92,7 @@ const props = defineProps<{
 	linkedId?: string;
 }>();
 
+const likeBusy = ref(false);
 const post = ref<Misskey.entities.GalleryPost | null>(null);
 const error = ref<any>(null);
 const sourceUrl = computed(() => post.value ? `${post.value.gridspaceOrigin ?? url}/gallery/${post.value.gridspaceOriginalId ?? post.value.id}` : '');
@@ -109,11 +110,16 @@ function fetchPost() {
 	const current = ++requestGeneration;
 	error.value = null;
 	post.value = null;
-	(props.linkedId && parseManagedId(props.linkedId) ? misskeyApi('gallery/posts/show', { postId: props.linkedId }) : props.linkedId ? misskeyApi('gridspace/content', { kind: 'gallery', itemId: props.linkedId }).then(result => {
+	(props.linkedId ? misskeyApi('gridspace/content', { kind: 'gallery', itemId: parseManagedId(props.linkedId)?.id ?? props.linkedId }).then(result => {
 		if (!result.gallery[0]) throw new Error('POST_NOT_FOUND');
 		return result.gallery[0];
-	}) : misskeyApi('gallery/posts/show', { postId: props.postId! })).then(_post => {
+	}) : misskeyApi('gallery/posts/show', { postId: props.postId! })).then(async _post => {
 		if (current !== requestGeneration) return;
+		if ($i && _post.gridspaceOrigin) {
+			const detail = await misskeyApi('gridspace/managed-resource', { kind: 'gallery', action: 'inspect', id: _post.gridspaceOriginalId ?? _post.id }).catch(() => null);
+			if (detail?.item) _post = detail.item as unknown as Misskey.entities.GalleryPost;
+			if (current !== requestGeneration) return;
+		}
 		post.value = _post;
 	}).catch(_error => {
 		if (current === requestGeneration) error.value = _error;
@@ -142,30 +148,26 @@ function shareWithNote() {
 	});
 }
 
-function like() {
-	if (!post.value) return;
-	os.apiWithDialog('gallery/posts/like', {
-		postId: props.postId!,
-	}).then(() => {
-		post.value!.isLiked = true;
-		post.value!.likedCount++;
-	});
+async function setLiked(liked: boolean) {
+	const target = post.value;
+	if (!target || likeBusy.value) return;
+	likeBusy.value = true;
+	try {
+		if (!liked) {
+			const confirm = await os.confirm({ type: 'warning', text: i18n.ts.unlikeConfirm });
+			if (confirm.canceled || post.value !== target) return;
+		}
+		const result = await os.apiWithDialog(liked ? 'gallery/posts/like' : 'gallery/posts/unlike', { postId: target.gridspaceLikeTarget ?? target.id });
+		if (post.value !== target) return;
+		const updated = result as unknown as { isLiked?: boolean; likedCount?: number } | undefined;
+		target.isLiked = updated?.isLiked ?? liked;
+		target.likedCount = updated?.likedCount ?? Math.max(0, target.likedCount + (liked ? 1 : -1));
+	} finally { likeBusy.value = false; }
 }
 
-async function unlike() {
-	if (!post.value) return;
-	const confirm = await os.confirm({
-		type: 'warning',
-		text: i18n.ts.unlikeConfirm,
-	});
-	if (confirm.canceled) return;
-	os.apiWithDialog('gallery/posts/unlike', {
-		postId: props.postId!,
-	}).then(() => {
-		post.value!.isLiked = false;
-		post.value!.likedCount--;
-	});
-}
+function like() { return setLiked(true); }
+
+function unlike() { return setLiked(false); }
 
 function edit() {
 	router.push('/gallery/:postId/edit', {

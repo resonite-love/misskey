@@ -15,14 +15,19 @@ import { MiPage } from '@/models/Page.js';
 import { MiClip } from '@/models/Clip.js';
 import { MiGalleryPost } from '@/models/GalleryPost.js';
 import { MiNote } from '@/models/Note.js';
+import { MiPageLike } from '@/models/PageLike.js';
+import { MiGalleryLike } from '@/models/GalleryLike.js';
+import { MiFollowing } from '@/models/Following.js';
+import { MiBlocking } from '@/models/Blocking.js';
+import { IdService } from '@/core/IdService.js';
 import { ApNoteService } from '@/core/activitypub/models/ApNoteService.js';
 import { MiRegistryItem } from '@/models/RegistryItem.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { CustomEmojiService } from '@/core/CustomEmojiService.js';
 import { UtilityService } from '@/core/UtilityService.js';
+import { ApiError } from '@/server/api/error.js';
 import { GridspaceNoteService } from './GridspaceNoteService.js';
 import { attachContentEmojis, type ContentEmojiCarrier } from './content-emojis.js';
-import { ApiError } from '@/server/api/error.js';
 import { GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspaceSharedDriveService } from './GridspaceSharedDriveService.js';
 import { gridspaceHash } from './link-crypto.js';
@@ -30,7 +35,7 @@ import { settingsDomain } from './settings-protocol.js';
 import { managedError, managedId, type ManagedInput, type ManagedPeerInput, type ManagedKind } from './managed-resource-protocol.js';
 
 type Item = Record<string, unknown>;
-type Result = { enabled: boolean; origin: string | null; item: Item | null; items: Item[]; aliases: { sourceId: string; targetId: string }[]; clipNoteError?: 'already-added' | 'too-many' };
+type Result = { enabled: boolean; origin: string | null; item: Item | null; items: Item[]; aliases: { sourceId: string; targetId: string }[]; clipNoteError?: 'already-added' | 'too-many'; next?: string | null };
 const resources = {
 	antenna: { entity: MiAntenna, prefix: 'antennas', key: 'antennaId', list: 'antennas/list' },
 	page: { entity: MiPage, prefix: 'pages', key: 'pageId', list: 'i/pages' },
@@ -64,6 +69,56 @@ export class GridspaceManagedResourceService {
 		return (value?.antennas ?? []).filter(row => row.state === 'done').map(row => ({ sourceId: row.source.id, targetId: row.targetId }));
 	}
 
+	private async readable(kind: 'page' | 'gallery', id: string, user: MiLocalUser): Promise<boolean> {
+		const item = kind === 'page' ? await this.db.getRepository(MiPage).findOneBy({ id }) : await this.db.getRepository(MiGalleryPost).findOneBy({ id });
+		if (!item || !await this.db.getRepository(MiUser).existsBy({ id: item.userId, isDeleted: false, isSuspended: false })) return false;
+		if (await this.db.getRepository(MiBlocking).existsBy([{ blockerId: user.id, blockeeId: item.userId }, { blockerId: item.userId, blockeeId: user.id }])) return false;
+		if (kind === 'gallery' || item.userId === user.id) return true;
+		const page = item as MiPage;
+		return page.visibility === 'public' || page.visibility === 'specified' && page.visibleUserIds.includes(user.id) ||
+			page.visibility === 'followers' && await this.db.getRepository(MiFollowing).existsBy({ followerId: user.id, followeeId: page.userId });
+	}
+
+	private async liked(input: ManagedPeerInput, user: MiLocalUser, result: Result): Promise<void> {
+		const kind = input.kind as 'page' | 'gallery';
+		const resource = resources[kind];
+		if (input.action === 'liked') {
+			const limit = Math.max(1, Math.min(20, Number(input.data?.limit) || 12));
+			const query = this.db.getRepository(kind === 'page' ? MiPageLike : MiGalleryLike).createQueryBuilder('liked').where('liked.userId = :id', { id: user.id }).orderBy('liked.id', 'DESC').take(limit + 1);
+			if (input.data?.ids !== undefined) {
+				const ids = input.data.ids;
+				if (!Array.isArray(ids) || ids.length > 20 || ids.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9]{1,32}$/.test(id))) throw new ApiError(managedError);
+				if (!ids.length) return;
+				query.andWhere('liked.id IN (:...ids)', { ids });
+			}
+			if (input.data?.before) {
+				if (typeof input.data.before !== 'string' || !/^[a-zA-Z0-9]{1,32}$/.test(input.data.before)) throw new ApiError(managedError);
+				query.andWhere('liked.id < :before', { before: input.data.before });
+			}
+			const rows = await query.getMany();
+			const selected = rows.slice(0, limit);
+			result.next = rows.length > limit ? selected.at(-1)!.id : null;
+			for (const row of selected) {
+				const id = kind === 'page' ? (row as unknown as MiPageLike).pageId : (row as MiGalleryLike).postId;
+				if (!await this.readable(kind, id, user)) continue;
+				const item = await this.native(`${resource.prefix}/show`, { [resource.key]: id }, user) as Item;
+				item.gridspaceLikeId = row.id;
+				item.gridspaceLikedAt = this.modules.get(IdService, { strict: false }).parse(row.id).date.toISOString();
+				result.items.push(item);
+			}
+			return;
+		}
+		if (!input.id) throw new ApiError(managedError);
+		// Removing a like remains possible after its contents become unreadable.
+		if (input.action !== 'unlike' && !await this.readable(kind, input.id, user)) throw new ApiError(managedError);
+		if (input.action === 'like' || input.action === 'unlike') {
+			const current = await this.pair(user.id);
+			if (!current || current.id !== input.linkId || current.generation !== input.generation || current.peerUserId !== input.localUserId) throw new ApiError(managedError);
+			try { await this.native(`${resource.prefix}/${input.action}`, { [resource.key]: input.id }, user); } catch (error) { if (!(error instanceof ApiError) || !['ALREADY_LIKED', 'NOT_LIKED'].includes(error.code)) throw error; }
+		}
+		if (await this.readable(kind, input.id, user)) result.item = await this.native(`${resource.prefix}/show`, { [resource.key]: input.id }, user) as Item;
+	}
+
 	public async peer(input: ManagedPeerInput): Promise<Result> {
 		const link = await this.pair(input.peerUserId);
 		if (!link || link.id !== input.linkId || link.generation !== input.generation || link.peerUserId !== input.localUserId) throw new ApiError(managedError);
@@ -71,7 +126,12 @@ export class GridspaceManagedResourceService {
 		const resource = resources[input.kind];
 		if (!resource) throw new ApiError(managedError);
 		const result: Result = { enabled: true, origin: new URL(this.config.url).origin, item: null, items: [], aliases: [] };
-		if (input.action === 'list') {
+		if ((input.kind === 'page' || input.kind === 'gallery') && ['liked', 'inspect', 'like', 'unlike'].includes(input.action)) {
+			await this.liked(input, user as MiLocalUser, result);
+		} else if (input.action === 'reference' && input.kind === 'clip') {
+			if (!input.id) throw new ApiError(managedError);
+			result.item = await this.native('clips/show', { clipId: input.id }, user as MiLocalUser) as Item;
+		} else if (input.action === 'list') {
 			result.items = await this.native(resource.list, { ...input.data, limit: Math.min(100, Number(input.data?.limit ?? 100)) }, user as MiLocalUser) as Item[];
 			if (input.kind === 'antenna') {
 				const copies = new Set((await this.aliases(user as MiLocalUser, link)).map(row => row.targetId));
@@ -103,6 +163,12 @@ export class GridspaceManagedResourceService {
 		// Revocation/suspension during a request must not return private resource data.
 		const current = await this.pair(user.id);
 		if (!current || current.id !== link.id || current.generation !== link.generation) throw new ApiError(managedError);
+		if ((input.kind === 'page' || input.kind === 'gallery') && ['liked', 'inspect', 'like', 'unlike'].includes(input.action)) {
+			if (result.item && !await this.readable(input.kind, String(result.item.id), user as MiLocalUser)) result.item = null;
+			const visible: Item[] = [];
+			for (const item of result.items) if (await this.readable(input.kind, String(item.id), user as MiLocalUser)) visible.push(item);
+			result.items = visible;
+		}
 		if (input.kind === 'page' || input.kind === 'gallery') {
 			await Promise.all((result.item ? [result.item] : result.items).map(item => attachContentEmojis(item as ContentEmojiCarrier, this.emojis, result.origin!)));
 		}
@@ -171,7 +237,7 @@ export class GridspaceManagedResourceService {
 	public async request(user: MiLocalUser, input: ManagedInput): Promise<Result> {
 		const link = await this.pair(user.id);
 		if (!link) {
-			if (input.action === 'list') return { enabled: false, origin: null, item: null, items: [], aliases: [] };
+			if (input.action === 'list' || input.action === 'liked') return { enabled: false, origin: null, item: null, items: [], aliases: [], next: null };
 			throw new ApiError(managedError);
 		}
 		let data = input.data && ['page', 'gallery'].includes(input.kind)
@@ -200,7 +266,7 @@ export class GridspaceManagedResourceService {
 				}
 			}
 		}
-		if (result.item && ['page', 'gallery'].includes(input.kind)) {
+		if (result.item && ['page', 'gallery'].includes(input.kind) && !['inspect', 'like', 'unlike'].includes(input.action)) {
 			result.item = await this.files(result.item, async id => {
 				const file = await this.drive.referenceFile(user, id);
 				if (!file) throw new ApiError(managedError);
@@ -214,9 +280,16 @@ export class GridspaceManagedResourceService {
 		for (const item of input.action === 'lists' ? [] : result.item ? [result.item] : result.items) {
 			item.gridspaceOriginalId = item.id;
 			item.id = managedId(input.kind, String(item.id));
-			item.gridspaceManagedId = item.id;
+			if (item.userId === link.peerUserId) item.gridspaceManagedId = item.id;
+			if (['page', 'gallery'].includes(input.kind)) item.gridspaceLikeTarget = item.id;
 			item.gridspaceOrigin = result.origin;
-			if (item.user && typeof item.user === 'object') item.user = { ...item.user, host: new URL(result.origin!).host };
+			if (item.user && typeof item.user === 'object') {
+				const author = item.user as { id: string };
+				const uri = `${result.origin}/users/${author.id}`;
+				const known = await this.db.getRepository(MiUser).findOneBy({ uri });
+				item.user = { ...author, id: known?.id ?? `gridspace:${author.id}`, host: new URL(result.origin!).host };
+				item.userId = known?.id ?? `gridspace:${author.id}`;
+			}
 		}
 		const final = await this.pair(user.id);
 		if (!final || final.id !== link.id || final.generation !== link.generation) throw new ApiError(managedError);

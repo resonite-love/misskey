@@ -4,17 +4,20 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<XColumn :menu="menu" :column="column" :isStacked="isStacked" :refresher="async () => { await timeline?.reloadTimeline() }">
+<XColumn :menu="menu" :column="column" :isStacked="isStacked" :refresher="async () => { await (sharedAntenna ? sharedTimeline?.reload() : timeline?.reloadTimeline()) }">
 	<template #header>
 		<i class="ti ti-antenna"></i><span style="margin-left: 8px;">{{ column.name || column.timelineNameCache || i18n.ts._deck._columns.antenna }}</span>
 	</template>
 
-	<MkStreamingNotesTimeline v-if="column.antennaId" ref="timeline" src="antenna" :antenna="column.antennaId"/>
+	<MkGridspaceNoteList v-if="sharedAntenna" ref="sharedTimeline" :source="{ kind: 'antenna', antennaId: sharedAntenna.id }"/>
+	<MkStreamingNotesTimeline v-else-if="column.antennaId" ref="timeline" src="antenna" :antenna="column.antennaId"/>
 </XColumn>
 </template>
 
 <script lang="ts" setup>
-import { onMounted, ref, useTemplateRef, watch, defineAsyncComponent, provide } from 'vue';
+import { computed, onMounted, ref, useTemplateRef, watch, defineAsyncComponent, provide } from 'vue';
+import MkGridspaceNoteList from '@/components/MkGridspaceNoteList.vue';
+import { parseManagedId } from '@/utility/gridspace-managed-api.js';
 import XColumn from './column.vue';
 import type * as Misskey from 'misskey-js';
 import type { entities as MisskeyEntities } from 'misskey-js';
@@ -29,12 +32,15 @@ import { i18n } from '@/i18n.js';
 import { antennasCache } from '@/cache.js';
 import { soundSettingsButton } from '@/ui/deck/tl-note-notification.js';
 
+const sharedTimeline = useTemplateRef('sharedTimeline');
+
 const props = defineProps<{
 	column: Column;
 	isStacked: boolean;
 }>();
 
 const timeline = useTemplateRef('timeline');
+const sharedAntenna = computed(() => parseManagedId(props.column.antennaId));
 const soundSetting = ref<SoundStore>(props.column.soundSetting ?? { type: null, volume: 1 });
 const antenna = ref<Misskey.entities.Antenna | null>(null);
 

@@ -56,9 +56,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<XPage :page="page"/>
 					</div>
 					<div :class="$style.pageActions">
-						<div v-if="!page.gridspaceOrigin">
-							<MkButton v-if="page.isLiked" v-tooltip="i18n.ts._pages.unlike" class="button" asLike primary @click="unlike()"><i class="ti ti-heart-off"></i><span v-if="page.likedCount > 0" class="count">{{ page.likedCount }}</span></MkButton>
-							<MkButton v-else v-tooltip="i18n.ts._pages.like" class="button" asLike @click="like()"><i class="ti ti-heart"></i><span v-if="page.likedCount > 0" class="count">{{ page.likedCount }}</span></MkButton>
+						<div v-if="!page.gridspaceOrigin || page.gridspaceLikeTarget">
+							<MkButton v-if="page.isLiked" v-tooltip="i18n.ts._pages.unlike" :disabled="likeBusy" class="button" asLike primary @click="unlike()"><i class="ti ti-heart-off"></i><span v-if="page.likedCount > 0" class="count">{{ page.likedCount }}</span></MkButton>
+							<MkButton v-else v-tooltip="i18n.ts._pages.like" :disabled="likeBusy" class="button" asLike @click="like()"><i class="ti ti-heart"></i><span v-if="page.likedCount > 0" class="count">{{ page.likedCount }}</span></MkButton>
 						</div>
 						<a v-if="page.gridspaceOrigin" :href="sourceUrl" target="_blank" rel="noopener noreferrer" class="_link">{{ i18n.ts.showOnRemote }} <i class="ti ti-external-link"></i></a>
 						<div :class="$style.other">
@@ -98,7 +98,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { computed, watch, ref, defineAsyncComponent, markRaw, onBeforeUnmount } from 'vue';
+import { computed, watch, ref, defineAsyncComponent, markRaw, onBeforeUnmount, onActivated, onDeactivated } from 'vue';
 import * as Misskey from 'misskey-js';
 import { url } from '@@/js/config.js';
 import type { MenuItem } from '@/types/menu.js';
@@ -134,6 +134,7 @@ const props = defineProps<{
 	linkedId?: string;
 }>();
 
+const likeBusy = ref(false);
 const page = ref<Misskey.entities.Page | null>(null);
 const error = ref<any>(null);
 const otherPostsPaginator = markRaw(new Paginator('users/pages', {
@@ -145,17 +146,45 @@ const otherPostsPaginator = markRaw(new Paginator('users/pages', {
 const path = computed(() => props.linkedId ?? props.username + '/' + props.pageName);
 const sourceUrl = computed(() => page.value ? `${page.value.gridspaceOrigin ?? url}/@${page.value.user.username}/pages/${encodeURIComponent(page.value.name)}` : '');
 
+async function linkedPage(id: string) {
+	const original = parseManagedId(id)?.id ?? id;
+	if ($i) {
+		const result = await misskeyApi('gridspace/managed-resource', { kind: 'page', action: 'inspect', id: original }).catch(() => null);
+		if (result?.item) return result.item as unknown as Misskey.entities.Page;
+	}
+	const result = await misskeyApi('gridspace/content', { kind: 'pages', itemId: original });
+	if (!result.pages[0]) throw new Error('PAGE_NOT_FOUND');
+	return result.pages[0];
+}
+
 let requestGeneration = 0;
-onBeforeUnmount(() => { requestGeneration++; });
+let pageActive = true;
+
+async function revalidatePage() {
+	if (!pageActive || window.document.hidden || !props.linkedId || !page.value?.gridspaceLikeTarget) return;
+	const current = requestGeneration;
+	try {
+		const refreshed = await linkedPage(props.linkedId);
+		if (current === requestGeneration) page.value = refreshed;
+	} catch (err) { if (current === requestGeneration) { page.value = null; error.value = err; } }
+}
+
+function pageVisibility() {
+	if (!props.linkedId) return;
+	if (window.document.hidden) { requestGeneration++; page.value = null; } else fetchPage();
+}
+
+window.document.addEventListener('visibilitychange', pageVisibility);
+const pageTimer = window.setInterval(() => { void revalidatePage(); }, 15000);
+onDeactivated(() => { pageActive = false; if (props.linkedId) { requestGeneration++; page.value = null; } });
+onActivated(() => { if (!pageActive) { pageActive = true; if (props.linkedId) fetchPage(); } });
+onBeforeUnmount(() => { requestGeneration++; window.clearInterval(pageTimer); window.document.removeEventListener('visibilitychange', pageVisibility); });
 
 function fetchPage() {
 	const current = ++requestGeneration;
 	error.value = null;
 	page.value = null;
-	(props.linkedId && parseManagedId(props.linkedId) ? misskeyApi('pages/show', { pageId: props.linkedId }) : props.linkedId ? misskeyApi('gridspace/content', { kind: 'pages', itemId: props.linkedId }).then(result => {
-		if (!result.pages[0]) throw new Error('PAGE_NOT_FOUND');
-		return result.pages[0];
-	}) : misskeyApi('pages/show', { name: props.pageName!, username: props.username! })).then(async _page => {
+	(props.linkedId ? linkedPage(props.linkedId) : misskeyApi('pages/show', { name: props.pageName!, username: props.username! })).then(async _page => {
 		if (current !== requestGeneration) return;
 		page.value = _page;
 
@@ -220,32 +249,26 @@ function shareWithNavigator() {
 	});
 }
 
-function like() {
-	if (!page.value) return;
-
-	os.apiWithDialog('pages/like', {
-		pageId: page.value.id,
-	}).then(() => {
-		page.value!.isLiked = true;
-		page.value!.likedCount++;
-	});
+async function setLiked(liked: boolean) {
+	const target = page.value;
+	if (!target || likeBusy.value) return;
+	likeBusy.value = true;
+	try {
+		if (!liked) {
+			const confirm = await os.confirm({ type: 'warning', text: i18n.ts.unlikeConfirm });
+			if (confirm.canceled || page.value !== target) return;
+		}
+		const result = await os.apiWithDialog(liked ? 'pages/like' : 'pages/unlike', { pageId: target.gridspaceLikeTarget ?? target.id });
+		if (page.value !== target) return;
+		const updated = result as unknown as { isLiked?: boolean; likedCount?: number } | undefined;
+		target.isLiked = updated?.isLiked ?? liked;
+		target.likedCount = updated?.likedCount ?? Math.max(0, target.likedCount + (liked ? 1 : -1));
+	} finally { likeBusy.value = false; }
 }
 
-async function unlike() {
-	if (!page.value) return;
+function like() { return setLiked(true); }
 
-	const confirm = await os.confirm({
-		type: 'warning',
-		text: i18n.ts.unlikeConfirm,
-	});
-	if (confirm.canceled) return;
-	os.apiWithDialog('pages/unlike', {
-		pageId: page.value.id,
-	}).then(() => {
-		page.value!.isLiked = false;
-		page.value!.likedCount--;
-	});
-}
+function unlike() { return setLiked(false); }
 
 function pin(pin: boolean) {
 	if (!page.value) return;

@@ -29,7 +29,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 						@wheel.passive.self="onWheel"
 					>
 						<component
-							:is="columnComponents[columns.find(c => c.id === id)!.type] ?? XTlColumn"
+							:is="columns.find(c => c.id === id)!.gridspaceImportError ? XImportWarningColumn : columnComponents[columns.find(c => c.id === id)!.type] ?? XTlColumn"
 							v-for="id in ids"
 							:ref="id"
 							:key="id"
@@ -115,6 +115,7 @@ import XMentionsColumn from '@/ui/deck/mentions-column.vue';
 import XDirectColumn from '@/ui/deck/direct-column.vue';
 import XRoleTimelineColumn from '@/ui/deck/role-timeline-column.vue';
 import XChatColumn from '@/ui/deck/chat-column.vue';
+import XImportWarningColumn from '@/ui/deck/import-warning-column.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import { mainRouter } from '@/router.js';
 import { columns, layout, columnTypes, switchProfileMenu, addColumn as addColumnToStore, deleteProfile as deleteProfile_ } from '@/deck.js';

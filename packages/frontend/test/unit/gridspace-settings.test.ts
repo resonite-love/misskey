@@ -7,10 +7,10 @@ import { expect, test, vi } from 'vitest';
 import { parseClientSettings, snapshotClientSettings } from '@/utility/gridspace-settings.js';
 import type { PreferencesProfile } from '@/preferences/manager.js';
 
-test('copies disabled sounds and posting defaults but excludes plugins and server-local IDs', () => {
+test('copies disabled sounds and posting defaults but excludes plugins and credentials', () => {
 	const parsed = parseClientSettings(JSON.stringify({ version: 1, visibility: 'followers', localOnly: true, values: {
 		'sound.on.notification': { type: null, volume: 0 }, defaultNoteVisibility: 'home', defaultNoteLocalOnly: true,
-		plugins: [{ code: 'never transfer scripts' }], uploadFolder: 'old-id', 'deck.profiles': [{ id: 'old-list' }], accounts: ['private'],
+		plugins: [{ code: 'never transfer scripts' }], accounts: ['private'],
 	} }));
 	expect(parsed.values).toEqual({ 'sound.on.notification': { type: null, volume: 0 }, defaultNoteVisibility: 'home', defaultNoteLocalOnly: true });
 });

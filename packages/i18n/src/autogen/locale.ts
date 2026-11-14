@@ -13803,6 +13803,18 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * 一部の列・ウィジェットは参照先を設定し直してください。
+         */
+        "layoutPartial": string;
+        /**
+         * 元の参照先を引き継げませんでした。設定から選び直してください。
+         */
+        "layoutReferenceUnavailable": string;
+        /**
+         * 引き継いだスクリプトを実行する
+         */
+        "startImportedScript": string;
+        /**
          * {host} のデータを編集しています。保存・削除は連携元にも反映されます。
          */
         "manageOnSource": ParameterizedString<"host">;
@@ -14027,11 +14039,11 @@ export interface Locale extends ILocale {
          */
         "settingsCopy": string;
         /**
-         * 画面表示・テーマ・通知音・投稿の公開範囲・アカウントの公開設定などを、れぞらぶの設定に上書きします。ミュート・ブロックは追加しますが、ぐりすぺで設定した対象は解除しません。
+         * 画面表示・デッキ・ウィジェット・アップロード先・テーマ・通知音・投稿の公開範囲・アカウントの公開設定などを、れぞらぶの設定に上書きします。ミュート・ブロックは追加しますが、ぐりすぺで設定した対象は解除しません。
          */
         "settingsCopyDescription": string;
         /**
-         * デッキの列・ウィジェット配置・ドライブの音声ファイルは引き継ぎません。リストを指定した通知設定は、ぐりすぺの設定を残します。
+         * プラグイン・ドライブの通知音は引き継ぎません。取り込んだスクリプトは、実行ボタンを押すまで動きません。リストを指定した通知設定は、ぐりすぺの設定を残します。
          */
         "settingsCopyExclusions": string;
         /**
@@ -14804,5 +14816,197 @@ export interface Locale extends ILocale {
          * 公開したお知らせを管理
          */
         "manageNotices": string;
+    };
+    "_doom": {
+        /**
+         * DOOM
+         */
+        "title": string;
+        /**
+         * DOOMエンジンで遊ぶFPS。成績をノートや外部アプリに共有できます。
+         */
+        "description": string;
+        /**
+         * 難易度
+         */
+        "difficulty": string;
+        /**
+         * 1 · I'm too young to die.
+         */
+        "easy": string;
+        /**
+         * 2 · Hey, not too rough.
+         */
+        "normal": string;
+        /**
+         * 3 · Hurt me plenty.
+         */
+        "hard": string;
+        /**
+         * 4 · Ultra-Violence.
+         */
+        "veryHard": string;
+        /**
+         * 5 · Nightmare!
+         */
+        "nightmare": string;
+        /**
+         * 手持ちのWADを選ぶ
+         */
+        "selectWad": string;
+        /**
+         * Freedoomに戻す
+         */
+        "useFreedoom": string;
+        /**
+         * 標準のゲームデータはFreedoomです。DOOM / DOOM IIのIWADも読み込めます（64MBまで）。選んだファイルは端末内だけで使用します。
+         */
+        "wadNotice": string;
+        /**
+         * 対応するIWADファイルを選んでください（64MBまで）。
+         */
+        "invalidWad": string;
+        /**
+         * ゲームを読み込めませんでした。停止してから、もう一度開始してください。
+         */
+        "loadError": string;
+        /**
+         * 一時停止
+         */
+        "pause": string;
+        /**
+         * 再開
+         */
+        "resume": string;
+        /**
+         * 終了して設定に戻る
+         */
+        "stop": string;
+        /**
+         * 全画面
+         */
+        "fullscreen": string;
+        /**
+         * この環境では全画面にできませんでした。通常の画面で続けてください。
+         */
+        "fullscreenError": string;
+        /**
+         * プレイ結果
+         */
+        "result": string;
+        /**
+         * ステージクリア！
+         */
+        "completed": string;
+        /**
+         * ゲームオーバー
+         */
+        "gameOver": string;
+        /**
+         * スコア
+         */
+        "score": string;
+        /**
+         * 経過時間
+         */
+        "time": string;
+        /**
+         * 撃破数
+         */
+        "kills": string;
+        /**
+         * アイテム
+         */
+        "items": string;
+        /**
+         * シークレット
+         */
+        "secrets": string;
+        /**
+         * スコアは撃破数×100 ＋ アイテム数×10 ＋ シークレット数×250です。現在のステージの成績を表示します。
+         */
+        "scoreRule": string;
+        /**
+         * 共有されたプレイ結果です。成績はプレイヤーの端末で集計しており、サーバーでは検証していません。
+         */
+        "sharedResult": string;
+        /**
+         * 結果とリンクをコピー
+         */
+        "copyResult": string;
+        /**
+         * コピーできませんでした。ブラウザーのクリップボード設定を確認してください。
+         */
+        "copyError": string;
+        /**
+         * 共有できませんでした。「結果とリンクをコピー」をお試しください。
+         */
+        "shareError": string;
+        /**
+         * {game} {stage} · {score}点
+         * 撃破 {kills}/{totalKills} · シークレット {secrets}/{totalSecrets} · {time}
+         * #MisskeyDOOM
+         */
+        "shareText": ParameterizedString<"game" | "stage" | "score" | "kills" | "totalKills" | "secrets" | "totalSecrets" | "time">;
+        /**
+         * 操作方法
+         */
+        "controls": string;
+        /**
+         * ゲーム画面をクリックして操作します。W/S・↑/↓：前後移動、←/→：旋回、A/D：左右移動、Ctrl/F：攻撃、Space/E：ドア・スイッチ、Shift：走る、1〜7：武器、Tab：マップ、Esc：メニュー、Enter：決定。Shift+Tabで画面外のボタンへ移れます。
+         */
+        "keyboard": string;
+        /**
+         * タッチ操作では画面下のボタンを使います。移動と攻撃は同時に押せます。
+         */
+        "touchHelp": string;
+        /**
+         * タッチ操作
+         */
+        "touchControls": string;
+        /**
+         * 左に旋回
+         */
+        "turnLeft": string;
+        /**
+         * 右に旋回
+         */
+        "turnRight": string;
+        /**
+         * 前に移動
+         */
+        "forward": string;
+        /**
+         * 後ろに移動
+         */
+        "backward": string;
+        /**
+         * 攻撃
+         */
+        "fire": string;
+        /**
+         * ドア・スイッチを使う
+         */
+        "use": string;
+        /**
+         * 決定
+         */
+        "confirm": string;
+        /**
+         * 効果音が鳴ります。BGMは再生しません。
+         */
+        "audioNotice": string;
+        /**
+         * エンジンのソースコード
+         */
+        "engineSource": string;
+        /**
+         * ゲームデータのライセンス
+         */
+        "dataLicense": string;
+        /**
+         * 結果画像を保存
+         */
+        "saveImage": string;
     };
 }

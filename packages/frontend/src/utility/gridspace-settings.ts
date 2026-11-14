@@ -5,9 +5,11 @@
 
 import type { PREF_DEF } from '@/preferences/def.js';
 import type { PreferencesProfile } from '@/preferences/manager.js';
+import { layoutSettingKeys, validLayoutSetting } from './gridspace-layout.js';
 
-// Only portable display/composer preferences. Never transfer accounts, plugins,
-// credentials, migration receipts, or server-local list/channel/drive IDs.
+// Display/composer preferences and layout snapshots only. Resource IDs in layouts
+// are remapped through the authenticated bridge before applying them. Never transfer
+// accounts, plugins, credentials, or migration receipts.
 export const portableSettingKeys = [
 	'autoTranslation.enabled', 'autoTranslation.targetLang', 'defaultNoteVisibility', 'defaultNoteLocalOnly', 'keepCw', 'rememberNoteVisibility',
 	'syncDeviceDarkMode', 'collapseRenotes', 'serverDisconnectedBehavior', 'nsfw', 'highlightSensitiveMedia', 'animation', 'animatedMfm', 'advancedMfm',
@@ -22,10 +24,11 @@ export const portableSettingKeys = [
 	'deck.alwaysShowMainColumn', 'deck.navWindow', 'deck.useSimpleUiForNonRootPages', 'deck.columnAlign', 'deck.columnGap', 'deck.menuPosition', 'deck.navbarPosition',
 	'chat.showSenderName', 'chat.sendOnEnter', 'themes', 'lightTheme', 'darkTheme', 'dataSaver',
 	'sound.on.note', 'sound.on.noteMy', 'sound.on.notification', 'sound.on.reaction', 'sound.on.chatMessage',
+	...layoutSettingKeys,
 ] as const satisfies readonly (keyof typeof PREF_DEF)[];
 type Key = typeof portableSettingKeys[number];
 type Scope = PreferencesProfile['preferences']['animation'][number][0];
-export type ClientSettings = { version: 1; values: Partial<Record<Key, unknown>>; visibility?: 'public' | 'home' | 'followers' | 'specified'; localOnly?: boolean };
+export type ClientSettings = { version: 1; values: Partial<Record<Key, unknown>>; visibility?: 'public' | 'home' | 'followers' | 'specified'; localOnly?: boolean; memos?: { memo: string | null; memo2: string | null } };
 const visibilities = ['public', 'home', 'followers', 'specified'];
 const stringOptions: Partial<Record<Key, readonly string[]>> = {
 	defaultNoteVisibility: visibilities, serverDisconnectedBehavior: ['quiet', 'reload', 'dialog'], nsfw: ['respect', 'force', 'ignore'],
@@ -53,7 +56,8 @@ export function parseClientSettings(raw: string): ClientSettings {
 		if (!(key in input.values)) continue;
 		const value = input.values[key];
 		let valid: boolean;
-		if (key === 'themes') valid = Array.isArray(value) && value.length <= 100 && value.every(t => t !== null && theme(t));
+		if ((layoutSettingKeys as readonly string[]).includes(key)) valid = validLayoutSetting(key, value);
+		else if (key === 'themes') valid = Array.isArray(value) && value.length <= 100 && value.every(t => t !== null && theme(t));
 		else if (key === 'lightTheme' || key === 'darkTheme') valid = theme(value);
 		else if (key.startsWith('sound.on.')) valid = value && (value.type === null || typeof value.type === 'string') && value.type !== '_driveFile_' && typeof value.volume === 'number' && value.volume >= 0 && value.volume <= 1;
 		else if (key === 'dataSaver') valid = value && ['media', 'avatar', 'urlPreviewThumbnail', 'disableUrlPreview', 'code'].every(k => typeof value[k] === 'boolean');
@@ -64,11 +68,12 @@ export function parseClientSettings(raw: string): ClientSettings {
 		if (!valid) throw new Error(`Invalid portable preference: ${key}`);
 		values[key] = value;
 	}
-	return { version: 1, values, visibility: input.visibility, localOnly: input.localOnly };
+	if (input.memos && !['memo', 'memo2'].every(key => input.memos[key] === null || typeof input.memos[key] === 'string' && input.memos[key].length <= 65536)) throw new Error('Invalid memo');
+	return { version: 1, values, visibility: input.visibility, localOnly: input.localOnly, memos: input.memos };
 }
 
 export async function snapshotClientSettings(profile: PreferencesProfile, server: string, account: string, activeAccount: string | undefined,
-	load: (key: Key, scope: Scope) => Promise<{ value: unknown } | null>, remembered: { visibility: string; localOnly: boolean }): Promise<string> {
+	load: (key: Key, scope: Scope) => Promise<{ value: unknown } | null>, remembered: { visibility: string; localOnly: boolean; memo?: string | null; memo2?: string | null }): Promise<string> {
 	const values: ClientSettings['values'] = {};
 	// Sequential cloud reads keep authorization from generating a request burst.
 	for (const key of portableSettingKeys) {
@@ -86,5 +91,6 @@ export async function snapshotClientSettings(profile: PreferencesProfile, server
 	}
 	const visibility = activeAccount === account ? remembered.visibility : values.defaultNoteVisibility;
 	const localOnly = activeAccount === account ? remembered.localOnly : values.defaultNoteLocalOnly;
-	return JSON.stringify(parseClientSettings(JSON.stringify({ version: 1, values, visibility, localOnly })));
+	const memos = activeAccount === account && remembered.memo !== undefined && remembered.memo2 !== undefined ? { memo: remembered.memo, memo2: remembered.memo2 } : undefined;
+	return JSON.stringify(parseClientSettings(JSON.stringify({ version: 1, values, visibility, localOnly, memos })));
 }

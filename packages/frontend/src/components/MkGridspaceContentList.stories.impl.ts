@@ -18,3 +18,12 @@ export const Default = {
 } satisfies StoryObj<typeof MkGridspaceContentList>;
 export const Unavailable = { ...Default, parameters: { msw: { handlers: [http.post('/api/gallery/posts', () => HttpResponse.json([local])), http.post('/api/gridspace/content', () => HttpResponse.error())] } } } satisfies StoryObj<typeof MkGridspaceContentList>;
 export const Empty = { ...Default, parameters: { msw: { handlers: [http.post('/api/gallery/posts', () => HttpResponse.json([])), http.post('/api/gridspace/content', () => HttpResponse.json({ origin: null, pages: [], gallery: [], next: null }))] } } } satisfies StoryObj<typeof MkGridspaceContentList>;
+
+export const Liked = {
+	...Default,
+	args: { kind: 'gallery', mode: 'liked' },
+	parameters: { msw: { handlers: [
+		http.post('/api/i/gallery/likes', () => HttpResponse.json([{ id: 'localLike', createdAt: local.createdAt, post: local }])),
+		http.post('/api/gridspace/managed-resource', () => HttpResponse.json({ enabled: true, items: [{ ...remote, gridspaceLikedAt: remote.createdAt }], next: null })),
+	] } },
+} satisfies StoryObj<typeof MkGridspaceContentList>;

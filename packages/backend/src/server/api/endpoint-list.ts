@@ -482,6 +482,7 @@ export * as 'gridspace/renote-target' from './endpoints/gridspace/renote-target.
 export * as 'gridspace/drive' from './endpoints/gridspace/drive.js';
 export * as 'gridspace/drive-import' from './endpoints/gridspace/drive-import.js';
 export * as 'gridspace/settings-import' from './endpoints/gridspace/settings-import.js';
+export * as 'gridspace/layout-reference' from './endpoints/gridspace/layout-reference.js';
 export * as 'gridspace/channels' from './endpoints/gridspace/channels.js';
 export * as 'gridspace/channel-post' from './endpoints/gridspace/channel-post.js';
 export * as 'gridspace/channel-delete' from './endpoints/gridspace/channel-delete.js';

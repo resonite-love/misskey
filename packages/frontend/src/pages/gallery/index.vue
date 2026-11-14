@@ -17,11 +17,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</MkFoldableSection>
 		</div>
 		<div v-else-if="tab === 'liked'">
-			<MkPagination v-slot="{items}" :paginator="likedPostsPaginator">
-				<div :class="$style.items">
-					<MkGalleryPostPreview v-for="like in items" :key="like.id" :post="like.post" class="post"/>
-				</div>
-			</MkPagination>
+			<MkGridspaceContentList kind="gallery" mode="liked"/>
 		</div>
 		<div v-else-if="tab === 'my'">
 			<MkA to="/gallery/new" class="_link" style="margin: 16px;"><i class="ti ti-plus"></i> {{ i18n.ts.postToGallery }}</MkA>
@@ -32,15 +28,12 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { watch, ref, computed, markRaw } from 'vue';
+import { watch, ref, computed } from 'vue';
 import MkGridspaceContentList from '@/components/MkGridspaceContentList.vue';
 import MkFoldableSection from '@/components/MkFoldableSection.vue';
-import MkPagination from '@/components/MkPagination.vue';
-import MkGalleryPostPreview from '@/components/MkGalleryPostPreview.vue';
 import { definePage } from '@/page.js';
 import { i18n } from '@/i18n.js';
 import { useRouter } from '@/router.js';
-import { Paginator } from '@/utility/paginator.js';
 
 const router = useRouter();
 
@@ -50,10 +43,6 @@ const props = defineProps<{
 
 const tab = ref('explore');
 const tagsRef = ref();
-
-const likedPostsPaginator = markRaw(new Paginator('i/gallery/likes', {
-	limit: 5,
-}));
 
 watch(() => props.tag, () => {
 	if (tagsRef.value) tagsRef.value.tags.toggleContent(props.tag == null);

@@ -210,5 +210,8 @@ export const packedPageSchema = {
 			type: 'boolean',
 			optional: true, nullable: false,
 		},
+		gridspaceLikeTarget: { type: 'string', optional: true },
+		gridspaceLikeId: { type: 'string', optional: true },
+		gridspaceLikedAt: { type: 'string', optional: true },
 	},
 } as const;

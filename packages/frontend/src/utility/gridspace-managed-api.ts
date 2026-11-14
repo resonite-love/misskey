@@ -24,7 +24,7 @@ export function managedId(kind: Kind, id: string) { return `gridspace:${kind}:${
 export function routeManagedApi(endpoint: string, data: Data, call: Call): Promise<unknown> | undefined {
 	for (const [prefix, { kind, key }] of Object.entries(paths)) {
 		const action = endpoint.slice(prefix.length + 1);
-		if (!endpoint.startsWith(prefix + '/') || !['show', 'update', 'delete', ...(kind === 'clip' ? ['add-note', 'remove-note'] : [])].includes(action)) continue;
+		if (!endpoint.startsWith(prefix + '/') || !['show', 'update', 'delete', ...(kind === 'clip' ? ['add-note', 'remove-note'] : []), ...(['page', 'gallery'].includes(kind) ? ['like', 'unlike'] : [])].includes(action)) continue;
 		const parsed = parseManagedId(data[key]);
 		if (parsed?.kind !== kind) continue;
 		const { [key]: _id, i: _token, ...values } = data;

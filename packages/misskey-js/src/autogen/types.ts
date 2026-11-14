@@ -2483,6 +2483,16 @@ export type paths = {
          */
         post: operations['gridspace___history'];
     };
+    '/gridspace/layout-reference': {
+        /**
+         * gridspace/layout-reference
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___layout-reference'];
+    };
     '/gridspace/link': {
         /**
          * gridspace/link
@@ -5408,6 +5418,9 @@ export type components = {
             attachedFiles: components['schemas']['DriveFile'][];
             likedCount: number;
             isLiked?: boolean;
+            gridspaceLikeTarget?: string;
+            gridspaceLikeId?: string;
+            gridspaceLikedAt?: string;
         };
         PageBlock: {
             id: string;
@@ -5610,6 +5623,9 @@ export type components = {
             isSensitive: boolean;
             likedCount: number;
             isLiked?: boolean;
+            gridspaceLikeTarget?: string;
+            gridspaceLikeId?: string;
+            gridspaceLikedAt?: string;
         };
         EmojiSimple: {
             aliases: string[];
@@ -26176,6 +26192,85 @@ export interface operations {
             };
         };
     };
+    'gridspace___layout-reference': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** @enum {string} */
+                    kind: 'folder' | 'file' | 'list' | 'antenna' | 'clip' | 'channel';
+                    id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        id: string;
+                        name?: string;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
     gridspace___link: {
         requestBody: {
             content: {
@@ -26375,7 +26470,7 @@ export interface operations {
                     /** @enum {string} */
                     kind: 'antenna' | 'page' | 'clip' | 'gallery';
                     /** @enum {string} */
-                    action: 'list' | 'show' | 'update' | 'delete' | 'lists' | 'add-note' | 'remove-note';
+                    action: 'list' | 'show' | 'update' | 'delete' | 'lists' | 'add-note' | 'remove-note' | 'reference' | 'liked' | 'inspect' | 'like' | 'unlike';
                     id?: string;
                     data?: {
                         [key: string]: unknown;
@@ -26405,6 +26500,7 @@ export interface operations {
                         }[];
                         /** @enum {string} */
                         clipNoteError?: 'already-added' | 'too-many';
+                        next?: string | null;
                     };
                 };
             };
@@ -30211,6 +30307,7 @@ export interface operations {
                 };
                 content: {
                     'application/json': {
+                        createdAt?: string;
                         /** Format: id */
                         id: string;
                         post: components['schemas']['GalleryPost'];
@@ -30964,6 +31061,7 @@ export interface operations {
                 };
                 content: {
                     'application/json': {
+                        createdAt?: string;
                         /** Format: id */
                         id: string;
                         page: components['schemas']['Page'];

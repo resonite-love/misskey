@@ -9,6 +9,7 @@ import type { PageLikesRepository } from '@/models/_.js';
 import { QueryService } from '@/core/QueryService.js';
 import { PageLikeEntityService } from '@/core/entities/PageLikeEntityService.js';
 import { DI } from '@/di-symbols.js';
+import { IdService } from '@/core/IdService.js';
 
 export const meta = {
 	tags: ['account', 'pages'],
@@ -23,6 +24,7 @@ export const meta = {
 		items: {
 			type: 'object',
 			properties: {
+				createdAt: { type: 'string', optional: true },
 				id: {
 					type: 'string',
 					optional: false, nullable: false,
@@ -58,6 +60,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 
 		private pageLikeEntityService: PageLikeEntityService,
 		private queryService: QueryService,
+		private idService: IdService,
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			const query = this.queryService.makePaginationQuery(this.pageLikesRepository.createQueryBuilder('like'), ps.sinceId, ps.untilId, ps.sinceDate, ps.untilDate)
@@ -68,7 +71,8 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				.limit(ps.limit)
 				.getMany();
 
-			return this.pageLikeEntityService.packMany(likes, me);
+			const packed = await this.pageLikeEntityService.packMany(likes, me);
+			return packed.map(item => ({ ...item, createdAt: this.idService.parse(item.id).date.toISOString() }));
 		});
 	}
 }

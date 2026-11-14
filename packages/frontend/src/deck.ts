@@ -53,6 +53,7 @@ export const columnTypes = [
 export type ColumnType = typeof columnTypes[number];
 
 export type Column = {
+	gridspaceImportError?: string;
 	id: string;
 	type: ColumnType;
 	name: string | null;
@@ -84,6 +85,18 @@ export const layout = ref(__currentProfile ? __currentProfile.layout : []);
 
 if (prefer.s['deck.profile'] == null) {
 	addProfile('Main');
+}
+
+/** Replace the in-memory deck after importing both profile preferences. */
+export function reloadCurrentDeckProfile() {
+	let current = prefer.s['deck.profiles'].find(p => p.name === prefer.s['deck.profile']);
+	if (!current) {
+		current = prefer.s['deck.profiles'][0];
+		if (!current) { addProfile('Main'); return; }
+		prefer.commit('deck.profile', current.name);
+	}
+	columns.value = deepClone(current.columns);
+	layout.value = deepClone(current.layout);
 }
 
 export function forceSaveCurrentDeckProfile() {

@@ -16,6 +16,7 @@ export const meta = {
 		item: { ...item, optional: false, nullable: true }, items: { type: 'array', optional: false, nullable: false, items: item },
 		aliases: { type: 'array', optional: false, nullable: false, items: { type: 'object', properties: { sourceId: { type: 'string' }, targetId: { type: 'string' } } } },
 		clipNoteError: { type: 'string', optional: true, nullable: false, enum: ['already-added', 'too-many'] },
+		next: { type: 'string', optional: true, nullable: true },
 	} },
 } as const;
 export const paramDef = { type: 'object', properties: managedInputProperties, required: ['kind', 'action'] } as const;

@@ -4,18 +4,19 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<XColumn :menu="menu" :column="column" :isStacked="isStacked" :refresher="async () => { await paginator.reload() }">
+<XColumn :menu="menu" :column="column" :isStacked="isStacked" :refresher="async () => { await (sharedClip ? sharedTimeline?.reload() : paginator.reload()) }">
 	<template #header>
 		<i class="ti ti-paperclip"></i><span style="margin-left: 8px;">{{ column.name || column.timelineNameCache || i18n.ts._deck._columns.clip }}</span>
 	</template>
 
 	<MkResult v-if="notFound" type="notFound"/>
+	<MkGridspaceNoteList v-else-if="sharedClip" ref="sharedTimeline" :source="{ kind: 'clip', clipId: sharedClip.id }"/>
 	<MkNotesTimeline v-else-if="column.clipId" :paginator="paginator" :withControl="false" :noGap="true"/>
 </XColumn>
 </template>
 
 <script lang="ts" setup>
-import { computed, markRaw, onMounted, onUnmounted, provide, ref, shallowRef, watch } from 'vue';
+import { computed, markRaw, onMounted, onUnmounted, provide, ref, shallowRef, watch, useTemplateRef } from 'vue';
 import * as Misskey from 'misskey-js';
 import XColumn from './column.vue';
 import type { Column } from '@/deck.js';
@@ -30,6 +31,11 @@ import { useStream } from '@/stream.js';
 import { $i } from '@/i.js';
 import { Paginator } from '@/utility/paginator.js';
 import { getClipColumnReloadDelayMs } from './clip-column.js';
+import MkGridspaceNoteList from '@/components/MkGridspaceNoteList.vue';
+import { parseManagedId } from '@/utility/gridspace-managed-api.js';
+import { loadClipMenu } from '@/utility/clip-menu.js';
+
+const sharedTimeline = useTemplateRef('sharedTimeline');
 
 const props = defineProps<{
 	column: Column;
@@ -38,6 +44,7 @@ const props = defineProps<{
 
 const clip = shallowRef<Misskey.entities.Clip | null>(null);
 const notFound = ref(false);
+const sharedClip = computed(() => parseManagedId(props.column.clipId));
 
 provide('currentClip', clip);
 
@@ -84,7 +91,7 @@ function disconnectChannel() {
 
 function connectChannel() {
 	disconnectChannel();
-	if (props.column.clipId == null) return;
+	if (props.column.clipId == null || sharedClip.value) return;
 	connection = useStream().useChannel('clip', {
 		clipId: props.column.clipId,
 	});
@@ -108,7 +115,9 @@ watch(() => props.column.clipId, async (clipId, _previousClipId, onCleanup) => {
 	if (clipId == null) return;
 
 	try {
-		const fetchedClip = await misskeyApi('clips/show', { clipId });
+		const fetchedClip = sharedClip.value
+			? (await misskeyApi('gridspace/managed-resource', { kind: 'clip', action: 'reference', id: sharedClip.value.id })).item as unknown as Misskey.entities.Clip
+			: await misskeyApi('clips/show', { clipId });
 		if (!active || props.column.clipId !== clipId) return;
 		clip.value = fetchedClip;
 		notFound.value = false;
@@ -134,7 +143,7 @@ onUnmounted(() => {
 
 async function setClip() {
 	const [myClips, favoritedClips] = await Promise.all([
-		clipsCache.fetch(),
+		loadClipMenu((path, data) => misskeyApi(path as keyof Misskey.Endpoints, data)).then(result => result.clips),
 		favoritedClipsCache.fetch(),
 	]);
 	const otherFavoritedClips = favoritedClips.filter(x => !myClips.some(y => y.id === x.id));
@@ -168,7 +177,7 @@ async function setClip() {
 
 function openClip() {
 	if (props.column.clipId == null) return;
-	os.pageWindow('/clips/' + props.column.clipId);
+	os.pageWindow(sharedClip.value ? `/clips/${sharedClip.value.id}/linked` : '/clips/' + props.column.clipId);
 }
 
 const menu: MenuItem[] = [

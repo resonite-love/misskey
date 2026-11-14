@@ -69,6 +69,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					<MkInfo v-if="settingsResult" role="status">{{ i18n.tsx._gridspace.settingsProgress({ done: settingsResult.done, total: settingsResult.total, failed: settingsResult.failed }) }}</MkInfo>
 					<MkInfo v-if="settingsComplete" role="status">{{ i18n.ts._gridspace.settingsCopied }}</MkInfo>
 					<MkInfo v-if="settingsError" warn role="alert">{{ i18n.ts._gridspace.settingsCopyFailed }}</MkInfo>
+					<MkInfo v-if="layoutIssues.length" warn>{{ i18n.ts._gridspace.layoutPartial }} {{ layoutIssues.join('、') }}</MkInfo>
 					<MkButton :disabled="busy" @click="startSettings">{{ i18n.ts._gridspace.settingsCopy }}</MkButton>
 					<MkButton v-if="settingsError && prefer.s.gridspaceSettingsImportRequest" :disabled="busy" @click="retrySettings">{{ i18n.ts.retry }}</MkButton>
 				</section>
@@ -124,6 +125,7 @@ import { prefer } from '@/preferences.js';
 import { gridspacePaletteSource, mergeGridspacePalette } from '@/utility/gridspace-palette.js';
 import { parseClientSettings, portableSettingKeys } from '@/utility/gridspace-settings.js';
 import { PREF_DEF } from '@/preferences/def.js';
+import { mapLayoutSettings, layoutSettingKeys } from '@/utility/gridspace-layout.js';
 import { $i } from '@/i.js';
 import { updateCurrentAccount } from '@/accounts.js';
 import { definePage } from '@/page.js';
@@ -147,6 +149,7 @@ const driveGrant = ref<entities.GridspaceDriveResponse | null>(null);
 const settingsResult = ref<entities.GridspaceSettingsImportResponse | null>(null);
 const settingsError = ref(false);
 const settingsComplete = ref(false);
+const layoutIssues = ref<string[]>([]);
 let settingsRunning = false;
 let settingsAttempted = false;
 const storageKey = `gridspace-link:${$i?.id}`;
@@ -297,13 +300,26 @@ async function resumeSettings(retry = false) {
 		if (prefer.s.gridspaceSettingsApplied !== requestId) {
 			if (!result.client) throw new Error('Source settings need authorization');
 			const snapshot = parseClientSettings(result.client);
+			if (layoutSettingKeys.some(key => key in snapshot.values)) {
+				let lists = await misskeyApi('gridspace/list-import', { action: 'start' });
+				while (lists.pending && !stopped) {
+					await new Promise(resolve => window.setTimeout(resolve, 1200));
+					if (stopped) return;
+					lists = await misskeyApi('gridspace/list-import', { action: 'step' });
+				}
+				const mapped = await mapLayoutSettings(snapshot.values, (kind, id) => misskeyApi('gridspace/layout-reference', { kind, id }), i18n.ts._gridspace.layoutReferenceUnavailable);
+				snapshot.values = mapped.values;
+				layoutIssues.value = mapped.issues;
+			}
 			for (const key of portableSettingKeys) {
 				if (!(key in snapshot.values)) continue;
 				if (!('accountDependent' in PREF_DEF[key]) || !PREF_DEF[key].accountDependent) prefer.setAccountOverride(key);
 				prefer.commit(key, snapshot.values[key] as never);
 			}
+			if ('deck.profiles' in snapshot.values || 'deck.profile' in snapshot.values) (await import('@/deck.js')).reloadCurrentDeckProfile();
 			if (snapshot.visibility !== undefined) store.set('visibility', snapshot.visibility);
 			if (snapshot.localOnly !== undefined) store.set('localOnly', snapshot.localOnly);
+			if (snapshot.memos) { store.set('memo', snapshot.memos.memo); store.set('memo2', snapshot.memos.memo2); }
 			prefer.commit('gridspaceSettingsApplied', requestId);
 		}
 		settingsResult.value = result;

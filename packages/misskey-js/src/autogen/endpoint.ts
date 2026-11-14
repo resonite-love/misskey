@@ -424,6 +424,8 @@ import type {
 	GridspaceDriveImportResponse,
 	GridspaceHistoryRequest,
 	GridspaceHistoryResponse,
+	GridspaceLayoutReferenceRequest,
+	GridspaceLayoutReferenceResponse,
 	GridspaceLinkRequest,
 	GridspaceLinkResponse,
 	GridspaceListImportRequest,
@@ -1017,6 +1019,7 @@ export type Endpoints = {
 	'gridspace/drive': { req: GridspaceDriveRequest; res: GridspaceDriveResponse };
 	'gridspace/drive-import': { req: GridspaceDriveImportRequest; res: GridspaceDriveImportResponse };
 	'gridspace/history': { req: GridspaceHistoryRequest; res: GridspaceHistoryResponse };
+	'gridspace/layout-reference': { req: GridspaceLayoutReferenceRequest; res: GridspaceLayoutReferenceResponse };
 	'gridspace/link': { req: GridspaceLinkRequest; res: GridspaceLinkResponse };
 	'gridspace/list-import': { req: GridspaceListImportRequest; res: GridspaceListImportResponse };
 	'gridspace/managed-resource': { req: GridspaceManagedResourceRequest; res: GridspaceManagedResourceResponse };

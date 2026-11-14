@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <MkContainer :showHeader="widgetProps.showHeader" class="mkw-aiscriptApp">
 	<template #header>App</template>
 	<div :class="$style.root">
+		<MkButton v-if="!widgetProps.runAutomatically" @click="startImported">{{ i18n.ts._gridspace.startImportedScript }}</MkButton>
 		<div v-if="isSyntaxError">Syntax error :(</div>
 		<MkAsUi v-else-if="root" :component="root" :components="components" size="small"/>
 	</div>
@@ -27,11 +28,13 @@ import { $i } from '@/i.js';
 import { i18n } from '@/i18n.js';
 import MkAsUi from '@/components/MkAsUi.vue';
 import MkContainer from '@/components/MkContainer.vue';
+import MkButton from '@/components/MkButton.vue';
 import { registerAsUiLib } from '@/aiscript/ui.js';
 
 const name = 'aiscriptApp';
 
 const widgetPropsDef = {
+	runAutomatically: { type: 'boolean', default: true, hidden: true },
 	script: {
 		type: 'string',
 		label: i18n.ts.script,
@@ -51,7 +54,7 @@ type WidgetProps = GetFormResultType<typeof widgetPropsDef>;
 const props = defineProps<WidgetComponentProps<WidgetProps>>();
 const emit = defineEmits<WidgetComponentEmits<WidgetProps>>();
 
-const { widgetProps, configure } = useWidgetPropsManager(name,
+const { widgetProps, configure, save } = useWidgetPropsManager(name,
 	widgetPropsDef,
 	props,
 	emit,
@@ -65,6 +68,7 @@ const components = ref<Ref<AsUiComponent>[]>([]);
 const isSyntaxError = ref(false);
 
 async function run() {
+	if (!widgetProps.runAutomatically) return;
 	if (aiscript) aiscript.abort();
 	root.value = undefined;
 	components.value = [];
@@ -117,6 +121,8 @@ async function run() {
 		});
 	}
 }
+
+function startImported() { widgetProps.runAutomatically = true; save(); void run(); }
 
 watch(() => widgetProps.script, () => {
 	run();

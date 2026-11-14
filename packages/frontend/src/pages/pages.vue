@@ -16,34 +16,23 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</div>
 
 		<div v-else-if="tab === 'liked'">
-			<MkPagination v-slot="{items}" :paginator="likedPagesPaginator">
-				<div class="_gaps">
-					<MkPagePreview v-for="like in items" :key="like.page.id" :page="like.page"/>
-				</div>
-			</MkPagination>
+			<MkGridspaceContentList kind="pages" mode="liked"/>
 		</div>
 	</div>
 </PageWithHeader>
 </template>
 
 <script lang="ts" setup>
-import { computed, markRaw, ref } from 'vue';
+import { computed, ref } from 'vue';
 import MkGridspaceContentList from '@/components/MkGridspaceContentList.vue';
-import MkPagePreview from '@/components/MkPagePreview.vue';
-import MkPagination from '@/components/MkPagination.vue';
 import MkButton from '@/components/MkButton.vue';
 import { i18n } from '@/i18n.js';
 import { definePage } from '@/page.js';
 import { useRouter } from '@/router.js';
-import { Paginator } from '@/utility/paginator.js';
 
 const router = useRouter();
 
 const tab = ref('featured');
-
-const likedPagesPaginator = markRaw(new Paginator('i/page-likes', {
-	limit: 5,
-}));
 
 function create() {
 	router.push('/pages/new');
