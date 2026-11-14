@@ -26414,6 +26414,7 @@ export interface operations {
                         done: number;
                         failed: number;
                         pending: number;
+                        skipped?: number;
                     };
                 };
             };

@@ -13891,9 +13891,13 @@ export interface Locale extends ILocale {
          */
         "listsDescription": string;
         /**
-         * リスト・メンバー・アンテナのコピー: {done} / {total}件完了、失敗 {failed}件
+         * リスト・メンバー・アンテナ全{total}件：完了 {done}件、スキップ {skipped}件、失敗 {failed}件
          */
-        "listsProgress": ParameterizedString<"done" | "total" | "failed">;
+        "listsProgress": ParameterizedString<"total" | "done" | "skipped" | "failed">;
+        /**
+         * 取得先で利用できなくなったアカウントをスキップしました。残りの項目は引き続き取り込めます。
+         */
+        "listsSkipped": string;
         /**
          * 画面・投稿設定とミュート・ブロックの引き継ぎ
          */

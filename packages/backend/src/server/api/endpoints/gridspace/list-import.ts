@@ -27,6 +27,7 @@ import { gridspaceHash } from '@/core/gridspace/link-crypto.js';
 import { migrateAntennaUsers, type LinkedList, type LinkedAntenna } from '@/core/gridspace/collections-protocol.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { ApiError } from '@/server/api/error.js';
+import { StatusError } from '@/misc/status-error.js';
 
 const count = { type: 'integer', optional: false, nullable: false } as const;
 export const meta = {
@@ -35,12 +36,13 @@ export const meta = {
 	errors: { unavailable: { message: 'Linked lists import is unavailable.', code: 'GRIDSPACE_LISTS_UNAVAILABLE', id: '7827f8fb-5d74-43c1-b473-d3f21f1d71a7' } },
 	res: { type: 'object', optional: false, nullable: false, properties: {
 		started: { type: 'boolean', optional: false, nullable: false }, complete: { type: 'boolean', optional: false, nullable: false },
-		total: count, done: count, failed: count, pending: count,
+		total: count, done: count, failed: count, pending: count, skipped: { ...count, optional: true },
 	} },
 } as const;
 export const paramDef = { type: 'object', properties: { action: { type: 'string', enum: ['start', 'step', 'status', 'retry'], default: 'status' } }, required: [] } as const;
 type State = 'pending' | 'done' | 'failed';
-type Job = { binding: Awaited<ReturnType<GridspaceLinkService['checkSettingsAuthorization']>>; lists: { source: LinkedList; targetId: string; created: boolean; state: State; members: State[] }[];
+type MemberState = State | 'skipped';
+type Job = { binding: Awaited<ReturnType<GridspaceLinkService['checkSettingsAuthorization']>>; lists: { source: LinkedList; targetId: string; created: boolean; state: State; members: MemberState[] }[];
 	antennas?: { source: LinkedAntenna; targetId: string; state: State }[] };
 const scope = ['gridspace', 'listImport'];
 
@@ -82,7 +84,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			}
 			await save();
 		}
-		if (!job) return { started: false, complete: false, total: 0, done: 0, failed: 0, pending: 0 };
+		if (!job) return { started: false, complete: false, total: 0, done: 0, failed: 0, pending: 0, skipped: 0 };
 		const check = async () => {
 			const current = await this.links.checkSettingsAuthorization(me);
 			if (Object.keys(job!.binding).some(k => current[k as keyof typeof current] !== job!.binding[k as keyof typeof current])) throw new GridspaceLinkError('LINK_REVOKED');
@@ -137,7 +139,18 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 						const member = list.source.members[i];
 						const uri = new URL(member.uri);
 						const own = uri.origin === new URL(this.config.url).origin && /^\/users\/[a-zA-Z0-9]+$/.test(uri.pathname);
-						const user = own ? await this.db.getRepository(MiUser).findOneByOrFail({ id: uri.pathname.split('/').at(-1), host: IsNull() }) : await this.db.getRepository(MiUser).findOneBy({ uri: member.uri }) ?? await this.people.resolvePerson(member.uri);
+						let user: MiUser;
+						try {
+							user = own ? await this.db.getRepository(MiUser).findOneByOrFail({ id: uri.pathname.split('/').at(-1), host: IsNull() }) : await this.db.getRepository(MiUser).findOneBy({ uri: member.uri }) ?? await this.people.resolvePerson(member.uri);
+						} catch (error) {
+							// Only the actor lookup's explicit Gone response is terminal.
+							// Other failures and errors in later writes remain retryable.
+							if (!(error instanceof StatusError) || error.statusCode !== 410) throw error;
+							await check();
+							list.members[i] = 'skipped';
+							await save();
+							continue;
+						}
 						await check();
 						if (user.isDeleted || user.isSuspended || await this.db.getRepository(MiBlocking).existsBy([{ blockerId: user.id, blockeeId: me.id }, { blockerId: me.id, blockeeId: user.id }])) throw new Error('Unavailable member');
 						if (!await this.db.getRepository(MiUserListMembership).existsBy({ userListId: target.id, userId: user.id })) {
@@ -147,7 +160,8 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					} catch (error) {
 						if (error instanceof GridspaceLinkError) throw error;
 						const persisted = (await this.registry.getItem(me.id, settingsDomain, scope, key))!.value as Job;
-						list.members[i] = persisted.lists.find(l => l.targetId === list.targetId)!.members[i] === 'done' ? 'done' : 'failed';
+						const state = persisted.lists.find(l => l.targetId === list.targetId)!.members[i];
+						list.members[i] = state === 'done' || state === 'skipped' ? state : 'failed';
 					}
 					await save();
 				}
@@ -160,7 +174,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					await check();
 					const source = antenna.source;
 					const list = source.src === 'list' ? job.lists.find(item => item.source.id === source.userListId) : null;
-					if (source.src === 'list' && (!list || list.state !== 'done' || list.members.some(s => s !== 'done') ||
+					if (source.src === 'list' && (!list || list.state !== 'done' || list.members.some(s => s !== 'done' && s !== 'skipped') ||
 						!await this.db.getRepository(MiUserList).existsBy({ id: list.targetId, userId: me.id }))) throw new Error('List import incomplete');
 					if (await this.db.getRepository(MiAntenna).countBy({ userId: me.id }) >= (await this.roles.getUserPolicies(me.id)).antennaLimit) throw new Error('Antenna limit');
 					const { id: _id, userListId: _sourceListId, ...settings } = source;
@@ -183,8 +197,9 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		const states = [...job.lists.flatMap(list => [list.state, ...list.members]), ...(shared ? [] : job.antennas ?? []).map(antenna => antenna.state)];
 		const done = states.filter(s => s === 'done').length;
 		const failed = states.filter(s => s === 'failed').length;
+		const skipped = states.filter(s => s === 'skipped').length;
 		// A failed list cannot advance its children until explicitly retried.
 		const pending = job.lists.reduce((n, list) => n + (list.state === 'pending' ? 1 : 0) + (list.state === 'failed' ? 0 : list.members.filter(s => s === 'pending').length), 0) + (shared ? [] : job.antennas ?? []).filter(a => a.state === 'pending').length;
-		return { started: true, complete: (shared || job.antennas !== undefined) && done === states.length, total: states.length, done, failed, pending };
+		return { started: true, complete: (shared || job.antennas !== undefined) && done + skipped === states.length, total: states.length, done, failed, pending, skipped };
 	}
 }

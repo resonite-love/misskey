@@ -19,6 +19,7 @@ import type { UserListService } from '@/core/UserListService.js';
 import type { RegistryApiService } from '@/core/RegistryApiService.js';
 import type { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
 import ListImport from '@/server/api/endpoints/gridspace/list-import.js';
+import { StatusError } from '@/misc/status-error.js';
 import type { GridspaceFollowGuardService } from './GridspaceFollowGuardService.js';
 import { GridspaceLinkError, type GridspaceLinkService } from './GridspaceLinkService.js';
 import { parseLinkedLists, parseLinkedAntennas, migrateAntennaUsers, type LinkedList, type LinkedAntenna } from './collections-protocol.js';
@@ -145,4 +146,61 @@ describe('list import receipts', () => {
 		expect(migrateAntennaUsers(['local', '@other@outside.example'], 'https://r.example', 'https://g.example')).toEqual(['local@r.example', 'other@outside.example']);
 		expect(migrateAntennaUsers(['', ' \t', 'local', ''], 'https://r.example', 'https://g.example')).toEqual(['local@r.example']);
 	});
+});
+
+describe('gone list members', () => {
+ test('skips HTTP 410 during actor resolution and finishes the remaining members and dependent antenna', async () => {
+  const f = fixture(2); f.sourceAntennas.push({ ...antenna(), src: 'list', userListId: 'source' });
+  f.people.resolvePerson.mockRejectedValueOnce(new StatusError('410 Gone', 410));
+  expect(await f.call()).toMatchObject({ complete: true, total: 4, done: 3, skipped: 1, failed: 0, pending: 0 });
+  expect(f.memberships.has('u0')).toBe(false); expect(f.memberships.has('u1')).toBe(true);
+  expect(f.antennas.size).toBe(1);
+  const calls = f.people.resolvePerson.mock.calls.length;
+  expect(await f.call('status')).toMatchObject({ complete: true, skipped: 1 });
+  expect(await f.call('retry')).toMatchObject({ complete: true, skipped: 1 });
+  expect(f.people.resolvePerson).toHaveBeenCalledTimes(calls); expect(f.targets.size).toBe(1);
+ });
+ test.each([404, 403, 429, 500, 503])('keeps HTTP %i failures retryable', async status => {
+  const f = fixture(2); f.people.resolvePerson.mockRejectedValueOnce(new StatusError('Unavailable', status));
+  expect(await f.call()).toMatchObject({ complete: false, done: 2, skipped: 0, failed: 1 });
+  expect(await f.call('retry')).toMatchObject({ complete: true, done: 3, skipped: 0, failed: 0 });
+  expect(f.targets.size).toBe(1); expect(f.memberships.size).toBe(2);
+ });
+ test('does not interpret an arbitrary error message as a Gone response', async () => {
+  const f = fixture(1); f.people.resolvePerson.mockRejectedValueOnce(new Error('410 Gone'));
+  expect(await f.call()).toMatchObject({ skipped: 0, failed: 1, complete: false });
+ });
+ test('does not skip a 410 from adding an already resolved member', async () => {
+  const f = fixture(1); f.lists.addMember.mockRejectedValueOnce(new StatusError('410 Gone', 410));
+  expect(await f.call()).toMatchObject({ skipped: 0, failed: 1, complete: false });
+ });
+ test('retries an older failed receipt and then preserves the skipped result', async () => {
+  const f = fixture(1); f.people.resolvePerson.mockRejectedValueOnce(new Error('Offline'));
+  expect(await f.call()).toMatchObject({ failed: 1 });
+  f.people.resolvePerson.mockRejectedValueOnce(new StatusError('410 Gone', 410));
+  expect(await f.call('retry')).toMatchObject({ complete: true, done: 1, skipped: 1, failed: 0 });
+  expect(f.memberships.size).toBe(0); expect(f.targets.size).toBe(1);
+ });
+ test('rechecks authorization before saving a skipped member', async () => {
+  const f = fixture(1); f.people.resolvePerson.mockImplementation(async () => {
+   f.links.checkSettingsAuthorization.mockRejectedValue(new GridspaceLinkError('LINK_REVOKED'));
+   throw new StatusError('410 Gone', 410);
+  });
+  await expect(f.call()).rejects.toMatchObject({ code: 'GRIDSPACE_LISTS_UNAVAILABLE' });
+  expect(f.registry.set.mock.calls.at(-1)?.[4]).toMatchObject({ lists: [{ members: ['pending'] }] });
+ });
+});
+
+test('preserves a committed skip when only the save acknowledgement is lost', async () => {
+ const f = fixture(1); f.people.resolvePerson.mockRejectedValueOnce(new StatusError('410 Gone', 410));
+ const save = f.registry.set.getMockImplementation()!;
+ let lost = false;
+ f.registry.set.mockImplementation(async (...args) => {
+  const result = await save(...args);
+  if (!lost && (args[4] as any).lists[0].members[0] === 'skipped') { lost = true; throw new Error('Ack lost'); }
+  return result;
+ });
+ expect(await f.call()).toMatchObject({ complete: true, done: 1, skipped: 1, failed: 0 });
+ expect(await f.call('retry')).toMatchObject({ complete: true, skipped: 1 });
+ expect(f.people.resolvePerson).toHaveBeenCalledTimes(1); expect(f.memberships.size).toBe(0);
 });
