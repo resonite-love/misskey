@@ -478,6 +478,7 @@ export * as 'gridspace/palette' from './endpoints/gridspace/palette.js';
 export * as 'gridspace/profile-import' from './endpoints/gridspace/profile-import.js';
 export * as 'gridspace/collections' from './endpoints/gridspace/collections.js';
 export * as 'gridspace/list-import' from './endpoints/gridspace/list-import.js';
+export * as 'gridspace/play-import' from './endpoints/gridspace/play-import.js';
 export * as 'gridspace/renote-target' from './endpoints/gridspace/renote-target.js';
 export * as 'gridspace/drive' from './endpoints/gridspace/drive.js';
 export * as 'gridspace/drive-import' from './endpoints/gridspace/drive-import.js';

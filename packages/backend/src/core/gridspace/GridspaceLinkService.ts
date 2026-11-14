@@ -19,6 +19,8 @@ import { MiUserList } from '@/models/UserList.js';
 import { MiUserListMembership } from '@/models/UserListMembership.js';
 import { parseLinkedLists, parseLinkedAntennas, type LinkedList } from './collections-protocol.js';
 import { MiAntenna } from '@/models/Antenna.js';
+import { MiFlash } from '@/models/Flash.js';
+import { parseLinkedPlay, parseLinkedPlayIndex } from './play-import-protocol.js';
 import { parseLinkedProfile, type LinkedProfile } from './profile-protocol.js';
 import { GRIDSPACE_PALETTE_SCOPE, GRIDSPACE_PALETTE_REGISTRY_SCOPE, GRIDSPACE_PALETTE_REGISTRY_KEY, parseGridspacePalette, type GridspacePalette } from './palette-protocol.js';
 import { MiAccessToken } from '@/models/AccessToken.js';
@@ -41,7 +43,7 @@ export class GridspaceLinkError extends Error {
 	constructor(public code: string) { super(code); }
 }
 
-export type GridspacePeerLinkRequest = { channelActorId?: string; accessToken?: string; linkId?: string; generation?: number; localUserId?: string; localUsername?: string; pairId?: string; expectedRevision?: number; reverseToken?: string };
+export type GridspacePeerLinkRequest = { channelActorId?: string; accessToken?: string; linkId?: string; generation?: number; localUserId?: string; localUsername?: string; pairId?: string; expectedRevision?: number; reverseToken?: string; playId?: string };
 
 @Injectable()
 export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown {
@@ -89,7 +91,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 			// node-fetch bounds streaming bodies, not just Content-Length.
 			const result = await response.json();
 			if (!response.ok) {
-				const known = ['LINK_CONFLICT', 'LINK_REVOKED', 'AUTHORIZATION_REVOKED', 'SNAPSHOT_TOO_LARGE', 'REPLY_UNAVAILABLE', 'REPLY_REJECTED', 'REPLY_CONFLICT', 'REPLY_DELETED', 'RATE_LIMITED', 'ACTION_REJECTED', 'FILE_REJECTED'];
+				const known = ['LINK_CONFLICT', 'LINK_REVOKED', 'AUTHORIZATION_REVOKED', 'SNAPSHOT_TOO_LARGE', 'REPLY_UNAVAILABLE', 'REPLY_REJECTED', 'REPLY_CONFLICT', 'REPLY_DELETED', 'RATE_LIMITED', 'ACTION_REJECTED', 'FILE_REJECTED', 'PLAY_UNAVAILABLE'];
 				const code = (result as { error?: unknown } | null)?.error;
 				throw new GridspaceLinkError(typeof code === 'string' && known.includes(code) ? code : 'PEER_UNAVAILABLE');
 			}
@@ -216,9 +218,29 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		}
 		const user = await this.authorized(input.accessToken);
 		if (action === 'identity') return { id: user.id, username: user.username };
-		if (action === 'check' || action === 'palette' || action === 'profile' || action === 'settings' || action === 'lists' || action === 'antennas') {
+		if (action === 'check' || action === 'palette' || action === 'profile' || action === 'settings' || action === 'lists' || action === 'antennas' || action === 'plays') {
 			const exists = await this.db.getRepository(MiGridspaceLink).existsBy({ id: input.linkId, localUserId: user.id, peerUserId: input.localUserId, peerOrigin: peer.peerOrigin, generation: input.generation, state: 'active' });
 			if (!exists) throw new GridspaceLinkError('LINK_REVOKED');
+			if (action === 'plays') {
+				if (this.config.gridspace?.channelRole !== 'source') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+				const checkScope = async () => {
+					if (!await this.db.getRepository(MiAccessToken).existsBy({ token: input.accessToken, userId: user.id, permission: Raw(alias => `${alias} @> ARRAY['read:flash']::varchar[]`) })) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+				};
+				await checkScope();
+				let result: object;
+				if (input.playId) {
+					const play = await this.db.getRepository(MiFlash).findOneBy({ id: input.playId, userId: user.id });
+					if (!play) throw new GridspaceLinkError('PLAY_UNAVAILABLE');
+					result = { userId: user.id, play: parseLinkedPlay(play) };
+				} else {
+					const items = await this.db.getRepository(MiFlash).find({ select: { id: true, title: true }, where: { userId: user.id }, order: { id: 'ASC' }, take: 1001 });
+					if (items.length > 1000) throw new GridspaceLinkError('SNAPSHOT_TOO_LARGE');
+					result = { userId: user.id, items: parseLinkedPlayIndex(items) };
+				}
+				await this.peerAction('check', input);
+				await checkScope();
+				return result;
+			}
 			if (action === 'antennas') {
 				if (this.config.gridspace?.channelRole !== 'source') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 				const antennas = await this.db.getRepository(MiAntenna).find({ where: { userId: user.id }, order: { id: 'ASC' }, take: 1001 });
@@ -414,6 +436,21 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		const current = await this.checkSettingsAuthorization(user);
 		if (Object.keys(binding).some(key => binding[key as keyof typeof binding] !== current[key as keyof typeof current]) || result.userId !== binding.peerUserId) throw new GridspaceLinkError('LINK_REVOKED');
 		return { ...current, antennas: parseLinkedAntennas(result.antennas) };
+	}
+
+	public async plays(user: MiLocalUser, playId?: string) {
+		const binding = await this.checkSettingsAuthorization(user);
+		if (this.config.gridspace?.channelRole !== 'client') throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const link = await this.privateLink(user.id);
+		if (!link.tokenCipher) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const result = await this.json<{ userId: string; items?: unknown; play?: unknown }>('/gridspace/v1/link/plays', {
+			linkId: link.id, generation: link.generation, localUserId: user.id, accessToken: openGridspaceSecret(this.enabled(), link.tokenCipher, link.id), playId,
+		});
+		const current = await this.checkSettingsAuthorization(user);
+		if (Object.keys(binding).some(key => binding[key as keyof typeof binding] !== current[key as keyof typeof current]) || result.userId !== binding.peerUserId) throw new GridspaceLinkError('LINK_REVOKED');
+		const play = playId ? parseLinkedPlay(result.play) : null;
+		if (play && play.id !== playId) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		return { ...binding, items: playId ? [] : parseLinkedPlayIndex(result.items), play };
 	}
 
 	public async hasCollectionScope(input: GridspacePeerLinkRequest, kind: 'favorites' | 'clips' | 'clip-favorites') {

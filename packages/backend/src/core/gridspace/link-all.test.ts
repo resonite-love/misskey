@@ -57,7 +57,7 @@ test.each([GRIDSPACE_CLIENT_PATH, GRIDSPACE_PRIVATE_CLIENT_PATH])('revoking a bo
 	const link = { localUserId: 'user', privateTokenHash: gridspaceHash(token.token) } as MiGridspaceLink;
 	await service['deletePrivateBinding'](manager, link);
 	if (path === GRIDSPACE_CLIENT_PATH) {
-		expect(update).toHaveBeenCalledExactlyOnceWith('bound', { permission: [...GRIDSPACE_LINK_SCOPES, GRIDSPACE_PALETTE_SCOPE, 'read:drive'] });
+		expect(update).toHaveBeenCalledExactlyOnceWith('bound', { permission: [...GRIDSPACE_LINK_SCOPES, GRIDSPACE_PALETTE_SCOPE, 'read:drive', 'write:drive', 'read:flash'] });
 		expect(remove).not.toHaveBeenCalled();
 	} else {
 		expect(remove).toHaveBeenCalledExactlyOnceWith('bound');

@@ -322,7 +322,7 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 		client_name: 'GridSpace account link',
 		redirect_uris: [config.origin + GRIDSPACE_CALLBACK_PATH],
 	}));
-	for (const name of ['identity', 'prepare', 'check', 'revoke', 'palette', 'profile', 'settings', 'lists', 'antennas']) {
+	for (const name of ['identity', 'prepare', 'check', 'revoke', 'palette', 'profile', 'settings', 'lists', 'antennas', 'plays']) {
 		fastify.post<{ Body: GridspacePeerLinkRequest }>(`/link/${name}`, {
 			bodyLimit: 4096, config: { rawBody: true }, preHandler: authenticate,
 			schema: {
@@ -334,14 +334,15 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 						generation: { type: 'integer', minimum: 1, maximum: 2147483647 },
 						localUserId: { type: 'string', minLength: 1, maxLength: 32 },
 						localUsername: { type: 'string', minLength: 1, maxLength: 128 },
+						playId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 					},
-					required: name === 'identity' ? ['accessToken'] : name === 'revoke' ? ['linkId', 'generation', 'localUserId'] : (name === 'check' || name === 'palette' || name === 'profile' || name === 'settings' || name === 'lists' || name === 'antennas') ? ['accessToken', 'linkId', 'generation', 'localUserId'] : ['accessToken', 'linkId', 'generation', 'localUserId', 'localUsername'],
+					required: name === 'identity' ? ['accessToken'] : name === 'revoke' ? ['linkId', 'generation', 'localUserId'] : (name === 'check' || name === 'palette' || name === 'profile' || name === 'settings' || name === 'lists' || name === 'antennas' || name === 'plays') ? ['accessToken', 'linkId', 'generation', 'localUserId'] : ['accessToken', 'linkId', 'generation', 'localUserId', 'localUsername'],
 				},
 			},
 		}, async (request, reply) => {
 			try { return await action(name, request.body); } catch (error) {
 				const code = error instanceof Error && 'code' in error ? error.code : null;
-				const known = ['LINK_CONFLICT', 'LINK_REVOKED', 'AUTHORIZATION_REVOKED', 'SNAPSHOT_TOO_LARGE', 'INVALID_CALLBACK'];
+				const known = ['LINK_CONFLICT', 'LINK_REVOKED', 'AUTHORIZATION_REVOKED', 'SNAPSHOT_TOO_LARGE', 'INVALID_CALLBACK', 'PLAY_UNAVAILABLE'];
 				return reply.code(code === 'AUTHORIZATION_REVOKED' ? 403 : 409).send({ error: typeof code === 'string' && known.includes(code) ? code : 'PEER_UNAVAILABLE' });
 			}
 		});

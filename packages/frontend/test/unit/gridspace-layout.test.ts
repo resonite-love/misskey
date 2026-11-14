@@ -41,4 +41,35 @@ describe('layout migration', () => {
 		expect(parsed.memos?.memo).toBe('remember');
 		expect(parsed.values.uploadFolder).toBe('folder1');
 	});
+	test('maps pinned lists, list statusbars and watermark images through the source-owned references', async () => {
+		const resolve = vi.fn(async (kind: string, id: string) => ({ id: `${kind}-${id}`, name: 'Mapped list' }));
+		const input = { pinnedUserLists: [{ id: 'list1', name: 'Old list' }], statusbars: [{ type: 'userList', props: { userListId: 'list1' } }],
+			watermarkPresets: [{ id: 'preset1', name: 'Logo', layers: [{ type: 'image', imageId: 'file1', imageUrl: 'https://files.example/logo.png' }] }] };
+		const result = await mapLayoutSettings(input, resolve, 'unavailable');
+		expect(result.values.pinnedUserLists[0]).toMatchObject({ id: 'list-list1', name: 'Mapped list' });
+		expect(result.values.statusbars[0].props.userListId).toBe('list-list1');
+		expect(result.values.watermarkPresets[0].layers[0]).toMatchObject({ imageId: 'file-file1', imageUrl: 'https://files.example/logo.png' });
+		expect(resolve).toHaveBeenCalledTimes(2);
+		expect(input.pinnedUserLists[0].id).toBe('list1');
+	});
+	test('does not leave colliding references active when a list or watermark image is missing', async () => {
+		const result = await mapLayoutSettings({ pinnedUserLists: [{ id: 'gone', name: 'Gone' }], statusbars: [{ name: 'Gone', type: 'userList', props: { userListId: 'gone' } }],
+			watermarkPresets: [{ id: 'preset1', name: 'Logo', layers: [{ type: 'image', imageId: 'gone' }, { type: 'text', text: 'keep' }] }] }, async () => { throw new Error('missing'); }, 'unavailable');
+		expect(result.values.pinnedUserLists).toEqual([]);
+		expect(result.values.statusbars[0].type).toBeNull();
+		expect(result.values.statusbars[0].props.userListId).toBeUndefined();
+		expect(result.values.watermarkPresets[0].layers).toEqual([{ type: 'text', text: 'keep' }]);
+		expect(result.issues).toHaveLength(3);
+	});
+});
+
+test('requires complete timer and display settings for active statusbars', () => {
+ const bar = { id: 'bar1', name: null, type: 'rss', size: 'small', black: false, props: { url: 'https://news.example/rss', refreshIntervalSec: 120, display: 'marquee', marqueeDuration: 100, marqueeReverse: false, shuffle: true } };
+ expect(validLayoutSetting('statusbars', [bar])).toBe(true);
+ for (const key of ['refreshIntervalSec', 'url', 'display', 'marqueeDuration']) {
+  const broken = structuredClone(bar); delete (broken.props as Record<string, unknown>)[key];
+  expect(validLayoutSetting('statusbars', [broken])).toBe(false);
+ }
+ expect(validLayoutSetting('statusbars', [{ ...bar, props: { ...bar.props, refreshIntervalSec: NaN } }])).toBe(false);
+ expect(validLayoutSetting('statusbars', [{ ...bar, type: null, props: {} }])).toBe(true);
 });

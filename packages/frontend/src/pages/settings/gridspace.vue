@@ -82,6 +82,17 @@ SPDX-License-Identifier: AGPL-3.0-only
 					<MkButton v-if="settingsError && prefer.s.gridspaceSettingsImportRequest" :disabled="busy" @click="retrySettings">{{ i18n.ts.retry }}</MkButton>
 				</section>
 				<section class="_gaps_s">
+					<h2>{{ i18n.ts._gridspace.playImportTitle }}</h2>
+					<p>{{ i18n.ts._gridspace.playImportDescription }}</p>
+					<div v-if="playImportResult?.started" role="status">{{ i18n.tsx._gridspace.playImportProgress({ done: playImportResult.done, total: playImportResult.total, failed: playImportResult.failed }) }}</div>
+					<MkInfo v-if="playImportError" warn role="alert">{{ i18n.ts._gridspace.playImportFailed }}</MkInfo>
+					<div class="_buttons">
+						<MkButton :disabled="busy || playImportBusy || playImportResult?.complete" @click="runPlayImport(true, playImportError)">{{ playImportError ? i18n.ts.retry : i18n.ts._gridspace.playImportStart }}</MkButton>
+						<MkButton v-if="playImportError" :disabled="busy || playImportBusy" @click="start">{{ i18n.ts._gridspace.reauthorize }}</MkButton>
+						<MkA to="/play?tab=my">{{ i18n.ts._gridspace.openMyPlay }}</MkA>
+					</div>
+				</section>
+				<section class="_gaps_s">
 					<h2>{{ i18n.ts._gridspace.collectionsTitle }}</h2>
 					<p>{{ i18n.ts._gridspace.collectionsDescription }}</p>
 					<div class="_buttons">
@@ -161,6 +172,11 @@ const settingsError = ref(false);
 const settingsComplete = ref(false);
 const layoutIssues = ref<string[]>([]);
 const skippedSettings = ref<string[]>([]);
+const playImportResult = ref<entities.GridspacePlayImportResponse | null>(null);
+const playImportBusy = ref(false);
+const playImportError = ref(false);
+let playImportAutoStart = false;
+let skipPlayImport = false;
 let settingsRunning = false;
 let settingsAttempted = false;
 const storageKey = `gridspace-link:${$i?.id}`;
@@ -357,6 +373,7 @@ async function resumeSettings(retry = false) {
 			if ('deck.profiles' in snapshot.values || 'deck.profile' in snapshot.values) (await import('@/deck.js')).reloadCurrentDeckProfile();
 			if (snapshot.visibility !== undefined) store.set('visibility', snapshot.visibility);
 			if (snapshot.localOnly !== undefined) store.set('localOnly', snapshot.localOnly);
+			if (snapshot.menuDisplay !== undefined) await store.set('menuDisplay', snapshot.menuDisplay);
 			if (snapshot.memos) { store.set('memo', snapshot.memos.memo); store.set('memo2', snapshot.memos.memo2); }
 			prefer.commit('gridspaceSettingsApplied', requestId);
 		}
@@ -374,6 +391,25 @@ async function resumeSettings(retry = false) {
 }
 
 async function retrySettings() { await perform(() => resumeSettings(true)); }
+
+async function runPlayImport(start = false, retry = false) {
+	if (playImportBusy.value || stopped || !status.value?.initiator || !status.value.channelsEnabled) return;
+	playImportBusy.value = true;
+	playImportError.value = false;
+	try {
+		let result = await misskeyApi('gridspace/play-import', { action: start ? 'start' : 'status' });
+		if (!start && result.pending) result = await misskeyApi('gridspace/play-import', { action: 'start' });
+		if (retry) result = await misskeyApi('gridspace/play-import', { action: 'retry' });
+		playImportResult.value = result;
+		while (result.pending && !stopped) {
+			await new Promise(resolve => window.setTimeout(resolve, 1200));
+			if (stopped) break;
+			result = await misskeyApi('gridspace/play-import', { action: 'step' });
+			playImportResult.value = result;
+		}
+		playImportError.value = result.failed > 0;
+	} catch { playImportError.value = true; } finally { playImportBusy.value = false; }
+}
 
 async function revoke() {
 	const { canceled } = await os.confirm({ type: 'warning', text: i18n.ts._gridspace.revokeConfirm });
@@ -406,11 +442,13 @@ onMounted(async () => {
 					prefer.commit('gridspacePaletteImportPending', true);
 					if (!recentEmojisOnly) {
 						listsAutoStart.value = true;
+						playImportAutoStart = true;
 						prefer.commit('gridspaceProfileImportPending', true);
 					} else {
 						// Leave earlier migration jobs pending; this return imports only history.
 						profileAttempted = true;
 						settingsAttempted = true;
+						skipPlayImport = true;
 					}
 					await resumePalette();
 					if (!recentEmojisOnly) {
@@ -442,6 +480,7 @@ onMounted(async () => {
 	if (!paletteAttempted) await resumePalette();
 	if (!profileAttempted) await perform(resumeProfile);
 	if (!settingsAttempted) await perform(() => resumeSettings());
+	if (!skipPlayImport) void runPlayImport(playImportAutoStart);
 	poll = window.setInterval(() => { if (status.value?.pending && !busy.value) void refresh(); }, 3000);
 });
 onUnmounted(() => { stopped = true; window.clearInterval(poll); });

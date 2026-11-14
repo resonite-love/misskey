@@ -2138,6 +2138,8 @@ declare namespace entities {
         GridspaceNotificationsReadRequest,
         GridspaceNotificationsReadResponse,
         GridspacePaletteResponse,
+        GridspacePlayImportRequest,
+        GridspacePlayImportResponse,
         GridspacePrivateActionRequest,
         GridspacePrivateActionResponse,
         GridspacePrivateFileRequest,
@@ -2849,6 +2851,12 @@ type GridspaceNotificationsResponse = operations['gridspace___notifications']['r
 
 // @public (undocumented)
 type GridspacePaletteResponse = operations['gridspace___palette']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspacePlayImportRequest = operations['gridspace___play-import']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspacePlayImportResponse = operations['gridspace___play-import']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type GridspacePrivateActionRequest = operations['gridspace___private-action']['requestBody']['content']['application/json'];

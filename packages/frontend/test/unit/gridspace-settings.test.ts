@@ -66,3 +66,28 @@ test('does not silently discard invalid posting privacy or cloud failures', asyn
  const synced = { preferences: { animation: [[{}, false, { sync: true }]] } } as unknown as PreferencesProfile;
  await expect(snapshotClientSettings(synced, 'r.example', 'selected', 'selected', async() => {throw new Error('offline');}, { visibility: 'followers', localOnly: true })).rejects.toThrow('offline');
 });
+
+test('exports menu order, sidebar mode, statusbars, pins and image preferences', async () => {
+	const label = { enabled: true, scale: 1, padding: 0.2, textBig: '{year}', textSmall: '', centered: false, withQrCode: true };
+	const values = {
+		menu: ['notifications', '-', 'clips', 'drive'], mutingEmojis: [':hide:', '😺'],
+		statusbars: [{ id: 'bar1', name: 'News', type: 'rss', size: 'small', black: false, props: { url: 'https://news.example/rss', refreshIntervalSec: 120, display: 'marquee', marqueeDuration: 100, marqueeReverse: false, shuffle: true } }],
+		pinnedUserLists: [{ id: 'list1', name: 'Friends' }], defaultImageCompressionLevel: 3, defaultVideoCompressionLevel: 1,
+		watermarkPresets: [{ id: 'mark1', name: 'Copyright', layers: [{ id: 'layer1', type: 'text', text: '© author', repeat: false, noBoundingBoxExpansion: false, scale: 0.3, angle: 0, opacity: 0.75, align: { x: 'right', y: 'bottom' } }] }],
+		defaultWatermarkPresetId: 'mark1',
+		imageFramePresets: [{ id: 'frame1', name: 'Photo', params: { borderThickness: 0.05, borderRadius: 0, bgColor: [1, 1, 1], fgColor: [0, 0, 0], font: 'sans-serif', labelTop: label, labelBottom: label } }],
+	};
+	const profile = { preferences: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, [[{}, value, {}]]])) } as unknown as PreferencesProfile;
+	const result = parseClientSettings(await snapshotClientSettings(profile, 'r.example', 'selected', 'selected', async () => null, { visibility: 'home', localOnly: false, menuDisplay: 'sideIcon' }));
+	expect(result.values).toEqual(values);
+	expect(result.menuDisplay).toBe('sideIcon');
+});
+
+test.each([
+	{ menu: ['<script>'] }, { defaultVideoCompressionLevel: 99 }, { mutingEmojis: [42] },
+	{ imageFramePresets: [{ id: 'frame', name: 'bad', params: {} }] },
+	{ statusbars: [{ id: 'bar', name: null, type: 'code', size: 'small', black: false, props: {} }] },
+	{ watermarkPresets: [{ id: 'preset', name: 'bad', layers: [{ id: 'layer', type: 'text' }] }] },
+])('rejects invalid extended preferences without importing executable or broken state', values => {
+	expect(() => parseClientSettings(JSON.stringify({ version: 1, values }))).toThrow();
+});

@@ -348,6 +348,7 @@ export const ROUTE_DEF = [{
 }, {
 	path: '/play',
 	component: page(() => import('@/pages/flash/flash-index.vue')),
+	query: { tab: 'initialTab' },
 }, {
 	path: '/gallery/:postId/edit',
 	component: page(() => import('@/pages/gallery/edit.vue')),

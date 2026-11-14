@@ -24,7 +24,7 @@ vi.mock('@/os.js', () => ({}));
 vi.mock('@/components/MkGridspaceListImport.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkButton.vue', () => ({ default: { template: '<button><slot/></button>' } }));
 vi.mock('@/components/MkInfo.vue', () => ({ default: { template: '<div><slot/></div>' } }));
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { _gridspace: { recentEmojiCopy: 'Import history', recentEmojiCopied: 'History imported', recentEmojiUnavailable: 'History unavailable' } }, tsx: { _gridspace: {} } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { _gridspace: { recentEmojiCopy: 'Import history', recentEmojiCopied: 'History imported', recentEmojiUnavailable: 'History unavailable', playImportStart: 'Copy Play', playImportFailed: 'Play failed' } }, tsx: { _gridspace: { playImportProgress: ({ done, total }: { done: number; total: number }) => `${done}/${total}` } } } }));
 
 const key = JSON.stringify(['https://source.example', 'source-user']);
 const status = { enabled: true, state: 'active', initiator: true, channelsEnabled: false, driveShared: true, peerOrigin: 'https://source.example', peerUserId: 'source-user', total: 0, items: [] };
@@ -76,6 +76,7 @@ test('manual import works even after both palette and history were imported, wit
 	expect(state.gridspaceRecentEmojiImports).toEqual([key]);
 	expect(sessionStorage.getItem('gridspace-link:viewer:recent-emojis')).toBeNull();
 	expect(api.mock.calls.map(([endpoint]) => endpoint)).not.toContain('gridspace/settings-import');
+	expect(api.mock.calls.map(([endpoint]) => endpoint)).not.toContain('gridspace/play-import');
 	expect(api.mock.calls.map(([endpoint]) => endpoint)).not.toContain('gridspace/profile-import');
 	expect(commit).not.toHaveBeenCalledWith('emojiPalettes', expect.anything());
 });
@@ -101,6 +102,7 @@ test('history-only callback leaves earlier profile and settings jobs pending eve
 	expect(preferences.gridspaceSettingsImportRequest).toBe('prior-settings-job');
 	expect(api.mock.calls.map(([endpoint]) => endpoint)).not.toContain('gridspace/profile-import');
 	expect(api.mock.calls.map(([endpoint]) => endpoint)).not.toContain('gridspace/settings-import');
+	expect(api.mock.calls.map(([endpoint]) => endpoint)).not.toContain('gridspace/play-import');
 });
 
 test('old source snapshots do not clear history or mark the import complete', async () => {
@@ -116,4 +118,24 @@ test('a normal retry does not fetch or reapply history already imported on this 
 	await mount();
 	expect(state.recentlyUsedEmojis).toEqual([':current:']);
 	expect(api.mock.calls.map(([endpoint]) => endpoint)).not.toContain('gridspace/palette');
+});
+
+test('manual Play import uses its own job and resumes through bounded steps', async () => {
+ status.channelsEnabled = true;
+ preferences.gridspacePaletteImports = [key];
+ api.mockImplementation(async (endpoint: string, params?: { action?: string }) => {
+  if (endpoint === 'gridspace/link') return status;
+  if (['gridspace/private-grant', 'gridspace/collections', 'gridspace/drive'].includes(endpoint)) return { available: true, granted: true };
+  if (endpoint === 'gridspace/play-import') {
+   if (params?.action === 'status') return { started: false, complete: false, total: 0, done: 0, failed: 0, pending: 0 };
+   if (params?.action === 'start') return { started: true, complete: false, total: 1, done: 0, failed: 0, pending: 1 };
+   return { started: true, complete: true, total: 1, done: 1, failed: 0, pending: 0 };
+  }
+  throw new Error(`Unexpected request: ${endpoint}`);
+ });
+ const view = await mount();
+ view.getByText('Copy Play').click();
+ await vi.waitFor(() => expect(view.getByText('1/1')).toBeTruthy(), { timeout: 3000 });
+ expect(api.mock.calls.filter(([endpoint]) => endpoint === 'gridspace/play-import').map(([, params]) => params.action)).toEqual(['status', 'start', 'step']);
+ expect(api.mock.calls.map(([endpoint]) => endpoint)).not.toContain('gridspace/settings-import');
 });

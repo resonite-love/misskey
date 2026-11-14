@@ -51,7 +51,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { computed, markRaw, ref, shallowRef } from 'vue';
+import { computed, markRaw, ref, shallowRef, watch } from 'vue';
 import type { IPaginator } from '@/utility/paginator.js';
 import MkFlashPreview from '@/components/MkFlashPreview.vue';
 import MkPagination from '@/components/MkPagination.vue';
@@ -64,7 +64,9 @@ import { Paginator } from '@/utility/paginator.js';
 
 const router = useRouter();
 
-const tab = ref('featured');
+const props = defineProps<{ initialTab?: string }>();
+const tab = ref(props.initialTab === 'my' ? 'my' : 'featured');
+watch(() => props.initialTab, value => { tab.value = value === 'my' ? 'my' : 'featured'; });
 
 const searchQuery = ref('');
 const searchPaginator = shallowRef<Paginator<'flash/search'> | null>(null);

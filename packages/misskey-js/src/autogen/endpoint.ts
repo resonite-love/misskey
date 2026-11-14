@@ -441,6 +441,8 @@ import type {
 	GridspaceNotificationsReadRequest,
 	GridspaceNotificationsReadResponse,
 	GridspacePaletteResponse,
+	GridspacePlayImportRequest,
+	GridspacePlayImportResponse,
 	GridspacePrivateActionRequest,
 	GridspacePrivateActionResponse,
 	GridspacePrivateFileRequest,
@@ -1028,6 +1030,7 @@ export type Endpoints = {
 	'gridspace/notifications/follow-request': { req: GridspaceNotificationsFollowRequestRequest; res: GridspaceNotificationsFollowRequestResponse };
 	'gridspace/notifications/read': { req: GridspaceNotificationsReadRequest; res: GridspaceNotificationsReadResponse };
 	'gridspace/palette': { req: EmptyRequest; res: GridspacePaletteResponse };
+	'gridspace/play-import': { req: GridspacePlayImportRequest; res: GridspacePlayImportResponse };
 	'gridspace/private-action': { req: GridspacePrivateActionRequest; res: GridspacePrivateActionResponse };
 	'gridspace/private-file': { req: GridspacePrivateFileRequest; res: GridspacePrivateFileResponse };
 	'gridspace/private-grant': { req: GridspacePrivateGrantRequest; res: GridspacePrivateGrantResponse };
