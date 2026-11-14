@@ -9,7 +9,6 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkInfo v-if="peerError" warn>{{ i18n.ts._gridspace.collectionsPartial }}</MkInfo>
 		<MkButton v-if="peerError" @click="loadClip">{{ i18n.ts.retry }}</MkButton>
 		<div v-if="clip" class="_gaps">
-			<MkInfo v-if="managedClipId">{{ i18n.tsx._gridspace.manageOnSource({ host: peerHost }) }}</MkInfo>
 			<div class="_panel">
 				<div class="_gaps_s" :class="$style.description">
 					<div v-if="clip.description">
@@ -21,13 +20,13 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<MkButton v-else v-tooltip="i18n.ts.favorite" asLike rounded :disabled="favoriteBusy" :aria-label="i18n.ts.favorite" @click="favorite()"><i class="ti ti-heart"></i><span v-if="clip.favoritedCount > 0" style="margin-left: 6px;">{{ clip.favoritedCount }}</span></MkButton>
 					</div>
 				</div>
-				<div v-if="isPeer" :class="$style.user"><a :href="`${peerOrigin}/clips/${clip.id}`" target="_blank" rel="noopener noreferrer">{{ i18n.tsx._gridspace.collectionSource({ host: peerHost }) }} <i class="ti ti-external-link"></i></a></div>
-				<div v-else :class="$style.user">
-					<MkAvatar :user="clip.user" :class="$style.avatar" indicator link preview/> <MkUserName :user="clip.user" :nowrap="false"/>
+				<div :class="$style.user">
+					<MkAvatar :user="clip.user" :class="$style.avatar" indicator link :preview="!isPeer"/> <MkUserName :user="clip.user" :nowrap="false"/>
+					<a v-if="isPeer" :href="sourceUrl" target="_blank" rel="noopener noreferrer" :class="$style.source" :title="peerHost">（{{ i18n.ts._gridspace.resoniteLoveName }}）<i class="ti ti-external-link"></i></a>
 				</div>
 			</div>
 
-			<MkGridspaceNoteList v-if="isPeer" :source="{ kind: 'clip', clipId }" withControl/>
+			<MkGridspaceNoteList v-if="isPeer" :source="{ kind: 'clip', clipId }" withControl :noGap="false"/>
 			<MkNotesTimeline v-else :paginator="paginator" :detail="true"/>
 		</div>
 	</div>
@@ -262,4 +261,5 @@ definePage(() => ({
 	width: var(--height);
 	height: var(--height);
 }
+.source { margin-left: 8px; color: var(--MI_THEME-fgTransparentWeak); font-size: .85em; }
 </style>
