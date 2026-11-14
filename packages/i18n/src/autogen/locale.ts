@@ -14051,6 +14051,18 @@ export interface Locale extends ILocale {
          */
         "settingsCopyDevice": string;
         /**
+         * 古い形式などで読み取れなかった画面設定が{count}件あります。その項目は変更せず、ほかの設定を引き継ぎました。
+         */
+        "settingsSkipped": ParameterizedString<"count">;
+        /**
+         * 絵文字パレットの読み込みに失敗しました。接続を確認し、アカウントを選び直して再試行してください。
+         */
+        "oauthPaletteFailed": string;
+        /**
+         * 画面設定の読み込みに失敗しました。接続や投稿の公開範囲の設定を確認し、アカウントを選び直して再試行してください。
+         */
+        "oauthSettingsFailed": string;
+        /**
          * 設定を引き継ぎました。表示に反映されない項目は、ページを再読み込みすると反映されます。
          */
         "settingsCopied": string;

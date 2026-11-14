@@ -106,6 +106,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</div>
 				<div :class="$style.headerText">{{ i18n.ts.somethingHappened }}</div>
 			</div>
+			<slot name="failureAdditionalInfo"></slot>
 		</div>
 	</Transition>
 	<div v-if="_waiting" :class="$style.waitingRoot">
@@ -250,7 +251,7 @@ async function clickAccept() {
 	emit('accept', token, user.id);
 }
 
-function showUI(state: 'success' | 'denied' | 'failed') {
+function showUI(state: 'accountSelect' | 'success' | 'denied' | 'failed') {
 	phase.value = state;
 	waiting.value = false;
 }

@@ -70,6 +70,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					<MkInfo v-if="settingsComplete" role="status">{{ i18n.ts._gridspace.settingsCopied }}</MkInfo>
 					<MkInfo v-if="settingsError" warn role="alert">{{ i18n.ts._gridspace.settingsCopyFailed }}</MkInfo>
 					<MkInfo v-if="layoutIssues.length" warn>{{ i18n.ts._gridspace.layoutPartial }} {{ layoutIssues.join('、') }}</MkInfo>
+					<MkInfo v-if="skippedSettings.length" warn role="status">{{ i18n.tsx._gridspace.settingsSkipped({ count: skippedSettings.length }) }}</MkInfo>
 					<MkButton :disabled="busy" @click="startSettings">{{ i18n.ts._gridspace.settingsCopy }}</MkButton>
 					<MkButton v-if="settingsError && prefer.s.gridspaceSettingsImportRequest" :disabled="busy" @click="retrySettings">{{ i18n.ts.retry }}</MkButton>
 				</section>
@@ -150,6 +151,7 @@ const settingsResult = ref<entities.GridspaceSettingsImportResponse | null>(null
 const settingsError = ref(false);
 const settingsComplete = ref(false);
 const layoutIssues = ref<string[]>([]);
+const skippedSettings = ref<string[]>([]);
 let settingsRunning = false;
 let settingsAttempted = false;
 const storageKey = `gridspace-link:${$i?.id}`;
@@ -300,6 +302,7 @@ async function resumeSettings(retry = false) {
 		if (prefer.s.gridspaceSettingsApplied !== requestId) {
 			if (!result.client) throw new Error('Source settings need authorization');
 			const snapshot = parseClientSettings(result.client);
+			skippedSettings.value = snapshot.skipped ?? [];
 			if (layoutSettingKeys.some(key => key in snapshot.values)) {
 				let lists = await misskeyApi('gridspace/list-import', { action: 'start' });
 				while (lists.pending && !stopped) {

@@ -15,7 +15,12 @@ SPDX-License-Identifier: AGPL-3.0-only
 				:waitOnDeny="true"
 				@accept="onAccept"
 				@deny="onDeny"
-			/>
+			>
+				<template #failureAdditionalInfo>
+					<MkInfo v-if="failureStage" warn>{{ failureStage === 'palette' ? i18n.ts._gridspace.oauthPaletteFailed : i18n.ts._gridspace.oauthSettingsFailed }}</MkInfo>
+					<MkButton v-if="failureStage" @click="retryConsent">{{ i18n.ts.retry }}</MkButton>
+				</template>
+			</MkAuthConfirm>
 		</div>
 	</div>
 </PageWithAnimBg>
@@ -23,20 +28,24 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script lang="ts" setup>
 import * as Misskey from 'misskey-js';
-import { useTemplateRef } from 'vue';
+import { ref, useTemplateRef } from 'vue';
 import { host } from '@@/js/config.js';
 import { prefer } from '@/preferences.js';
 import { $i } from '@/i.js';
 import { snapshotGridspacePaletteForAccount } from '@/utility/gridspace-palette.js';
-import { snapshotClientSettings } from '@/utility/gridspace-settings.js';
+import { createGridspacePreferenceReader, snapshotClientSettings } from '@/utility/gridspace-settings.js';
 import { store } from '@/store.js';
 import type { GridspacePaletteSnapshot } from '@/utility/gridspace-palette.js';
 import { isSameScope } from '@/preferences/manager.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { definePage } from '@/page.js';
 import MkAuthConfirm from '@/components/MkAuthConfirm.vue';
+import MkInfo from '@/components/MkInfo.vue';
+import MkButton from '@/components/MkButton.vue';
+import { i18n } from '@/i18n.js';
 
 const authRoot = useTemplateRef('authRoot');
+const failureStage = ref<'palette' | 'settings' | null>(null);
 const exportPalette = window.document.querySelector<HTMLMetaElement>('meta[name="misskey:oauth:gridspace-palette"]')?.content === 'true';
 
 const transactionIdMeta = window.document.querySelector<HTMLMetaElement>('meta[name="misskey:oauth:transaction-id"]');
@@ -93,27 +102,21 @@ function doPost(token: string, decision: 'accept' | 'deny', palette?: GridspaceP
 
 async function onAccept(token: string, userId: string) {
 	try {
-		const palette = exportPalette ? await snapshotGridspacePaletteForAccount(prefer.profile, host, userId, $i?.id, async (key, scope) => {
-			try {
-				const values = await misskeyApi('i/registry/get', { scope: ['client', 'preferences', 'sync'], key: `default:${key}` }, token) as [typeof scope, unknown][];
-				const target = values.find(([candidate]) => isSameScope(candidate, scope));
-				return target ? { value: target[1] } : null;
-			} catch (err) {
-				if ((err as { code?: string }).code === 'NO_SUCH_KEY') return null;
-				throw err;
-			}
-		}) : undefined;
-		const settings = exportPalette ? await snapshotClientSettings(prefer.profile, host, userId, $i?.id, async (key, scope) => {
-			try {
-				const values = await misskeyApi('i/registry/get', { scope: ['client', 'preferences', 'sync'], key: `default:${key}` }, token) as [typeof scope, unknown][];
-				const target = values.find(([candidate]) => isSameScope(candidate, scope));
-				return target ? { value: target[1] } : null;
-			} catch (err) { if ((err as { code?: string }).code === 'NO_SUCH_KEY') return null; throw err; }
-		}, { visibility: store.s.visibility, localOnly: store.s.localOnly, memo: store.s.memo, memo2: store.s.memo2 }) : undefined;
+		// Read the selected account's cloud preferences once, not one request per key.
+		const read = createGridspacePreferenceReader(() => misskeyApi('i/registry/get-all', { scope: ['client', 'preferences', 'sync'] }, token) as Promise<Record<string, unknown>>, isSameScope);
+		failureStage.value = 'palette';
+		const palette = exportPalette ? await snapshotGridspacePaletteForAccount(prefer.profile, host, userId, $i?.id, read) : undefined;
+		failureStage.value = 'settings';
+		const settings = exportPalette ? await snapshotClientSettings(prefer.profile, host, userId, $i?.id, read, { visibility: store.s.visibility, localOnly: store.s.localOnly, memo: store.s.memo, memo2: store.s.memo2 }) : undefined;
 		doPost(token, 'accept', palette, settings);
 	} catch {
 		authRoot.value?.showUI('failed');
 	}
+}
+
+function retryConsent() {
+	failureStage.value = null;
+	authRoot.value?.showUI('accountSelect');
 }
 
 function onDeny(token: string) {

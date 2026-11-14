@@ -45,3 +45,24 @@ test('unknown preferences of another selected account never invent public postin
 	const parsed = parseClientSettings(await snapshotClientSettings(profile, 'r.example', 'selected', 'other', async () => null, { visibility: 'public', localOnly: false }));
 		expect(parsed.values).toEqual({}); expect(parsed.visibility).toBeUndefined(); expect(parsed.localOnly).toBeUndefined();
 });
+
+// Native snapshots may outlive the client version that originally wrote them.
+test('exports legacy data saver flags without blocking OAuth', async () => {
+ const profile = { preferences: { dataSaver: [[{}, { media: true, avatar: false, urlPreviewThumbnail: true, disableUrlPreview: false }, {}]] } } as unknown as PreferencesProfile;
+ const parsed = parseClientSettings(await snapshotClientSettings(profile, 'r.example', 'selected', 'selected', async() => null, { visibility: 'followers', localOnly: true }));
+ expect(parsed.values.dataSaver).toEqual({ media: true, avatar: false, urlPreviewThumbnail: true, disableUrlPreview: false, code: false });
+ expect(parsed.skipped).toBeUndefined();
+});
+test('reports unusable optional settings but still exports valid settings', async () => {
+ const profile = { preferences: { animation: [[{}, false, {}]], 'deck.profiles': [[{}, [{ columns: [], layout: [] }], {}]] } } as unknown as PreferencesProfile;
+ const parsed = parseClientSettings(await snapshotClientSettings(profile, 'r.example', 'selected', 'selected', async() => null, { visibility: 'followers', localOnly: true }));
+ expect(parsed.values).toEqual({ animation: false });
+ expect(parsed.skipped).toEqual(['deck.profiles']);
+ expect(parsed.visibility).toBe('followers');
+});
+test('does not silently discard invalid posting privacy or cloud failures', async () => {
+ const invalid = { preferences: { defaultNoteVisibility: [[{}, 'invalid', {}]] } } as unknown as PreferencesProfile;
+ await expect(snapshotClientSettings(invalid, 'r.example', 'selected', 'selected', async() => null, { visibility: 'followers', localOnly: true })).rejects.toThrow();
+ const synced = { preferences: { animation: [[{}, false, { sync: true }]] } } as unknown as PreferencesProfile;
+ await expect(snapshotClientSettings(synced, 'r.example', 'selected', 'selected', async() => {throw new Error('offline');}, { visibility: 'followers', localOnly: true })).rejects.toThrow('offline');
+});

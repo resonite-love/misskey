@@ -28,7 +28,7 @@ export const portableSettingKeys = [
 ] as const satisfies readonly (keyof typeof PREF_DEF)[];
 type Key = typeof portableSettingKeys[number];
 type Scope = PreferencesProfile['preferences']['animation'][number][0];
-export type ClientSettings = { version: 1; values: Partial<Record<Key, unknown>>; visibility?: 'public' | 'home' | 'followers' | 'specified'; localOnly?: boolean; memos?: { memo: string | null; memo2: string | null } };
+export type ClientSettings = { version: 1; values: Partial<Record<Key, unknown>>; visibility?: 'public' | 'home' | 'followers' | 'specified'; localOnly?: boolean; memos?: { memo: string | null; memo2: string | null }; skipped?: Key[] };
 const visibilities = ['public', 'home', 'followers', 'specified'];
 const stringOptions: Partial<Record<Key, readonly string[]>> = {
 	defaultNoteVisibility: visibilities, serverDisconnectedBehavior: ['quiet', 'reload', 'dialog'], nsfw: ['respect', 'force', 'ignore'],
@@ -38,6 +38,19 @@ const stringOptions: Partial<Record<Key, readonly string[]>> = {
 	'deck.columnAlign': ['left', 'center'], 'deck.menuPosition': ['right', 'bottom'], 'deck.navbarPosition': ['left', 'top', 'bottom'],
 };
 const numberKeys: readonly Key[] = ['emojiPickerScale', 'emojiPickerWidth', 'emojiPickerHeight', 'sound.masterVolume', 'deck.columnGap'];
+
+/** Cache only within one consent attempt and keep the selected account's scope. */
+export function createGridspacePreferenceReader(loadAll: () => Promise<Record<string, unknown>>, sameScope: (a: Scope, b: Scope) => boolean) {
+	let cloud: Promise<Record<string, unknown>> | undefined;
+	return async (key: string, scope: Scope): Promise<{ value: unknown } | null> => {
+		cloud ??= loadAll();
+		const values = (await cloud)[`default:${key}`];
+		if (values === undefined) return null;
+		if (!Array.isArray(values)) throw new Error('Invalid synced preference');
+		const target = values.find(row => Array.isArray(row) && row[0] && sameScope(row[0], scope));
+		return target ? { value: target[1] } : null;
+	};
+}
 
 function theme(value: unknown): boolean {
 	if (value === null) return true;
@@ -69,12 +82,14 @@ export function parseClientSettings(raw: string): ClientSettings {
 		values[key] = value;
 	}
 	if (input.memos && !['memo', 'memo2'].every(key => input.memos[key] === null || typeof input.memos[key] === 'string' && input.memos[key].length <= 65536)) throw new Error('Invalid memo');
-	return { version: 1, values, visibility: input.visibility, localOnly: input.localOnly, memos: input.memos };
+	if (input.skipped !== undefined && (!Array.isArray(input.skipped) || input.skipped.length > portableSettingKeys.length || input.skipped.some((key: unknown) => !(portableSettingKeys as readonly unknown[]).includes(key)))) throw new Error('Invalid skipped preferences');
+	return { version: 1, values, visibility: input.visibility, localOnly: input.localOnly, memos: input.memos, skipped: input.skipped };
 }
 
 export async function snapshotClientSettings(profile: PreferencesProfile, server: string, account: string, activeAccount: string | undefined,
 	load: (key: Key, scope: Scope) => Promise<{ value: unknown } | null>, remembered: { visibility: string; localOnly: boolean; memo?: string | null; memo2?: string | null }): Promise<string> {
 	const values: ClientSettings['values'] = {};
+	const skipped: Key[] = [];
 	// Sequential cloud reads keep authorization from generating a request burst.
 	for (const key of portableSettingKeys) {
 		const records = profile.preferences[key] ?? [];
@@ -87,10 +102,23 @@ export async function snapshotClientSettings(profile: PreferencesProfile, server
 			else if (activeAccount !== account && record[0].account !== account) continue;
 		} else if (activeAccount !== account && record[0].account !== account) continue;
 		if (key.startsWith('sound.on.') && (value as { type?: string })?.type === '_driveFile_') continue;
+		// Older clients have no `code` data-saver field; missing flags behave as false.
+		if (key === 'dataSaver' && value && typeof value === 'object' && !Array.isArray(value)) {
+			value = { media: false, avatar: false, urlPreviewThumbnail: false, disableUrlPreview: false, code: false, ...value };
+		}
+		try {
+			parseClientSettings(JSON.stringify({ version: 1, values: { [key]: value } }));
+		} catch {
+			// A stale optional UI value must not prevent account authorization.
+			// Do not weaken posting privacy defaults on a malformed source setting.
+			if (key === 'defaultNoteVisibility' || key === 'defaultNoteLocalOnly') throw new Error(`Invalid portable preference: ${key}`);
+			skipped.push(key);
+			continue;
+		}
 		values[key] = value;
 	}
 	const visibility = activeAccount === account ? remembered.visibility : values.defaultNoteVisibility;
 	const localOnly = activeAccount === account ? remembered.localOnly : values.defaultNoteLocalOnly;
 	const memos = activeAccount === account && remembered.memo !== undefined && remembered.memo2 !== undefined ? { memo: remembered.memo, memo2: remembered.memo2 } : undefined;
-	return JSON.stringify(parseClientSettings(JSON.stringify({ version: 1, values, visibility, localOnly, memos })));
+	return JSON.stringify(parseClientSettings(JSON.stringify({ version: 1, values, visibility, localOnly, memos, ...(skipped.length ? { skipped } : {}) })));
 }
