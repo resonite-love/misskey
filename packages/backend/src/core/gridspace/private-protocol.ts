@@ -3,15 +3,16 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
-import type { ReactionPreview } from './reaction-protocol.js';
 import { packedUserLiteSchema } from '@/models/json-schema/user.js';
 import type { Packed } from '@/misc/json-schema.js';
+import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
+import type { ReactionPreview } from './reaction-protocol.js';
 
 export type PrivateOptions = {
 	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna' | 'validate';
 	contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna';
 	channelId?: string; clipId?: string; antennaId?: string;
+	order?: 'newest' | 'oldest';
 	query?: string; userId?: string; noteId?: string; ids?: string[];
 	rangeStartAt?: number; rangeEndAt?: number;
 	withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean; withChannelNotes?: boolean;
@@ -92,6 +93,7 @@ export const privateOptionsSchema = {
 	antennaId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	clipId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+	order: { type: 'string', enum: ['newest', 'oldest'] },
 	query: { type: 'string', minLength: 1, maxLength: 200 },
 	userId: { type: 'string', format: 'misskey:id', maxLength: 32 },
 	noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },

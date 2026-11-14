@@ -4,8 +4,9 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
-import { DataSource, In, IsNull, type QueryRunner } from 'typeorm';
+import { Brackets, DataSource, In, IsNull, type QueryRunner } from 'typeorm';
 import { DI } from '@/di-symbols.js';
+import { sqlLikeEscape } from '@/misc/sql-like-escape.js';
 import type { Config } from '@/config.js';
 import type { Packed } from '@/misc/json-schema.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
@@ -95,10 +96,11 @@ export class GridspacePrivateService {
 	private query(viewerId: string, input: Partial<PrivatePeerRequest> = {}, authors?: Pick<MiUser, 'id' | 'makeNotesFollowersOnlyBefore'>[], includeSensitiveChannels = false) {
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
 		if ((mode === 'channel' && !input.channelId) || (input.channelId && mode !== 'channel' && mode !== 'show')) throw new GridspaceLinkError('INVALID_REQUEST');
+		if (input.order === 'oldest' && mode !== 'clip') throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((mode === 'clip' && !input.clipId) || (input.clipId && mode !== 'clip')) throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((mode === 'antenna' && !input.antennaId) || (input.antennaId && mode !== 'antenna')) throw new GridspaceLinkError('INVALID_REQUEST');
-		const query = this.search.noteQuery({ id: viewerId }, { query: input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length, includeSensitiveChannels || mode === 'home' || mode === 'mentions' || mode === 'direct' || mode === 'favorites' || mode === 'clip' || mode === 'antenna');
-		const followedChannel = `EXISTS (SELECT 1 FROM channel_following cf WHERE cf."followerId" = :homeChannelViewer AND cf."followeeId" = note."channelId")`;
+		const query = this.search.noteQuery({ id: viewerId }, { query: mode === 'clip' ? '' : input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length, includeSensitiveChannels || mode === 'home' || mode === 'mentions' || mode === 'direct' || mode === 'favorites' || mode === 'clip' || mode === 'antenna');
+		const followedChannel = 'EXISTS (SELECT 1 FROM channel_following cf WHERE cf."followerId" = :homeChannelViewer AND cf."followeeId" = note."channelId")';
 		if (mode === 'home') query.setParameter('homeChannelViewer', viewerId);
 		if (mode === 'favorites') {
 			query.innerJoinAndMapOne('note.gridspaceCollection', MiNoteFavorite, 'collection', 'collection.noteId = note.id AND collection.userId = :collectionViewer', { collectionViewer: viewerId });
@@ -106,12 +108,19 @@ export class GridspacePrivateService {
 		} else if (mode === 'clip') {
 			query.innerJoin(MiClipNote, 'collection', 'collection.noteId = note.id AND collection.clipId = :collectionClip', { collectionClip: input.clipId });
 			query.innerJoin(MiClip, 'collectionOwner', 'collectionOwner.id = collection.clipId AND (collectionOwner.userId = :collectionViewer OR collectionOwner.isPublic = true)', { collectionViewer: viewerId });
-			query.orderBy('note.id', 'DESC');
+			query.orderBy('note.id', input.order === 'oldest' ? 'ASC' : 'DESC');
+			for (const [index, word] of (input.query?.trim().split(/\s+/).filter(Boolean) ?? []).entries()) {
+				const parameter = 'clipSearch' + index;
+				query.andWhere(new Brackets(terms => {
+					terms.where(`note.text ILIKE :${parameter}`, { [parameter]: '%' + sqlLikeEscape(word) + '%' })
+						.orWhere(`note.cw ILIKE :${parameter}`, { [parameter]: '%' + sqlLikeEscape(word) + '%' });
+				}));
+			}
 		} else if (mode === 'mentions' || mode === 'direct') {
 			// Include public mentions too: delivery to the old account does not
 			// imply delivery to the new one. Keep the visibility query above.
 			query.andWhere('(:mentionViewer::varchar[] <@ note.mentions OR :mentionViewer::varchar[] <@ note.visibleUserIds)', { mentionViewer: [viewerId] });
-			if (mode === 'direct') query.andWhere("note.visibility = 'specified'");
+			if (mode === 'direct') query.andWhere('note.visibility = \'specified\'');
 			this.queries.generateMutedNoteThreadQuery(query, { id: viewerId });
 			// As in notes/mentions, avoid a primary-key scan over the whole timeline.
 			query.orderBy('CONCAT(note.id)', 'DESC');
@@ -124,7 +133,7 @@ export class GridspacePrivateService {
 			query.andWhere(input.channelActorId ? followedChannel : `(${privateHome} OR ${followedChannel})`);
 			this.queries.generateMutedNoteThreadQuery(query, { id: viewerId });
 		} else if (mode && mode !== 'show' && mode !== 'channel' && mode !== 'antenna' && authors?.every(author => author.makeNotesFollowersOnlyBefore == null)) {
-			query.andWhere("note.visibility IN ('followers', 'specified')");
+			query.andWhere('note.visibility IN (\'followers\', \'specified\')');
 		} else if (mode && mode !== 'show' && mode !== 'channel' && mode !== 'antenna') {
 			query.andWhere(`(note.visibility IN ('followers', 'specified') OR ("user"."makeNotesFollowersOnlyBefore" IS NOT NULL
 				AND ${this.noteTime} <= CASE WHEN "user"."makeNotesFollowersOnlyBefore" > 0 THEN "user"."makeNotesFollowersOnlyBefore"::bigint * 1000
@@ -171,8 +180,9 @@ export class GridspacePrivateService {
 		if (input.mode === 'show') query.andWhere('note.id = :noteId', { noteId: input.noteId });
 		if (input.mode === 'validate') query.andWhere('note.id IN (:...ids)', { ids: input.ids });
 		const order = (input.contextMode ?? input.mode) === 'favorites' ? 'collection' : 'note';
-		if (input.before) query.andWhere(`${order}.id < :before`, { before: input.before });
-		if (input.head) query.andWhere(`${order}.id <= :head`, { head: input.head });
+		const ascending = (input.contextMode ?? input.mode) === 'clip' && input.order === 'oldest';
+		if (input.before) query.andWhere(`${order}.id ${ascending ? '>' : '<'} :before`, { before: input.before });
+		if (input.head && !ascending) query.andWhere(`${order}.id <= :head`, { head: input.head });
 		const limit = input.mode === 'validate' ? 100 : input.mode === 'show' ? 1 : (input.limit ?? 10) + 1;
 		return authors && input.mode !== 'validate' && input.mode !== 'show'
 			? this.search.readAuthorPage(query, authors.map(author => author.id), limit)
@@ -248,7 +258,7 @@ export class GridspacePrivateService {
 			reactions, reactionEmojis, myReaction, myReactions, extendedReactions: !!note.channelId || supportsGridspaceReactions(note, this.peer),
 			reactionPreviews: reactionState.reactionPreviews?.filter(row => Object.keys(reactions).some(reaction => reaction.replace('@.:', ':') === row.reaction.replace('@.:', ':'))),
 			author: { ...this.actor(note.user!), avatarUrl: author.avatarUrl, emojis: await this.emojiUrls(note.user!.emojis, note.user!.host), avatarBlurhash: author.avatarBlurhash, avatarDecorations: author.avatarDecorations, isBot: author.isBot, isCat: author.isCat,
-				instance: note.user!.host ? author.instance && { name: author.instance.name, faviconUrl: author.instance.faviconUrl, themeColor: author.instance.themeColor } : { name: this.meta.name, faviconUrl: this.meta.iconUrl, themeColor: this.meta.themeColor } }, filterActors: actors.map(user => this.actor(user)),
+													instance: note.user!.host ? author.instance && { name: author.instance.name, faviconUrl: author.instance.faviconUrl, themeColor: author.instance.themeColor } : { name: this.meta.name, faviconUrl: this.meta.iconUrl, themeColor: this.meta.themeColor } }, filterActors: actors.map(user => this.actor(user)),
 			replyId: note.replyId && readableRelated.has(note.replyId) ? note.replyId : null,
 			renoteId: note.renoteId && readableRelated.has(note.renoteId) ? note.renoteId : null,
 			files: files.map(file => ({ id: file.id, name: file.name, type: file.type, size: file.size, comment: file.comment, isSensitive: file.isSensitive || file.maybeSensitive })),
@@ -290,7 +300,7 @@ export class GridspacePrivateService {
 		}
 		await this.authorizeRead(input);
 		return { notes: packed.filter(note => allowed.has(note.id)), next: homePage ? homePage.next : rows.length > limit ? this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id : null, head: homePage ? homePage.head : input.head ?? (selected[0] ? this.collectionId(selected[0]) ?? selected[0].id : null),
-			scannedThrough: homePage ? homePage.scannedThrough : selected.length ? this.ids.parse(this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id).date.toISOString() : null, observedAt };
+											scannedThrough: homePage ? homePage.scannedThrough : selected.length ? this.ids.parse(this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id).date.toISOString() : null, observedAt };
 	}
 
 	public async localActorAllows(viewer: MiLocalUser, actor: PrivateWireNote['author'] | PrivateWireNote['filterActors'][number]) {
@@ -346,7 +356,7 @@ export class GridspacePrivateService {
 		if ((input.query || input.mode === 'search' || input.contextMode === 'search') && (!input.query?.trim() || !(await this.roles.getUserPolicies(viewer.id)).canSearchNotes)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if ((input.mode === 'profile' && !input.userId) || (input.mode === 'show' && !input.noteId) || (input.mode === 'validate' && !input.ids?.length)) throw new GridspaceLinkError('INVALID_REQUEST');
 		const options: PrivateOptions = {
-			mode: input.mode, contextMode: input.contextMode, query: input.query?.trim(), userId: input.userId, noteId: input.noteId, channelId: input.channelId, clipId: input.clipId, antennaId: input.antennaId,
+			mode: input.mode, contextMode: input.contextMode, order: input.order, query: input.query?.trim(), userId: input.userId, noteId: input.noteId, channelId: input.channelId, clipId: input.clipId, antennaId: input.antennaId,
 			ids: input.ids, rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt,
 			withReplies: input.withReplies ?? true, withRenotes: input.withRenotes ?? true, withFiles: input.withFiles ?? false, withChannelNotes: input.withChannelNotes ?? true,
 		};

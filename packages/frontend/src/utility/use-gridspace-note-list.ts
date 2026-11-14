@@ -4,20 +4,20 @@
  */
 
 import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef, watch } from 'vue';
+import { note as noteUtils } from 'misskey-js';
+import { url } from '@@/js/config.js';
 import type { ComputedRef } from 'vue';
 import type { entities } from 'misskey-js';
-import { note as noteUtils } from 'misskey-js';
+import type { GridspaceNoteEntry } from '@/utility/gridspace-note-suspension.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { mergeHomeRows } from '@/utility/gridspace-home-merge.js';
 import { isVisiblePrivateNote, isRevokedGridspaceRead, suspendPrivateNotes } from '@/utility/gridspace-note-suspension.js';
-import type { GridspaceNoteEntry } from '@/utility/gridspace-note-suspension.js';
 import { checkNoteWordMute } from '@/composables/use-note.js';
-import { url } from '@@/js/config.js';
 import { $i } from '@/i.js';
 
 export type GridspaceNoteSource =
 	| { kind: 'favorites' }
-	| { kind: 'clip'; clipId: string }
+	| { kind: 'clip'; clipId: string; order?: 'newest' | 'oldest'; query?: string; rangeStartAt?: number; rangeEndAt?: number }
 	| { kind: 'antenna'; antennaId: string }
 	| { kind: 'mentions'; direct: boolean }
 	| { kind: 'profile'; userId: string; linked: boolean; withReplies: boolean; withRenotes: boolean; withFiles: boolean; withChannelNotes: boolean }
@@ -59,7 +59,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	const privateParams = computed<entities.GridspacePrivateNotesRequest>(() => {
 		const { kind, ...params } = source.value;
 		if (source.value.kind === 'favorites') return { mode: 'favorites' };
-		if (source.value.kind === 'clip') return { mode: 'clip', clipId: source.value.clipId };
+		if (source.value.kind === 'clip') { const { kind: _kind, ...clip } = source.value; return { mode: 'clip', ...clip }; }
 		if (source.value.kind === 'antenna') return { mode: 'antenna', antennaId: source.value.antennaId };
 		if (kind === 'search') return { ...params, mode: 'search' };
 		if (source.value.kind === 'mentions') return { mode: source.value.direct ? 'direct' : 'mentions' };
@@ -69,6 +69,9 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	const rows = computed(() => {
 		const n = [...normal.value, ...preview.value].filter(item => !$i || !checkNoteWordMute(noteUtils.isPureRenote(item) ? item.renote ?? item : item, $i, $i.hardMutedWords));
 		const p = delegated.value.filter(item => isVisiblePrivateNote(item));
+		// A linked clip has a single source; its ascending keyset is already
+		// permission-filtered and must not use the descending merge boundary.
+		if (source.value.kind === 'clip' && source.value.order === 'oldest') return p.map(note => ({ kind: 'private' as const, key: note.uri, createdAt: note.createdAt, note })).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.key.localeCompare(b.key));
 		return mergeHomeRows(n, p, url,
 			normalError.value ? -Infinity : normalBoundary.value,
 			!privateReady.value ? Infinity : !enabled.value || privateError.value ? -Infinity : privateBoundary.value);

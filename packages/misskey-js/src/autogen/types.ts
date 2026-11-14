@@ -26659,7 +26659,7 @@ export interface operations {
                     /** @enum {string} */
                     kind: 'antenna' | 'page' | 'clip' | 'gallery';
                     /** @enum {string} */
-                    action: 'list' | 'show' | 'update' | 'delete' | 'lists' | 'add-note' | 'remove-note' | 'reference' | 'liked' | 'inspect' | 'like' | 'unlike';
+                    action: 'list' | 'show' | 'update' | 'delete' | 'lists' | 'add-note' | 'remove-note' | 'reference' | 'liked' | 'inspect' | 'like' | 'unlike' | 'favorite' | 'unfavorite';
                     id?: string;
                     data?: {
                         [key: string]: unknown;
@@ -28156,6 +28156,8 @@ export interface operations {
                     antennaId?: string;
                     clipId?: string;
                     channelId?: string;
+                    /** @enum {string} */
+                    order?: 'newest' | 'oldest';
                     query?: string;
                     /** Format: misskey:id */
                     userId?: string;

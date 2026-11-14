@@ -241,3 +241,21 @@ describe('one profile/search note list', () => {
 	});
 
 });
+
+it('sorts linked clip pages oldest first and keeps filters on validation', async () => {
+ respond = async (endpoint, params) => {
+  if (endpoint === 'gridspace/collections') return { enabled: true, clips: true };
+  if (endpoint === 'gridspace/private-grant') return { available: true, granted: true };
+  if (params.mode === 'validate') return page([privateNote(1), privateNote(2), privateNote(3)]);
+  return params.cursor ? page([privateNote(3)]) : page([privateNote(1), privateNote(2)], 'next', 2);
+ };
+ const { list, source } = mount({ kind: 'clip', clipId: 'clip', order: 'oldest', query: 'needle', rangeStartAt: 123 }); await settle();
+ expect(list.rows.value.map(row => row.note.id)).toEqual(['p1', 'p2']);
+ expect(api.mock.calls.find(([endpoint]) => endpoint === 'gridspace/private-notes')?.[1]).toMatchObject({ mode: 'clip', clipId: 'clip', order: 'oldest', query: 'needle', rangeStartAt: 123 });
+ await list.load(); expect(list.rows.value.map(row => row.note.id)).toEqual(['p1', 'p2', 'p3']);
+ expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ cursor: 'next', order: 'oldest' });
+ window.dispatchEvent(new Event('focus')); await settle();
+ expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ mode: 'validate', contextMode: 'clip', order: 'oldest', query: 'needle' });
+ source.value = { kind: 'clip', clipId: 'clip', order: 'newest', query: 'other' }; await settle();
+ expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ mode: 'clip', order: 'newest', query: 'other', cursor: undefined });
+});

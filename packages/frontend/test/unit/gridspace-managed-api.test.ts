@@ -33,3 +33,10 @@ describe('shared resource API adapter', () => {
 		expect(sharedAntennaUnavailable.value).toBe(true);
 	});
 });
+
+test.each(['favorite', 'unfavorite'])('routes shared clip %s without sending source IDs to the local API', async action => {
+ const call = vi.fn().mockResolvedValue({ item: { isFavorited: action === 'favorite' } });
+ await routeManagedApi('clips/' + action, { clipId: 'gridspace:clip:original', i: 'secret' }, call);
+ expect(call).toHaveBeenCalledWith('gridspace/managed-resource', { kind: 'clip', action, id: 'original', data: {} });
+ expect(routeManagedApi('clips/' + action, { clipId: 'local' }, call)).toBeUndefined();
+});

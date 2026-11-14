@@ -131,6 +131,17 @@ export class GridspaceManagedResourceService {
 		} else if (input.action === 'reference' && input.kind === 'clip') {
 			if (!input.id) throw new ApiError(managedError);
 			result.item = await this.native('clips/show', { clipId: input.id }, user as MiLocalUser) as Item;
+		} else if (input.kind === 'clip' && (input.action === 'favorite' || input.action === 'unfavorite')) {
+			if (!input.id) throw new ApiError(managedError);
+			// Use the source account and native endpoint visibility checks. Public
+			// clips need not belong to the reader; remove remains possible if hidden.
+			if (input.action === 'favorite') await this.native('clips/show', { clipId: input.id }, user as MiLocalUser);
+			const current = await this.pair(user.id);
+			if (!current || current.id !== link.id || current.generation !== link.generation) throw new ApiError(managedError);
+			try { await this.native('clips/' + input.action, { clipId: input.id }, user as MiLocalUser); } catch (error) {
+				if (!(error instanceof ApiError) || !['ALREADY_FAVORITED', 'NOT_FAVORITED'].includes(error.code)) throw error;
+			}
+			result.item = await this.native('clips/show', { clipId: input.id }, user as MiLocalUser).catch(() => null) as Item | null;
 		} else if (input.action === 'list') {
 			result.items = await this.native(resource.list, { ...input.data, limit: Math.min(100, Number(input.data?.limit ?? 100)) }, user as MiLocalUser) as Item[];
 			if (input.kind === 'antenna') {

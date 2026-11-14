@@ -16,9 +16,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<Mfm :text="clip.description" :isNote="false"/>
 					</div>
 					<div v-else>({{ i18n.ts.noDescription }})</div>
-					<div v-if="!isPeer">
-						<MkButton v-if="favorited" v-tooltip="i18n.ts.unfavorite" asLike rounded primary @click="unfavorite()"><i class="ti ti-heart"></i><span v-if="clip.favoritedCount > 0" style="margin-left: 6px;">{{ clip.favoritedCount }}</span></MkButton>
-						<MkButton v-else v-tooltip="i18n.ts.favorite" asLike rounded @click="favorite()"><i class="ti ti-heart"></i><span v-if="clip.favoritedCount > 0" style="margin-left: 6px;">{{ clip.favoritedCount }}</span></MkButton>
+					<div v-if="$i">
+						<MkButton v-if="favorited" v-tooltip="i18n.ts.unfavorite" asLike rounded primary :disabled="favoriteBusy" :aria-label="i18n.ts.unfavorite" @click="unfavorite()"><i class="ti ti-heart"></i><span v-if="clip.favoritedCount > 0" style="margin-left: 6px;">{{ clip.favoritedCount }}</span></MkButton>
+						<MkButton v-else v-tooltip="i18n.ts.favorite" asLike rounded :disabled="favoriteBusy" :aria-label="i18n.ts.favorite" @click="favorite()"><i class="ti ti-heart"></i><span v-if="clip.favoritedCount > 0" style="margin-left: 6px;">{{ clip.favoritedCount }}</span></MkButton>
 					</div>
 				</div>
 				<div v-if="isPeer" :class="$style.user"><a :href="`${peerOrigin}/clips/${clip.id}`" target="_blank" rel="noopener noreferrer">{{ i18n.tsx._gridspace.collectionSource({ host: peerHost }) }} <i class="ti ti-external-link"></i></a></div>
@@ -27,7 +27,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</div>
 			</div>
 
-			<MkGridspaceNoteList v-if="isPeer" :source="{ kind: 'clip', clipId }"/>
+			<MkGridspaceNoteList v-if="isPeer" :source="{ kind: 'clip', clipId }" withControl/>
 			<MkNotesTimeline v-else :paginator="paginator" :detail="true"/>
 		</div>
 	</div>
@@ -66,6 +66,7 @@ const props = defineProps<{
 
 const clip = ref<Misskey.entities.Clip | null>(CTX_CLIP);
 const favorited = ref(false);
+const favoriteBusy = ref(false);
 const managedClipId = ref<string | null>(null);
 const isPeer = computed(() => props.peer === 'linked');
 const peerOrigin = ref('');
@@ -86,7 +87,7 @@ const paginator = markRaw(new Paginator('clips/notes', {
 const isOwned = computed<boolean | null>(() => isPeer.value ? managedClipId.value != null : $i && clip.value && ($i.id === clip.value.userId));
 
 async function loadClip() {
-	if (checking || !active || (isPeer.value && window.document.hidden)) return;
+	if (favoriteBusy.value || checking || !active || (isPeer.value && window.document.hidden)) return;
 	const current = ++generation;
 	checking = true;
 	try {
@@ -94,7 +95,7 @@ async function loadClip() {
 			const page = await misskeyApi('gridspace/collections', { kind: 'clips', clipId: props.clipId });
 			if (current !== generation) return;
 			if (!page.clipsList.length || !page.origin) throw new Error('Unavailable clip');
-			clip.value = page.clipsList[0]; peerOrigin.value = page.origin; peerError.value = false;
+			clip.value = page.clipsList[0]; favorited.value = clip.value.isFavorited ?? false; peerOrigin.value = page.origin; peerError.value = false;
 			const editable = await misskeyApi('gridspace/managed-resource', { kind: 'clip', action: 'show', id: props.clipId }).catch(() => null);
 			if (current === generation) managedClipId.value = typeof editable?.item?.id === 'string' ? editable.item.id : null;
 		} else {
@@ -119,25 +120,28 @@ onDeactivated(() => { active = false; suspendPeer(); });
 onActivated(() => { if (!active) { active = true; if (isPeer.value) void loadClip(); } });
 onBeforeUnmount(() => { active = false; generation++; window.clearInterval(timer); window.document.removeEventListener('visibilitychange', visibility); });
 
-function favorite() {
-	os.apiWithDialog('clips/favorite', {
-		clipId: props.clipId,
-	}).then(() => {
-		favorited.value = true;
-	});
+async function setFavorite(value: boolean) {
+	if (favoriteBusy.value || !clip.value) return;
+	const clipId = props.clipId;
+	const peer = isPeer.value;
+	generation++; checking = false; favoriteBusy.value = true;
+	try {
+		await os.apiWithDialog(value ? 'clips/favorite' : 'clips/unfavorite', { clipId: peer ? `gridspace:clip:${clipId}` : clipId });
+		if (props.clipId !== clipId || isPeer.value !== peer) return;
+		favorited.value = value;
+	} finally {
+		favoriteBusy.value = false;
+		void loadClip();
+	}
 }
 
+function favorite() { return setFavorite(true); }
+
 async function unfavorite() {
-	const confirm = await os.confirm({
-		type: 'warning',
-		text: i18n.ts.unfavoriteConfirm,
-	});
-	if (confirm.canceled) return;
-	os.apiWithDialog('clips/unfavorite', {
-		clipId: props.clipId,
-	}).then(() => {
-		favorited.value = false;
-	});
+	const clipId = props.clipId;
+	const peer = isPeer.value;
+	const confirm = await os.confirm({ type: 'warning', text: i18n.ts.unfavoriteConfirm });
+	if (!confirm.canceled && props.clipId === clipId && isPeer.value === peer) await setFavorite(false);
 }
 
 const headerActions = computed<PageHeaderItem[] | null>(() => clip.value && isOwned.value ? [{
