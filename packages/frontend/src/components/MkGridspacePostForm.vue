@@ -14,20 +14,20 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div :class="$style.headerRight">
 			<span :class="[$style.headerRightItem, $style.visibility]" :title="audience"><i :class="channelId ? 'ti ti-device-tv' : info?.visibility === 'specified' ? 'ti ti-mail' : 'ti ti-lock'"></i><span :class="$style.headerRightButtonText">{{ audience }}</span></span>
 			<span v-if="info?.localOnly && !channelId" :title="i18n.ts._visibility.disableFederation"><i class="ti ti-rocket-off"></i></span>
-			<button class="_button" :class="$style.submit" :disabled="!canSend" data-testid="post-form-submit" @click="send"><div :class="$style.submitInner"><MkEllipsis v-if="sending"/><template v-else>{{ pending ? i18n.ts.retry : reply ? i18n.ts.reply : i18n.ts.note }}</template><i style="margin-left: 6px;" :class="reply ? 'ti ti-arrow-back-up' : 'ti ti-send'"></i></div></button>
+			<button class="_button" :class="$style.submit" :disabled="!canSend" data-testid="post-form-submit" @click="send"><div :class="$style.submitInner"><MkEllipsis v-if="sending"/><template v-else>{{ pending ? i18n.ts.retry : reply ? i18n.ts.reply : renote ? i18n.ts.quote : i18n.ts.note }}</template><i style="margin-left: 6px;" :class="reply ? 'ti ti-arrow-back-up' : renote ? 'ti ti-quote' : 'ti ti-send'"></i></div></button>
 		</div>
 	</header>
 	<MkLoading v-if="loading"/>
 	<MkInfo v-if="error" warn role="alert" :class="$style.peerInfo">{{ error }}</MkInfo>
 	<template v-if="info">
 		<div v-if="!channelId && info.recipients.length" :class="$style.peerInfo">{{ i18n.ts._gridspace.replyRecipients }}: {{ info.recipients.map(person => `@${person.username}@${person.host}`).join(', ') }}</div>
-		<div v-if="reply" :class="$style.targetNote"><strong>{{ reply.author.name || reply.author.username }}</strong><Mfm :text="reply.cw ?? reply.text ?? ''" :author="reply.author" :emojiUrls="reply.emojis ?? {}" :plain="true"/></div>
+		<div v-if="targetNote" :class="$style.targetNote"><i v-if="renote" class="ti ti-quote"></i><strong>{{ targetNote.author.name || targetNote.author.username }}</strong><Mfm :text="targetNote.cw ?? targetNote.text ?? ''" :author="targetNote.author" :emojiUrls="targetNote.emojis ?? {}" :plain="true"/></div>
 		<template v-if="info.canReply">
 			<fieldset :disabled="locked" :class="$style.peerFields">
 				<div v-show="useCw" :class="$style.cwOuter"><input ref="cwInput" v-model="cw" :class="$style.cw" :placeholder="i18n.ts.annotation" :aria-label="i18n.ts.annotation" maxlength="100" @keydown="keydown"></div>
 				<div :class="[$style.textOuter, { [$style.withCw]: useCw }]">
 					<div v-if="channel" :class="$style.colorBar" :style="{ background: channel.color }"></div>
-					<textarea ref="textarea" v-model="text" :class="$style.text" :aria-label="i18n.ts.text" :placeholder="reply ? i18n.ts._postForm.replyPlaceholder : i18n.ts._postForm.channelPlaceholder" data-testid="post-form-text" @keydown="keydown" @paste="pasteFiles"></textarea>
+					<textarea ref="textarea" v-model="text" :class="$style.text" :aria-label="i18n.ts.text" :placeholder="reply ? i18n.ts._postForm.replyPlaceholder : renote ? i18n.ts._postForm.quotePlaceholder : i18n.ts._postForm.channelPlaceholder" data-testid="post-form-text" @keydown="keydown" @paste="pasteFiles"></textarea>
 					<div v-if="remaining < 100" :class="[$style.textCount, { [$style.textOver]: remaining < 0 }]">{{ remaining }}</div>
 				</div>
 				<div v-if="uploader.items.value.length" :class="$style.peerAttachments"><MkUploaderItems :items="uploader.items.value" @showMenu="showFileMenu" @showMenuViaContextmenu="showFileMenu"/></div>
@@ -74,7 +74,7 @@ import { $i } from '@/i.js';
 import { pendingReplyRequest, rememberReplyRequest, forgetReplyRequest } from '@/utility/gridspace-reply-request.js';
 import * as os from '@/os.js';
 
-const props = defineProps<{ channelId?: string; channel?: { name: string; color: string }; reply?: entities.GridspacePrivateNotesResponse['notes'][number]; embedded?: boolean; autofocus?: boolean }>();
+const props = defineProps<{ channelId?: string; channel?: { name: string; color: string }; reply?: entities.GridspacePrivateNotesResponse['notes'][number]; renote?: entities.GridspacePrivateNotesResponse['notes'][number]; embedded?: boolean; autofocus?: boolean }>();
 const emit = defineEmits<{ (event: 'close'): void; (event: 'sent'): void }>();
 const accountId = $i?.id ?? 'storybook';
 const info = shallowRef<entities.GridspacePrivateReplyResponse | null>(null);
@@ -97,10 +97,11 @@ const locked = computed(() => sending.value || !!pending.value);
 const identity = computed(() => info.value ? `@${info.value.account.username}@${info.value.account.host}` : '');
 const audience = computed(() => props.channelId ? props.channel?.name ?? i18n.ts.channel : info.value?.visibility === 'specified' ? i18n.ts._visibility.specified : i18n.ts._visibility.followers);
 const remaining = computed(() => (info.value?.maxTextLength ?? 0) - Array.from(text.value).length);
+const targetNote = computed(() => props.reply ?? props.renote);
 const validPoll = computed(() => !poll.value || (poll.value.choices.length >= 2 && poll.value.choices.length <= 10 && new Set(poll.value.choices).size === poll.value.choices.length && poll.value.choices.every(choice => choice.trim() && Array.from(choice).length <= 50)));
 const canSend = computed(() => !!info.value?.canReply && !sending.value && !loading.value && (!!pending.value || (remaining.value >= 0 && validPoll.value && !!(text.value.trim() || uploader.items.value.length || poll.value) && !uploader.items.value.some(item => item.preprocessing))));
-const target = () => ({ noteId: props.reply?.id, channelId: props.channelId });
-const operationKey = () => props.channelId ? `channel:${props.channelId}:${props.reply?.id ?? 'new'}` : props.reply!.id;
+const target = () => ({ noteId: props.reply?.id, renoteId: props.renote?.id, channelId: props.channelId });
+const operationKey = () => props.channelId ? `channel:${props.channelId}:${props.renote ? `quote:${props.renote.id}` : props.reply?.id ?? 'new'}` : props.reply!.id;
 let generation = 0;
 let active = true;
 let rechecking = false;
@@ -169,7 +170,7 @@ async function send() {
 					const form = new FormData();
 					form.set('i', $i!.token); form.set('name', getUploadName(item));
 					if (props.channelId) form.set('channelId', props.channelId);
-					if (props.reply) form.set('noteId', props.reply.id);
+					if (targetNote.value) form.set('noteId', targetNote.value.id);
 					form.set('expectedActorUri', info.value.account.uri);
 					form.set('comment', item.caption ?? ''); form.set('isSensitive', String(item.isSensitive ?? false)); form.set('file', blob, getUploadName(item));
 					const response = await window.fetch(`${apiUrl}/gridspace/private-upload`, { method: 'POST', body: form, credentials: 'omit', cache: 'no-store', signal: signal() });
@@ -250,7 +251,7 @@ async function discard() {
 
 watch(textarea, (element, _, onCleanup) => { if (!element) return; const autocomplete = new Autocomplete(element, text, undefined, { localUserHost: host }); onCleanup(() => autocomplete.detach()); });
 watch(cwInput, (element, _, onCleanup) => { if (!element) return; const autocomplete = new Autocomplete(element, cw, undefined, { localUserHost: host }); onCleanup(() => autocomplete.detach()); });
-watch(() => [props.reply?.id, props.channelId], load, { immediate: true });
+watch(() => [props.reply?.id, props.renote?.id, props.channelId], load, { immediate: true });
 const timer = window.setInterval(reauthorize, 15000);
 window.document.addEventListener('visibilitychange', visibility);
 onDeactivated(() => { active = false; clear(); });

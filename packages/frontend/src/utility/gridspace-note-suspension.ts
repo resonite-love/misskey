@@ -22,7 +22,9 @@ export function isSuspendedNote(note: GridspaceNoteEntry): note is GridspaceNote
 
 export function isVisiblePrivateNote(note: GridspaceNoteEntry, withSensitive = true): boolean {
 	if (isSuspendedNote(note)) return note.visible;
-	return (withSensitive || !note.files.some(file => file.isSensitive)) && (!$i || !checkTextWordMute(`${note.cw ?? ''}\n${note.text ?? ''}`, $i.hardMutedWords));
+	return [note, ...(note.renote ? [note.renote] : [])].every(part =>
+		(withSensitive || !part.files.some(file => file.isSensitive)) && (!$i || !checkTextWordMute(`${part.cw ?? ''}\n${part.text ?? ''}`, $i.hardMutedWords)),
+	);
 }
 
 /** Retain only ordering/authorization references, never bodies, actors or files. */

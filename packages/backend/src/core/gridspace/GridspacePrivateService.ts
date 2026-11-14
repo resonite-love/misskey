@@ -258,9 +258,13 @@ export class GridspacePrivateService {
 		const selected = rows.slice(0, limit);
 		const relatedIds = selected.flatMap(note => [note.replyId, note.renoteId]).filter((id): id is string => id != null);
 		const related = relatedIds.length ? await this.search.read(this.query(link.localUserId, { mode: 'show', channelId: input.channelId, withChannelNotes: !link.initiator }).andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
-		const reactionStates = new Map((selected.length ? await this.extendedReactions.show(selected.map(note => note.id), { id: link.localUserId }, true) : []).map(state => [state.noteId, state]));
+		const previewTargets = input.channelId ? related.filter(note => note.channelId === input.channelId && selected.some(parent => parent.renoteId === note.id)) : [];
+		const reactionIds = [...new Set([...selected, ...previewTargets].map(note => note.id))];
+		const reactionStates = new Map((reactionIds.length ? await this.extendedReactions.show(reactionIds, { id: link.localUserId }, true) : []).map(state => [state.noteId, state]));
 		const authors = new Map<string, Promise<Packed<'UserLite'>>>();
 		const packed = await Promise.all(selected.map(note => this.pack(note, link.localUserId, new Set(related.map(item => item.id)), reactionStates.get(note.id), authors)));
+		const previews = new Map(await Promise.all(previewTargets.map(async note => [note.id, await this.pack(note, link.localUserId, new Set(), reactionStates.get(note.id), authors)] as const)));
+		for (const note of packed) if (note.renoteId && previews.has(note.renoteId)) note.renote = previews.get(note.renoteId);
 		// Recheck after packing attachments/polls, not just before the asynchronous work.
 		await this.authorizeRead(input);
 		const fresh = selected.length ? await this.search.read(this.query(link.localUserId, sourceInput).andWhere('note.id IN (:...selected)', { selected: selected.map(note => note.id) })) : [];
@@ -269,7 +273,7 @@ export class GridspacePrivateService {
 		const relatedAllowed = new Set(freshRelated.map(note => note.id));
 		for (const note of packed) {
 			if (note.replyId && !relatedAllowed.has(note.replyId)) note.replyId = null;
-			if (note.renoteId && !relatedAllowed.has(note.renoteId)) note.renoteId = null;
+			if (note.renoteId && !relatedAllowed.has(note.renoteId)) { note.renoteId = null; delete note.renote; }
 		}
 		await this.authorizeRead(input);
 		return { notes: packed.filter(note => allowed.has(note.id)), next: homePage ? homePage.next : rows.length > limit ? this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id : null, head: homePage ? homePage.head : input.head ?? (selected[0] ? this.collectionId(selected[0]) ?? selected[0].id : null),
@@ -297,6 +301,17 @@ export class GridspacePrivateService {
 			if (!(await this.db.getRepository(MiFollowing).existsBy(subscription)) && !(await this.db.getRepository(MiFollowRequest).existsBy(subscription))) return false;
 		}
 		return true;
+	}
+
+	/** Shared by timeline reads and the updated note returned after an action. */
+	public async filterChannelRenote(viewer: MiLocalUser, note: PrivateNote, peerUserId: string): Promise<PrivateNote> {
+		const { renote: preview, ...body } = note;
+		if (!preview) return body;
+		const wire = preview as PrivateWireNote;
+		if (!Array.isArray(wire.filterActors)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		if (!await this.localAllows(viewer, wire, false, peerUserId)) return body;
+		const { filterActors: _actors, renote: _nested, ...flat } = wire;
+		return { ...body, renote: flat };
 	}
 
 	private async targets(userId: string) {
@@ -332,7 +347,7 @@ export class GridspacePrivateService {
 		const notes: PrivateNote[] = [];
 		for (const note of page.notes) if (await this.localAllows(viewer, note, (input.contextMode ?? input.mode) === 'home', channel?.peerUserId ?? link!.peerUserId)) {
 			const { filterActors: _filterActors, ...display } = note;
-			notes.push(display);
+			notes.push(await this.filterChannelRenote(viewer, display, channel?.peerUserId ?? link!.peerUserId));
 		}
 		if (channel) await channel.check(); else await this.links.checkPrivateUnchanged(link!);
 		const next = page.next ? encodeHistoryCursor(this.peer!, { ...state, remote: page.next, remoteHead: page.head }, context) : null;

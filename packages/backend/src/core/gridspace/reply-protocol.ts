@@ -7,11 +7,12 @@ import { MAX_NOTE_TEXT_LENGTH } from '@/const.js';
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import { privateNoteSchema } from './private-protocol.js';
 
-export type ReplyOptions = { action: 'prepare' | 'send' | 'status'; noteId?: string; channelId?: string; expectedActorUri?: string; requestId?: string; text?: string; cw?: string | null; fileIds?: string[]; poll?: { choices: string[]; multiple: boolean; expiresAt: number | null } };
+export type ReplyOptions = { action: 'prepare' | 'send' | 'status'; noteId?: string; renoteId?: string; channelId?: string; expectedActorUri?: string; requestId?: string; text?: string; cw?: string | null; fileIds?: string[]; poll?: { choices: string[]; multiple: boolean; expiresAt: number | null } };
 export type ReplyPeerRequest = GridspacePeerLinkRequest & ReplyOptions;
 export const replyOptionsSchema = {
 	action: { type: 'string', enum: ['prepare', 'send', 'status'], default: 'prepare' },
 	noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+	renoteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	expectedActorUri: { type: 'string', maxLength: 512 },
 	requestId: { type: 'string', pattern: '^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$' },

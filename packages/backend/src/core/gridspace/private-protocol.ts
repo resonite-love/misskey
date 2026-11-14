@@ -30,10 +30,11 @@ export type PrivateNote = {
 	myReactions?: string[]; extendedReactions?: boolean;
 	reactionPreviews?: ReactionPreview[];
 	replyId: string | null; renoteId: string | null;
+	renote?: PrivateNote | null;
 	files: { id: string; name: string; type: string; size: number; comment: string | null; isSensitive: boolean }[];
 	poll: { choices: { text: string; votes: number; isVoted?: boolean }[]; expiresAt: string | null; multiple: boolean } | null;
 };
-export type PrivateWireNote = PrivateNote & { filterActors: PrivateActor[] };
+export type PrivateWireNote = Omit<PrivateNote, 'renote'> & { filterActors: PrivateActor[]; renote?: PrivateWireNote | null };
 export type PrivatePage = { notes: PrivateWireNote[]; next: string | null; head: string | null; scannedThrough: string | null; observedAt: string };
 export const PRIVATE_FILE_LIMIT = 16 * 1024 * 1024;
 
@@ -44,7 +45,7 @@ const integer = { type: 'integer', optional: false, nullable: false } as const;
 
 // Deliberately not the shared Note schema: these IDs belong to the peer and
 // must never be inserted into normal note caches or used for local mutations.
-export const privateNoteSchema = {
+const privateNoteBaseSchema = {
 	type: 'object', optional: false, nullable: false, properties: {
 		id: text, uri: text, createdAt: text, origin: text, text: nullableText, cw: nullableText, visibility: text, localOnly: flag,
 		channelId: { ...nullableText, optional: true },
@@ -74,6 +75,13 @@ export const privateNoteSchema = {
 			expiresAt: nullableText, multiple: flag,
 		} },
 	},
+} as const;
+
+// One level only: channel references are packed from the already authorized
+// related-note batch, never followed recursively or persisted on the client.
+export const privateNoteSchema = {
+	...privateNoteBaseSchema,
+	properties: { ...privateNoteBaseSchema.properties, renote: { ...privateNoteBaseSchema, optional: true, nullable: true } },
 } as const;
 
 export const privateOptionsSchema = {

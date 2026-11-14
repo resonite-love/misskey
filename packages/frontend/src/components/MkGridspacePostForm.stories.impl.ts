@@ -25,3 +25,8 @@ export const PrivateReply = {
 	args: { embedded: true, reply: { id: 'private1', uri: 'https://peer.example/notes/private1', origin: 'https://peer.example', createdAt: '2026-11-13T00:00:00Z', author: account, text: '返信先の投稿', cw: 'CW', visibility: 'specified', localOnly: true, files: [], poll: null, replyId: null, renoteId: null } },
 	parameters: { msw: { handlers: [http.post('/api/gridspace/private-reply', () => HttpResponse.json({ ...prepared, visibility: 'specified', recipients: [account] }))] } },
 } satisfies StoryObj<typeof MkGridspacePostForm>;
+
+export const ChannelQuote = {
+	...Default,
+	args: { ...Default.args, renote: { ...PrivateReply.args.reply, id: 'channel-note', channelId: 'channel1', visibility: 'public', cw: null, text: 'チャンネル内で引用する投稿' } },
+} satisfies StoryObj<typeof MkGridspacePostForm>;

@@ -19,7 +19,7 @@ import type { DriveFileEntityService } from '@/core/entities/DriveFileEntityServ
 import type { UserEntityService } from '@/core/entities/UserEntityService.js';
 import { GridspaceActionService } from './GridspaceActionService.js';
 import type { GridspaceLinkService } from './GridspaceLinkService.js';
-import type { GridspacePrivateService } from './GridspacePrivateService.js';
+import { GridspacePrivateService } from './GridspacePrivateService.js';
 import type { GridspaceReactionService } from './GridspaceReactionService.js';
 import type { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
 import type { ActionOptions } from './action-protocol.js';
@@ -36,11 +36,13 @@ function fixture() {
 	db.transaction.mockImplementation((async (callback: (manager: unknown) => unknown) => callback(db.manager)) as never);
 	links.authorizePrivate.mockResolvedValue({ localUserId: user.id } as MiGridspaceLink);
 	links.privateLink.mockResolvedValue({ id: 'link' } as MiGridspaceLink);
+	links.json.mockResolvedValue({ note: { id: 'note' } });
 	links.privateCredential.mockReturnValue({ accessToken: 'peer-secret', linkId: 'link' });
 	links.hasActionScope.mockResolvedValue(true); links.hasReplyScope.mockResolvedValue(true);
 	reader.readableSourceNote.mockResolvedValue({ id: 'note', channelId: null, userHost: null } as MiNote);
 	reader.notes.mockResolvedValue({ notes: [{ id: 'note' }] } as never);
 	reader.peerNotes.mockResolvedValue({ notes: [{ id: 'note' }] } as never);
+	reader.filterChannelRenote.mockImplementation((...args) => GridspacePrivateService.prototype.filterChannelRenote.call(reader, ...args));
 	files.validateFileName.mockReturnValue(true);
 	const reactions = mockDeep<ReactionService>();
 	reactions.withReactionLock.mockImplementation(async (_userId, _noteId, work) => work());
@@ -53,6 +55,14 @@ function fixture() {
 }
 
 describe('delegated actions', () => {
+	test.each([true, false])('action responses apply the same embedded-source filter as ordinary reads (%s)', async readable => {
+		const f = fixture();
+		f.links.json.mockResolvedValue({ note: { id: 'note', renote: { id: 'original', text: 'Original content', filterActors: [], renote: { text: 'deeper' } } } });
+		f.reader.localAllows.mockResolvedValue(readable);
+		const result = await f.service.action(f.user, { action: 'react', noteId: 'note', reaction: '👍' });
+		if (readable) { expect(result.note.renote).toEqual({ id: 'original', text: 'Original content' }); } else expect(result.note).not.toHaveProperty('renote');
+		expect(f.reader.localAllows).toHaveBeenCalledOnce();
+	});
 	test('channel extra reactions use the old local identity and require channel permission', async () => {
 		const f = fixture();
 		const input = { action: 'remove-reaction' as const, noteId: 'note', channelId: 'channel', reaction: '🎉' };

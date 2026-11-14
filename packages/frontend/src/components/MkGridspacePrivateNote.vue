@@ -4,7 +4,17 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<article v-if="!deleted" ref="article" :class="$style.note" data-gridspace-private-note>
+<article v-if="!deleted" ref="article" :class="[$style.note, { [$style.renoteWrapper]: isPureRenote && note.renote }]" data-gridspace-private-note>
+	<template v-if="isPureRenote && note.renote">
+		<div :class="$style.renoteHeader">
+			<MkAvatar :user="displayAuthor" :class="$style.renoteAvatar" link/>
+			<i class="ti ti-repeat"></i>
+			<I18n :src="i18n.ts.renotedBy" tag="span"><template #user><MkUserName :user="displayAuthor"/></template></I18n>
+			<button class="_button" :class="$style.renoteMenu" :aria-label="i18n.ts.more" @click="showMenu"><i class="ti ti-dots"></i> <MkTime :time="note.createdAt"/></button>
+		</div>
+		<MkGridspacePrivateNote :note="note.renote" @unavailable="emit('unavailable')" @replied="emit('replied')"/>
+	</template>
+	<template v-else>
 	<div v-if="channel" :class="$style.colorBar" :style="{ background: channel.color }"></div>
 	<MkAvatar :user="displayAuthor" :class="$style.avatar" link/>
 	<div :class="$style.content">
@@ -17,6 +27,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</template>
 	<div v-else-if="isUnavailableGridspaceNote(note, true)" :class="$style.body"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</div>
 	<div v-else :class="[$style.body, $style.text]"><Mfm :text="translation?.text ?? note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
+	<MkGridspacePrivateNote v-if="note.renote && (note.cw == null || expanded)" :note="note.renote" :class="$style.quote" @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 	<button v-if="translation" class="_textButton" @click="translation = null">{{ i18n.ts._autoTranslation.showOriginal }}</button>
 	<div v-if="visible && isEnabledUrlPreview && (note.cw == null || expanded)">
 		<MkUrlPreview v-for="link in urls" :key="link" :url="link" :compact="true" :detail="false" :class="$style.urlPreview"/>
@@ -37,6 +48,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</footer>
 	<p v-if="deleteError" role="alert">{{ i18n.ts._gridspace.channelDeleteFailed }}</p>
 	</div>
+	</template>
 </article>
 </template>
 
@@ -56,6 +68,7 @@ import { extractUrlFromMfm } from '@/utility/extract-url-from-mfm.js';
 import { isEnabledUrlPreview } from '@/utility/url-preview.js';
 import { DI } from '@/di.js';
 import { gridspacePost } from '@/utility/gridspace-post.js';
+import { GridspaceChannelRenoteError, renoteGridspaceChannel } from '@/utility/gridspace-channel-renote.js';
 import { getRenoteMenu } from '@/utility/get-note-menu.js';
 import { getGridspaceNoteMenu } from '@/utility/gridspace-note-menu.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
@@ -82,7 +95,8 @@ const emit = defineEmits<{ (event: 'unavailable'): void; (event: 'replied'): voi
 const actions = useTemplateRef('actions');
 const article = useTemplateRef('article');
 const renoteButton = useTemplateRef('renoteButton');
-const canRenote = computed(() => !!$i && !note.value.channelId && ['public', 'home'].includes(note.value.visibility));
+const isPureRenote = computed(() => !!note.value.renoteId && note.value.text == null && note.value.cw == null && !note.value.replyId && !note.value.files.length && !note.value.poll);
+const canRenote = computed(() => !!$i && ['public', 'home'].includes(note.value.visibility) && (!note.value.channelId || !note.value.renoteId || !!(note.value.text || note.value.cw || note.value.replyId || note.value.files.length || note.value.poll)) && !isUnavailableGridspaceNote(note.value, true));
 const renoteLoading = ref(false);
 const expanded = defineModel<boolean>('expanded', { default: false });
 const deleted = ref(false);
@@ -112,6 +126,28 @@ function reply() {
 async function renote() {
 	if (!canRenote.value || renoteLoading.value) return;
 	const current = generation;
+	const target = note.value;
+	if (target.channelId) {
+		const channelId = target.channelId;
+		await os.popupMenu([{
+			text: i18n.ts.inChannelRenote, icon: 'ti ti-repeat', action: async () => {
+				if (current !== generation || renoteLoading.value || !$i) return;
+				renoteLoading.value = true;
+				try {
+					await renoteGridspaceChannel($i.id, channelId, target.id, AbortSignal.timeout(20000));
+					if (current === generation) { os.toast(i18n.ts.renoted); emit('replied'); }
+				} catch (error) {
+					if (current === generation) await os.alert({ type: 'error', text: error instanceof GridspaceChannelRenoteError && !error.uncertain ? i18n.ts._gridspace.replyUnavailable : i18n.ts._gridspace.replyUncertain });
+				} finally { renoteLoading.value = false; }
+			},
+		}, {
+			text: i18n.ts.inChannelQuote, icon: 'ti ti-quote', action: () => {
+				if (current !== generation) return;
+				void gridspacePost({ channelId, channel: channel.value, renote: target }, () => emit('replied'));
+			},
+		}], renoteButton.value);
+		return;
+	}
 	renoteLoading.value = true;
 	try {
 		const target = await misskeyApi('gridspace/renote-target', { noteId: note.value.id }, undefined, AbortSignal.timeout(20000));
@@ -209,6 +245,11 @@ onDeactivated(clear);
 
 <style lang="scss" module>
 .note { position: relative; display: flex; gap: 14px; padding: 28px 32px; border-bottom: 1px solid var(--MI_THEME-divider); overflow-wrap: anywhere; }
+.renoteWrapper { display: block; padding: 0; }
+.renoteHeader { display: flex; align-items: center; gap: 6px; padding: 16px 32px 0; color: var(--MI_THEME-renote); }
+.renoteAvatar { width: 24px; height: 24px; }
+.renoteMenu { margin-left: auto; font-size: 0.85em; }
+.quote { margin-top: 8px; padding: 16px; border: 1px solid var(--MI_THEME-divider); border-radius: var(--MI-radius); }
 .colorBar { position: absolute; top: 8px; left: 8px; width: 5px; height: calc(100% - 16px); border-radius: 999px; pointer-events: none; }
 .avatar { flex: none; display: block; width: 58px; height: 58px; }
 .content { flex: 1; min-width: 0; }

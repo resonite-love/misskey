@@ -149,8 +149,9 @@ export class GridspaceActionService {
 		const result = await this.links.json<Awaited<ReturnType<GridspaceActionService['peerAction']>>>('/gridspace/v1/private/action', {
 			action: input.action, noteId: input.noteId, channelId: input.channelId, expectedActorUri: input.expectedActorUri, reaction: input.reaction, choice: input.choice, untilId: input.untilId, limit: input.limit, ...(channel ? channel.credential : this.links.privateCredential(link!)),
 		});
+		const note = await this.reader.filterChannelRenote(viewer, result.note, channel?.peerUserId ?? link!.peerUserId);
 		if (channel) await channel.check(); else await this.links.checkPrivateUnchanged(link!);
-		return result;
+		return { ...result, note };
 	}
 
 	private async uploadSource(input: UploadPeerRequest) {

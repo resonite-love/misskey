@@ -109,6 +109,21 @@ describe('GridSpace reaction transport', () => {
 });
 
 describe('GridSpace delegated reply transport', () => {
+	test('preserves signed channel renote targets and rejects malformed or unsigned requests', async () => {
+		const received: object[] = [];
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, async body => { received.push(body); return { createdNoteId: 'renote' }; });
+		const url = '/gridspace/v1/private/reply';
+		const input = { channelActorId: 'griduser', channelId: 'channel', renoteId: 'target', action: 'send', requestId: '00000000-0000-4000-8000-000000000003' };
+		const send = (value: object, signed = true) => {
+			const payload = Buffer.from(JSON.stringify(value));
+			return app.inject({ method: 'POST', url, payload, headers: signed ? createGridspaceHeaders(g, 'POST', url, payload) : { 'content-type': 'application/json' } });
+		};
+		expect((await send(input, false)).statusCode).toBe(403);
+		expect((await send({ ...input, renoteId: '../target' })).statusCode).toBe(400);
+		expect((await send(input)).statusCode).toBe(200);
+		expect(received).toEqual([input]);
+	});
+
 	test('requires the signed peer, bounds text and forbids caller-selected audiences or identities', async () => {
 		const received: object[] = [];
 		const app = await server(true, undefined, undefined, undefined, undefined, undefined, async body => { received.push(body); return { createdNoteId: 'reply' }; });

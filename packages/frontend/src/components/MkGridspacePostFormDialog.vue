@@ -15,7 +15,7 @@ import type { entities } from 'misskey-js';
 import MkModal from '@/components/MkModal.vue';
 import MkGridspacePostForm from '@/components/MkGridspacePostForm.vue';
 
-const props = defineProps<{ channelId?: string; channel?: { name: string; color: string }; reply?: entities.GridspacePrivateNotesResponse['notes'][number] }>();
+const props = defineProps<{ channelId?: string; channel?: { name: string; color: string }; reply?: entities.GridspacePrivateNotesResponse['notes'][number]; renote?: entities.GridspacePrivateNotesResponse['notes'][number] }>();
 const emit = defineEmits<{ (event: 'closed'): void; (event: 'sent'): void }>();
 const modal = useTemplateRef('modal');
 const form = useTemplateRef('form');
