@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/vue';
 import ChannelColumn from '@/ui/deck/channel-column.vue';
-import { getDeckChannelChoices } from '@/utility/deck-channel-choices.js';
+import { getDeckChannelChoices, getFavoriteChannelChoices } from '@/utility/deck-channel-choices.js';
 
 const { api, favorites, select, update, post, sharedPost, refresh, fixed } = vi.hoisted(() => ({
 	api: vi.fn(), favorites: vi.fn(), select: vi.fn(), update: vi.fn(), post: vi.fn(), sharedPost: vi.fn(), refresh: vi.fn(), fixed: { value: false },
@@ -54,6 +54,18 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Deck channel choices', () => {
+	test('timeline favorites open on the correct server and keep independent read markers', async () => {
+		const choices = await getFavoriteChannelChoices();
+		expect(choices.map(({ id, to, lastReadKey }) => ({ id, to, lastReadKey }))).toEqual([
+			{ id: 'same-id', to: '/channels/same-id', lastReadKey: 'channelLastReadedAt:same-id' },
+			{ id: 'gridspace:channel:same-id', to: '/gridspace/channels/same-id', lastReadKey: 'channelLastReadedAt:https://misskey.resonite.love:same-id' },
+		]);
+	});
+	test('timeline favorites refresh paired changes on the next menu opening', async () => {
+		expect(await getFavoriteChannelChoices()).toHaveLength(2);
+		api.mockImplementation(async (path: string) => path === 'gridspace/link' ? { channelsEnabled: true } : { ...peerPage, channels: [] });
+		expect(await getFavoriteChannelChoices()).toHaveLength(1);
+	});
 	test('includes both servers and distinguishes colliding IDs', async () => {
 		expect(await getDeckChannelChoices()).toEqual([
 			{ id: 'same-id', name: 'Local favorite', label: 'Local favorite' },

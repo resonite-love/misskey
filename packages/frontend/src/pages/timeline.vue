@@ -54,7 +54,8 @@ import { store } from '@/store.js';
 import { i18n } from '@/i18n.js';
 import { $i } from '@/i.js';
 import { definePage } from '@/page.js';
-import { antennasCache, userListsCache, favoritedChannelsCache } from '@/cache.js';
+import { antennasCache, userListsCache } from '@/cache.js';
+import { getFavoriteChannelChoices } from '@/utility/deck-channel-choices.js';
 import { deviceKind } from '@/utility/device-kind.js';
 import { deepMerge } from '@/utility/merge.js';
 import { miLocalStorage } from '@/local-storage.js';
@@ -167,17 +168,17 @@ async function chooseAntenna(ev: PointerEvent): Promise<void> {
 }
 
 async function chooseChannel(ev: PointerEvent): Promise<void> {
-	const channels = await favoritedChannelsCache.fetch();
+	const channels = await getFavoriteChannelChoices();
 	const items: (MenuItem | undefined)[] = [
 		...channels.map(channel => {
-			const lastReadedAt = miLocalStorage.getItemAsJson(`channelLastReadedAt:${channel.id}`) ?? null;
+			const lastReadedAt = miLocalStorage.getItemAsJson(channel.lastReadKey) ?? null;
 			const hasUnreadNote = (lastReadedAt && channel.lastNotedAt) ? Date.parse(channel.lastNotedAt) > lastReadedAt : !!(!lastReadedAt && channel.lastNotedAt);
 
 			return {
 				type: 'link' as const,
-				text: channel.name,
+				text: channel.label,
 				indicate: hasUnreadNote,
-				to: `/channels/${channel.id}`,
+				to: channel.to,
 			};
 		}),
 		(channels.length === 0 ? undefined : { type: 'divider' }),
