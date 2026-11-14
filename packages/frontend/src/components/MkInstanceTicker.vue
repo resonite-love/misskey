@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div :class="$style.root" :style="themeColorStyle">
+<div v-if="!isCommunityInstance" :class="$style.root" :style="themeColorStyle">
 	<img v-if="faviconUrl" :class="$style.icon" :src="faviconUrl"/>
 	<div :class="$style.name">{{ instanceName }}</div>
 </div>
@@ -12,7 +12,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script lang="ts" setup>
 import { computed } from 'vue';
-import { instanceName as localInstanceName } from '@@/js/config.js';
+import { host as localHost, instanceName as localInstanceName } from '@@/js/config.js';
 import type { CSSProperties } from 'vue';
 import { instance as localInstance } from '@/instance.js';
 import { getProxiedImageUrlNullable } from '@/utility/media-proxy.js';
@@ -25,6 +25,13 @@ const props = defineProps<{
 		themeColor?: string | null
 	}
 }>();
+
+// Keep the account's host in MkAcct; the paired community does not need a second label.
+const communityPairs = [
+	['misskey.resonite.love', 'misskey.grid-space.io'],
+	['resonite-love-misskey.kokopi.me', 'grid-space-misskey.kokopi.me'],
+];
+const isCommunityInstance = computed(() => communityPairs.some(pair => pair.includes(localHost) && pair.includes(props.host ?? localHost)));
 
 // if no instance data is given, this is for the local instance
 const instanceName = computed(() => props.host == null ? localInstanceName : props.instance?.name ?? props.host);
