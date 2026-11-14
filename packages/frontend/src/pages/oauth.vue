@@ -105,7 +105,8 @@ async function onAccept(token: string, userId: string) {
 		// Read the selected account's cloud preferences once, not one request per key.
 		const read = createGridspacePreferenceReader(() => misskeyApi('i/registry/get-all', { scope: ['client', 'preferences', 'sync'] }, token) as Promise<Record<string, unknown>>, isSameScope);
 		failureStage.value = 'palette';
-		const palette = exportPalette ? await snapshotGridspacePaletteForAccount(prefer.profile, host, userId, $i?.id, read) : undefined;
+		if (exportPalette) await store.ready;
+		const palette = exportPalette ? await snapshotGridspacePaletteForAccount(prefer.profile, host, userId, $i?.id, read, store.s.recentlyUsedEmojis) : undefined;
 		failureStage.value = 'settings';
 		const settings = exportPalette ? await snapshotClientSettings(prefer.profile, host, userId, $i?.id, read, { visibility: store.s.visibility, localOnly: store.s.localOnly, memo: store.s.memo, memo2: store.s.memo2 }) : undefined;
 		doPost(token, 'accept', palette, settings);

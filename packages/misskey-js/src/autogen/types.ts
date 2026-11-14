@@ -27116,6 +27116,7 @@ export interface operations {
                             }[];
                             forMain: string | null;
                             forReaction: string | null;
+                            recentlyUsedEmojis?: string[];
                         } | null;
                     };
                 };

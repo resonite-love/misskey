@@ -23,3 +23,16 @@ test.each([
 ])('rejects malformed, ambiguous or oversized palette data', value => {
 	expect(parseGridspacePalette(value)).toBeNull();
 });
+
+test('accepts bounded recent history and keeps old snapshots compatible', () => {
+	const recentlyUsedEmojis = ['😺', ':resonite:', ':remote@example.net:'];
+	const result = parseGridspacePalette({ ...palette, recentlyUsedEmojis });
+	expect(result?.recentlyUsedEmojis).toEqual(recentlyUsedEmojis);
+	expect(result?.recentlyUsedEmojis).not.toBe(recentlyUsedEmojis);
+	expect(parseGridspacePalette(palette)?.recentlyUsedEmojis).toBeUndefined();
+	expect(parseGridspacePalette({ ...palette, recentlyUsedEmojis: [] })?.recentlyUsedEmojis).toEqual([]);
+});
+
+test.each([null, '😺', [42], [''], ['x'.repeat(513)], Array(33).fill('😺')])('rejects invalid browser history (%j)', recentlyUsedEmojis => {
+	expect(parseGridspacePalette({ ...palette, recentlyUsedEmojis })).toBeNull();
+});

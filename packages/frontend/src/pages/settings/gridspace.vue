@@ -55,6 +55,13 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<MkInfo v-if="paletteError" warn>{{ i18n.ts._gridspace.paletteCopyFailed }}</MkInfo>
 				<MkButton v-if="paletteError" :disabled="busy" @click="retryPalette">{{ i18n.ts.retry }}</MkButton>
 			</div>
+			<section v-if="status.state === 'active' && status.initiator" class="_gaps_s">
+				<h2>{{ i18n.ts._gridspace.recentEmojiTitle }}</h2>
+				<p>{{ i18n.ts._gridspace.recentEmojiDescription }}</p>
+				<MkInfo v-if="recentEmojiCopied" role="status">{{ i18n.ts._gridspace.recentEmojiCopied }}</MkInfo>
+				<MkInfo v-if="recentEmojiUnavailable" warn role="alert">{{ i18n.ts._gridspace.recentEmojiUnavailable }}</MkInfo>
+				<MkButton :disabled="busy" @click="startRecentEmojis">{{ i18n.ts._gridspace.recentEmojiCopy }}</MkButton>
+			</section>
 			<template v-if="status.state === 'active' && status.initiator && status.channelsEnabled">
 				<section class="_gaps_s">
 					<h2>{{ i18n.ts._gridspace.listsTitle }}</h2>
@@ -123,7 +130,7 @@ import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 import { store } from '@/store.js';
 import { prefer } from '@/preferences.js';
-import { gridspacePaletteSource, mergeGridspacePalette } from '@/utility/gridspace-palette.js';
+import { gridspacePaletteSource, mergeGridspacePalette, mergeGridspaceRecentEmojis } from '@/utility/gridspace-palette.js';
 import { parseClientSettings, portableSettingKeys } from '@/utility/gridspace-settings.js';
 import { PREF_DEF } from '@/preferences/def.js';
 import { mapLayoutSettings, layoutSettingKeys } from '@/utility/gridspace-layout.js';
@@ -142,6 +149,8 @@ const busy = ref(false);
 const error = ref('');
 const paletteCopied = ref(false);
 const paletteError = ref(false);
+const recentEmojiCopied = ref(false);
+const recentEmojiUnavailable = ref(false);
 const profileResult = ref<entities.GridspaceProfileImportResponse | null>(null);
 const profileError = ref(false);
 const listsAutoStart = ref(false);
@@ -203,15 +212,21 @@ async function refresh() {
 }
 
 async function start() {
+	await startLink(false);
+}
+
+async function startLink(recentEmojisOnly: boolean) {
 	await perform(async () => {
 		const result = await misskeyApi('gridspace/link', { action: 'start' });
 		if (!result.authorizationUrl || !result.clientKey) throw new Error('Missing authorization URL');
 		sessionStorage.setItem(storageKey, result.clientKey);
 		sessionStorage.setItem(`${storageKey}:purpose`, 'link');
+		if (recentEmojisOnly) sessionStorage.setItem(`${storageKey}:recent-emojis`, 'true');
+		else sessionStorage.removeItem(`${storageKey}:recent-emojis`);
 		await prefer.cloudReady;
-		if (!status.value || ['unlinked', 'revoked'].includes(status.value.state)) prefer.commit('gridspaceSettingsImportRequest', crypto.randomUUID());
+		if (!recentEmojisOnly && (!status.value || ['unlinked', 'revoked'].includes(status.value.state))) prefer.commit('gridspaceSettingsImportRequest', crypto.randomUUID());
 		prefer.commit('gridspacePaletteImportPending', true);
-		prefer.commit('gridspaceProfileImportPending', true);
+		if (!recentEmojisOnly) prefer.commit('gridspaceProfileImportPending', true);
 		window.location.assign(result.authorizationUrl);
 	});
 }
@@ -229,26 +244,46 @@ async function startPrivate() {
 async function copyPalette() {
 	if (!status.value?.initiator || !status.value.peerOrigin || !status.value.peerUserId) return;
 	await prefer.cloudReady;
+	await store.ready;
 	const key = gridspacePaletteSource(status.value.peerOrigin, status.value.peerUserId);
-	if (prefer.s.gridspacePaletteImports.includes(key)) {
+	const paletteImported = prefer.s.gridspacePaletteImports.includes(key);
+	const recentImported = store.s.gridspaceRecentEmojiImports.includes(key);
+	const recentRequested = sessionStorage.getItem(`${storageKey}:recent-emojis`) === 'true';
+	if (paletteImported && recentImported && !recentRequested) {
 		prefer.commit('gridspacePaletteImportPending', false);
 		return;
 	}
 	const result = await misskeyApi('gridspace/palette', {});
 	if (!result.palette) {
+		if (recentRequested) recentEmojiUnavailable.value = true;
 		prefer.commit('gridspacePaletteImportPending', false);
 		return;
 	}
-	const merged = await mergeGridspacePalette(prefer.s.emojiPalettes, result.palette, result.peerOrigin, result.peerUserId);
-	for (const setting of ['emojiPalettes', 'emojiPaletteForMain', 'emojiPaletteForReaction'] as const) prefer.setAccountOverride(setting);
-	prefer.commit('emojiPalettes', merged.palettes);
-	if (result.palette.palettes.length) {
-		prefer.commit('emojiPaletteForMain', merged.forMain);
-		prefer.commit('emojiPaletteForReaction', merged.forReaction);
+	if (!paletteImported && !recentRequested) {
+		const merged = await mergeGridspacePalette(prefer.s.emojiPalettes, result.palette, result.peerOrigin, result.peerUserId);
+		for (const setting of ['emojiPalettes', 'emojiPaletteForMain', 'emojiPaletteForReaction'] as const) prefer.setAccountOverride(setting);
+		prefer.commit('emojiPalettes', merged.palettes);
+		if (result.palette.palettes.length) {
+			prefer.commit('emojiPaletteForMain', merged.forMain);
+			prefer.commit('emojiPaletteForReaction', merged.forReaction);
+		}
+		prefer.commit('gridspacePaletteImports', [...prefer.s.gridspacePaletteImports, key]);
+		paletteCopied.value = true;
 	}
-	prefer.commit('gridspacePaletteImports', [...prefer.s.gridspacePaletteImports, key]);
+	if (!recentImported || recentRequested) {
+		if (result.palette.recentlyUsedEmojis !== undefined) {
+			await store.set('recentlyUsedEmojis', mergeGridspaceRecentEmojis(store.s.recentlyUsedEmojis, result.palette.recentlyUsedEmojis));
+			await store.set('gridspaceRecentEmojiImports', [...new Set([...store.s.gridspaceRecentEmojiImports, key])]);
+			recentEmojiCopied.value = true;
+			sessionStorage.removeItem(`${storageKey}:recent-emojis`);
+		} else if (recentRequested) recentEmojiUnavailable.value = true;
+	}
 	prefer.commit('gridspacePaletteImportPending', false);
-	paletteCopied.value = true;
+}
+
+async function startRecentEmojis() {
+	if (busy.value) return;
+	await startLink(true);
 }
 
 async function resumePalette() {
@@ -367,18 +402,28 @@ onMounted(async () => {
 				if (sessionStorage.getItem(`${storageKey}:purpose`) === 'private') readGrant.value = await misskeyApi('gridspace/private-grant', input);
 				else {
 					status.value = await misskeyApi('gridspace/link', input);
-					listsAutoStart.value = true;
+					const recentEmojisOnly = sessionStorage.getItem(`${storageKey}:recent-emojis`) === 'true';
 					prefer.commit('gridspacePaletteImportPending', true);
-					prefer.commit('gridspaceProfileImportPending', true);
+					if (!recentEmojisOnly) {
+						listsAutoStart.value = true;
+						prefer.commit('gridspaceProfileImportPending', true);
+					} else {
+						// Leave earlier migration jobs pending; this return imports only history.
+						profileAttempted = true;
+						settingsAttempted = true;
+					}
 					await resumePalette();
-					await resumeProfile();
-					await resumeSettings();
+					if (!recentEmojisOnly) {
+						await resumeProfile();
+						await resumeSettings();
+					}
 				}
 				sessionStorage.removeItem(storageKey);
 				sessionStorage.removeItem(`${storageKey}:purpose`);
 			});
 		} else {
 			error.value = i18n.ts._gridspace.authorizationError;
+			sessionStorage.removeItem(`${storageKey}:recent-emojis`);
 			prefer.commit('gridspacePaletteImportPending', false);
 			prefer.commit('gridspaceProfileImportPending', false);
 			prefer.commit('gridspaceSettingsImportRequest', null);

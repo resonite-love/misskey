@@ -5,7 +5,7 @@
 
 import { webcrypto } from 'node:crypto';
 import { afterEach, expect, test, vi } from 'vitest';
-import { mergeGridspacePalette, snapshotGridspacePalette, snapshotGridspacePaletteForAccount } from '@/utility/gridspace-palette.js';
+import { mergeGridspacePalette, mergeGridspaceRecentEmojis, snapshotGridspacePalette, snapshotGridspacePaletteForAccount } from '@/utility/gridspace-palette.js';
 import type { GridspacePaletteSnapshot } from '@/utility/gridspace-palette.js';
 import type { PreferencesProfile } from '@/preferences/manager.js';
 
@@ -57,4 +57,29 @@ test('retrying does not duplicate palettes or overwrite edits made after import'
 	expect(second.palettes).toEqual(first.palettes);
 	const other = await mergeGridspacePalette(first.palettes, source, 'https://r.example', 'other');
 	expect(other.palettes).toHaveLength(4);
+});
+
+test('exports browser emoji history alongside the selected account palette, without changing the source', async () => {
+	const profile = { preferences: {
+		emojiPalettes: [[{}, source.palettes, {}]], emojiPaletteForMain: [[{}, null, {}]], emojiPaletteForReaction: [[{}, 'two', {}]],
+	} } as unknown as PreferencesProfile;
+	const history = ['😺', ':resonite:', ':remote@example.net:', '😺'];
+	const result = await snapshotGridspacePaletteForAccount(profile, 'r.example', 'selected', 'selected', async () => null, history);
+	expect(result.recentlyUsedEmojis).toEqual(['😺', ':resonite:', ':remote@example.net:']);
+	expect(history).toHaveLength(4);
+});
+
+test('merges history after current activity, deduplicates, and preserves the 32-item limit across retries', () => {
+	const source = [':source:', ':shared:', ...Array.from({ length: 40 }, (_, i) => `:emoji${i}:`)];
+	const current = [':current:', ':shared:'];
+	const merged = mergeGridspaceRecentEmojis(current, source);
+	expect(merged.slice(0, 4)).toEqual([':current:', ':shared:', ':source:', ':emoji0:']);
+	expect(merged).toHaveLength(32);
+	expect(mergeGridspaceRecentEmojis(merged, source)).toEqual(merged);
+	expect(mergeGridspaceRecentEmojis(current, [])).toEqual(current);
+	expect(current).toEqual([':current:', ':shared:']);
+});
+
+test('ignores corrupt optional browser-history entries without breaking authorization', () => {
+	expect(mergeGridspaceRecentEmojis([], ['', 'x'.repeat(513), 42 as unknown as string, '😺'])).toEqual(['😺']);
 });

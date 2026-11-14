@@ -16,7 +16,7 @@ vi.mock('@/os.js', () => ({}));
 vi.mock('@/page.js', () => ({ definePage: vi.fn() }));
 vi.mock('@/utility/media-proxy.js', () => ({ getProxiedImageUrl: (x:string) => x }));
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: request }));
-vi.mock('@/store.js', () => ({ store: { s: { visibility: 'followers', localOnly: true, memo: null, memo2: null } } }));
+vi.mock('@/store.js', () => ({ store: { ready: Promise.resolve(), loaded: new Promise(() => {}), s: { visibility: 'followers', localOnly: true, memo: null, memo2: null, recentlyUsedEmojis: ['😺', ':resonite:'] } } }));
 vi.mock('@/i18n.js', () => ({ i18n: { ts: { pleaseSelectAccount: 'Choose', selectAccount: 'Account', continue: 'Continue', accept: 'Allow', reject: 'Deny', switchAccount: 'Switch', retry: 'Retry', somethingHappened: 'Failed', _auth: { scopeUser: 'Account', shareAccessAsk: 'Consent' }, _gridspace: { oauthPaletteFailed: 'Palette unavailable', oauthSettingsFailed: 'Settings unavailable' }, _permissions: {} }, tsx: { _auth: { shareAccess: () => '', permission: () => '' } } } }));
 vi.mock('@/components/MkButton.vue', () => ({ default: { template: '<button><slot/></button>' } }));
 vi.mock('@/components/MkInfo.vue', () => ({ default: { template: '<div><slot/></div>' } }));
@@ -46,6 +46,8 @@ test('submits authorization with legacy settings and reports only the skipped op
  const snapshot = JSON.parse((form.querySelector('[name="gridspace_settings"]') as HTMLInputElement).value);
  expect(snapshot.values.dataSaver.code).toBe(false); expect(snapshot.skipped).toEqual(['deck.profiles']);
  expect(snapshot.visibility).toBe('followers'); expect(request).toHaveBeenCalledTimes(1);
+ const palette = JSON.parse((form.querySelector('[name="gridspace_palette"]') as HTMLInputElement).value);
+ expect(palette.recentlyUsedEmojis).toEqual(['😺', ':resonite:']);
 });
 test('shows the failing step and permits a fresh retry after a temporary cloud failure', async() => {
  request.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({});

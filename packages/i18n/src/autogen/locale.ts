@@ -9656,7 +9656,7 @@ export interface Locale extends ILocale {
          */
         "read:account": string;
         /**
-         * 連携先へ絵文字パレットを引き継ぐ
+         * 連携先へ絵文字パレットと最近使った絵文字を引き継ぐ
          */
         "read:gridspace-palette": string;
         /**
@@ -14030,6 +14030,26 @@ export interface Locale extends ILocale {
          * 絵文字パレットを引き継ぎました。
          */
         "paletteCopied": string;
+        /**
+         * 最近使った絵文字
+         */
+        "recentEmojiTitle": string;
+        /**
+         * れぞらぶで許可するときに、そのブラウザーの使用履歴を取り込みます。このブラウザーで最近使った絵文字を先に残し、重複を除いて最大32件にまとめます。連携後の使用履歴は同期しません。
+         */
+        "recentEmojiDescription": string;
+        /**
+         * れぞらぶの使用履歴を取り込む
+         */
+        "recentEmojiCopy": string;
+        /**
+         * 最近使った絵文字をこのブラウザーに取り込みました。
+         */
+        "recentEmojiCopied": string;
+        /**
+         * 使用履歴を取得できませんでした。れぞらぶを更新したうえで、取り込み直してください。
+         */
+        "recentEmojiUnavailable": string;
         /**
          * 未設定のプロフィールを引き継ぐ
          */

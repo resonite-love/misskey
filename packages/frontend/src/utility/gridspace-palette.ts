@@ -10,6 +10,7 @@ export type GridspacePaletteSnapshot = {
 	palettes: { id: string; name: string; emojis: string[] }[];
 	forMain: string | null;
 	forReaction: string | null;
+	recentlyUsedEmojis?: string[];
 };
 
 type PaletteKey = 'emojiPalettes' | 'emojiPaletteForMain' | 'emojiPaletteForReaction';
@@ -19,6 +20,7 @@ type PaletteScope = PreferencesProfile['preferences']['emojiPalettes'][number][0
 export async function snapshotGridspacePaletteForAccount(
 	profile: PreferencesProfile, server: string, account: string, localAccount: string | undefined,
 	load: (key: PaletteKey, scope: PaletteScope) => Promise<{ value: unknown } | null>,
+	recentlyUsedEmojis?: readonly string[],
 ): Promise<GridspacePaletteSnapshot> {
 	const preferences = {} as PreferencesProfile['preferences'];
 	await Promise.all((['emojiPalettes', 'emojiPaletteForMain', 'emojiPaletteForReaction'] as const).map(async key => {
@@ -35,7 +37,13 @@ export async function snapshotGridspacePaletteForAccount(
 		}
 		Object.assign(preferences, { [key]: [[{ server, account }, value, {}]] });
 	}));
-	return snapshotGridspacePalette({ ...profile, preferences }, server, account);
+	return { ...snapshotGridspacePalette({ ...profile, preferences }, server, account),
+		...(recentlyUsedEmojis !== undefined ? { recentlyUsedEmojis: mergeGridspaceRecentEmojis([], recentlyUsedEmojis) } : {}) };
+}
+
+/** Keep activity on this browser first; retries must not duplicate or reorder it. */
+export function mergeGridspaceRecentEmojis(current: readonly string[], source: readonly string[]): string[] {
+	return [...new Set([...current, ...source].filter(emoji => typeof emoji === 'string' && emoji.length > 0 && emoji.length <= 512))].slice(0, 32);
 }
 
 /** Match the account selected in the consent form, which may differ from the current account. */

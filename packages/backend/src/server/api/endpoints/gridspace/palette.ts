@@ -23,6 +23,7 @@ export const meta = {
 				},
 			} },
 			forMain: { ...text, nullable: true }, forReaction: { ...text, nullable: true },
+			recentlyUsedEmojis: { type: 'array', optional: true, nullable: false, maxItems: 32, items: text },
 		} },
 	} },
 } as const;

@@ -2539,7 +2539,7 @@ _2fa:
 
 _permissions:
   "read:account": "アカウントの情報を見る"
-  "read:gridspace-palette": "連携先へ絵文字パレットを引き継ぐ"
+  "read:gridspace-palette": "連携先へ絵文字パレットと最近使った絵文字を引き継ぐ"
   "read:gridspace-private": "連携したアカウントの権限で限定投稿と添付ファイルを閲覧・検索する"
   "read:gridspace-private-reciprocal": "連携した両アカウントから、お互いの権限で限定投稿を閲覧・検索できるようにする"
   "read:gridspace-notifications": "連携先でこのアカウントの通知を読む"
@@ -3750,6 +3750,11 @@ _gridspace:
   allGranted: "限定投稿の閲覧・検索、通知の表示、フォロー申請の承認・拒否を利用できます。返信・リアクション・投票・ファイルの添付は、連携先のアカウントとして行います。ぐりすぺからは、れぞらぶのチャンネルも閲覧・投稿できます。"
   upgradePermissions: "まだ許可されていない連携機能があります。認可のボタンから、連携先で許可してください。"
   paletteCopied: "絵文字パレットを引き継ぎました。"
+  recentEmojiTitle: "最近使った絵文字"
+  recentEmojiDescription: "れぞらぶで許可するときに、そのブラウザーの使用履歴を取り込みます。このブラウザーで最近使った絵文字を先に残し、重複を除いて最大32件にまとめます。連携後の使用履歴は同期しません。"
+  recentEmojiCopy: "れぞらぶの使用履歴を取り込む"
+  recentEmojiCopied: "最近使った絵文字をこのブラウザーに取り込みました。"
+  recentEmojiUnavailable: "使用履歴を取得できませんでした。れぞらぶを更新したうえで、取り込み直してください。"
   profileCopy: "未設定のプロフィールを引き継ぐ"
   settingsCopy: "れぞらぶの設定に揃える"
   settingsCopyDescription: "画面表示・デッキ・ウィジェット・アップロード先・テーマ・通知音・投稿の公開範囲・アカウントの公開設定などを、れぞらぶの設定に上書きします。ミュート・ブロックは追加しますが、ぐりすぺで設定した対象は解除しません。"

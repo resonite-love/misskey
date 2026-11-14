@@ -12,9 +12,10 @@ export type GridspacePalette = {
 	palettes: { id: string; name: string; emojis: string[] }[];
 	forMain: string | null;
 	forReaction: string | null;
+	recentlyUsedEmojis?: string[];
 };
 
-/** Only the three palette preferences cross the server boundary. */
+/** Only palette preferences and the explicitly exported browser emoji history cross the boundary. */
 export function parseGridspacePalette(value: unknown): GridspacePalette | null {
 	if (value == null || typeof value !== 'object' || Buffer.byteLength(JSON.stringify(value), 'utf8') > 262144) return null;
 	const input = value as Record<string, unknown>;
@@ -34,5 +35,8 @@ export function parseGridspacePalette(value: unknown): GridspacePalette | null {
 	for (const key of ['forMain', 'forReaction']) {
 		if (input[key] !== null && (typeof input[key] !== 'string' || !ids.has(input[key] as string))) return null;
 	}
-	return { version: 1, palettes, forMain: input.forMain as string | null, forReaction: input.forReaction as string | null };
+	if (input.recentlyUsedEmojis !== undefined && (!Array.isArray(input.recentlyUsedEmojis) || input.recentlyUsedEmojis.length > 32 ||
+		input.recentlyUsedEmojis.some(emoji => typeof emoji !== 'string' || emoji.length === 0 || emoji.length > 512))) return null;
+	return { version: 1, palettes, forMain: input.forMain as string | null, forReaction: input.forReaction as string | null,
+		...(input.recentlyUsedEmojis !== undefined ? { recentlyUsedEmojis: [...input.recentlyUsedEmojis as string[]] } : {}) };
 }
