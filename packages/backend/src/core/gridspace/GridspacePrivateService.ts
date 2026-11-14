@@ -169,6 +169,30 @@ export class GridspacePrivateService {
 			: this.search.read(query.take(limit));
 	}
 
+	private async sourceHomePage(viewerId: string, input: PrivatePeerRequest) {
+		// Sparse private timelines must not scan the entire federated note table
+		// with visibility joins just to fill a page. Walk a bounded primary-key
+		// window first, then apply the unchanged access controls to that window.
+		const scanLimit = 512;
+		const scan = this.db.getRepository(MiNote).createQueryBuilder('candidate').select('candidate.id', 'id');
+		if (input.before) scan.andWhere('candidate.id < :before', { before: input.before });
+		if (input.head) scan.andWhere('candidate.id <= :head', { head: input.head });
+		if (input.rangeStartAt != null) scan.andWhere('candidate.id > :start', { start: this.ids.gen(input.rangeStartAt - 1) });
+		if (input.rangeEndAt != null) scan.andWhere('candidate.id < :end', { end: this.ids.gen(input.rangeEndAt + 1) });
+		const candidates = await scan.orderBy('candidate.id', 'DESC').limit(scanLimit + 1).getRawMany<{ id: string }>();
+		const window = candidates.slice(0, scanLimit);
+		if (!window.length) return { rows: [] as MiNote[], next: null, head: input.head ?? null, scannedThrough: null };
+		const limit = input.limit ?? 10;
+		const rows = await this.search.read(this.query(viewerId, input).andWhere('note.id IN (:...windowIds)', { windowIds: window.map(note => note.id) }).take(limit + 1));
+		// Do not skip the unread tail when the window contains more than one page.
+		const boundary = rows.length > limit ? rows[limit - 1].id : window.at(-1)!.id;
+		return {
+			rows, next: rows.length > limit || candidates.length > scanLimit ? boundary : null,
+			head: input.head ?? window[0].id,
+			scannedThrough: this.ids.parse(boundary).date.toISOString(),
+		};
+	}
+
 	public async readableSourceNote(viewerId: string, noteId: string, runner?: QueryRunner, channelId?: string) {
 		const query = this.query(viewerId, { mode: 'show', channelId }).andWhere('note.id = :noteId', { noteId });
 		if (runner) return query.setQueryRunner(runner).getOne();
@@ -228,7 +252,8 @@ export class GridspacePrivateService {
 		if (input.channelId && link.initiator) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const sourceInput = link.initiator ? { ...input, withChannelNotes: false } : input;
 		if ((input.query || input.mode === 'search' || input.contextMode === 'search') && (!(input.query?.trim()) || !(await this.roles.getUserPolicies(link.localUserId)).canSearchNotes)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-		const rows = await this.sourceNotes(link.localUserId, sourceInput);
+		const homePage = input.mode === 'home' && !input.targetUris ? await this.sourceHomePage(link.localUserId, sourceInput) : null;
+		const rows = homePage ? homePage.rows : await this.sourceNotes(link.localUserId, sourceInput);
 		const limit = input.mode === 'validate' ? 100 : input.mode === 'show' ? 1 : input.limit ?? 10;
 		const selected = rows.slice(0, limit);
 		const relatedIds = selected.flatMap(note => [note.replyId, note.renoteId]).filter((id): id is string => id != null);
@@ -247,8 +272,8 @@ export class GridspacePrivateService {
 			if (note.renoteId && !relatedAllowed.has(note.renoteId)) note.renoteId = null;
 		}
 		await this.authorizeRead(input);
-		return { notes: packed.filter(note => allowed.has(note.id)), next: rows.length > limit ? this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id : null, head: input.head ?? (selected[0] ? this.collectionId(selected[0]) ?? selected[0].id : null),
-			scannedThrough: selected.length ? this.ids.parse(this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id).date.toISOString() : null, observedAt };
+		return { notes: packed.filter(note => allowed.has(note.id)), next: homePage ? homePage.next : rows.length > limit ? this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id : null, head: homePage ? homePage.head : input.head ?? (selected[0] ? this.collectionId(selected[0]) ?? selected[0].id : null),
+			scannedThrough: homePage ? homePage.scannedThrough : selected.length ? this.ids.parse(this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id).date.toISOString() : null, observedAt };
 	}
 
 	public async localActorAllows(viewer: MiLocalUser, actor: PrivateWireNote['author'] | PrivateWireNote['filterActors'][number]) {

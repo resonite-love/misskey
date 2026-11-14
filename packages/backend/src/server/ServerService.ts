@@ -34,6 +34,8 @@ import { ClientServerService } from './web/ClientServerService.js';
 import { OpenApiServerService } from './api/openapi/OpenApiServerService.js';
 import { OAuth2ProviderService } from './oauth/OAuth2ProviderService.js';
 import { registerHttpAccessLog } from './http-access-log.js';
+import { resolveGridspaceConfig } from '@/core/gridspace/peer-protocol.js';
+import { peerEmojiFallback } from './gridspace/emoji-fallback.js';
 
 const _dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -165,6 +167,7 @@ export class ServerService implements OnApplicationShutdown {
 		fastify.register(this.healthServerService.createServer, { prefix: '/healthz' });
 		fastify.register(this.gridSpaceServerService.createServer, { prefix: '/gridspace/v1' });
 
+		const emojiPeer = resolveGridspaceConfig(this.config.gridspace, this.config.url, process.env);
 		fastify.get<{ Params: { path: string }; Querystring: { static?: any; badge?: any; }; }>('/emoji/:path(.*)', async (request, reply) => {
 			const path = request.params.path;
 
@@ -195,6 +198,8 @@ export class ServerService implements OnApplicationShutdown {
 			reply.header('Content-Security-Policy', 'default-src \'none\'; style-src \'unsafe-inline\'');
 
 			if (emoji == null) {
+				const pairedUrl = peerEmojiFallback(emojiPeer, name!, host, request.query);
+				if (pairedUrl) return await reply.redirect(pairedUrl);
 				if ('fallback' in request.query) {
 					return await reply.redirect('/static-assets/emoji-unknown.png');
 				} else {
