@@ -46,8 +46,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</div>
 				<MkGridspacePrivateNoteRow v-if="row.kind === 'private'" :class="$style.note" :note="row.note" :data-scroll-anchor="row.key" @unavailable="home.fail"/>
 				<template v-else>
-					<MkNote :class="$style.note" :note="row.note" :withHardMute="true" :data-scroll-anchor="row.key"/>
-					<div v-if="row.note._shouldInsertAd_" :class="$style.ad"><MkAd :preferForms="['horizontal', 'horizontal-big']"/></div>
+					<MkNote :key="`note:${row.key}`" :class="$style.note" :note="row.note" :withHardMute="true" :data-scroll-anchor="row.key"/>
+					<div v-if="row.note._shouldInsertAd_" :key="`ad:${row.key}`" :class="$style.ad"><MkAd :preferForms="['horizontal', 'horizontal-big']"/></div>
 				</template>
 			</template>
 		</component>

@@ -413,6 +413,7 @@ export class Paginator<
 	public async fetchNewer(options: {
 		toQueue?: boolean;
 	} = {}): Promise<void> {
+		if (this.fetching.value || this.fetchingNewer.value) return;
 		this.fetchingNewer.value = true;
 
 		const collectedItems: T[] = [];
@@ -475,10 +476,11 @@ export class Paginator<
 		}
 
 		if (options.toQueue) {
-			this.aheadQueue.unshift(...collectedItems.toReversed());
-			if (this.aheadQueue.length > MAX_QUEUE_ITEMS) {
-				this.aheadQueue = this.aheadQueue.slice(0, MAX_QUEUE_ITEMS);
-			}
+			// Streaming can enqueue newer items while the request is in flight.
+			// Merge once in the same ID order used by our pagination cursors.
+			this.aheadQueue = this.filterNewItems([...this.aheadQueue, ...collectedItems])
+				.sort((a, b) => a.id < b.id ? 1 : a.id > b.id ? -1 : 0)
+				.slice(0, MAX_QUEUE_ITEMS);
 			this.queuedAheadItemsCount.value = this.aheadQueue.length;
 		} else {
 			if (this.order.value === 'oldest') {
@@ -511,13 +513,15 @@ export class Paginator<
 	}
 
 	public unshiftItems(newItems: T[], trim = true): void {
+		newItems = this.filterNewItems(newItems);
 		if (newItems.length === 0) return; // これやらないと余計なre-renderが走る
-		this.items.value.unshift(...newItems.filter(x => !this.items.value.some(y => y.id === x.id))); // ストリーミングやポーリングのタイミングによっては重複することがあるため
+		this.items.value.unshift(...newItems);
 		if (trim) this.trim(true);
 		if (this.useShallowRef) triggerRef(this.items);
 	}
 
 	public pushItems(oldItems: T[]): void {
+		oldItems = this.filterNewItems(oldItems);
 		if (oldItems.length === 0) return; // これやらないと余計なre-renderが走る
 		this.items.value.push(...oldItems);
 		if (this.useShallowRef) triggerRef(this.items);
@@ -531,11 +535,21 @@ export class Paginator<
 	}
 
 	public enqueue(item: T): void {
+		if (this.items.value.some(x => x.id === item.id) || this.aheadQueue.some(x => x.id === item.id)) return;
 		this.aheadQueue.unshift(item);
 		if (this.aheadQueue.length > MAX_QUEUE_ITEMS) {
 			this.aheadQueue.pop();
 		}
 		this.queuedAheadItemsCount.value = this.aheadQueue.length;
+	}
+
+	private filterNewItems(items: T[]): T[] {
+		const seenIds = new Set(this.items.value.map(item => item.id));
+		return items.filter(item => {
+			if (seenIds.has(item.id)) return false;
+			seenIds.add(item.id);
+			return true;
+		});
 	}
 
 	public releaseQueue(): void {
