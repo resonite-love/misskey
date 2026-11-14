@@ -639,6 +639,12 @@ type AuthSessionUserkeyResponse = operations['auth___session___userkey']['respon
 type AutoTranslationCapabilitiesResponse = operations['auto-translation___capabilities']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
+type AutoTranslationPreferencesRequest = operations['auto-translation___preferences']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type AutoTranslationPreferencesResponse = operations['auto-translation___preferences']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
 type AutoTranslationTranslateNoteRequest = operations['auto-translation___translate-note']['requestBody']['content']['application/json'];
 
 // @public (undocumented)
@@ -1880,6 +1886,8 @@ declare namespace entities {
         AuthSessionUserkeyRequest,
         AuthSessionUserkeyResponse,
         AutoTranslationCapabilitiesResponse,
+        AutoTranslationPreferencesRequest,
+        AutoTranslationPreferencesResponse,
         AutoTranslationTranslateNoteRequest,
         AutoTranslationTranslateNoteResponse,
         BlockingCreateRequest,

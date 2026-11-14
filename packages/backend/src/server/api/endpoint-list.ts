@@ -457,6 +457,7 @@ export * as 'notes/extended-reactions/show' from './endpoints/notes/extended-rea
 export * as 'notes/extended-reactions/list' from './endpoints/notes/extended-reactions/list.js';
 
 export * as 'auto-translation/capabilities' from './endpoints/auto-translation/capabilities.js';
+export * as 'auto-translation/preferences' from './endpoints/auto-translation/preferences.js';
 export * as 'auto-translation/translate-note' from './endpoints/auto-translation/translate-note.js';
 export * as 'admin/auto-translation/get-config' from './endpoints/admin/auto-translation/get-config.js';
 export * as 'admin/auto-translation/update-config' from './endpoints/admin/auto-translation/update-config.js';

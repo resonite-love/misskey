@@ -183,6 +183,8 @@ import type {
 	AuthSessionUserkeyRequest,
 	AuthSessionUserkeyResponse,
 	AutoTranslationCapabilitiesResponse,
+	AutoTranslationPreferencesRequest,
+	AutoTranslationPreferencesResponse,
 	AutoTranslationTranslateNoteRequest,
 	AutoTranslationTranslateNoteResponse,
 	BlockingCreateRequest,
@@ -876,6 +878,7 @@ export type Endpoints = {
 	'auth/session/show': { req: AuthSessionShowRequest; res: AuthSessionShowResponse };
 	'auth/session/userkey': { req: AuthSessionUserkeyRequest; res: AuthSessionUserkeyResponse };
 	'auto-translation/capabilities': { req: EmptyRequest; res: AutoTranslationCapabilitiesResponse };
+	'auto-translation/preferences': { req: AutoTranslationPreferencesRequest; res: AutoTranslationPreferencesResponse };
 	'auto-translation/translate-note': { req: AutoTranslationTranslateNoteRequest; res: AutoTranslationTranslateNoteResponse };
 	'blocking/create': { req: BlockingCreateRequest; res: BlockingCreateResponse };
 	'blocking/delete': { req: BlockingDeleteRequest; res: BlockingDeleteResponse };

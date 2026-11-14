@@ -4,8 +4,13 @@
  */
 
 import { expect, test, vi } from 'vitest';
-import { parseClientSettings, snapshotClientSettings } from '@/utility/gridspace-settings.js';
+import { parseClientSettings, snapshotClientSettings, importedSettingKeys } from '@/utility/gridspace-settings.js';
 import type { PreferencesProfile } from '@/preferences/manager.js';
+
+test('keeps the destination translation opt-in/out when importing source settings', () => {
+	expect(importedSettingKeys).not.toContain('autoTranslation.enabled');
+	expect(importedSettingKeys).toContain('autoTranslation.targetLang');
+});
 
 test('copies disabled sounds and posting defaults but excludes plugins and credentials', () => {
 	const parsed = parseClientSettings(JSON.stringify({ version: 1, visibility: 'followers', localOnly: true, values: {

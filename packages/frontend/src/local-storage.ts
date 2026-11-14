@@ -32,6 +32,7 @@ export type Keys = (
 	'debug' |
 	'preferences' |
 	'latestPreferencesUpdate' |
+	`autoTranslation.pending:${string}` |
 	'hidePreferencesRestoreSuggestion' |
 	'isSafeMode' |
 	`miux:${string}` |

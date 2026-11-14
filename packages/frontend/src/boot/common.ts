@@ -31,6 +31,7 @@ import { prefer } from '@/preferences.js';
 import { $i } from '@/i.js';
 import { launchPlugins } from '@/plugin.js';
 import { initTelemetry } from '@/telemetry.js';
+import { initializeAutoTranslationPreferences } from '@/utility/auto-translation-preferences.js';
 
 export async function common(createVue: () => Promise<App<Element>>) {
 	console.info(`Misskey v${version}`);
@@ -117,6 +118,7 @@ export async function common(createVue: () => Promise<App<Element>>) {
 
 	await store.ready;
 	await deckStore.ready;
+	await initializeAutoTranslationPreferences();
 
 	const fetchInstanceMetaPromise = fetchInstance();
 

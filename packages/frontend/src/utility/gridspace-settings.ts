@@ -27,6 +27,8 @@ export const portableSettingKeys = [
 	'sound.on.note', 'sound.on.noteMy', 'sound.on.notification', 'sound.on.reaction', 'sound.on.chatMessage',
 	...layoutSettingKeys,
 ] as const satisfies readonly (keyof typeof PREF_DEF)[];
+// Keep the destination account's translation choice, including an explicit opt-out.
+export const importedSettingKeys = portableSettingKeys.filter(key => key !== 'autoTranslation.enabled');
 type Key = typeof portableSettingKeys[number];
 type Scope = PreferencesProfile['preferences']['animation'][number][0];
 export type ClientSettings = { version: 1; values: Partial<Record<Key, unknown>>; visibility?: 'public' | 'home' | 'followers' | 'specified'; localOnly?: boolean; menuDisplay?: 'sideFull' | 'sideIcon'; memos?: { memo: string | null; memo2: string | null }; skipped?: Key[] };

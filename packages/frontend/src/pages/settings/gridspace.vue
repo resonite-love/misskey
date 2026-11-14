@@ -142,7 +142,7 @@ import { i18n } from '@/i18n.js';
 import { store } from '@/store.js';
 import { prefer } from '@/preferences.js';
 import { gridspacePaletteSource, mergeGridspacePalette, mergeGridspaceRecentEmojis } from '@/utility/gridspace-palette.js';
-import { parseClientSettings, portableSettingKeys } from '@/utility/gridspace-settings.js';
+import { parseClientSettings, importedSettingKeys } from '@/utility/gridspace-settings.js';
 import { PREF_DEF } from '@/preferences/def.js';
 import { mapLayoutSettings, layoutSettingKeys } from '@/utility/gridspace-layout.js';
 import { $i } from '@/i.js';
@@ -365,7 +365,7 @@ async function resumeSettings(retry = false) {
 				snapshot.values = mapped.values;
 				layoutIssues.value = mapped.issues;
 			}
-			for (const key of portableSettingKeys) {
+			for (const key of importedSettingKeys) {
 				if (!(key in snapshot.values)) continue;
 				if (!('accountDependent' in PREF_DEF[key]) || !PREF_DEF[key].accountDependent) prefer.setAccountOverride(key);
 				prefer.commit(key, snapshot.values[key] as never);
