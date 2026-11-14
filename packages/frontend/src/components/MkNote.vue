@@ -8,7 +8,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	v-if="!hardMuted && !hideByPlugin && muted === false"
 	ref="rootEl"
 	v-hotkey="keymap"
-	:class="[$style.root, { [$style.showActionsOnlyHover]: prefer.s.showNoteActionsOnlyHover, [$style.skipRender]: prefer.s.skipNoteRender }]"
+	:class="[$style.root, { [$style.skipRender]: prefer.s.skipNoteRender }]"
 	tabindex="0"
 >
 	<MkNoteSub v-if="appearNote.replyId && !renoteCollapsed" :note="appearNote?.reply ?? null" :class="$style.replyTo"/>
@@ -45,76 +45,73 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkAvatar :class="$style.collapsedRenoteTargetAvatar" :user="appearNote.user" link preview/>
 		<Mfm :text="getNoteSummary(appearNote)" :plain="true" :nowrap="true" :author="appearNote.user" :nyaize="'respect'" :class="$style.collapsedRenoteTargetText" @click="renoteCollapsed = false"/>
 	</div>
-	<article v-else :class="$style.article" @contextmenu.stop="onContextmenu">
-		<MkNoteChannel v-if="appearNote.channel" :channel="appearNote.channel" display="bar"/>
-		<MkAvatar :class="[$style.avatar, prefer.s.useStickyIcons ? $style.useSticky : null]" :user="appearNote.user" :link="!mock" :preview="!mock"/>
-		<div :class="$style.main">
+	<MkNoteArticle v-else :user="appearNote.user" :channel="appearNote.channel" :showChannelLink="!inChannel" :avatarLink="!mock" :avatarPreview="!mock" :stickyAvatar="prefer.s.useStickyIcons" :compactTop="isRenote || pinned" :footerOnHover="prefer.s.showNoteActionsOnlyHover" @contextmenu.stop="onContextmenu">
+		<template #header>
 			<MkNoteHeader :note="appearNote" :mini="true"/>
 			<MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/>
-			<div style="container-type: inline-size;">
-				<p v-if="appearNote.cw != null" :class="$style.cw">
+		</template>
+		<p v-if="appearNote.cw != null" :class="$style.cw">
+			<Mfm
+				v-if="appearNote.cw != ''"
+				:text="appearNote.cw"
+				:author="appearNote.user"
+				:nyaize="'respect'"
+				:enableEmojiMenu="true"
+				:enableEmojiMenuReaction="true"
+			/>
+			<MkCwButton v-model="showContent" :text="appearNote.text" :renote="appearNote.renote" :files="appearNote.files" :poll="appearNote.poll" style="margin: 4px 0;"/>
+		</p>
+		<div v-show="appearNote.cw == null || showContent" :class="[{ [$style.contentCollapsed]: collapsed }]">
+			<div :class="$style.text">
+				<span v-if="appearNote.isHidden" style="opacity: 0.5">({{ i18n.ts.private }})</span>
+				<span v-else-if="isUnavailableGridspaceNote(appearNote)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span>
+				<MkA v-if="appearNote.replyId" :class="$style.replyIcon" :to="`/notes/${appearNote.replyId}`"><i class="ti ti-arrow-back-up"></i></MkA>
+				<MkAutoTranslatedNote v-slot="{ text, translated }" :note="appearNote" :active="!mock && (appearNote.cw == null || showContent)">
 					<Mfm
-						v-if="appearNote.cw != ''"
-						:text="appearNote.cw"
+						v-if="appearNote.text"
+						:parsedNodes="translated ? undefined : parsed"
+						:text="text ?? ''"
 						:author="appearNote.user"
 						:nyaize="'respect'"
+						:emojiUrls="appearNote.emojis"
 						:enableEmojiMenu="true"
 						:enableEmojiMenuReaction="true"
+						class="_selectable"
 					/>
-					<MkCwButton v-model="showContent" :text="appearNote.text" :renote="appearNote.renote" :files="appearNote.files" :poll="appearNote.poll" style="margin: 4px 0;"/>
-				</p>
-				<div v-show="appearNote.cw == null || showContent" :class="[{ [$style.contentCollapsed]: collapsed }]">
-					<div :class="$style.text">
-						<span v-if="appearNote.isHidden" style="opacity: 0.5">({{ i18n.ts.private }})</span>
-						<span v-else-if="isUnavailableGridspaceNote(appearNote)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span>
-						<MkA v-if="appearNote.replyId" :class="$style.replyIcon" :to="`/notes/${appearNote.replyId}`"><i class="ti ti-arrow-back-up"></i></MkA>
-						<MkAutoTranslatedNote v-slot="{ text, translated }" :note="appearNote" :active="!mock && (appearNote.cw == null || showContent)">
-							<Mfm
-								v-if="appearNote.text"
-								:parsedNodes="translated ? undefined : parsed"
-								:text="text ?? ''"
-								:author="appearNote.user"
-								:nyaize="'respect'"
-								:emojiUrls="appearNote.emojis"
-								:enableEmojiMenu="true"
-								:enableEmojiMenuReaction="true"
-								class="_selectable"
-							/>
-						</MkAutoTranslatedNote>
-						<div v-if="translating || translation" :class="$style.translation">
-							<MkLoading v-if="translating" mini/>
-							<div v-else-if="translation">
-								<b>{{ i18n.tsx.translatedFrom({ x: translation.sourceLang }) }}: </b>
-								<Mfm :text="translation.text" :author="appearNote.user" :nyaize="'respect'" :emojiUrls="appearNote.emojis" class="_selectable"/>
-							</div>
-						</div>
+				</MkAutoTranslatedNote>
+				<div v-if="translating || translation" :class="$style.translation">
+					<MkLoading v-if="translating" mini/>
+					<div v-else-if="translation">
+						<b>{{ i18n.tsx.translatedFrom({ x: translation.sourceLang }) }}: </b>
+						<Mfm :text="translation.text" :author="appearNote.user" :nyaize="'respect'" :emojiUrls="appearNote.emojis" class="_selectable"/>
 					</div>
-					<div v-if="appearNote.files && appearNote.files.length > 0" style="margin-top: 8px;">
-						<MkMediaList ref="galleryEl" :mediaList="appearNote.files" :user="appearNote.user"/>
-					</div>
-					<MkPoll
-						v-if="appearNote.poll"
-						:noteId="appearNote.id"
-						:multiple="appearNote.poll.multiple"
-						:expiresAt="appearNote.poll.expiresAt"
-						:choices="$appearNote.pollChoices"
-						:author="appearNote.user"
-						:emojiUrls="appearNote.emojis"
-						:class="$style.poll"
-					/>
-					<div v-if="isEnabledUrlPreview">
-						<MkUrlPreview v-for="url in urls" :key="url" :url="url" :compact="true" :detail="false" :class="$style.urlPreview"/>
-					</div>
-					<div v-if="appearNote.renoteId" :class="$style.quote"><MkNoteSimple :note="appearNote?.renote ?? null" :class="$style.quoteNote"/></div>
-					<button v-if="isLong && collapsed" :class="$style.collapsed" class="_button" @click="collapsed = false">
-						<span :class="$style.collapsedLabel">{{ i18n.ts.showMore }}</span>
-					</button>
-					<button v-else-if="isLong && !collapsed" :class="$style.showLess" class="_button" @click="collapsed = true">
-						<span :class="$style.showLessLabel">{{ i18n.ts.showLess }}</span>
-					</button>
 				</div>
-				<MkNoteChannel v-if="appearNote.channel && !inChannel" :channel="appearNote.channel"/>
 			</div>
+			<div v-if="appearNote.files && appearNote.files.length > 0" style="margin-top: 8px;">
+				<MkMediaList ref="galleryEl" :mediaList="appearNote.files" :user="appearNote.user"/>
+			</div>
+			<MkPoll
+				v-if="appearNote.poll"
+				:noteId="appearNote.id"
+				:multiple="appearNote.poll.multiple"
+				:expiresAt="appearNote.poll.expiresAt"
+				:choices="$appearNote.pollChoices"
+				:author="appearNote.user"
+				:emojiUrls="appearNote.emojis"
+				:class="$style.poll"
+			/>
+			<div v-if="isEnabledUrlPreview">
+				<MkUrlPreview v-for="url in urls" :key="url" :url="url" :compact="true" :detail="false" :class="$style.urlPreview"/>
+			</div>
+			<div v-if="appearNote.renoteId" :class="$style.quote"><MkNoteSimple :note="appearNote?.renote ?? null" :class="$style.quoteNote"/></div>
+			<button v-if="isLong && collapsed" :class="$style.collapsed" class="_button" @click="collapsed = false">
+				<span :class="$style.collapsedLabel">{{ i18n.ts.showMore }}</span>
+			</button>
+			<button v-else-if="isLong && !collapsed" :class="$style.showLess" class="_button" @click="collapsed = true">
+				<span :class="$style.showLessLabel">{{ i18n.ts.showLess }}</span>
+			</button>
+		</div>
+		<template #reactions>
 			<MkReactionsViewer
 				v-if="appearNote.reactionAcceptance !== 'likeOnly'"
 				style="margin-top: 6px;"
@@ -132,40 +129,40 @@ SPDX-License-Identifier: AGPL-3.0-only
 					<MkA :to="`/notes/${appearNote.id}/reactions`" :class="[$style.reactionOmitted]">{{ i18n.ts.more }}</MkA>
 				</template>
 			</MkReactionsViewer>
-			<footer :class="$style.footer">
-				<button :class="$style.footerButton" class="_button" @click="reply()">
-					<i class="ti ti-arrow-back-up"></i>
-					<p v-if="appearNote.repliesCount > 0" :class="$style.footerButtonCount">{{ number(appearNote.repliesCount) }}</p>
-				</button>
-				<button
-					v-if="canRenote"
-					ref="renoteButton"
-					:class="$style.footerButton"
-					class="_button"
-					@mousedown.prevent="renote()"
-				>
-					<i class="ti ti-repeat"></i>
-					<p v-if="appearNote.renoteCount > 0" :class="$style.footerButtonCount">{{ number(appearNote.renoteCount) }}</p>
-				</button>
-				<button v-else :class="$style.footerButton" class="_button" disabled>
-					<i class="ti ti-ban"></i>
-				</button>
-				<button ref="reactButton" :class="$style.footerButton" class="_button" @click="handleToggleReact()">
-					<i v-if="appearNote.reactionAcceptance === 'likeOnly' && $appearNote.myReaction != null" class="ti ti-heart-filled" style="color: var(--MI_THEME-love);"></i>
-					<i v-else-if="!$appearNote.extendedReactions && $appearNote.myReaction != null" class="ti ti-minus" style="color: var(--MI_THEME-accent);"></i>
-					<i v-else-if="appearNote.reactionAcceptance === 'likeOnly'" class="ti ti-heart"></i>
-					<i v-else class="ti ti-plus"></i>
-					<p v-if="(appearNote.reactionAcceptance === 'likeOnly' || prefer.s.showReactionsCount) && $appearNote.reactionCount > 0" :class="$style.footerButtonCount">{{ number($appearNote.reactionCount) }}</p>
-				</button>
-				<button v-if="prefer.s.showClipButtonInNoteFooter" ref="clipButton" :class="$style.footerButton" class="_button" @mousedown.prevent="clip()">
-					<i class="ti ti-paperclip"></i>
-				</button>
-				<button ref="menuButton" :class="$style.footerButton" class="_button" @mousedown.prevent="showMenu()">
-					<i class="ti ti-dots"></i>
-				</button>
-			</footer>
-		</div>
-	</article>
+		</template>
+		<template #footer="{ buttonClass }">
+			<button :class="buttonClass" class="_button" @click="reply()">
+				<i class="ti ti-arrow-back-up"></i>
+				<p v-if="appearNote.repliesCount > 0" :class="$style.footerButtonCount">{{ number(appearNote.repliesCount) }}</p>
+			</button>
+			<button
+				v-if="canRenote"
+				ref="renoteButton"
+				:class="buttonClass"
+				class="_button"
+				@mousedown.prevent="renote()"
+			>
+				<i class="ti ti-repeat"></i>
+				<p v-if="appearNote.renoteCount > 0" :class="$style.footerButtonCount">{{ number(appearNote.renoteCount) }}</p>
+			</button>
+			<button v-else :class="buttonClass" class="_button" disabled>
+				<i class="ti ti-ban"></i>
+			</button>
+			<button ref="reactButton" :class="buttonClass" class="_button" @click="handleToggleReact()">
+				<i v-if="appearNote.reactionAcceptance === 'likeOnly' && $appearNote.myReaction != null" class="ti ti-heart-filled" style="color: var(--MI_THEME-love);"></i>
+				<i v-else-if="!$appearNote.extendedReactions && $appearNote.myReaction != null" class="ti ti-minus" style="color: var(--MI_THEME-accent);"></i>
+				<i v-else-if="appearNote.reactionAcceptance === 'likeOnly'" class="ti ti-heart"></i>
+				<i v-else class="ti ti-plus"></i>
+				<p v-if="(appearNote.reactionAcceptance === 'likeOnly' || prefer.s.showReactionsCount) && $appearNote.reactionCount > 0" :class="$style.footerButtonCount">{{ number($appearNote.reactionCount) }}</p>
+			</button>
+			<button v-if="prefer.s.showClipButtonInNoteFooter" ref="clipButton" :class="buttonClass" class="_button" @mousedown.prevent="clip()">
+				<i class="ti ti-paperclip"></i>
+			</button>
+			<button ref="menuButton" :class="buttonClass" class="_button" @mousedown.prevent="showMenu()">
+				<i class="ti ti-dots"></i>
+			</button>
+		</template>
+	</MkNoteArticle>
 </div>
 <div v-else-if="!hardMuted && !hideByPlugin" :class="$style.muted" @click="muted = false">
 	<I18n v-if="muted === 'sensitiveMute'" :src="i18n.ts.userSaysSomethingSensitive" tag="small">
@@ -204,6 +201,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script lang="ts" setup>
 import { inject, ref, useTemplateRef, provide, computed } from 'vue';
 import * as Misskey from 'misskey-js';
+import { userPage } from '@@/js/user.js';
 import type { Ref } from 'vue';
 import type { Keymap } from '@/utility/hotkey.js';
 import MkAutoTranslatedNote from '@/components/MkAutoTranslatedNote.vue';
@@ -211,7 +209,6 @@ import { useNote } from '@/composables/use-note.js';
 import { isUnavailableGridspaceNote } from '@/utility/is-unavailable-gridspace-note.js';
 import { prefer } from '@/preferences.js';
 import { i18n } from '@/i18n.js';
-import { userPage } from '@@/js/user.js';
 import { getNoteSummary } from '@/utility/get-note-summary.js';
 import { isEnabledUrlPreview } from '@/utility/url-preview.js';
 import { focusPrev, focusNext } from '@/utility/focus.js';
@@ -221,6 +218,7 @@ import { DI } from '@/di.js';
 // コンポーネント外部の依存関係
 import MkNoteSub from '@/components/MkNoteSub.vue';
 import MkNoteChannel from '@/components/MkNoteChannel.vue';
+import MkNoteArticle from '@/components/MkNoteArticle.vue';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
 import MkReactionsViewer from '@/components/MkReactionsViewer.vue';
@@ -414,42 +412,6 @@ const keymap = {
 		}
 	}
 
-	.footer {
-		position: relative;
-		z-index: 1;
-	}
-
-	&:hover > .article > .main > .footer > .footerButton {
-		color: var(--MI_THEME-fg);
-	}
-
-	&.showActionsOnlyHover {
-		.footer {
-			visibility: hidden;
-			position: absolute;
-			top: 12px;
-			right: 12px;
-			padding: 0 4px;
-			margin-bottom: 0 !important;
-			background: var(--MI_THEME-popup);
-			border-radius: 8px;
-			box-shadow: 0px 4px 32px var(--MI_THEME-shadow);
-		}
-
-		.footerButton {
-			font-size: 90%;
-
-			&:not(:last-child) {
-				margin-right: 0;
-			}
-		}
-	}
-
-	&.showActionsOnlyHover:hover {
-		.footer {
-			visibility: visible;
-		}
-	}
 }
 
 .skipRender {
@@ -469,10 +431,6 @@ const keymap = {
 	color: #d28a3f;
 }
 
-.tip + .article {
-	padding-top: 8px;
-}
-
 .replyTo {
 	opacity: 0.7;
 	padding-bottom: 0;
@@ -487,9 +445,6 @@ const keymap = {
 	white-space: pre;
 	color: var(--MI_THEME-renote);
 
-	& + .article {
-		padding-top: 8px;
-	}
 }
 
 .renoteAvatar {
@@ -553,30 +508,6 @@ const keymap = {
 	&:hover {
 		text-decoration: underline;
 	}
-}
-
-.article {
-	position: relative;
-	display: flex;
-	padding: 28px 32px;
-}
-
-.avatar {
-	flex-shrink: 0;
-	display: block !important;
-	margin: 0 14px 0 0;
-	width: 58px;
-	height: 58px;
-
-	&.useSticky {
-		position: sticky !important;
-		top: calc(22px + var(--MI-stickyTop, 0px));
-	}
-}
-
-.main {
-	flex: 1;
-	min-width: 0;
 }
 
 .cw {
@@ -668,24 +599,6 @@ const keymap = {
 	overflow: clip;
 }
 
-.footer {
-	margin-bottom: -14px;
-}
-
-.footerButton {
-	margin: 0;
-	padding: 8px;
-	color: color-mix(in srgb, var(--MI_THEME-panel), var(--MI_THEME-fg) 70%); // opacityなど不透明度で表現するとレンダリングパフォーマンスに影響するので通常の色の混合で代用
-
-	&:not(:last-child) {
-		margin-right: 28px;
-	}
-
-	&:hover {
-		color: var(--MI_THEME-fgHighlighted);
-	}
-}
-
 .footerButtonCount {
 	display: inline;
 	margin: 0 0 0 8px;
@@ -700,14 +613,6 @@ const keymap = {
 		padding: 12px 26px 0 26px;
 	}
 
-	.article {
-		padding: 24px 26px;
-	}
-
-	.avatar {
-		width: 50px;
-		height: 50px;
-	}
 }
 
 @container (max-width: 500px) {
@@ -719,13 +624,6 @@ const keymap = {
 		padding: 10px 22px 0 22px;
 	}
 
-	.article {
-		padding: 20px 22px;
-	}
-
-	.footer {
-		margin-bottom: -8px;
-	}
 }
 
 @container (max-width: 480px) {
@@ -742,56 +640,19 @@ const keymap = {
 		margin-top: 4px;
 	}
 
-	.article {
-		padding: 14px 16px;
-	}
 }
 
 @container (max-width: 450px) {
-	.avatar {
-		margin: 0 10px 0 0;
-		width: 46px;
-		height: 46px;
-
-		&.useSticky {
-			top: calc(14px + var(--MI-stickyTop, 0px));
-		}
-	}
 }
 
 @container (max-width: 400px) {
-	.root:not(.showActionsOnlyHover) {
-		.footerButton {
-			&:not(:last-child) {
-				margin-right: 18px;
-			}
-		}
-	}
 }
 
 @container (max-width: 350px) {
-	.root:not(.showActionsOnlyHover) {
-		.footerButton {
-			&:not(:last-child) {
-				margin-right: 12px;
-			}
-		}
-	}
 }
 
 @container (max-width: 300px) {
-	.avatar {
-		width: 44px;
-		height: 44px;
-	}
 
-	.root:not(.showActionsOnlyHover) {
-		.footerButton {
-			&:not(:last-child) {
-				margin-right: 8px;
-			}
-		}
-	}
 }
 
 @container (max-width: 250px) {

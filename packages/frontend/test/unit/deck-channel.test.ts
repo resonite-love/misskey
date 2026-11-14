@@ -18,7 +18,7 @@ vi.mock('@/os.js', () => ({ select, post }));
 vi.mock('@/utility/gridspace-post.js', () => ({ gridspacePost: sharedPost }));
 vi.mock('@/preferences.js', () => ({ prefer: { r: { showFixedPostFormInChannel: fixed } } }));
 vi.mock('@/i.js', () => ({ $i: { id: 'viewer' } }));
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { note: 'Post', retry: 'Retry', selectChannel: 'Select channel', thisChannelArchived: 'Archived', _gridspace: { channelsUnavailable: 'Channel unavailable' }, _deck: { _columns: { channel: 'Channel' }, newNoteNotificationSettings: 'Sound' } } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { note: 'Post', retry: 'Retry', selectChannel: 'Select channel', thisChannelArchived: 'Archived', _gridspace: { channelsUnavailable: 'Channel unavailable', resoniteLoveName: 'れぞらぶ' }, _deck: { _columns: { channel: 'Channel' }, newNoteNotificationSettings: 'Sound' } } } }));
 vi.mock('@/ui/deck/tl-note-notification.js', () => ({ soundSettingsButton: vi.fn() }));
 vi.mock('@/ui/deck/column.vue', () => ({ default: { props: ['menu'], template: '<section><slot name="header"/><button @click="menu[0].action()">Choose</button><slot/></section>' } }));
 vi.mock('@/components/MkButton.vue', () => ({ default: { template: '<button><slot/></button>' } }));
@@ -69,7 +69,7 @@ describe('Deck channel choices', () => {
 	test('includes both servers and distinguishes colliding IDs', async () => {
 		expect(await getDeckChannelChoices()).toEqual([
 			{ id: 'same-id', name: 'Local favorite', label: 'Local favorite' },
-			{ id: 'gridspace:channel:same-id', name: 'Source favorite', label: 'Source favorite (misskey.resonite.love)' },
+			{ id: 'gridspace:channel:same-id', name: 'Source favorite', label: 'Source favorite（れぞらぶ）' },
 		]);
 	});
 	test('reads all favorite pages using the source API limit', async () => {
@@ -96,7 +96,7 @@ describe('Deck paired channel column', () => {
 		const view = render(ChannelColumn, { props: { column: { ...column, channelId: 'local' }, isStacked: false } });
 		await fireEvent.click(view.getByText('Choose'));
 		await vi.waitFor(() => expect(update).toHaveBeenCalledWith('column', { channelId: 'gridspace:channel:same-id', timelineNameCache: 'Source favorite' }));
-		expect(select.mock.calls[0][0].items).toContainEqual({ value: 'gridspace:channel:same-id', label: 'Source favorite (misskey.resonite.love)' });
+		expect(select.mock.calls[0][0].items).toContainEqual({ value: 'gridspace:channel:same-id', label: 'Source favorite（れぞらぶ）' });
 	});
 	test('loads source metadata for note rendering and posts to the source channel', async () => {
 		const view = render(ChannelColumn, { props: { column, isStacked: false } });

@@ -24,7 +24,7 @@ vi.mock('@/components/MkButton.vue', () => ({ default: { template: '<button><slo
 vi.mock('@/components/MkMediaList.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkCwButton.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkNoteHeader.vue', () => ({ default: { template: '<div/>' } }));
-vi.mock('@/components/global/MkAvatar.vue', () => ({ default: { template: '<div/>' } }));
+vi.mock('@/components/global/MkAvatar.vue', () => ({ default: { props: ['preview'], template: '<div data-avatar :data-preview="preview"/>' } }));
 vi.mock('@/components/MkInstanceTicker.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkUrlPreview.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/i18n.js', () => ({ i18n: { ts: { reply: 'Reply', renote: 'Renote', cantRenote: 'Unavailable', reaction: 'React', more: 'More', inChannelRenote: 'Channel renote', inChannelQuote: 'Channel quote', renoted: 'Renoted', _gridspace: {} } } }));
@@ -42,6 +42,8 @@ const globals = { stubs: { Mfm: { props: ['text'], template: '<span>{{ text }}</
 test('a home channel note uses the shared channel name, link and color, without a channel-page context', async () => {
 	const channel = { id: 'channel', name: '#NSFWな話', color: '#ff8a8a' };
 	const view = render(Note, { props: { note: { ...original, channel } }, global: globals });
+	expect(view.container.querySelector('[data-note-article]')).not.toBeNull();
+	expect(view.container.querySelector('[data-avatar]')?.getAttribute('data-preview')).toBe('false');
 	expect(view.getByRole('link', { name: '#NSFWな話' }).getAttribute('href')).toBe('/gridspace/channels/channel');
 	expect(view.container.querySelector('[aria-hidden="true"]')?.getAttribute('style')).toContain(`background: ${channel.color}`);
 	await view.rerender({ note: { ...original, channelId: null, channel: null } });

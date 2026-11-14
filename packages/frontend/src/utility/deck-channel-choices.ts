@@ -5,6 +5,7 @@
 
 import { favoritedChannelsCache } from '@/cache.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
+import { i18n } from '@/i18n.js';
 
 const sharedPrefix = 'gridspace:channel:';
 
@@ -40,11 +41,10 @@ async function getSharedFavorites() {
 		const seen = new Set<string>();
 		do {
 			const page = await misskeyApi('gridspace/channels', { list: 'favorites', limit: 20, before });
-			const host = new URL(page.origin).host;
 			for (const channel of page.channels) {
 				const id = sharedPrefix + channel.id;
 				if (!channels.some(item => item.id === id)) {
-					channels.push({ id, name: channel.name, label: `${channel.name} (${host})`, to: `/gridspace/channels/${channel.id}`, lastReadKey: `channelLastReadedAt:${new URL(page.origin).origin}:${channel.id}`, lastNotedAt: channel.lastNotedAt ?? null });
+					channels.push({ id, name: channel.name, label: `${channel.name}（${i18n.ts._gridspace.resoniteLoveName}）`, to: `/gridspace/channels/${channel.id}`, lastReadKey: `channelLastReadedAt:${new URL(page.origin).origin}:${channel.id}`, lastNotedAt: channel.lastNotedAt ?? null });
 				}
 			}
 			before = page.next ?? undefined;
