@@ -283,6 +283,10 @@ export class GridspaceManagedResourceService {
 			if (item.userId === link.peerUserId) item.gridspaceManagedId = item.id;
 			if (['page', 'gallery'].includes(input.kind)) item.gridspaceLikeTarget = item.id;
 			item.gridspaceOrigin = result.origin;
+			if (input.kind === 'page' || input.kind === 'gallery') {
+				const media = [...(Array.isArray(item.files) ? item.files : []), ...(Array.isArray(item.attachedFiles) ? item.attachedFiles : []), ...(item.eyeCatchingImage ? [item.eyeCatchingImage] : [])];
+				for (const file of media) if (file && typeof file === 'object') (file as Item).gridspaceOrigin = result.origin;
+			}
 			if (item.user && typeof item.user === 'object') {
 				const author = item.user as { id: string };
 				const uri = `${result.origin}/users/${author.id}`;

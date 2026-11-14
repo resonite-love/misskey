@@ -50,6 +50,7 @@ for (const [kind, item, endpoint, key] of [['page', page, 'pages', 'pageId'], ['
 	await api(r, endpoint + '/like', { [key]: item.id }, old.token);
 	let liked = await managed(g, grid.token, kind, 'liked', undefined, { limit: 1 });
 	assert.equal(liked.items[0].gridspaceOriginalId, item.id);
+	if (kind === 'gallery') assert.equal(liked.items[0].files[0].gridspaceOrigin, r.origin);
 	assert.ok(liked.items[0].gridspaceLikeId); assert.ok(Date.parse(liked.items[0].gridspaceLikedAt));
 	assert.match(liked.items[0].user.id, /^gridspace:/);
 	assert.equal((await api(r, endpoint + '/show', { [key]: item.id }, old.token)).likedCount, 1);
