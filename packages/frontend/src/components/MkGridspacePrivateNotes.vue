@@ -5,26 +5,26 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" v-if="enabled || alwaysShow" :refresher="reload">
-<section ref="root" class="_panel _gaps_s" :class="$style.root" data-gridspace-private :aria-label="params.channelId ? i18n.ts.channel : i18n.ts._gridspace.privateTitle">
-	<div v-if="!plain || !enabled" :class="$style.heading" class="_gaps_s">
-		<h2 v-if="!plain" :class="$style.title"><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateTitle }}</h2>
-		<p v-if="!plain">{{ i18n.ts._gridspace.privateScope }}</p>
-		<MkA v-if="!enabled" to="/settings/gridspace">{{ i18n.ts._gridspace.privateAuthorize }}</MkA>
-	</div>
-	<template v-if="enabled">
-		<MkButton v-if="queued.length" :class="$style.new" rounded primary @click="releaseQueue(true)">{{ i18n.ts.newNote }}</MkButton>
-		<component :is="prefer.s.animation ? TransitionGroup : 'div'" tag="div" :enterActiveClass="$style.enterActive" :enterFromClass="$style.enterFrom" :moveClass="$style.move" @beforeLeave="clearLeavingPrivateNote">
-			<MkGridspacePrivateNoteRow v-for="note in displayed" :key="note.id" :note="note" :data-scroll-anchor="note.uri" @unavailable="fail" @replied="refresh"/>
-		</component>
-		<div v-if="error || loading || (notes.length === 0 && !hasMore)" :class="$style.heading" class="_gaps_s">
-			<p v-if="error" role="alert">{{ params.channelId ? i18n.ts._gridspace.channelNotesUnavailable : i18n.ts._gridspace.privateUnavailable }}</p>
-			<MkLoading v-if="loading"/>
-			<p v-else-if="!error && notes.length === 0 && !hasMore">{{ i18n.ts.noNotes }}</p>
-			<MkButton v-if="error" :disabled="loading" @click="refresh">{{ i18n.ts.retry }}</MkButton>
+	<section ref="root" class="_panel _gaps_s" :class="$style.root" data-gridspace-private :aria-label="params.channelId ? i18n.ts.channel : i18n.ts._gridspace.privateTitle">
+		<div v-if="!plain || !enabled" :class="$style.heading" class="_gaps_s">
+			<h2 v-if="!plain" :class="$style.title"><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateTitle }}</h2>
+			<p v-if="!plain">{{ i18n.ts._gridspace.privateScope }}</p>
+			<MkA v-if="!enabled" to="/settings/gridspace">{{ i18n.ts._gridspace.privateAuthorize }}</MkA>
 		</div>
-		<MkTimelineLoadMore :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" @load="load"/>
-	</template>
-</section>
+		<template v-if="enabled">
+			<MkButton v-if="queued.length" :class="$style.new" rounded primary @click="releaseQueue(true)">{{ i18n.ts.newNote }}</MkButton>
+			<component :is="prefer.s.animation ? TransitionGroup : 'div'" tag="div" :enterActiveClass="$style.enterActive" :enterFromClass="$style.enterFrom" :moveClass="$style.move" @beforeLeave="clearLeavingPrivateNote">
+				<MkGridspacePrivateNoteRow v-for="note in displayed" :key="note.id" :note="note" :detailed="params.mode === 'show'" :data-scroll-anchor="note.uri" @unavailable="fail" @replied="refresh"/>
+			</component>
+			<div v-if="error || loading || (notes.length === 0 && !hasMore)" :class="$style.heading" class="_gaps_s">
+				<p v-if="error" role="alert">{{ params.channelId ? i18n.ts._gridspace.channelNotesUnavailable : i18n.ts._gridspace.privateUnavailable }}</p>
+				<MkLoading v-if="loading"/>
+				<p v-else-if="!error && notes.length === 0 && !hasMore">{{ i18n.ts.noNotes }}</p>
+				<MkButton v-if="error" :disabled="loading" @click="refresh">{{ i18n.ts.retry }}</MkButton>
+			</div>
+			<MkTimelineLoadMore :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" @load="load"/>
+		</template>
+	</section>
 </component>
 </template>
 

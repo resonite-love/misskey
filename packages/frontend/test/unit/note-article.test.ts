@@ -9,6 +9,7 @@ import { h } from 'vue';
 import { compileTemplate, parse } from 'vue/compiler-sfc';
 import { cleanup, fireEvent, render } from '@testing-library/vue';
 import type { entities } from 'misskey-js';
+import NoteText from '@/components/MkNoteText.vue';
 import NoteArticle from '@/components/MkNoteArticle.vue';
 import nativeSource from '@/components/MkNote.vue?raw';
 
@@ -28,7 +29,7 @@ test('the native note template renders through the same article and keeps footer
 		note, appearNote: note, mock: true, showContent: true, canRenote: true, reply, isUnavailableGridspaceNote: () => false, i18n: { ts: {} },
 	}) });
 	const view = render(Native, { global: {
-		...global, mocks: { $style: {}, $appearNote: {} }, directives: { hotkey: {} }, components: { MkNoteArticle: NoteArticle },
+		...global, mocks: { $style: {}, $appearNote: {} }, directives: { hotkey: {} }, components: { MkNoteArticle: NoteArticle, MkNoteText: NoteText },
 		stubs: { ...global.stubs, MkNoteSub: true, MkNoteHeader: true, MkNoteChannel: true, MkReactionsViewer: true,
 			MkAutoTranslatedNote: { props: ['note'], template: '<slot :text="note.text" :translated="false"/>' }, Mfm: { props: ['text'], template: '<span>{{ text }}</span>' } },
 	} });
@@ -40,7 +41,7 @@ test('the native note template renders through the same article and keeps footer
 
 test.each([undefined, '/gridspace/channels/channel'])('one article layout preserves content and actions for route %s', async channelTo => {
 	const reply = vi.fn(); const context = vi.fn();
-	const view = render(NoteArticle, { props: { user, channel, channelTo, onContextmenu: context }, global, slots: {
+	const view = render(NoteArticle, { props: { user, channel, channelTo }, attrs: { onContextmenu: context }, global, slots: {
 		header: '<header>Author header</header>', default: '<p>Body text</p>', reactions: '<div>Reactions</div>',
 		footer: ({ buttonClass }: { buttonClass: string }) => h('button', { class: buttonClass, onClick: reply }, 'Reply'),
 	} });

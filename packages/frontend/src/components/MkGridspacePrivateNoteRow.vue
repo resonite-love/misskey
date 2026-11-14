@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <div ref="root" :class="$style.root" data-gridspace-private-row :aria-busy="suspended" :style="{ height: suspended ? `${height}px` : undefined, minHeight: height ? `${height}px` : undefined }" @pointerdown="releaseHeight" @keydown="releaseHeight">
 	<div v-if="suspended" :class="$style.placeholder" aria-hidden="true"></div>
-	<MkGridspacePrivateNote v-else v-model:expanded="expanded" :note="note as GridspacePrivateNote" @unavailable="emit('unavailable')" @replied="emit('replied')"/>
+	<MkGridspacePrivateNote v-else v-model:expanded="expanded" :note="note as GridspacePrivateNote" :detailed="detailed" @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 </div>
 </template>
 
@@ -16,7 +16,7 @@ import type { GridspaceNoteEntry, GridspacePrivateNote } from '@/utility/gridspa
 import MkGridspacePrivateNote from '@/components/MkGridspacePrivateNote.vue';
 import { isSuspendedNote } from '@/utility/gridspace-note-suspension.js';
 
-const props = defineProps<{ note: GridspaceNoteEntry }>();
+const props = defineProps<{ note: GridspaceNoteEntry; detailed?: boolean }>();
 const emit = defineEmits<{ (event: 'unavailable'): void; (event: 'replied'): void }>();
 const root = useTemplateRef('root');
 const height = ref(0);

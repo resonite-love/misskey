@@ -4,19 +4,20 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div v-if="hasMore && !loading && !disabled" ref="sentinel" :class="[$style.sentinel, { [$style.manual]: !prefer.s.enableInfiniteScroll }]" data-timeline-load-more>
-	<MkButton v-if="!prefer.s.enableInfiniteScroll" @click="requestLoad">{{ i18n.ts.loadMore }}</MkButton>
+<div v-if="hasMore && !loading && !disabled" ref="sentinel" :class="[$style.sentinel, { [$style.manual]: !automatic }]" data-timeline-load-more>
+	<MkButton v-if="!automatic" @click="requestLoad">{{ i18n.ts.loadMore }}</MkButton>
 </div>
 </template>
 
 <script setup lang="ts">
-import { onActivated, onBeforeUnmount, onDeactivated, ref, useTemplateRef, watch } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, useTemplateRef, watch } from 'vue';
+import { useDocumentVisibility } from '@@/js/use-document-visibility.js';
 import MkButton from '@/components/MkButton.vue';
 import { prefer } from '@/preferences.js';
 import { i18n } from '@/i18n.js';
-import { useDocumentVisibility } from '@@/js/use-document-visibility.js';
 
-const props = withDefaults(defineProps<{ hasMore: boolean; loading: boolean; disabled?: boolean }>(), { disabled: false });
+const props = withDefaults(defineProps<{ hasMore: boolean; loading: boolean; disabled?: boolean; automatic?: boolean }>(), { disabled: false, automatic: undefined });
+const automatic = computed(() => props.automatic ?? prefer.s.enableInfiniteScroll);
 const emit = defineEmits<{ (event: 'load'): void }>();
 const sentinel = useTemplateRef('sentinel');
 const active = ref(true);
@@ -28,11 +29,11 @@ function requestLoad() {
 	emit('load');
 }
 
-watch([sentinel, prefer.r.enableInfiniteScroll, active, visibility], ([element, automatic, isActive, state]) => {
+watch([sentinel, automatic, active, visibility], ([element, automaticEnabled, isActive, state]) => {
 	observer?.disconnect();
-	if (!element || !automatic || !isActive || state !== 'visible') return;
+	if (!element || !automaticEnabled || !isActive || state !== 'visible') return;
 	const current = new IntersectionObserver(entries => {
-		if (observer === current && prefer.s.enableInfiniteScroll && element === sentinel.value && entries.some(entry => entry.isIntersecting)) requestLoad();
+		if (observer === current && automatic.value && element === sentinel.value && entries.some(entry => entry.isIntersecting)) requestLoad();
 	}, { rootMargin: '200px' });
 	observer = current;
 	observer.observe(element);

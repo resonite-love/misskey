@@ -5,18 +5,15 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <section :class="$style.root" data-gridspace-post-form @dragover.prevent @drop.prevent="dropFiles">
-	<header :class="$style.header">
-		<div :class="$style.headerLeft">
-			<button v-if="!embedded" class="_button" :class="$style.cancel" :aria-label="i18n.ts.close" @click="close"><i class="ti ti-x"></i></button>
+	<MkPostFormHeader :fixed="embedded" @cancel="close">
+		<template #account>
 			<img v-if="info" :class="$style.avatar" :src="info.account.avatarUrl" alt="" style="border-radius: 100%;">
 			<span v-if="info" :class="$style.peerIdentity" :title="identity">{{ identity }}</span>
-		</div>
-		<div :class="$style.headerRight">
-			<span :class="[$style.headerRightItem, $style.visibility]" :title="audience"><i :class="channelId ? 'ti ti-device-tv' : info?.visibility === 'specified' ? 'ti ti-mail' : 'ti ti-lock'"></i><span :class="$style.headerRightButtonText">{{ audience }}</span></span>
-			<span v-if="info?.localOnly && !channelId" :title="i18n.ts._visibility.disableFederation"><i class="ti ti-rocket-off"></i></span>
-			<button class="_button" :class="$style.submit" :disabled="!canSend" data-testid="post-form-submit" @click="send"><div :class="$style.submitInner"><MkEllipsis v-if="sending"/><template v-else>{{ pending ? i18n.ts.retry : reply ? i18n.ts.reply : renote ? i18n.ts.quote : i18n.ts.note }}</template><i style="margin-left: 6px;" :class="reply ? 'ti ti-arrow-back-up' : renote ? 'ti ti-quote' : 'ti ti-send'"></i></div></button>
-		</div>
-	</header>
+		</template>
+		<span :class="[$style.headerRightItem, $style.visibility]" :title="audience"><i :class="channelId ? 'ti ti-device-tv' : info?.visibility === 'specified' ? 'ti ti-mail' : 'ti ti-lock'"></i><span :class="$style.headerRightButtonText">{{ audience }}</span></span>
+		<span v-if="info?.localOnly && !channelId" :title="i18n.ts._visibility.disableFederation"><i class="ti ti-rocket-off"></i></span>
+		<button class="_button" :class="$style.submit" :disabled="!canSend" data-testid="post-form-submit" @click="send"><div :class="$style.submitInner"><MkEllipsis v-if="sending"/><template v-else>{{ pending ? i18n.ts.retry : reply ? i18n.ts.reply : renote ? i18n.ts.quote : i18n.ts.note }}</template><i style="margin-left: 6px;" :class="reply ? 'ti ti-arrow-back-up' : renote ? 'ti ti-quote' : 'ti ti-send'"></i></div></button>
+	</MkPostFormHeader>
 	<MkLoading v-if="loading"/>
 	<MkInfo v-if="error" warn role="alert" :class="$style.peerInfo">{{ error }}</MkInfo>
 	<template v-if="info">
@@ -24,26 +21,11 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div v-if="targetNote" :class="$style.targetNote"><i v-if="renote" class="ti ti-quote"></i><strong>{{ targetNote.author.name || targetNote.author.username }}</strong><Mfm :text="targetNote.cw ?? targetNote.text ?? ''" :author="targetNote.author" :emojiUrls="targetNote.emojis ?? {}" :plain="true"/></div>
 		<template v-if="info.canReply">
 			<fieldset :disabled="locked" :class="$style.peerFields">
-				<div v-show="useCw" :class="$style.cwOuter"><input ref="cwInput" v-model="cw" :class="$style.cw" :placeholder="i18n.ts.annotation" :aria-label="i18n.ts.annotation" maxlength="100" @keydown="keydown"></div>
-				<div :class="[$style.textOuter, { [$style.withCw]: useCw }]">
-					<div v-if="channel" :class="$style.colorBar" :style="{ background: channel.color }"></div>
-					<textarea ref="textarea" v-model="text" :class="$style.text" :aria-label="i18n.ts.text" :placeholder="reply ? i18n.ts._postForm.replyPlaceholder : renote ? i18n.ts._postForm.quotePlaceholder : i18n.ts._postForm.channelPlaceholder" data-testid="post-form-text" @keydown="keydown" @paste="pasteFiles"></textarea>
-					<div v-if="remaining < 100" :class="[$style.textCount, { [$style.textOver]: remaining < 0 }]">{{ remaining }}</div>
-				</div>
+				<MkPostFormFields :useCw="useCw" :channelColor="channel?.color"><template #cw><input ref="cwInput" v-model="cw" :class="$style.cw" :placeholder="i18n.ts.annotation" :aria-label="i18n.ts.annotation" maxlength="100" @keydown="keydown"></template><textarea ref="textarea" v-model="text" :class="$style.text" :aria-label="i18n.ts.text" :placeholder="reply ? i18n.ts._postForm.replyPlaceholder : renote ? i18n.ts._postForm.quotePlaceholder : i18n.ts._postForm.channelPlaceholder" data-testid="post-form-text" @keydown="keydown" @paste="pasteFiles"></textarea><template #counter><div v-if="remaining < 100" :class="[$style.textCount, { [$style.textOver]: remaining < 0 }]">{{ remaining }}</div></template></MkPostFormFields>
 				<div v-if="uploader.items.value.length" :class="$style.peerAttachments"><MkUploaderItems :items="uploader.items.value" @showMenu="showFileMenu" @showMenuViaContextmenu="showFileMenu"/></div>
 				<MkPollEditor v-if="poll" v-model="poll"/>
 				<div v-if="preview" :class="$style.preview"><Mfm v-if="useCw" :text="cw" :author="info.account"/><Mfm :text="text" :author="info.account"/></div>
-				<footer :class="$style.footer">
-					<div :class="$style.footerLeft">
-						<button class="_button" :class="$style.footerButton" :disabled="!info.canAttach" :aria-label="i18n.ts.attachFile" :title="i18n.ts.attachFile" @click="fileInput?.click()"><i class="ti ti-photo-plus"></i></button>
-						<button class="_button" :class="[$style.footerButton, { [$style.footerButtonActive]: poll }]" :aria-label="i18n.ts.poll" :title="i18n.ts.poll" @click="togglePoll"><i class="ti ti-chart-arrows"></i></button>
-						<button class="_button" :class="[$style.footerButton, { [$style.footerButtonActive]: useCw }]" :aria-label="i18n.ts.useCw" :title="i18n.ts.useCw" @click="useCw = !useCw"><i class="ti ti-eye-off"></i></button>
-						<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.mention" :title="i18n.ts.mention" @click="insertText('@')"><i class="ti ti-at"></i></button>
-						<button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.addMfmFunction" :title="i18n.ts.addMfmFunction" @click="insertMfm"><i class="ti ti-palette"></i></button>
-						<button class="_button" :class="[$style.footerButton, { [$style.footerButtonActive]: preview }]" :aria-label="i18n.ts.preview" :title="i18n.ts.preview" @click="preview = !preview"><i class="ti ti-eye"></i></button>
-					</div>
-					<div :class="$style.footerRight"><button class="_button" :class="$style.footerButton" :aria-label="i18n.ts.emoji" :title="i18n.ts.emoji" @click="insertEmoji"><i class="ti ti-mood-happy"></i></button></div>
-				</footer>
+				<footer :class="$style.footer"><MkPostFormActionBar :poll="!!poll" :useCw="useCw" :canAttach="info.canAttach" showPreview :preview="preview" @upload="fileInput?.click()" @poll="togglePoll" @cw="useCw = !useCw" @mention="insertText('@')" @mfm="insertMfm" @preview="preview = !preview" @emoji="insertEmoji"/></footer>
 				<input ref="fileInput" type="file" multiple hidden @change="selectFiles">
 			</fieldset>
 			<div v-if="pending" :class="$style.peerInfo"><p>{{ i18n.ts._gridspace.replyPending }}</p><MkButton :disabled="sending" @click="discard">{{ i18n.ts._gridspace.replyDiscard }}</MkButton></div>
@@ -60,6 +42,9 @@ import { apiUrl, host } from '@@/js/config.js';
 import type { entities } from 'misskey-js';
 import type { PollEditorModelValue } from '@/components/MkPollEditor.vue';
 import type { UploaderItem } from '@/composables/use-uploader.js';
+import MkPostFormActionBar from '@/components/MkPostFormActionBar.vue';
+import MkPostFormFields from '@/components/MkPostFormFields.vue';
+import MkPostFormHeader from '@/components/MkPostFormHeader.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import MkUploaderItems from '@/components/MkUploaderItems.vue';

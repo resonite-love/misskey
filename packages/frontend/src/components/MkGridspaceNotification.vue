@@ -32,10 +32,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<span v-else-if="type === 'test'" :class="$style.text">{{ i18n.ts._notification.notificationWillBeDisplayedLikeThis }}</span>
 	<a v-if="sourcePath" :href="row.origin + sourcePath" target="_blank" rel="noopener noreferrer" :class="$style.text">{{ sourceLabel }}</a>
 	<template v-if="type === 'receiveFollowRequest' && presentation?.followRequestId && !done">
-		<div v-if="presentation.canManageFollowRequest" :class="$style.followRequestCommands">
-			<MkButton :class="$style.followRequestCommandButton" rounded primary :disabled="acting" @click="decide(true)"><i class="ti ti-check"></i> {{ i18n.ts.accept }}</MkButton>
-			<MkButton :class="$style.followRequestCommandButton" rounded danger :disabled="acting" @click="decide(false)"><i class="ti ti-x"></i> {{ i18n.ts.reject }}</MkButton>
-		</div>
+		<MkFollowRequestActions v-if="presentation.canManageFollowRequest" :busy="acting" @decide="decide"/>
 		<MkA v-else to="/settings/gridspace">{{ i18n.ts._gridspace.notificationFollowPermission }}</MkA>
 		<p v-if="actionFailed" role="alert">{{ i18n.ts._gridspace.notificationFollowFailed }}</p>
 	</template>
@@ -51,14 +48,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { userPage } from '@@/js/user.js';
+import type { NotificationGroup } from '@/utility/use-gridspace-notifications.js';
+import MkFollowRequestActions from '@/components/MkFollowRequestActions.vue';
 import MkNotificationLayout from '@/components/MkNotificationLayout.vue';
 import MkReactionIcon from '@/components/MkReactionIcon.vue';
-import MkButton from '@/components/MkButton.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import $style from '@/components/notification.module.scss';
-import { userPage } from '@@/js/user.js';
 import { i18n } from '@/i18n.js';
-import type { NotificationGroup } from '@/utility/use-gridspace-notifications.js';
 
 const props = defineProps<{ row: NotificationGroup & { source: 'peer' } }>();
 const acting = ref(false);

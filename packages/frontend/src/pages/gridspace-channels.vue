@@ -16,15 +16,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkInfo v-if="error" warn role="alert">{{ i18n.ts._gridspace.channelsUnavailable }} <MkA to="/settings/gridspace">{{ i18n.ts._gridspace.title }}</MkA></MkInfo>
 		<MkGridspacePostForm v-if="channelId && composerReady && prefer.s.showFixedPostFormInChannel" v-show="selected && !selected.isArchived && tab === 'timeline'" :key="channelId" :channelId="channelId" :channel="selected" embedded :autofocus="deviceKind === 'desktop'" class="_panel" @sent="refreshNotes"/>
 		<template v-if="selected">
-			<section v-if="tab === 'overview'" class="_panel" :class="$style.overview">
-				<div :class="$style.hero" :style="{ backgroundImage: selected.bannerUrl ? `url(${selected.bannerUrl})` : undefined }">
-					<MkChannelFollowButton :key="selected.id" :channel="selected" full :disabled="updating" :updateFollowing="updateFollowing" :class="$style.subscribe"/>
-					<MkButton v-tooltip="selected.isFavorited ? i18n.ts.unfavorite : i18n.ts.favorite" asLike rounded :primary="selected.isFavorited" :disabled="updating" :aria-label="selected.isFavorited ? i18n.ts.unfavorite : i18n.ts.favorite" :aria-pressed="selected.isFavorited" :class="$style.favorite" @click="toggleFavorite"><i class="ti ti-star"></i></MkButton>
-					<div :class="$style.statistics"><div><i class="ti ti-users ti-fw"></i> {{ i18n.tsx._channel.usersCount({ n: selected.usersCount }) }}</div><div><i class="ti ti-pencil ti-fw"></i> {{ i18n.tsx._channel.notesCount({ n: selected.notesCount }) }}</div></div>
-					<span v-if="selected.isSensitive" :class="$style.sensitive">{{ i18n.ts.sensitive }}</span>
-				</div>
-				<div :class="$style.detail"><h2>{{ selected.name }}</h2><span :class="$style.origin">{{ originHost }}</span><Mfm v-if="selected.description" :text="selected.description" :isNote="false"/></div>
-			</section>
+			<MkChannelOverview v-if="tab === 'overview'" :channel="selected" :origin="originHost"><template #follow><MkChannelFollowButton :key="selected.id" :channel="selected" full :disabled="updating" :updateFollowing="updateFollowing"/></template><template #favorite><MkButton v-tooltip="selected.isFavorited ? i18n.ts.unfavorite : i18n.ts.favorite" asLike rounded :primary="selected.isFavorited" :disabled="updating" :aria-label="selected.isFavorited ? i18n.ts.unfavorite : i18n.ts.favorite" :aria-pressed="selected.isFavorited" @click="toggleFavorite"><i class="ti ti-star"></i></MkButton></template></MkChannelOverview>
 			<MkInfo v-if="selected.isArchived" warn>{{ i18n.ts.thisChannelArchived }}</MkInfo>
 			<template v-if="tab === 'timeline'">
 				<MkGridspacePrivateNotes ref="timeline" :params="{ mode: 'channel', channelId: selected.id }" plain alwaysShow @loaded="markRead"/>
@@ -54,8 +46,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onDeactivated, provide, ref, shallowRef, useTemplateRef, watch } from 'vue';
-import { DI } from '@/di.js';
 import type { entities } from 'misskey-js';
+import { DI } from '@/di.js';
+import MkChannelOverview from '@/components/MkChannelOverview.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import MkInput from '@/components/MkInput.vue';

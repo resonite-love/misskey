@@ -50,24 +50,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkNoteHeader :note="appearNote" :mini="true"/>
 			<MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/>
 		</template>
-		<p v-if="appearNote.cw != null" :class="$style.cw">
-			<Mfm
-				v-if="appearNote.cw != ''"
-				:text="appearNote.cw"
-				:author="appearNote.user"
-				:nyaize="'respect'"
-				:enableEmojiMenu="true"
-				:enableEmojiMenuReaction="true"
-			/>
-			<MkCwButton v-model="showContent" :text="appearNote.text" :renote="appearNote.renote" :files="appearNote.files" :poll="appearNote.poll" style="margin: 4px 0;"/>
-		</p>
+		<MkNoteCw v-if="appearNote.cw != null" v-model="showContent" :cw="appearNote.cw" :text="appearNote.text" :author="appearNote.user" :emojiUrls="appearNote.emojis" :files="appearNote.files" :poll="appearNote.poll" :renote="appearNote.renote" interactive/>
 		<div v-show="appearNote.cw == null || showContent" :class="[{ [$style.contentCollapsed]: collapsed }]">
 			<div :class="$style.text">
 				<span v-if="appearNote.isHidden" style="opacity: 0.5">({{ i18n.ts.private }})</span>
 				<span v-else-if="isUnavailableGridspaceNote(appearNote)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span>
 				<MkA v-if="appearNote.replyId" :class="$style.replyIcon" :to="`/notes/${appearNote.replyId}`"><i class="ti ti-arrow-back-up"></i></MkA>
 				<MkAutoTranslatedNote v-slot="{ text, translated }" :note="appearNote" :active="!mock && (appearNote.cw == null || showContent)">
-					<Mfm
+					<MkNoteText
 						v-if="appearNote.text"
 						:parsedNodes="translated ? undefined : parsed"
 						:text="text ?? ''"
@@ -83,7 +73,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					<MkLoading v-if="translating" mini/>
 					<div v-else-if="translation">
 						<b>{{ i18n.tsx.translatedFrom({ x: translation.sourceLang }) }}: </b>
-						<Mfm :text="translation.text" :author="appearNote.user" :nyaize="'respect'" :emojiUrls="appearNote.emojis" class="_selectable"/>
+						<MkNoteText :text="translation.text" :author="appearNote.user" :nyaize="'respect'" :emojiUrls="appearNote.emojis" class="_selectable"/>
 					</div>
 				</div>
 			</div>
@@ -222,8 +212,9 @@ import MkNoteArticle from '@/components/MkNoteArticle.vue';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
 import MkReactionsViewer from '@/components/MkReactionsViewer.vue';
+import MkNoteText from '@/components/MkNoteText.vue';
+import MkNoteCw from '@/components/MkNoteCw.vue';
 import MkMediaList from '@/components/MkMediaList.vue';
-import MkCwButton from '@/components/MkCwButton.vue';
 import MkPoll from '@/components/MkPoll.vue';
 import MkUrlPreview from '@/components/MkUrlPreview.vue';
 import MkInstanceTicker from '@/components/MkInstanceTicker.vue';

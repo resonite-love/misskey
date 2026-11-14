@@ -47,53 +47,16 @@ SPDX-License-Identifier: AGPL-3.0-only
 		{{ i18n.ts.deletedNote }}
 	</div>
 	<template v-else>
-		<article :class="$style.note" @contextmenu.stop="onContextmenu">
-			<header :class="$style.noteHeader">
-				<MkAvatar :class="$style.noteHeaderAvatar" :user="appearNote.user" indicator link preview/>
-				<div :class="$style.noteHeaderBody">
-					<div>
-						<MkA v-user-preview="appearNote.user.id" :class="$style.noteHeaderName" :to="userPage(appearNote.user)">
-							<MkUserName :nowrap="false" :user="appearNote.user"/>
-						</MkA>
-						<span v-if="appearNote.user.isBot" :class="$style.isBot">bot</span>
-						<div :class="$style.noteHeaderInfo">
-							<span v-if="appearNote.visibility !== 'public'" style="margin-left: 0.5em;" :title="i18n.ts._visibility[appearNote.visibility]">
-								<i v-if="appearNote.visibility === 'home'" class="ti ti-home"></i>
-								<i v-else-if="appearNote.visibility === 'followers'" class="ti ti-lock"></i>
-								<i v-else-if="appearNote.visibility === 'specified'" ref="specified" class="ti ti-mail"></i>
-							</span>
-							<span v-if="appearNote.localOnly" style="margin-left: 0.5em;" :title="i18n.ts._visibility['disableFederation']"><i class="ti ti-rocket-off"></i></span>
-						</div>
-					</div>
-					<div :class="$style.noteHeaderUsernameAndBadgeRoles">
-						<div :class="$style.noteHeaderUsername">
-							<MkAcct :user="appearNote.user"/>
-						</div>
-						<div v-if="appearNote.user.badgeRoles" :class="$style.noteHeaderBadgeRoles">
-							<img v-for="(role, i) in appearNote.user.badgeRoles" :key="i" v-tooltip="role.name" :class="$style.noteHeaderBadgeRole" :src="role.iconUrl!"/>
-						</div>
-					</div>
-					<MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/>
-				</div>
-			</header>
+		<MkNoteDetailedArticle :compactTop="isRenote" @contextmenu.stop="onContextmenu">
+			<template #header><MkNoteDetailedHeader :user="appearNote.user" :visibility="appearNote.visibility" :localOnly="appearNote.localOnly"><MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/></MkNoteDetailedHeader></template>
 			<div :class="$style.noteContent">
-				<p v-if="appearNote.cw != null" :class="$style.cw">
-					<Mfm
-						v-if="appearNote.cw != ''"
-						:text="appearNote.cw"
-						:author="appearNote.user"
-						:nyaize="'respect'"
-						:enableEmojiMenu="true"
-						:enableEmojiMenuReaction="true"
-					/>
-					<MkCwButton v-model="showContent" :text="appearNote.text" :renote="appearNote.renote" :files="appearNote.files" :poll="appearNote.poll"/>
-				</p>
+				<MkNoteCw v-if="appearNote.cw != null" v-model="showContent" :cw="appearNote.cw" :text="appearNote.text" :author="appearNote.user" :emojiUrls="appearNote.emojis" :files="appearNote.files" :poll="appearNote.poll" :renote="appearNote.renote" interactive/>
 				<div v-show="appearNote.cw == null || showContent">
 					<span v-if="appearNote.isHidden" style="opacity: 0.5">({{ i18n.ts.private }})</span>
 					<span v-else-if="isUnavailableGridspaceNote(appearNote)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span>
 					<MkA v-if="appearNote.replyId" :class="$style.noteReplyTarget" :to="`/notes/${appearNote.replyId}`"><i class="ti ti-arrow-back-up"></i></MkA>
 					<MkAutoTranslatedNote v-slot="{ text, translated }" :note="appearNote" :active="appearNote.cw == null || showContent">
-						<Mfm
+						<MkNoteText
 							v-if="appearNote.text"
 							:parsedNodes="translated ? undefined : parsed"
 							:text="text ?? ''"
@@ -110,7 +73,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<MkLoading v-if="translating" mini/>
 						<div v-else-if="translation">
 							<b>{{ i18n.tsx.translatedFrom({ x: translation.sourceLang }) }}: </b>
-							<Mfm :text="translation.text" :author="appearNote.user" :nyaize="'respect'" :emojiUrls="appearNote.emojis" class="_selectable"/>
+							<MkNoteText :text="translation.text" :author="appearNote.user" :nyaize="'respect'" :emojiUrls="appearNote.emojis" class="_selectable"/>
 						</div>
 					</div>
 					<div v-if="appearNote.files && appearNote.files.length > 0">
@@ -133,20 +96,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</div>
 				<MkNoteChannel v-if="appearNote.channel && !inChannel" :channel="appearNote.channel"/>
 			</div>
-			<footer>
-				<div :class="$style.noteFooterInfo">
-					<MkA :to="notePage(appearNote)">
-						<MkTime :time="appearNote.createdAt" mode="detail" colored/>
-					</MkA>
-					<span style="margin-left: 0.5em;">
-						<span style="border: 1px solid var(--MI_THEME-divider); margin-right: 0.5em;"></span>
-						<i v-if="appearNote.visibility === 'public'" class="ti ti-world"></i>
-						<i v-else-if="appearNote.visibility === 'home'" class="ti ti-home"></i>
-						<i v-else-if="appearNote.visibility === 'followers'" class="ti ti-lock"></i>
-						<i v-else-if="appearNote.visibility === 'specified'" ref="specified" class="ti ti-mail"></i>
-						<span style="margin-left: 0.3em;">{{ i18n.ts._visibility[appearNote.visibility] }}</span>
-					</span>
-				</div>
+			<template #footer="{ buttonClass }">
+				<MkNoteInfo :to="notePage(appearNote)" :createdAt="appearNote.createdAt" :visibility="appearNote.visibility"/>
 				<MkReactionsViewer
 					v-if="appearNote.reactionAcceptance !== 'likeOnly'"
 					style="margin-top: 6px;"
@@ -158,7 +109,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					:reactionVersion="$appearNote.reactionVersions ?? $appearNote.reactionVersion"
 					:noteId="appearNote.id"
 				/>
-				<button class="_button" :class="$style.noteFooterButton" @click="reply()">
+				<button class="_button" :class="buttonClass" @click="reply()">
 					<i class="ti ti-arrow-back-up"></i>
 					<p v-if="appearNote.repliesCount > 0" :class="$style.noteFooterButtonCount">{{ number(appearNote.repliesCount) }}</p>
 				</button>
@@ -166,30 +117,30 @@ SPDX-License-Identifier: AGPL-3.0-only
 					v-if="canRenote"
 					ref="renoteButton"
 					class="_button"
-					:class="$style.noteFooterButton"
+					:class="buttonClass"
 					@mousedown.prevent="renote()"
 				>
 					<i class="ti ti-repeat"></i>
 					<p v-if="appearNote.renoteCount > 0" :class="$style.noteFooterButtonCount">{{ number(appearNote.renoteCount) }}</p>
 				</button>
-				<button v-else class="_button" :class="$style.noteFooterButton" disabled>
+				<button v-else class="_button" :class="buttonClass" disabled>
 					<i class="ti ti-ban"></i>
 				</button>
-				<button ref="reactButton" :class="$style.noteFooterButton" class="_button" @click="toggleReact()">
+				<button ref="reactButton" :class="buttonClass" class="_button" @click="toggleReact()">
 					<i v-if="appearNote.reactionAcceptance === 'likeOnly' && $appearNote.myReaction != null" class="ti ti-heart-filled" style="color: var(--MI_THEME-love);"></i>
 					<i v-else-if="!$appearNote.extendedReactions && $appearNote.myReaction != null" class="ti ti-minus" style="color: var(--MI_THEME-accent);"></i>
 					<i v-else-if="appearNote.reactionAcceptance === 'likeOnly'" class="ti ti-heart"></i>
 					<i v-else class="ti ti-plus"></i>
 					<p v-if="(appearNote.reactionAcceptance === 'likeOnly' || prefer.s.showReactionsCount) && $appearNote.reactionCount > 0" :class="$style.noteFooterButtonCount">{{ number($appearNote.reactionCount) }}</p>
 				</button>
-				<button v-if="prefer.s.showClipButtonInNoteFooter" ref="clipButton" class="_button" :class="$style.noteFooterButton" @mousedown.prevent="clip()">
+				<button v-if="prefer.s.showClipButtonInNoteFooter" ref="clipButton" class="_button" :class="buttonClass" @mousedown.prevent="clip()">
 					<i class="ti ti-paperclip"></i>
 				</button>
-				<button ref="menuButton" class="_button" :class="$style.noteFooterButton" @mousedown.prevent="showMenu()">
+				<button ref="menuButton" class="_button" :class="buttonClass" @mousedown.prevent="showMenu()">
 					<i class="ti ti-dots"></i>
 				</button>
-			</footer>
-		</article>
+			</template>
+		</MkNoteDetailedArticle>
 		<div :class="$style.tabs">
 			<button class="_button" :class="[$style.tab, { [$style.tabActive]: tab === 'replies' }]" @click="tab = 'replies'"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts.replies }}</button>
 			<button class="_button" :class="[$style.tab, { [$style.tabActive]: tab === 'renotes' }]" @click="tab = 'renotes'"><i class="ti ti-repeat"></i> {{ i18n.ts.renotes }}</button>
@@ -247,14 +198,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script lang="ts" setup>
 import { inject, provide, ref, useTemplateRef, markRaw, computed } from 'vue';
 import * as Misskey from 'misskey-js';
+import { userPage } from '@@/js/user.js';
+import { notePage } from '@@/js/note.js';
 import type { Keymap } from '@/utility/hotkey.js';
 import MkAutoTranslatedNote from '@/components/MkAutoTranslatedNote.vue';
 import { useNote } from '@/composables/use-note.js';
 import { isUnavailableGridspaceNote } from '@/utility/is-unavailable-gridspace-note.js';
 import { prefer } from '@/preferences.js';
 import { i18n } from '@/i18n.js';
-import { userPage } from '@@/js/user.js';
-import { notePage } from '@@/js/note.js';
 import { isEnabledUrlPreview } from '@/utility/url-preview.js';
 import { Paginator } from '@/utility/paginator.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
@@ -266,8 +217,12 @@ import MkNoteSub from '@/components/MkNoteSub.vue';
 import MkNoteChannel from '@/components/MkNoteChannel.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
 import MkReactionsViewer from '@/components/MkReactionsViewer.vue';
+import MkNoteDetailedArticle from '@/components/MkNoteDetailedArticle.vue';
+import MkNoteDetailedHeader from '@/components/MkNoteDetailedHeader.vue';
+import MkNoteInfo from '@/components/MkNoteInfo.vue';
+import MkNoteText from '@/components/MkNoteText.vue';
+import MkNoteCw from '@/components/MkNoteCw.vue';
 import MkMediaList from '@/components/MkMediaList.vue';
-import MkCwButton from '@/components/MkCwButton.vue';
 import MkPoll from '@/components/MkPoll.vue';
 import MkUrlPreview from '@/components/MkUrlPreview.vue';
 import MkInstanceTicker from '@/components/MkInstanceTicker.vue';

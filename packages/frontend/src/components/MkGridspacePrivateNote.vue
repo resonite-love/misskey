@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div v-if="!deleted" ref="article" :class="[$style.note, { [$style.renoteWrapper]: isPureRenote && note.renote, [$style.nested]: nested }]" data-gridspace-private-note>
+<div v-if="!deleted" ref="article" :class="[$style.note, { [$style.detailed]: detailed, [$style.renoteWrapper]: isPureRenote && note.renote, [$style.nested]: nested }]" data-gridspace-private-note>
 	<template v-if="isPureRenote && note.renote">
 		<div :class="$style.renoteHeader">
 			<MkNoteChannel v-if="channel" :channel="channel" display="bar" compact/>
@@ -13,24 +13,21 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<I18n :src="i18n.ts.renotedBy" tag="span"><template #user><MkUserName :user="displayAuthor"/></template></I18n>
 			<button class="_button" :class="$style.renoteMenu" :aria-label="i18n.ts.more" @click="showMenu"><i class="ti ti-dots"></i> <MkTime :time="note.createdAt"/></button>
 		</div>
-		<MkGridspacePrivateNote :note="note.renote" compactTop nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
+		<MkGridspacePrivateNote :note="note.renote" :detailed="detailed" compactTop nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 	</template>
-	<MkNoteArticle v-else :user="displayAuthor" :channel="channel" :channelTo="channel ? `/gridspace/channels/${channel.id}` : undefined" :showChannelLink="!inChannel" :avatarPreview="false" :stickyAvatar="prefer.s.useStickyIcons" :compactTop="compactTop" :dense="dense" :footerOnHover="prefer.s.showNoteActionsOnlyHover">
+	<component :is="detailed ? MkNoteDetailedArticle : MkNoteArticle" v-else :user="displayAuthor" :channel="channel" :channelTo="channel ? `/gridspace/channels/${channel.id}` : undefined" :showChannelLink="!inChannel" :avatarPreview="false" :stickyAvatar="prefer.s.useStickyIcons" :compactTop="compactTop" :dense="dense" :footerOnHover="prefer.s.showNoteActionsOnlyHover">
 		<template #header>
-			<MkNoteHeader :note="headerNote" :noteUrl="noteLink(note.id)" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/>
-			<MkInstanceTicker v-if="showTicker" :host="displayAuthor.host" :instance="displayAuthor.instance"/>
+			<MkNoteDetailedHeader v-if="detailed" :user="displayAuthor" :visibility="headerNote.visibility" :localOnly="note.localOnly" :preview="false"><MkInstanceTicker v-if="showTicker" :host="displayAuthor.host" :instance="displayAuthor.instance"/></MkNoteDetailedHeader>
+			<MkNoteHeader v-else :note="headerNote" :noteUrl="noteLink(note.id)" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/>
+			<MkInstanceTicker v-if="showTicker && !detailed" :host="displayAuthor.host" :instance="displayAuthor.instance"/>
 		</template>
 		<div v-if="(note.replyId || note.renoteId)" :class="$style.parentLinks"><MkA v-if="note.replyId" :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA><MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA></div>
-		<template v-if="note.cw != null">
-			<div :class="$style.body"><Mfm :text="note.cw || i18n.ts._gridspace.privateContentWarning" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false"/><MkCwButton v-model="expanded" :text="note.text" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/></div>
-			<div v-if="expanded" :class="[$style.body, $style.text]"><Mfm :text="translation?.text ?? note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
-		</template>
-		<div v-else-if="isUnavailableGridspaceNote(note, true)" :class="$style.body"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</div>
-		<div v-else :class="[$style.body, $style.text]"><Mfm :text="translation?.text ?? note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}" :enableEmojiMenu="false" :enableEmojiMenuReaction="false" :nyaize="'respect'" class="_selectable"/></div>
+		<MkNoteCw v-if="note.cw != null" v-model="expanded" :cw="note.cw" :text="note.text" :author="note.author" :emojiUrls="note.emojis ?? {}" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/>
+		<div v-if="note.cw == null || expanded" :class="$style.body"><span v-if="isUnavailableGridspaceNote(note, true)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span><MkNoteText v-else :text="translation?.text ?? note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}"/></div>
 		<MkGridspacePrivateNote v-if="note.renote && (note.cw == null || expanded)" :note="note.renote" :class="$style.quote" dense nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 		<button v-if="translation" class="_textButton" @click="translation = null">{{ i18n.ts._autoTranslation.showOriginal }}</button>
 		<div v-if="visible && isEnabledUrlPreview && (note.cw == null || expanded)">
-			<MkUrlPreview v-for="link in urls" :key="link" :url="link" :compact="true" :detail="false" :class="$style.urlPreview"/>
+			<MkUrlPreview v-for="link in urls" :key="link" :url="link" :compact="true" :detail="detailed" :class="$style.urlPreview"/>
 		</div>
 		<div v-if="note.cw == null || expanded" class="_gaps_s">
 			<MkMediaList v-if="media.length" :mediaList="media" :raw="true" ephemeral/>
@@ -43,13 +40,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateFileError }}</p>
 		</template>
 		<template #footer="{ buttonClass }">
+			<MkNoteInfo v-if="detailed" :to="noteLink(note.id)" :createdAt="note.createdAt" :visibility="headerNote.visibility"/>
 			<button class="_button" :class="buttonClass" :aria-label="i18n.ts.reply" :title="i18n.ts.reply" @click="reply"><i class="ti ti-arrow-back-up"></i></button>
 			<button ref="renoteButton" class="_button" :class="buttonClass" :aria-label="i18n.ts.renote" :title="canRenote ? i18n.ts.renote : i18n.ts.cantRenote" :disabled="!canRenote || renoteLoading" @click="renote"><i :class="renoteLoading ? 'ti ti-loader ti-spin' : canRenote ? 'ti ti-repeat' : 'ti ti-ban'"></i></button>
 			<button class="_button" :class="buttonClass" :aria-label="i18n.ts.reaction" :title="i18n.ts.reaction" @click="actions?.react($event)"><i class="ti ti-plus"></i></button>
 			<button class="_button" :class="buttonClass" :aria-label="i18n.ts.more" :title="i18n.ts.more" @click="showMenu"><i class="ti ti-dots"></i></button>
 			<p v-if="deleteError" role="alert">{{ i18n.ts._gridspace.channelDeleteFailed }}</p>
 		</template>
-	</MkNoteArticle>
+	</component>
 </div>
 </template>
 
@@ -61,7 +59,11 @@ import type { entities } from 'misskey-js';
 import MkGridspaceNoteActions from '@/components/MkGridspaceNoteActions.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkMediaList from '@/components/MkMediaList.vue';
-import MkCwButton from '@/components/MkCwButton.vue';
+import MkNoteText from '@/components/MkNoteText.vue';
+import MkNoteCw from '@/components/MkNoteCw.vue';
+import MkNoteDetailedArticle from '@/components/MkNoteDetailedArticle.vue';
+import MkNoteDetailedHeader from '@/components/MkNoteDetailedHeader.vue';
+import MkNoteInfo from '@/components/MkNoteInfo.vue';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import MkNoteArticle from '@/components/MkNoteArticle.vue';
 import MkNoteChannel from '@/components/MkNoteChannel.vue';
@@ -82,7 +84,7 @@ import { prefer } from '@/preferences.js';
 import { $i } from '@/i.js';
 import * as os from '@/os.js';
 
-const props = withDefaults(defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number]; compactTop?: boolean; dense?: boolean; nested?: boolean }>(), { compactTop: false, dense: false, nested: false });
+const props = withDefaults(defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number]; compactTop?: boolean; dense?: boolean; nested?: boolean; detailed?: boolean }>(), { compactTop: false, dense: false, nested: false, detailed: false });
 const updated = ref<entities.GridspacePrivateNotesResponse['notes'][number] | null>(null);
 const note = computed(() => updated.value ?? props.note);
 const displayAuthor = computed<entities.UserLite>(() => ({ ...note.value.author, id: note.value.author.uri, host: note.value.author.host === new URL(url).host ? null : note.value.author.host,
@@ -254,6 +256,7 @@ onDeactivated(clear);
 .renoteAvatar { width: 24px; height: 24px; }
 .renoteMenu { margin-left: auto; font-size: 0.85em; }
 .quote { margin-top: 8px; border: 1px solid var(--MI_THEME-divider); border-radius: var(--MI-radius); }
+.note.detailed { font-size: 1em; }
 .note.nested { font-size: inherit; }
 .header { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: 0.95em; }
 .account { color: var(--MI_THEME-fgTransparentWeak); font-size: 0.85em; }

@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <MkStickyContainer>
 	<template #header>
-		<nav :class="$style.nav" :aria-label="i18n.ts.drive">
+		<MkDriveNavigation>
 			<button class="_button _link" @click="emit('close')">{{ i18n.ts.drive }}</button>
 			<i class="ti ti-chevron-right"></i>
 			<button class="_button _link" @click="openFolder(null)">{{ i18n.ts._gridspace.driveTitle }}</button>
@@ -15,7 +15,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<button class="_button _link" @click="openFolder(folder.id)">{{ folder.name }}</button>
 			</template>
 			<button class="_button" :aria-label="i18n.ts.reload" :disabled="busy" @click="openFolder(folderId)"><i class="ti ti-refresh"></i></button>
-		</nav>
+		</MkDriveNavigation>
 	</template>
 	<div class="_gaps" :class="$style.content">
 		<p>{{ i18n.ts._gridspace.driveDescription }}</p>
@@ -30,17 +30,17 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<MkButton :disabled="importing !== null" @click="attach(preview, true)">{{ i18n.ts.createNoteFromTheFile }}</MkButton>
 			</div>
 		</div>
-		<div :class="$style.grid">
+		<MkDriveGrid :inset="false">
 			<button v-for="folder in folders" :key="folder.id" class="_button" :aria-label="folder.name" @click="openFolder(folder.id)"><XFolder :folder="displayFolder(folder)" readOnly/></button>
-		</div>
-		<div :class="$style.grid">
+		</MkDriveGrid>
+		<MkDriveGrid :inset="false">
 			<button v-for="file in files" :key="file.id" class="_button" :aria-label="file.name" :disabled="importing !== null || (excludeSensitive && file.isSensitive)" @click="select ? attach(file) : preview = file">
 				<XFile :file="displayFile(file)" :folder="null" :isSelected="!!selectedFile(file)" :isDisabled="excludeSensitive && file.isSensitive" readOnly/>
 				<MkLoading v-if="importing === file.id"/>
 			</button>
-		</div>
+		</MkDriveGrid>
 		<MkLoading v-if="busy"/>
-		<MkButton v-if="more && !needsGrant" :disabled="busy" @click="load(true)">{{ i18n.ts.loadMore }}</MkButton>
+		<MkTimelineLoadMore :hasMore="more" :loading="busy" :disabled="needsGrant || !!error" @load="load(true)"/>
 		<MkResult v-if="!busy && !error && !needsGrant && files.length === 0 && folders.length === 0" type="empty"/>
 	</div>
 </MkStickyContainer>
@@ -48,8 +48,11 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script setup lang="ts">
 import { onActivated, onDeactivated, onBeforeUnmount, onMounted, ref } from 'vue';
+import MkDriveNavigation from './MkDriveNavigation.vue';
+import MkDriveGrid from './MkDriveGrid.vue';
 import XFile from './MkDrive.file.vue';
 import XFolder from './MkDrive.folder.vue';
+import MkTimelineLoadMore from './MkTimelineLoadMore.vue';
 import MkButton from './MkButton.vue';
 import MkInfo from './MkInfo.vue';
 import MkMediaList from './MkMediaList.vue';

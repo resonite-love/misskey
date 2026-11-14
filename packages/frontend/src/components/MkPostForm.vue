@@ -11,42 +11,39 @@ SPDX-License-Identifier: AGPL-3.0-only
 	@dragleave="onDragleave"
 	@drop.stop="onDrop"
 >
-	<header :class="$style.header">
-		<div :class="$style.headerLeft">
-			<button v-if="!fixed" :class="$style.cancel" class="_button" @click="cancel"><i class="ti ti-x"></i></button>
+	<MkPostFormHeader :fixed="fixed" @cancel="cancel">
+		<template #account>
 			<button ref="accountMenuEl" v-click-anime v-tooltip="i18n.ts.account" class="_button" @click="openAccountMenu">
 				<img :class="$style.avatar" :src="(postAccount ?? $i).avatarUrl" style="border-radius: 100%;"/>
 			</button>
-		</div>
-		<div :class="$style.headerRight">
-			<template v-if="!(targetChannel != null && fixed)">
-				<button v-if="targetChannel == null" ref="visibilityButton" v-tooltip="i18n.ts.visibility" :class="['_button', $style.headerRightItem, $style.visibility]" @click="setVisibility">
-					<span v-if="visibility === 'public'"><i class="ti ti-world"></i></span>
-					<span v-if="visibility === 'home'"><i class="ti ti-home"></i></span>
-					<span v-if="visibility === 'followers'"><i class="ti ti-lock"></i></span>
-					<span v-if="visibility === 'specified'"><i class="ti ti-mail"></i></span>
-					<span :class="$style.headerRightButtonText">{{ i18n.ts._visibility[visibility] }}</span>
-				</button>
-				<button v-else class="_button" :class="[$style.headerRightItem, $style.visibility]" disabled>
-					<span><i class="ti ti-device-tv"></i></span>
-					<span :class="$style.headerRightButtonText">{{ targetChannel.name }}</span>
-				</button>
-			</template>
-			<button v-if="visibility !== 'specified'" v-tooltip="i18n.ts._visibility.disableFederation" class="_button" :class="[$style.headerRightItem, { [$style.danger]: localOnly }]" :disabled="targetChannel != null" @click="toggleLocalOnly">
-				<span v-if="!localOnly"><i class="ti ti-rocket"></i></span>
-				<span v-else><i class="ti ti-rocket-off"></i></span>
+		</template>
+		<template v-if="!(targetChannel != null && fixed)">
+			<button v-if="targetChannel == null" ref="visibilityButton" v-tooltip="i18n.ts.visibility" :class="['_button', $style.headerRightItem, $style.visibility]" @click="setVisibility">
+				<span v-if="visibility === 'public'"><i class="ti ti-world"></i></span>
+				<span v-if="visibility === 'home'"><i class="ti ti-home"></i></span>
+				<span v-if="visibility === 'followers'"><i class="ti ti-lock"></i></span>
+				<span v-if="visibility === 'specified'"><i class="ti ti-mail"></i></span>
+				<span :class="$style.headerRightButtonText">{{ i18n.ts._visibility[visibility] }}</span>
 			</button>
-			<button ref="otherSettingsButton" v-tooltip="i18n.ts.other" class="_button" :class="$style.headerRightItem" @click="showOtherSettings"><i class="ti ti-dots"></i></button>
-			<button ref="submitButtonEl" v-click-anime class="_button" :class="$style.submit" :disabled="!canPost" data-testid="post-form-submit" @click="post">
-				<div :class="$style.submitInner">
-					<template v-if="posted"></template>
-					<template v-else-if="posting"><MkEllipsis/></template>
-					<template v-else>{{ submitText }}</template>
-					<i style="margin-left: 6px;" :class="submitIcon"></i>
-				</div>
+			<button v-else class="_button" :class="[$style.headerRightItem, $style.visibility]" disabled>
+				<span><i class="ti ti-device-tv"></i></span>
+				<span :class="$style.headerRightButtonText">{{ targetChannel.name }}</span>
 			</button>
-		</div>
-	</header>
+		</template>
+		<button v-if="visibility !== 'specified'" v-tooltip="i18n.ts._visibility.disableFederation" class="_button" :class="[$style.headerRightItem, { [$style.danger]: localOnly }]" :disabled="targetChannel != null" @click="toggleLocalOnly">
+			<span v-if="!localOnly"><i class="ti ti-rocket"></i></span>
+			<span v-else><i class="ti ti-rocket-off"></i></span>
+		</button>
+		<button ref="otherSettingsButton" v-tooltip="i18n.ts.other" class="_button" :class="$style.headerRightItem" @click="showOtherSettings"><i class="ti ti-dots"></i></button>
+		<button ref="submitButtonEl" v-click-anime class="_button" :class="$style.submit" :disabled="!canPost" data-testid="post-form-submit" @click="post">
+			<div :class="$style.submitInner">
+				<template v-if="posted"></template>
+				<template v-else-if="posting"><MkEllipsis/></template>
+				<template v-else>{{ submitText }}</template>
+				<i style="margin-left: 6px;" :class="submitIcon"></i>
+			</div>
+		</button>
+	</MkPostFormHeader>
 	<MkNoteSimple v-if="replyTargetNote" :class="$style.targetNote" :note="replyTargetNote"/>
 	<MkNoteSimple v-if="renoteTargetNote" :class="$style.targetNote" :note="renoteTargetNote"/>
 	<div v-if="quoteId" :class="$style.withQuote"><i class="ti ti-quote"></i> {{ i18n.ts.quoteAttached }}<button @click="quoteId = null; renoteTargetNote = null;"><i class="ti ti-x"></i></button></div>
@@ -71,15 +68,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</I18n> - <button class="_textButton" @click="cancelSchedule()">{{ i18n.ts.cancel }}</button>
 	</MkInfo>
 	<MkInfo v-if="hasNotSpecifiedMentions" warn :class="$style.hasNotSpecifiedMentions">{{ i18n.ts.notSpecifiedMentionWarning }} - <button class="_textButton" @click="addMissingMention()">{{ i18n.ts.add }}</button></MkInfo>
-	<div v-show="useCw" :class="$style.cwOuter">
-		<input ref="cwInputEl" v-model="cw" :class="$style.cw" :placeholder="i18n.ts.annotation" @keydown="onKeydown" @keyup="onKeyup" @compositionend="onCompositionEnd">
-		<div v-if="maxCwTextLength - cwTextLength < 20" :class="['_acrylic', $style.cwTextCount, { [$style.cwTextOver]: cwTextLength > maxCwTextLength }]">{{ maxCwTextLength - cwTextLength }}</div>
-	</div>
-	<div :class="[$style.textOuter, { [$style.withCw]: useCw }]">
-		<div v-if="targetChannel" :class="$style.colorBar" :style="{ background: targetChannel.color }"></div>
-		<textarea ref="textareaEl" v-model="text" :class="[$style.text]" :disabled="posting || posted" :readonly="textAreaReadOnly" :placeholder="placeholder" data-testid="post-form-text" @keydown="onKeydown" @keyup="onKeyup" @paste="onPaste" @compositionupdate="onCompositionUpdate" @compositionend="onCompositionEnd"></textarea>
-		<div v-if="maxTextLength - textLength < 100" :class="['_acrylic', $style.textCount, { [$style.textOver]: textLength > maxTextLength }]">{{ maxTextLength - textLength }}</div>
-	</div>
+	<MkPostFormFields :useCw="useCw" :channelColor="targetChannel?.color"><template #cw><input ref="cwInputEl" v-model="cw" :class="$style.cw" :placeholder="i18n.ts.annotation" @keydown="onKeydown" @keyup="onKeyup" @compositionend="onCompositionEnd"><div v-if="maxCwTextLength - cwTextLength < 20" :class="['_acrylic', $style.cwTextCount, { [$style.cwTextOver]: cwTextLength > maxCwTextLength }]">{{ maxCwTextLength - cwTextLength }}</div></template><textarea ref="textareaEl" v-model="text" :class="[$style.text]" :disabled="posting || posted" :readonly="textAreaReadOnly" :placeholder="placeholder" data-testid="post-form-text" @keydown="onKeydown" @keyup="onKeyup" @paste="onPaste" @compositionupdate="onCompositionUpdate" @compositionend="onCompositionEnd"></textarea><template #counter><div v-if="maxTextLength - textLength < 100" :class="['_acrylic', $style.textCount, { [$style.textOver]: textLength > maxTextLength }]">{{ maxTextLength - textLength }}</div></template></MkPostFormFields>
 	<input v-show="withHashtags" ref="hashtagsInputEl" v-model="hashtags" :class="$style.hashtags" :placeholder="i18n.ts.hashtags" list="hashtags">
 	<XPostFormAttaches v-model="files" @detach="detachFile" @changeSensitive="updateFileSensitive" @changeName="updateFileName"/>
 	<div v-if="uploader.items.value.length > 0" style="padding: 12px;">
@@ -92,21 +81,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<MkNotePreview v-if="showPreview" :class="$style.preview" :text="text" :files="files" :poll="poll ?? undefined" :useCw="useCw" :cw="cw" :user="postAccount ?? $i"/>
 	<div v-if="showingOptions" style="padding: 8px 16px;">
 	</div>
-	<footer ref="footerEl" :class="$style.footer">
-		<div :class="$style.footerLeft">
-			<button v-tooltip="i18n.ts.attachFile + ' (' + i18n.ts.upload + ')'" class="_button" :class="$style.footerButton" @click="chooseFileFromPc"><i class="ti ti-photo-plus"></i></button>
-			<button v-tooltip="i18n.ts.attachFile + ' (' + i18n.ts.fromDrive + ')'" class="_button" :class="$style.footerButton" @click="chooseFileFromDrive"><i class="ti ti-cloud-download"></i></button>
-			<button v-tooltip="i18n.ts.poll" class="_button" :class="[$style.footerButton, { [$style.footerButtonActive]: poll }]" @click="togglePoll"><i class="ti ti-chart-arrows"></i></button>
-			<button v-tooltip="i18n.ts.useCw" class="_button" :class="[$style.footerButton, { [$style.footerButtonActive]: useCw }]" @click="useCw = !useCw"><i class="ti ti-eye-off"></i></button>
-			<button v-tooltip="i18n.ts.hashtags" class="_button" :class="[$style.footerButton, { [$style.footerButtonActive]: withHashtags }]" @click="withHashtags = !withHashtags"><i class="ti ti-hash"></i></button>
-			<button v-tooltip="i18n.ts.mention" class="_button" :class="$style.footerButton" @click="insertMention"><i class="ti ti-at"></i></button>
-			<button v-if="showAddMfmFunction" v-tooltip="i18n.ts.addMfmFunction" :class="['_button', $style.footerButton]" @click="insertMfmFunction"><i class="ti ti-palette"></i></button>
-			<button v-if="postFormActions.length > 0" v-tooltip="i18n.ts.plugins" class="_button" :class="$style.footerButton" @click="showActions"><i class="ti ti-plug"></i></button>
-		</div>
-		<div :class="$style.footerRight">
-			<button v-tooltip="i18n.ts.emoji" :class="['_button', $style.footerButton]" @click="insertEmoji"><i class="ti ti-mood-happy"></i></button>
-		</div>
-	</footer>
+	<footer ref="footerEl" :class="$style.footer"><MkPostFormActionBar :poll="!!poll" :useCw="useCw" drive showHashtags :hashtags="withHashtags" :mfm="showAddMfmFunction" :plugins="postFormActions.length > 0" @upload="chooseFileFromPc" @drive="chooseFileFromDrive" @poll="togglePoll" @cw="useCw = !useCw" @hashtags="withHashtags = !withHashtags" @mention="insertMention" @mfm="insertMfmFunction" @plugins="showActions" @emoji="insertEmoji"/></footer>
 	<datalist id="hashtags">
 		<option v-for="hashtag in recentHashtags" :key="hashtag" :value="hashtag"></option>
 	</datalist>
@@ -126,6 +101,9 @@ import type { PostFormProps } from '@/types/post-form.js';
 import type { MenuItem } from '@/types/menu.js';
 import type { PollEditorModelValue } from '@/components/MkPollEditor.vue';
 import type { UploaderItem } from '@/composables/use-uploader.js';
+import MkPostFormActionBar from '@/components/MkPostFormActionBar.vue';
+import MkPostFormFields from '@/components/MkPostFormFields.vue';
+import MkPostFormHeader from '@/components/MkPostFormHeader.vue';
 import MkNotePreview from '@/components/MkNotePreview.vue';
 import XPostFormAttaches from '@/components/MkPostFormAttaches.vue';
 import XTextCounter from '@/components/MkPostForm.TextCounter.vue';

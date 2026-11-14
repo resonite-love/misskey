@@ -117,3 +117,12 @@ test('a linked channel loads the next cursor on scroll, including an empty filte
 	expect(view.getByText('last')).toBeTruthy();
 	expect(view.container.querySelector('[data-timeline-load-more]')).toBeNull();
 });
+
+test('an explicit manual override wins over the automatic preference', async () => {
+ const view = render(LoadMore, { props: { hasMore: true, loading: false, automatic: false } });
+ await nextTick();
+ expect(view.getByRole('button', { name: 'More' })).toBeTruthy();
+ expect(observers).toHaveLength(0);
+ await fireEvent.click(view.getByRole('button', { name: 'More' }));
+ expect(view.emitted('load')).toHaveLength(1);
+});

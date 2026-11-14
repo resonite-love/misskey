@@ -7,23 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <PageWithHeader v-model:tab="tab" :actions="headerActions" :tabs="headerTabs" :swipable="true">
 	<div class="_spacer" style="--MI_SPACER-w: 700px;">
 		<div v-if="channel && tab === 'overview'" class="_gaps">
-			<div class="_panel" :class="$style.bannerContainer">
-				<XChannelFollowButton :channel="channel" :full="true" :class="$style.subscribe"/>
-				<MkButton v-if="favorited" v-tooltip="i18n.ts.unfavorite" asLike class="button" rounded primary :class="$style.favorite" @click="unfavorite()"><i class="ti ti-star"></i></MkButton>
-				<MkButton v-else v-tooltip="i18n.ts.favorite" asLike class="button" rounded :class="$style.favorite" @click="favorite()"><i class="ti ti-star"></i></MkButton>
-				<div :style="{ backgroundImage: channel.bannerUrl ? `url(${channel.bannerUrl})` : undefined }" :class="$style.banner">
-					<div :class="$style.bannerStatus">
-						<div><i class="ti ti-users ti-fw"></i><I18n :src="i18n.ts._channel.usersCount" tag="span" style="margin-left: 4px;"><template #n><b>{{ channel.usersCount }}</b></template></I18n></div>
-						<div><i class="ti ti-pencil ti-fw"></i><I18n :src="i18n.ts._channel.notesCount" tag="span" style="margin-left: 4px;"><template #n><b>{{ channel.notesCount }}</b></template></I18n></div>
-						<div v-if="$i != null && channel != null && $i.id === channel.userId" style="color: var(--MI_THEME-warn)"><i class="ti ti-user-star ti-fw"></i><span style="margin-left: 4px;">{{ i18n.ts.youAreAdmin }}</span></div>
-					</div>
-					<div v-if="channel.isSensitive" :class="$style.sensitiveIndicator">{{ i18n.ts.sensitive }}</div>
-					<div :class="$style.bannerFade"></div>
-				</div>
-				<div v-if="channel.description" :class="$style.description">
-					<Mfm :text="channel.description" :isNote="false"/>
-				</div>
-			</div>
+			<MkChannelOverview :channel="channel" :owned="$i?.id === channel.userId"><template #follow><XChannelFollowButton :channel="channel" full/></template><template #favorite><MkButton v-tooltip="favorited ? i18n.ts.unfavorite : i18n.ts.favorite" asLike rounded :primary="favorited" :aria-label="favorited ? i18n.ts.unfavorite : i18n.ts.favorite" :aria-pressed="favorited" @click="favorited ? unfavorite() : favorite()"><i class="ti ti-star"></i></MkButton></template></MkChannelOverview>
 
 			<MkFoldableSection>
 				<template #header><i class="ti ti-pin ti-fw" style="margin-right: 0.5em;"></i>{{ i18n.ts.pinnedNotes }}</template>
@@ -76,6 +60,7 @@ import * as Misskey from 'misskey-js';
 import { url } from '@@/js/config.js';
 import { useInterval } from '@@/js/use-interval.js';
 import type { PageHeaderItem } from '@/types/page-header.js';
+import MkChannelOverview from '@/components/MkChannelOverview.vue';
 import MkPostForm from '@/components/MkPostForm.vue';
 import MkStreamingNotesTimeline from '@/components/MkStreamingNotesTimeline.vue';
 import XChannelFollowButton from '@/components/MkChannelFollowButton.vue';
@@ -355,66 +340,4 @@ definePage(() => ({
 	border-top: solid 0.5px var(--MI_THEME-divider);
 }
 
-.bannerContainer {
-	position: relative;
-}
-
-.subscribe {
-	position: absolute;
-	z-index: 1;
-	top: 16px;
-	left: 16px;
-}
-
-.favorite {
-	position: absolute;
-	z-index: 1;
-	top: 16px;
-	right: 16px;
-}
-
-.banner {
-	position: relative;
-	height: 200px;
-	background-position: center;
-	background-size: cover;
-}
-
-.bannerFade {
-	position: absolute;
-	bottom: 0;
-	left: 0;
-	width: 100%;
-	height: 64px;
-	background: linear-gradient(0deg, var(--MI_THEME-panel), color(from var(--MI_THEME-panel) srgb r g b / 0));
-}
-
-.bannerStatus {
-	position: absolute;
-	z-index: 1;
-	bottom: 16px;
-	right: 16px;
-	padding: 8px 12px;
-	font-size: 80%;
-	background: rgba(0, 0, 0, 0.7);
-	border-radius: 6px;
-	color: #fff;
-}
-
-.description {
-	padding: 16px;
-}
-
-.sensitiveIndicator {
-	position: absolute;
-	z-index: 1;
-	bottom: 16px;
-	left: 16px;
-	background: rgba(0, 0, 0, 0.7);
-	color: var(--MI_THEME-warn);
-	border-radius: 6px;
-	font-weight: bold;
-	font-size: 1em;
-	padding: 4px 7px;
-}
 </style>

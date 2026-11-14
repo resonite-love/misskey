@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <MkGridspaceDrive v-if="linkedDrive" :select="select === 'file'" :selected="selectedFiles" :excludeSensitive="excludeSensitive" :type="type" @close="linkedDrive = false" @selected="onLinkedSelected"/>
 <MkStickyContainer v-else style="background: var(--MI_THEME-bg);">
 	<template #header>
-		<nav :class="$style.nav">
+		<MkDriveNavigation>
 			<div :class="$style.navPath" @contextmenu.prevent.stop="() => {}">
 				<XNavFolder
 					:class="[$style.navPathItem, { [$style.navCurrent]: folder == null }]"
@@ -28,8 +28,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<span v-if="folder != null" :class="[$style.navPathItem, $style.navSeparator]"><i class="ti ti-chevron-right"></i></span>
 				<span v-if="folder != null" :class="[$style.navPathItem, $style.navCurrent]">{{ folder.name }}</span>
 			</div>
-			<button class="_button" :class="$style.navMenu" @click="showMenu"><i class="ti ti-dots"></i></button>
-		</nav>
+			<template #menu><button class="_button" :class="$style.navMenu" :aria-label="i18n.ts.more" @click="showMenu"><i class="ti ti-dots"></i></button></template>
+		</MkDriveNavigation>
 	</template>
 
 	<div>
@@ -65,7 +65,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<MkTip k="drive"><div v-html="i18n.ts.driveAboutTip"></div></MkTip>
 			</div>
 
-			<div :class="$style.folders">
+			<MkDriveGrid>
 				<button v-if="linkedDriveAvailable && folder == null && select !== 'folder'" class="_button" @click="linkedDrive = true"><XFolder :folder="linkedDriveFolder" readOnly/></button>
 				<XFolder
 					v-for="(f, i) in foldersPaginator.items.value"
@@ -82,7 +82,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					@dragstart="isDragSource = true"
 					@dragend="isDragSource = false"
 				/>
-			</div>
+			</MkDriveGrid>
 			<MkButton v-if="foldersPaginator.canFetchOlder.value" :class="$style.loadMore" primary rounded @click="foldersPaginator.fetchOlder()">{{ i18n.ts.loadMore }}</MkButton>
 
 			<template v-if="shouldBeGroupedByDate">
@@ -93,15 +93,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 						</div>
 					</template>
 
-					<TransitionGroup
-						tag="div"
-						:enterActiveClass="prefer.s.animation ? $style.transition_files_enterActive : ''"
-						:leaveActiveClass="prefer.s.animation ? $style.transition_files_leaveActive : ''"
-						:enterFromClass="prefer.s.animation ? $style.transition_files_enterFrom : ''"
-						:leaveToClass="prefer.s.animation ? $style.transition_files_leaveTo : ''"
-						:moveClass="prefer.s.animation ? $style.transition_files_move : ''"
-						:class="$style.files"
-					>
+					<MkDriveGrid animated>
 						<XFile
 							v-for="file in item.items" :key="file.id"
 							:data-scroll-anchor="file.id"
@@ -113,18 +105,12 @@ SPDX-License-Identifier: AGPL-3.0-only
 							@dragstart="onFileDragstart(file, $event)"
 							@dragend="isDragSource = false"
 						/>
-					</TransitionGroup>
+					</MkDriveGrid>
 				</MkStickyContainer>
 			</template>
-			<TransitionGroup
+			<MkDriveGrid
 				v-else
-				tag="div"
-				:enterActiveClass="prefer.s.animation ? $style.transition_files_enterActive : ''"
-				:leaveActiveClass="prefer.s.animation ? $style.transition_files_leaveActive : ''"
-				:enterFromClass="prefer.s.animation ? $style.transition_files_enterFrom : ''"
-				:leaveToClass="prefer.s.animation ? $style.transition_files_leaveTo : ''"
-				:moveClass="prefer.s.animation ? $style.transition_files_move : ''"
-				:class="$style.files"
+				animated
 			>
 				<XFile
 					v-for="file in filesPaginator.items.value" :key="file.id"
@@ -137,7 +123,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					@dragstart="onFileDragstart(file, $event)"
 					@dragend="isDragSource = false"
 				/>
-			</TransitionGroup>
+			</MkDriveGrid>
 
 			<MkButton
 				v-show="canFetchFiles"
@@ -169,9 +155,11 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { nextTick, onActivated, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, computed, TransitionGroup, markRaw } from 'vue';
+import { nextTick, onActivated, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, computed, markRaw } from 'vue';
 import * as Misskey from 'misskey-js';
 import MkButton from './MkButton.vue';
+import MkDriveNavigation from './MkDriveNavigation.vue';
+import MkDriveGrid from './MkDriveGrid.vue';
 import MkGridspaceDrive from './MkGridspaceDrive.vue';
 import type { MenuItem } from '@/types/menu.js';
 import XNavFolder from '@/components/MkDrive.navFolder.vue';

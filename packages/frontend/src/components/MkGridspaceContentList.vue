@@ -16,23 +16,20 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkError v-if="failed" @retry="load"/>
 		<MkLoading v-if="loading"/>
 		<MkResult v-else-if="!failed && !items.length" type="empty"/>
-		<div v-if="hasMore && !loading && !failed" ref="sentinel">
-			<MkButton @click="load">{{ i18n.ts.loadMore }}</MkButton>
-		</div>
+		<MkTimelineLoadMore :hasMore="hasMore" :loading="loading" :disabled="failed" @load="load"/>
 	</div>
 </component>
 </template>
 
 <script lang="ts" setup>
-import { computed, markRaw, onActivated, onDeactivated, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue';
+import { computed, markRaw, onActivated, onDeactivated, onBeforeUnmount, ref, watch } from 'vue';
 import type * as Misskey from 'misskey-js';
 import MkPaginationControl from '@/components/MkPaginationControl.vue';
 import MkPagePreview from '@/components/MkPagePreview.vue';
 import MkGalleryPostPreview from '@/components/MkGalleryPostPreview.vue';
-import MkButton from '@/components/MkButton.vue';
+import MkTimelineLoadMore from '@/components/MkTimelineLoadMore.vue';
 import MkPullToRefresh from '@/components/MkPullToRefresh.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
-import { i18n } from '@/i18n.js';
 import { prefer } from '@/preferences.js';
 import { $i } from '@/i.js';
 
@@ -146,16 +143,8 @@ async function reload() {
 	await load();
 }
 
-const sentinel = useTemplateRef('sentinel');
-let observer: IntersectionObserver | undefined;
-watch([sentinel, prefer.r.enableInfiniteScroll], ([element, enabled]) => {
-	observer?.disconnect();
-	if (!element || !enabled) return;
-	observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) void load(); }, { rootMargin: '200px' });
-	observer.observe(element);
-});
-watch(() => [props.kind, props.mode, props.userId], reload, { immediate: true });
 let active = true;
+watch(() => [props.kind, props.mode, props.userId], reload, { immediate: true });
 
 async function validateLikes() {
 	if (!active || window.document.hidden || checking || props.mode !== 'liked' || loading.value || !remote.value.length) return;
@@ -182,7 +171,7 @@ window.document.addEventListener('visibilitychange', visibility);
 const timer = window.setInterval(() => { void validateLikes(); }, 15000);
 onDeactivated(() => { active = false; if (props.mode === 'liked') { cancelCheck(); generation++; remote.value = []; } });
 onActivated(() => { if (!active) { active = true; if (props.mode === 'liked') void reload(); } });
-onBeforeUnmount(() => { cancelCheck(); generation++; observer?.disconnect(); window.clearInterval(timer); window.document.removeEventListener('visibilitychange', visibility); });
+onBeforeUnmount(() => { cancelCheck(); generation++; window.clearInterval(timer); window.document.removeEventListener('visibilitychange', visibility); });
 </script>
 
 <style lang="scss" module>

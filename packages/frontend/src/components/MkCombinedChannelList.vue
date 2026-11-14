@@ -13,7 +13,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<MkInfo v-if="localError" warn>{{ i18n.ts.somethingHappened }}</MkInfo>
 	<MkInfo v-if="peerError" warn>{{ i18n.ts._gridspace.channelsUnavailable }} <MkA to="/settings/gridspace">{{ i18n.ts._gridspace.title }}</MkA></MkInfo>
 	<MkButton v-if="localError || peerError" :disabled="loading" @click="retry">{{ i18n.ts.retry }}</MkButton>
-	<MkButton v-if="hasMore" :disabled="loading" @click="loadMore">{{ i18n.ts.loadMore }}</MkButton>
+	<MkTimelineLoadMore :hasMore="hasMore" :loading="loading" @load="loadMore"/>
 </div>
 </template>
 
@@ -22,6 +22,7 @@ import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import type { entities } from 'misskey-js';
 import type { IPaginator } from '@/utility/paginator.js';
 import MkChannelPreview from '@/components/MkChannelPreview.vue';
+import MkTimelineLoadMore from '@/components/MkTimelineLoadMore.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';

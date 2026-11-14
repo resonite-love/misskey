@@ -27,7 +27,7 @@ vi.mock('@/components/MkNoteHeader.vue', () => ({ default: { template: '<div/>' 
 vi.mock('@/components/global/MkAvatar.vue', () => ({ default: { props: ['preview'], template: '<div data-avatar :data-preview="preview"/>' } }));
 vi.mock('@/components/MkInstanceTicker.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkUrlPreview.vue', () => ({ default: { template: '<div/>' } }));
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { reply: 'Reply', renote: 'Renote', cantRenote: 'Unavailable', reaction: 'React', more: 'More', inChannelRenote: 'Channel renote', inChannelQuote: 'Channel quote', renoted: 'Renoted', _gridspace: {} } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { reply: 'Reply', renote: 'Renote', cantRenote: 'Unavailable', reaction: 'React', more: 'More', inChannelRenote: 'Channel renote', inChannelQuote: 'Channel quote', renoted: 'Renoted', _gridspace: {}, _visibility: { public: 'Public' } } } }));
 
 beforeEach(() => {
 	vi.clearAllMocks(); window.sessionStorage.clear();
@@ -81,4 +81,14 @@ test('quotes show both comment and original and stale menus cannot post after na
 	await view.rerender({ note: { ...original, id: 'different' } });
 	await items[0].action(); items[1].action();
 	expect(api).not.toHaveBeenCalled(); expect(post).not.toHaveBeenCalled();
+});
+
+test('a pure renote opened in detail keeps the shared detail layout and source actions', async () => {
+ const wrapper = { ...original, id: 'wrapper', text: null, renoteId: original.id, renote: original };
+ const view = render(Note, { props: { note: wrapper, detailed: true }, global: globals });
+ expect(view.container.querySelector('[data-note-detailed-article]')).not.toBeNull();
+ expect(view.container.querySelector('[data-note-article]')).toBeNull();
+ expect(view.getByText('Original content')).toBeTruthy();
+ await fireEvent.click(view.getByRole('button', { name: 'Reply' }));
+ expect(post).toHaveBeenCalledWith(expect.objectContaining({ reply: original }), expect.any(Function));
 });

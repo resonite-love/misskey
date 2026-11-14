@@ -4,15 +4,17 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div class="_gaps" data-gridspace-clips>
-	<MkClipPreview v-for="row in rows" :key="row.key" :clip="row.clip" :peerOrigin="row.peerOrigin" :noUserInfo="true"/>
-	<MkInfo v-if="localError || peerError" warn>{{ i18n.ts._gridspace.collectionsPartial }}</MkInfo>
-	<MkButton v-if="localError || peerError" :disabled="busy" @click="reload">{{ i18n.ts.retry }}</MkButton>
-	<MkA v-if="needsAuthorization" to="/settings/gridspace">{{ i18n.ts._gridspace.collectionsAuthorize }}</MkA>
-	<MkLoading v-if="busy"/>
-	<MkResult v-else-if="!localError && !peerError && !rows.length && !hasMore" type="empty"/>
-	<MkButton v-if="hasMore && !busy" @click="load">{{ i18n.ts.loadMore }}</MkButton>
-</div>
+<component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" :refresher="reload">
+	<div class="_gaps" data-gridspace-clips>
+		<MkClipPreview v-for="row in rows" :key="row.key" :clip="row.clip" :peerOrigin="row.peerOrigin" :noUserInfo="true"/>
+		<MkInfo v-if="localError || peerError" warn>{{ i18n.ts._gridspace.collectionsPartial }}</MkInfo>
+		<MkButton v-if="localError || peerError" :disabled="busy" @click="reload">{{ i18n.ts.retry }}</MkButton>
+		<MkA v-if="needsAuthorization" to="/settings/gridspace">{{ i18n.ts._gridspace.collectionsAuthorize }}</MkA>
+		<MkLoading v-if="busy"/>
+		<MkResult v-else-if="!localError && !peerError && !rows.length && !hasMore" type="empty"/>
+		<MkTimelineLoadMore :hasMore="hasMore" :loading="busy" :disabled="checking" @load="load"/>
+	</div>
+</component>
 </template>
 
 <script setup lang="ts">
@@ -20,6 +22,9 @@ import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef,
 import type { entities } from 'misskey-js';
 import MkClipPreview from '@/components/MkClipPreview.vue';
 import MkButton from '@/components/MkButton.vue';
+import MkTimelineLoadMore from '@/components/MkTimelineLoadMore.vue';
+import MkPullToRefresh from '@/components/MkPullToRefresh.vue';
+import { prefer } from '@/preferences.js';
 import MkInfo from '@/components/MkInfo.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
@@ -41,7 +46,7 @@ let peerCursor: string | undefined;
 let peerIds: string[] = [];
 let generation = 0;
 let peerInitialized = false;
-let checking = false;
+const checking = ref(false);
 let active = true;
 let controller = new AbortController();
 const kind = computed(() => props.favorites ? 'clip-favorites' as const : 'clips' as const);
@@ -80,7 +85,7 @@ async function fetchPeer(current: number) {
 }
 
 async function load() {
-	if (busy.value || checking || !active || window.document.hidden) return;
+	if (busy.value || checking.value || !active || window.document.hidden) return;
 	busy.value = true;
 	const current = generation;
 	const n = localError.value ? -Infinity : localBoundary.value;
@@ -91,7 +96,7 @@ async function load() {
 
 async function reload() {
 	const current = ++generation; controller.abort(); controller = new AbortController();
-	peerInitialized = false; checking = false;
+	peerInitialized = false; checking.value = false;
 	local.value = []; peer.value = []; peerIds = []; localCursor = peerCursor = undefined;
 	localError.value = peerError.value = needsAuthorization.value = false;
 	localMore.value = true; peerMore.value = false; localBoundary.value = peerBoundary.value = Infinity; busy.value = true;
@@ -108,9 +113,9 @@ async function reload() {
 }
 
 async function validate() {
-	if (!active || window.document.hidden || busy.value || checking || peerError.value || !peerIds.length) return;
+	if (!active || window.document.hidden || busy.value || checking.value || peerError.value || !peerIds.length) return;
 	const current = generation;
-	checking = true;
+	checking.value = true;
 	const checked: entities.Clip[] = [];
 	try {
 		for (let i = 0; i < peerIds.length; i += 20) {
@@ -119,10 +124,10 @@ async function validate() {
 			checked.push(...page.clipsList);
 		}
 		peer.value = checked; peerIds = checked.map(c => c.id);
-	} catch { if (current === generation) { peer.value = []; peerIds = []; peerError.value = true; } } finally { if (current === generation) checking = false; }
+	} catch { if (current === generation) { peer.value = []; peerIds = []; peerError.value = true; } } finally { if (current === generation) checking.value = false; }
 }
 
-function suspend() { generation++; controller.abort(); controller = new AbortController(); peer.value = []; busy.value = false; checking = false; }
+function suspend() { generation++; controller.abort(); controller = new AbortController(); peer.value = []; busy.value = false; checking.value = false; }
 
 function visibility() { if (window.document.hidden) suspend(); else if (!peerInitialized || !local.value.length) void reload(); else void validate(); }
 
