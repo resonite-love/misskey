@@ -4,14 +4,19 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<XColumn :menu="menu" :column="column" :isStacked="isStacked" :refresher="async () => { await (sharedChannel ? sharedTimeline?.refresh() : timeline?.reloadTimeline()) }">
+<XColumn :menu="menu" :column="column" :isStacked="isStacked" :refresher="refreshColumn">
 	<template #header>
 		<i class="ti ti-device-tv"></i><span style="margin-left: 8px;">{{ column.name || column.timelineNameCache || i18n.ts._deck._columns.channel }}</span>
 	</template>
 
 	<div v-if="sharedChannel" class="_gaps_s">
-		<MkButton primary rounded @click="gridspacePost({ channelId: sharedChannel })">{{ i18n.ts.note }}</MkButton>
-		<MkGridspacePrivateNotes ref="sharedTimeline" :params="{ mode: 'channel', channelId: sharedChannel }" plain alwaysShow/>
+		<MkInfo v-if="linkedChannelError" warn>{{ i18n.ts._gridspace.channelsUnavailable }} <MkButton @click="refreshColumn">{{ i18n.ts.retry }}</MkButton></MkInfo>
+		<MkInfo v-if="linkedChannel?.isArchived" warn>{{ i18n.ts.thisChannelArchived }}</MkInfo>
+		<MkGridspacePostForm v-else-if="$i && linkedChannel && prefer.r.showFixedPostFormInChannel.value" :key="sharedChannel" :channelId="sharedChannel" :channel="linkedChannel" embedded :autofocus="false" :class="$style.postForm" @sent="sharedTimeline?.refresh()"/>
+		<div v-else-if="linkedChannel" style="padding: 10px 8px 0; text-align: center;">
+			<MkButton primary gradate rounded inline small :aria-label="i18n.ts.note" @click="post"><i class="ti ti-pencil"></i></MkButton>
+		</div>
+		<MkGridspacePrivateNotes :key="sharedChannel" ref="sharedTimeline" :params="{ mode: 'channel', channelId: sharedChannel }" plain alwaysShow/>
 	</div>
 	<div v-else-if="column.channelId" class="_gaps_s">
 		<MkPostForm v-if="$i && channel != null && channel.id === column.channelId && prefer.r.showFixedPostFormInChannel.value" :key="channel.id" :channel="channel" :class="$style.postForm" fixed :autofocus="false"/>
@@ -24,8 +29,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { computed, onMounted, ref, shallowRef, watch, useTemplateRef } from 'vue';
+import { computed, provide, ref, shallowRef, watch, useTemplateRef } from 'vue';
 import MkGridspacePrivateNotes from '@/components/MkGridspacePrivateNotes.vue';
+import MkGridspacePostForm from '@/components/MkGridspacePostForm.vue';
 import { gridspacePost } from '@/utility/gridspace-post.js';
 import * as Misskey from 'misskey-js';
 import XColumn from './column.vue';
@@ -36,8 +42,10 @@ import { updateColumn } from '@/deck.js';
 import MkStreamingNotesTimeline from '@/components/MkStreamingNotesTimeline.vue';
 import MkPostForm from '@/components/MkPostForm.vue';
 import MkButton from '@/components/MkButton.vue';
+import MkInfo from '@/components/MkInfo.vue';
 import * as os from '@/os.js';
-import { favoritedChannelsCache } from '@/cache.js';
+import { getDeckChannelChoices, getSharedDeckChannelId } from '@/utility/deck-channel-choices.js';
+import { DI } from '@/di.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { prefer } from '@/preferences.js';
 import { $i } from '@/i.js';
@@ -52,9 +60,49 @@ const props = defineProps<{
 }>();
 
 const timeline = useTemplateRef('timeline');
-const sharedChannel = computed(() => props.column.channelId?.startsWith('gridspace:channel:') ? props.column.channelId.slice('gridspace:channel:'.length) : null);
+const sharedChannel = computed(() => getSharedDeckChannelId(props.column.channelId));
+const linkedChannel = shallowRef<Misskey.entities.GridspaceChannelsResponse['channels'][number]>();
+const linkedChannelError = ref(false);
+provide(DI.linkedChannel, computed(() => linkedChannel.value));
 const channel = shallowRef<Misskey.entities.Channel>();
 const soundSetting = ref<SoundStore>(props.column.soundSetting ?? { type: null, volume: 1 });
+
+let metadataRequest = 0;
+watch(sharedChannel, (id, _oldId, onCleanup) => {
+	linkedChannel.value = undefined;
+	linkedChannelError.value = false;
+	onCleanup(() => { metadataRequest++; });
+	if (!id) return;
+	void loadLinkedChannel();
+}, { immediate: true });
+
+async function loadLinkedChannel() {
+	const id = sharedChannel.value;
+	if (!id) return;
+	const request = ++metadataRequest;
+	linkedChannelError.value = false;
+	try {
+		const result = await misskeyApi('gridspace/channels', { channelId: id });
+		if (request !== metadataRequest || sharedChannel.value !== id) return;
+		linkedChannel.value = result.channels.find(item => item.id === id);
+		linkedChannelError.value = !linkedChannel.value;
+		if (linkedChannel.value && linkedChannel.value.name !== props.column.timelineNameCache) {
+			updateColumn(props.column.id, { timelineNameCache: linkedChannel.value.name });
+		}
+	} catch (error) {
+		if (request !== metadataRequest || sharedChannel.value !== id) return;
+		linkedChannelError.value = true;
+		console.error('Failed to fetch paired channel:', error);
+	}
+}
+
+async function refreshColumn() {
+	if (sharedChannel.value) {
+		await Promise.all([loadLinkedChannel(), sharedTimeline.value?.refresh()]);
+	} else {
+		await timeline.value?.reloadTimeline();
+	}
+}
 
 watch([() => props.column.channelId, () => prefer.r.showFixedPostFormInChannel.value], ([newChannelId, showFixedPostForm], oldValue, onCleanup) => {
 	if (sharedChannel.value) return;
@@ -90,11 +138,11 @@ watch(soundSetting, v => {
 });
 
 async function setChannel() {
-	const channels = await favoritedChannelsCache.fetch();
+	const channels = await getDeckChannelChoices();
 	const { canceled, result: chosenChannelId } = await os.select({
 		title: i18n.ts.selectChannel,
 		items: channels.map(x => ({
-			value: x.id, label: x.name,
+			value: x.id, label: x.label,
 		})),
 		default: channels.find(x => x.id === props.column.channelId)?.id,
 	});
@@ -107,6 +155,11 @@ async function setChannel() {
 }
 
 async function post() {
+	if (sharedChannel.value) {
+		if (!linkedChannel.value || linkedChannel.value.isArchived) return;
+		await gridspacePost({ channelId: sharedChannel.value, channel: linkedChannel.value }, () => { void sharedTimeline.value?.refresh(); });
+		return;
+	}
 	if (props.column.channelId == null) return;
 	if (!channel.value || channel.value.id !== props.column.channelId) {
 		channel.value = await misskeyApi('channels/show', {
