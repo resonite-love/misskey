@@ -244,6 +244,7 @@ export class GridspacePrivateService {
 			visibility: note.visibility, localOnly: note.localOnly, emojis: emojiUrls,
 			...(this.collectionId(note) ? { collectionId: this.collectionId(note), collectionAt: this.ids.parse(this.collectionId(note)!).date.toISOString() } : {}),
 			channelId: note.channelId, canDelete: !!note.channelId && note.userId === viewerId,
+			channel: note.channel ? { id: note.channel.id, name: note.channel.name, color: note.channel.color } : null,
 			reactions, reactionEmojis, myReaction, myReactions, extendedReactions: !!note.channelId || supportsGridspaceReactions(note, this.peer),
 			reactionPreviews: reactionState.reactionPreviews?.filter(row => Object.keys(reactions).some(reaction => reaction.replace('@.:', ':') === row.reaction.replace('@.:', ':'))),
 			author: { ...this.actor(note.user!), avatarUrl: author.avatarUrl, emojis: await this.emojiUrls(note.user!.emojis, note.user!.host), avatarBlurhash: author.avatarBlurhash, avatarDecorations: author.avatarDecorations, isBot: author.isBot, isCat: author.isCat,

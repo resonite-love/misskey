@@ -24,6 +24,7 @@ export type PrivateNote = {
 	id: string; uri: string; createdAt: string; origin: string; text: string | null; cw: string | null;
 	visibility: string; localOnly: boolean; author: PrivateActor & { avatarUrl: string; emojis?: Record<string, string>; instance?: { name?: string | null; faviconUrl?: string | null; themeColor?: string | null } } & Partial<Pick<Packed<'UserLite'>, 'avatarBlurhash' | 'avatarDecorations' | 'isBot' | 'isCat'>>;
 	channelId?: string | null;
+	channel?: { id: string; name: string; color: string } | null;
 	canDelete?: boolean;
 	collectionId?: string; collectionAt?: string;
 	emojis?: Record<string, string>; reactions?: Record<string, number>; reactionEmojis?: Record<string, string>; myReaction?: string | null;
@@ -49,6 +50,7 @@ const privateNoteBaseSchema = {
 	type: 'object', optional: false, nullable: false, properties: {
 		id: text, uri: text, createdAt: text, origin: text, text: nullableText, cw: nullableText, visibility: text, localOnly: flag,
 		channelId: { ...nullableText, optional: true },
+		channel: { type: 'object', optional: true, nullable: true, properties: { id: text, name: text, color: text } },
 		collectionId: { ...text, optional: true }, collectionAt: { ...text, optional: true },
 		canDelete: { ...flag, optional: true },
 		author: { type: 'object', optional: false, nullable: false, properties: {

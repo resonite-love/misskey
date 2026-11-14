@@ -5,8 +5,10 @@
 
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/vue';
+import { computed } from 'vue';
 import type { entities } from 'misskey-js';
 import Note from '@/components/MkGridspacePrivateNote.vue';
+import { DI } from '@/di.js';
 
 const { api, menu, post } = vi.hoisted(() => ({ api: vi.fn(), menu: vi.fn(), post: vi.fn() }));
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: api }));
@@ -35,7 +37,24 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 type PrivateNote = entities.GridspacePrivateNotesResponse['notes'][number];
 const original = { id: 'original', channelId: 'channel', uri: 'https://r.example/notes/original', origin: 'https://r.example', createdAt: '2026-11-14T00:00:00Z', author: { name: 'Author', username: 'author', host: 'r.example', uri: 'https://r.example/users/author', avatarUrl: '', emojis: {} }, text: 'Original content', cw: null, visibility: 'public', localOnly: true, files: [], poll: null, renoteId: null, replyId: null } as PrivateNote;
-const globals = { stubs: { Mfm: { props: ['text'], template: '<span>{{ text }}</span>' }, MkA: { template: '<a><slot/></a>' }, MkTime: true, MkUserName: true, I18n: { template: '<span><slot name="user"/></span>' } } };
+const globals = { stubs: { Mfm: { props: ['text'], template: '<span>{{ text }}</span>' }, MkA: { props: ['to'], template: '<a :href="to"><slot/></a>' }, MkTime: true, MkUserName: true, I18n: { template: '<span><slot name="user"/></span>' } } };
+
+test('a home channel note uses the shared channel name, link and color, without a channel-page context', async () => {
+	const channel = { id: 'channel', name: '#NSFWな話', color: '#ff8a8a' };
+	const view = render(Note, { props: { note: { ...original, channel } }, global: globals });
+	expect(view.getByRole('link', { name: '#NSFWな話' }).getAttribute('href')).toBe('/gridspace/channels/channel');
+	expect(view.container.querySelector('[aria-hidden="true"]')?.getAttribute('style')).toContain(`background: ${channel.color}`);
+	await view.rerender({ note: { ...original, channelId: null, channel: null } });
+	expect(view.queryByRole('link', { name: '#NSFWな話' })).toBeNull();
+	expect(view.container.querySelector('[aria-hidden="true"]')).toBeNull();
+});
+
+test('inside the same channel, the shared color remains and the redundant channel link is hidden', () => {
+	const channel = { id: 'channel', name: '#NSFWな話', color: '#ff8a8a' };
+	const view = render(Note, { props: { note: { ...original, channel } }, global: { ...globals, provide: { [DI.linkedChannel]: computed(() => channel) } } });
+	expect(view.queryByRole('link', { name: '#NSFWな話' })).toBeNull();
+	expect(view.container.querySelector('[aria-hidden="true"]')).not.toBeNull();
+});
 
 test('a pure channel renote shows its source inline and actions target that source', async () => {
 	const wrapper = { ...original, id: 'wrapper', text: null, renoteId: original.id, renote: original };

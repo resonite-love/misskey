@@ -7,6 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <article v-if="!deleted" ref="article" :class="[$style.note, { [$style.renoteWrapper]: isPureRenote && note.renote }]" data-gridspace-private-note>
 	<template v-if="isPureRenote && note.renote">
 		<div :class="$style.renoteHeader">
+			<MkNoteChannel v-if="channel" :channel="channel" display="bar" compact/>
 			<MkAvatar :user="displayAuthor" :class="$style.renoteAvatar" link/>
 			<i class="ti ti-repeat"></i>
 			<I18n :src="i18n.ts.renotedBy" tag="span"><template #user><MkUserName :user="displayAuthor"/></template></I18n>
@@ -15,7 +16,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkGridspacePrivateNote :note="note.renote" @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 	</template>
 	<template v-else>
-	<div v-if="channel" :class="$style.colorBar" :style="{ background: channel.color }"></div>
+	<MkNoteChannel v-if="channel" :channel="channel" display="bar"/>
 	<MkAvatar :user="displayAuthor" :class="$style.avatar" link/>
 	<div :class="$style.content">
 	<MkNoteHeader :note="headerNote" :noteUrl="noteLink(note.id)" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/>
@@ -38,6 +39,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<i :class="file.isSensitive ? 'ti ti-eye-exclamation' : 'ti ti-photo'"></i> {{ file.isSensitive ? i18n.ts.sensitive : i18n.ts.clickToShow }}: {{ file.name }}
 		</MkButton>
 	</div>
+	<MkNoteChannel v-if="channel && !inChannel" :channel="channel" :to="`/gridspace/channels/${channel.id}`"/>
 	<MkGridspaceNoteActions v-show="note.cw == null || expanded" ref="actions" :note="note" :compact="true" @changed="updated = $event" @unavailable="emit('unavailable')"/>
 	<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateFileError }}</p>
 	<footer :class="$style.footer">
@@ -61,6 +63,7 @@ import MkButton from '@/components/MkButton.vue';
 import MkMediaList from '@/components/MkMediaList.vue';
 import MkCwButton from '@/components/MkCwButton.vue';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
+import MkNoteChannel from '@/components/MkNoteChannel.vue';
 import MkAvatar from '@/components/global/MkAvatar.vue';
 import MkInstanceTicker from '@/components/MkInstanceTicker.vue';
 import MkUrlPreview from '@/components/MkUrlPreview.vue';
@@ -86,7 +89,8 @@ const displayAuthor = computed<entities.UserLite>(() => ({ ...note.value.author,
 	avatarBlurhash: note.value.author.avatarBlurhash ?? null, avatarDecorations: note.value.author.avatarDecorations ?? [], isBot: note.value.author.isBot ?? false, isCat: note.value.author.isCat ?? false,
 	emojis: note.value.author.emojis ?? {}, onlineStatus: 'unknown', instance: note.value.author.instance ? { name: null, faviconUrl: null, themeColor: null, softwareName: null, softwareVersion: null, iconUrl: null, ...note.value.author.instance } : undefined }));
 const channelContext = inject(DI.linkedChannel, undefined);
-const channel = computed(() => { const value = channelContext?.value; return value && value.id === note.value.channelId ? value : undefined; });
+const inChannel = computed(() => channelContext?.value?.id === note.value.channelId);
+const channel = computed(() => { const value = channelContext?.value; return note.value.channel ?? (value && value.id === note.value.channelId ? value : undefined); });
 const headerNote = computed(() => ({ id: note.value.id, createdAt: note.value.createdAt, user: displayAuthor.value, visibility: (['public', 'home', 'followers', 'specified'].includes(note.value.visibility) ? note.value.visibility : 'specified') as entities.Note['visibility'], localOnly: note.value.localOnly, channel: note.value.channelId ? { name: channel.value?.name ?? i18n.ts.channel } : null }));
 const showTicker = computed(() => prefer.s.instanceTicker === 'always' || (prefer.s.instanceTicker === 'remote' && displayAuthor.value.host != null && displayAuthor.value.instance != null));
 const urls = computed(() => extractUrlFromMfm(mfm.parse(note.value.text ?? '')));
@@ -246,11 +250,10 @@ onDeactivated(clear);
 <style lang="scss" module>
 .note { position: relative; display: flex; gap: 14px; padding: 28px 32px; border-bottom: 1px solid var(--MI_THEME-divider); overflow-wrap: anywhere; }
 .renoteWrapper { display: block; padding: 0; }
-.renoteHeader { display: flex; align-items: center; gap: 6px; padding: 16px 32px 0; color: var(--MI_THEME-renote); }
+.renoteHeader { position: relative; display: flex; align-items: center; gap: 6px; padding: 16px 32px 0; color: var(--MI_THEME-renote); }
 .renoteAvatar { width: 24px; height: 24px; }
 .renoteMenu { margin-left: auto; font-size: 0.85em; }
 .quote { margin-top: 8px; padding: 16px; border: 1px solid var(--MI_THEME-divider); border-radius: var(--MI-radius); }
-.colorBar { position: absolute; top: 8px; left: 8px; width: 5px; height: calc(100% - 16px); border-radius: 999px; pointer-events: none; }
 .avatar { flex: none; display: block; width: 58px; height: 58px; }
 .content { flex: 1; min-width: 0; }
 .header { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: 0.95em; }

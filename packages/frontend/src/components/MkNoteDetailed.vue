@@ -131,7 +131,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					</div>
 					<div v-if="appearNote.renoteId" :class="$style.quote"><MkNoteSimple :note="appearNote?.renote ?? null" :class="$style.quoteNote"/></div>
 				</div>
-				<MkA v-if="appearNote.channel && !inChannel" :class="$style.channel" :to="`/channels/${appearNote.channel.id}`"><i class="ti ti-device-tv"></i> {{ appearNote.channel.name }}</MkA>
+				<MkNoteChannel v-if="appearNote.channel && !inChannel" :channel="appearNote.channel"/>
 			</div>
 			<footer>
 				<div :class="$style.noteFooterInfo">
@@ -263,6 +263,7 @@ import { DI } from '@/di.js';
 
 // コンポーネント外部の依存関係
 import MkNoteSub from '@/components/MkNoteSub.vue';
+import MkNoteChannel from '@/components/MkNoteChannel.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
 import MkReactionsViewer from '@/components/MkReactionsViewer.vue';
 import MkMediaList from '@/components/MkMediaList.vue';
@@ -608,11 +609,6 @@ const keymap = {
 	border: dashed 1px var(--MI_THEME-renote);
 	border-radius: 8px;
 	overflow: clip;
-}
-
-.channel {
-	opacity: 0.7;
-	font-size: 80%;
 }
 
 .noteFooterInfo {

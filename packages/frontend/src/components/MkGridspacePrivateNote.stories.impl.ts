@@ -43,5 +43,5 @@ export const Formatted = {
 
 export const Channel = {
 	...Default,
-	args: { note: { ...Default.args.note, channelId: 'channel1', visibility: 'public', text: 'チャンネルへの投稿です。', reactions: { '👍': 2 } } },
+	args: { note: { ...Default.args.note, channelId: 'channel1', channel: { id: 'channel1', name: '#NSFWな話', color: '#ff8a8a' }, visibility: 'public', text: 'チャンネルへの投稿です。', reactions: { '👍': 2 } } },
 } satisfies StoryObj<typeof MkGridspacePrivateNote>;

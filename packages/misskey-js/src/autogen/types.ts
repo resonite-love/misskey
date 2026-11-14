@@ -26890,6 +26890,11 @@ export interface operations {
                                 visibility: string;
                                 localOnly: boolean;
                                 channelId?: string | null;
+                                channel?: {
+                                    id: string;
+                                    name: string;
+                                    color: string;
+                                } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
                                 canDelete?: boolean;
@@ -26972,6 +26977,11 @@ export interface operations {
                                     visibility: string;
                                     localOnly: boolean;
                                     channelId?: string | null;
+                                    channel?: {
+                                        id: string;
+                                        name: string;
+                                        color: string;
+                                    } | null;
                                     collectionId?: string;
                                     collectionAt?: string;
                                     canDelete?: boolean;
@@ -27058,6 +27068,11 @@ export interface operations {
                                 visibility: string;
                                 localOnly: boolean;
                                 channelId?: string | null;
+                                channel?: {
+                                    id: string;
+                                    name: string;
+                                    color: string;
+                                } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
                                 canDelete?: boolean;
@@ -27140,6 +27155,11 @@ export interface operations {
                                     visibility: string;
                                     localOnly: boolean;
                                     channelId?: string | null;
+                                    channel?: {
+                                        id: string;
+                                        name: string;
+                                        color: string;
+                                    } | null;
                                     collectionId?: string;
                                     collectionAt?: string;
                                     canDelete?: boolean;
@@ -27683,6 +27703,11 @@ export interface operations {
                             visibility: string;
                             localOnly: boolean;
                             channelId?: string | null;
+                            channel?: {
+                                id: string;
+                                name: string;
+                                color: string;
+                            } | null;
                             collectionId?: string;
                             collectionAt?: string;
                             canDelete?: boolean;
@@ -27765,6 +27790,11 @@ export interface operations {
                                 visibility: string;
                                 localOnly: boolean;
                                 channelId?: string | null;
+                                channel?: {
+                                    id: string;
+                                    name: string;
+                                    color: string;
+                                } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
                                 canDelete?: boolean;
@@ -28165,6 +28195,11 @@ export interface operations {
                             visibility: string;
                             localOnly: boolean;
                             channelId?: string | null;
+                            channel?: {
+                                id: string;
+                                name: string;
+                                color: string;
+                            } | null;
                             collectionId?: string;
                             collectionAt?: string;
                             canDelete?: boolean;
@@ -28247,6 +28282,11 @@ export interface operations {
                                 visibility: string;
                                 localOnly: boolean;
                                 channelId?: string | null;
+                                channel?: {
+                                    id: string;
+                                    name: string;
+                                    color: string;
+                                } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
                                 canDelete?: boolean;

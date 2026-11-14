@@ -17,7 +17,7 @@ describe('delegated note author emoji', () => {
 			users: { pack: async () => ({ id: 'source-only-id', avatarUrl: 'https://source.example/avatar.png', avatarBlurhash: null, avatarDecorations: [], isBot: true, isCat: false, instance: { name: 'Grid', themeColor: '#123456', faviconUrl: null, softwareVersion: 'private-extra' } }) },
 			meta: { name: 'Source', iconUrl: null, themeColor: '#abcdef' },
 		});
-		const note = { id: 'note', text: 'body', cw: null, userId: 'author', userHost: host, user: { id: 'author', name: ':name:', username: 'author', host, emojis: ['name'], avatarId: null }, emojis: ['body'], fileIds: [], channelId: 'channel' };
+		const note = { id: 'note', text: 'body', cw: null, userId: 'author', userHost: host, user: { id: 'author', name: ':name:', username: 'author', host, emojis: ['name'], avatarId: null }, emojis: ['body'], fileIds: [], channelId: 'channel', channel: { id: 'channel', name: 'Channel', color: '#ff8a8a', userId: 'private-owner' } };
 		const packed = await service.pack(note, 'reader', new Set(), { reactions: {}, myReaction: null, myReactions: [] });
 		expect(packed.author.emojis).toEqual({ name: `https://${host ?? 'source.example'}/name.png` });
 		expect(packed.emojis).toEqual({ body: `https://${host ?? 'source.example'}/body.png` });
@@ -26,5 +26,6 @@ describe('delegated note author emoji', () => {
 		expect(packed.author.instance.name).toBe(host ? 'Grid' : 'Source');
 		expect(packed.author.id).toBeUndefined();
 		expect(packed.author.instance.softwareVersion).toBeUndefined();
+		expect(packed.channel).toEqual({ id: 'channel', name: 'Channel', color: '#ff8a8a' });
 	});
 });

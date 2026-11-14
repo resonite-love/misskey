@@ -14,7 +14,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<MkNoteSub v-if="appearNote.replyId && !renoteCollapsed" :note="appearNote?.reply ?? null" :class="$style.replyTo"/>
 	<div v-if="pinned" :class="$style.tip"><i class="ti ti-pin"></i> {{ i18n.ts.pinnedNote }}</div>
 	<div v-if="isRenote" :class="$style.renote">
-		<div v-if="note.channel" :class="$style.colorBar" :style="{ background: note.channel.color }"></div>
+		<MkNoteChannel v-if="note.channel" :channel="note.channel" display="bar" compact/>
 		<MkAvatar :class="$style.renoteAvatar" :user="note.user" link preview/>
 		<i class="ti ti-repeat" style="margin-right: 4px;"></i>
 		<I18n :src="i18n.ts.renotedBy" tag="span" :class="$style.renoteText">
@@ -46,7 +46,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<Mfm :text="getNoteSummary(appearNote)" :plain="true" :nowrap="true" :author="appearNote.user" :nyaize="'respect'" :class="$style.collapsedRenoteTargetText" @click="renoteCollapsed = false"/>
 	</div>
 	<article v-else :class="$style.article" @contextmenu.stop="onContextmenu">
-		<div v-if="appearNote.channel" :class="$style.colorBar" :style="{ background: appearNote.channel.color }"></div>
+		<MkNoteChannel v-if="appearNote.channel" :channel="appearNote.channel" display="bar"/>
 		<MkAvatar :class="[$style.avatar, prefer.s.useStickyIcons ? $style.useSticky : null]" :user="appearNote.user" :link="!mock" :preview="!mock"/>
 		<div :class="$style.main">
 			<MkNoteHeader :note="appearNote" :mini="true"/>
@@ -113,7 +113,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<span :class="$style.showLessLabel">{{ i18n.ts.showLess }}</span>
 					</button>
 				</div>
-				<MkA v-if="appearNote.channel && !inChannel" :class="$style.channel" :to="`/channels/${appearNote.channel.id}`"><i class="ti ti-device-tv"></i> {{ appearNote.channel.name }}</MkA>
+				<MkNoteChannel v-if="appearNote.channel && !inChannel" :channel="appearNote.channel"/>
 			</div>
 			<MkReactionsViewer
 				v-if="appearNote.reactionAcceptance !== 'likeOnly'"
@@ -220,6 +220,7 @@ import { DI } from '@/di.js';
 
 // コンポーネント外部の依存関係
 import MkNoteSub from '@/components/MkNoteSub.vue';
+import MkNoteChannel from '@/components/MkNoteChannel.vue';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
 import MkReactionsViewer from '@/components/MkReactionsViewer.vue';
@@ -489,10 +490,6 @@ const keymap = {
 	& + .article {
 		padding-top: 8px;
 	}
-
-	> .colorBar {
-		height: calc(100% - 6px);
-	}
 }
 
 .renoteAvatar {
@@ -562,16 +559,6 @@ const keymap = {
 	position: relative;
 	display: flex;
 	padding: 28px 32px;
-}
-
-.colorBar {
-	position: absolute;
-	top: 8px;
-	left: 8px;
-	width: 5px;
-	height: calc(100% - 16px);
-	border-radius: 999px;
-	pointer-events: none;
 }
 
 .avatar {
@@ -679,11 +666,6 @@ const keymap = {
 	border: dashed 1px var(--MI_THEME-renote);
 	border-radius: 8px;
 	overflow: clip;
-}
-
-.channel {
-	opacity: 0.7;
-	font-size: 80%;
 }
 
 .footer {
@@ -794,13 +776,6 @@ const keymap = {
 				margin-right: 12px;
 			}
 		}
-	}
-
-	.colorBar {
-		top: 6px;
-		left: 6px;
-		width: 4px;
-		height: calc(100% - 12px);
 	}
 }
 
