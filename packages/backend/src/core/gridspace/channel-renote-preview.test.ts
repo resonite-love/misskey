@@ -11,7 +11,9 @@ import type { MiLocalUser } from '@/models/User.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
 import type { PrivatePeerRequest, PrivateWireNote } from './private-protocol.js';
 
-test.each([true, false])('embeds one level from the related batch only while still readable (%s)', async stillReadable => {
+test.each(([
+	{ mode: 'channel', channelId: 'channel' }, { mode: 'home' }, { mode: 'validate', contextMode: 'home', ids: ['wrapper'] },
+] as PrivatePeerRequest[]).flatMap(input => [true, false].map(stillReadable => ({ input, stillReadable }))))('embeds only a readable same-channel RN in %j', async ({ input, stillReadable }) => {
 	const parent = { id: 'wrapper', channelId: 'channel', text: null, renoteId: 'target' };
 	const target = { id: 'target', channelId: 'channel', text: 'Original', renoteId: 'deeper' };
 	const query = mockDeep<SelectQueryBuilder<MiNote>>(); query.andWhere.mockReturnValue(query);
@@ -20,9 +22,10 @@ test.each([true, false])('embeds one level from the related batch only while sti
 	const reactions = vi.fn(async () => []);
 	const service = Object.assign(Object.create(GridspacePrivateService.prototype), {
 		authorizeRead: vi.fn(async () => ({ localUserId: 'viewer', initiator: false })), sourceNotes: vi.fn(async () => [parent]),
+		sourceHomePage: vi.fn(async () => ({ rows: [parent], next: null, head: 'wrapper', scannedThrough: new Date(0).toISOString() })),
 		query: () => query, search: { read }, pack, extendedReactions: { show: reactions }, ids: { parse: () => ({ date: new Date(0) }) },
 	}) as GridspacePrivateService;
-	const page = await service.peerNotes({ mode: 'channel', channelId: 'channel' } as PrivatePeerRequest);
+	const page = await service.peerNotes(input);
 	expect(pack).toHaveBeenCalledTimes(2); expect(read).toHaveBeenCalledTimes(3);
 	expect(reactions).toHaveBeenCalledWith(['wrapper', 'target'], { id: 'viewer' }, true);
 	if (stillReadable) expect(page.notes[0].renote).toMatchObject({ id: 'target', text: 'Original', renoteId: null });

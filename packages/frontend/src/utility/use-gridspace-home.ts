@@ -81,7 +81,7 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 			const status = await misskeyApi('gridspace/private-grant', {}, undefined, signal());
 			if (current !== generation) return;
 			if (!status.available) { if (status.granted) fail(); return; }
-			enabled.value = status.granted;
+			enabled.value = status.granted || (status.enabled && status.peerRole === 'source');
 			if (enabled.value) { more.value = true; await loadOld(); }
 		} catch { if (current === generation) fail(); }
 	}

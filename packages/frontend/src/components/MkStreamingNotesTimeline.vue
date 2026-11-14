@@ -264,8 +264,8 @@ if (props.src === 'antenna') {
 	throw new Error('Unrecognized timeline type: ' + props.src);
 }
 
-const home = useGridspaceHome(paginator, computed(() => props.src === 'home' && $i ? {
-	mode: 'home' as const, withReplies: false, withRenotes: props.withRenotes, withFiles: props.onlyFiles, withChannelNotes: false,
+const home = useGridspaceHome(paginator, computed(() => (props.src === 'home' || props.src === 'social') && $i ? {
+	mode: 'home' as const, withReplies: props.withReplies, withRenotes: props.withRenotes, withFiles: props.onlyFiles, withChannelNotes: true,
 } : null), isTop, computed(() => props.withSensitive));
 
 onMounted(() => {

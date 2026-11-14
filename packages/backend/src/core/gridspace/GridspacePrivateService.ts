@@ -77,7 +77,7 @@ export class GridspacePrivateService {
 	}
 
 	private async authorizeRead(input: PrivatePeerRequest) {
-		if (input.channelId) this.channelAuth.assertSource();
+		if (input.channelId || input.channelActorId) this.channelAuth.assertSource();
 		if (!input.channelActorId) {
 			const link = await this.links.authorizePrivate(input);
 			const mode = input.mode === 'validate' ? input.contextMode : input.mode;
@@ -88,16 +88,18 @@ export class GridspacePrivateService {
 			return link;
 		}
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
-		if (!input.channelId || (mode !== 'channel' && mode !== 'show')) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		if (!(mode === 'home' && !input.channelId && !input.targetUris) && (!input.channelId || (mode !== 'channel' && mode !== 'show'))) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		return { localUserId: (await this.channelAuth.source(input.channelActorId)).id, initiator: false };
 	}
 
-	private query(viewerId: string, input: Partial<PrivatePeerRequest> = {}, authors?: Pick<MiUser, 'id' | 'makeNotesFollowersOnlyBefore'>[]) {
+	private query(viewerId: string, input: Partial<PrivatePeerRequest> = {}, authors?: Pick<MiUser, 'id' | 'makeNotesFollowersOnlyBefore'>[], includeSensitiveChannels = false) {
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
 		if ((mode === 'channel' && !input.channelId) || (input.channelId && mode !== 'channel' && mode !== 'show')) throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((mode === 'clip' && !input.clipId) || (input.clipId && mode !== 'clip')) throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((mode === 'antenna' && !input.antennaId) || (input.antennaId && mode !== 'antenna')) throw new GridspaceLinkError('INVALID_REQUEST');
-		const query = this.search.noteQuery({ id: viewerId }, { query: input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length, mode === 'mentions' || mode === 'direct' || mode === 'favorites' || mode === 'clip' || mode === 'antenna');
+		const query = this.search.noteQuery({ id: viewerId }, { query: input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length, includeSensitiveChannels || mode === 'home' || mode === 'mentions' || mode === 'direct' || mode === 'favorites' || mode === 'clip' || mode === 'antenna');
+		const followedChannel = `EXISTS (SELECT 1 FROM channel_following cf WHERE cf."followerId" = :homeChannelViewer AND cf."followeeId" = note."channelId")`;
+		if (mode === 'home') query.setParameter('homeChannelViewer', viewerId);
 		if (mode === 'favorites') {
 			query.innerJoinAndMapOne('note.gridspaceCollection', MiNoteFavorite, 'collection', 'collection.noteId = note.id AND collection.userId = :collectionViewer', { collectionViewer: viewerId });
 			query.orderBy('collection.id', 'DESC');
@@ -113,6 +115,14 @@ export class GridspacePrivateService {
 			this.queries.generateMutedNoteThreadQuery(query, { id: viewerId });
 			// As in notes/mentions, avoid a primary-key scan over the whole timeline.
 			query.orderBy('CONCAT(note.id)', 'DESC');
+		} else if (mode === 'home') {
+			// A channel subscription is independent of following the author. Guests
+			// have channel access only; linked readers also receive private home notes.
+			const privateHome = `(note.channelId IS NULL AND (note.visibility IN ('followers', 'specified') OR ("user"."makeNotesFollowersOnlyBefore" IS NOT NULL
+				AND ${this.noteTime} <= CASE WHEN "user"."makeNotesFollowersOnlyBefore" > 0 THEN "user"."makeNotesFollowersOnlyBefore"::bigint * 1000
+				ELSE :nowMs::bigint + "user"."makeNotesFollowersOnlyBefore"::bigint * 1000 END)))`;
+			query.andWhere(input.channelActorId ? followedChannel : `(${privateHome} OR ${followedChannel})`);
+			this.queries.generateMutedNoteThreadQuery(query, { id: viewerId });
 		} else if (mode && mode !== 'show' && mode !== 'channel' && mode !== 'antenna' && authors?.every(author => author.makeNotesFollowersOnlyBefore == null)) {
 			query.andWhere("note.visibility IN ('followers', 'specified')");
 		} else if (mode && mode !== 'show' && mode !== 'channel' && mode !== 'antenna') {
@@ -256,9 +266,11 @@ export class GridspacePrivateService {
 		const rows = homePage ? homePage.rows : await this.sourceNotes(link.localUserId, sourceInput);
 		const limit = input.mode === 'validate' ? 100 : input.mode === 'show' ? 1 : input.limit ?? 10;
 		const selected = rows.slice(0, limit);
+		const homeChannels = !link.initiator && (input.contextMode ?? input.mode) === 'home';
 		const relatedIds = selected.flatMap(note => [note.replyId, note.renoteId]).filter((id): id is string => id != null);
-		const related = relatedIds.length ? await this.search.read(this.query(link.localUserId, { mode: 'show', channelId: input.channelId, withChannelNotes: !link.initiator }).andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
-		const previewTargets = input.channelId ? related.filter(note => note.channelId === input.channelId && selected.some(parent => parent.renoteId === note.id)) : [];
+		const relatedQuery = () => this.query(link.localUserId, { mode: 'show', channelId: input.channelId, withChannelNotes: !link.initiator }, undefined, homeChannels);
+		const related = relatedIds.length ? await this.search.read(relatedQuery().andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
+		const previewTargets = input.channelId || homeChannels ? related.filter(note => !!note.channelId && selected.some(parent => parent.channelId === note.channelId && parent.renoteId === note.id)) : [];
 		const reactionIds = [...new Set([...selected, ...previewTargets].map(note => note.id))];
 		const reactionStates = new Map((reactionIds.length ? await this.extendedReactions.show(reactionIds, { id: link.localUserId }, true) : []).map(state => [state.noteId, state]));
 		const authors = new Map<string, Promise<Packed<'UserLite'>>>();
@@ -269,7 +281,7 @@ export class GridspacePrivateService {
 		await this.authorizeRead(input);
 		const fresh = selected.length ? await this.search.read(this.query(link.localUserId, sourceInput).andWhere('note.id IN (:...selected)', { selected: selected.map(note => note.id) })) : [];
 		const allowed = new Set(fresh.map(note => note.id));
-		const freshRelated = relatedIds.length ? await this.search.read(this.query(link.localUserId, { mode: 'show', channelId: input.channelId, withChannelNotes: !link.initiator }).andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
+		const freshRelated = relatedIds.length ? await this.search.read(relatedQuery().andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
 		const relatedAllowed = new Set(freshRelated.map(note => note.id));
 		for (const note of packed) {
 			if (note.replyId && !relatedAllowed.has(note.replyId)) note.replyId = null;
@@ -292,6 +304,9 @@ export class GridspacePrivateService {
 		actorAllows: (actor: PrivateWireNote['filterActors'][number]) => Promise<boolean> = actor => this.localActorAllows(viewer, actor)) {
 		for (const actor of note.filterActors) if (!await actorAllows(actor)) return false;
 		if (!home) return true;
+		// The source rechecks channel subscriptions and mutes on every home page
+		// and validation pass. Do not require a separate follow of its author.
+		if (note.channelId) return this.collectionClient;
 		const uri = note.author.uri;
 		const where = uri.startsWith(`${this.peer!.origin}/users/`) ? { id: uri.slice(`${this.peer!.origin}/users/`.length), host: IsNull() } : { uri };
 		const local = await this.db.getRepository(MiUser).findOneBy(where);
@@ -324,7 +339,7 @@ export class GridspacePrivateService {
 	}
 
 	public async notes(viewer: MiLocalUser, input: PrivateOptions, limit: number, cursor?: string) {
-		const channel = input.channelId ? await this.channelAuth.destination(viewer) : null;
+		const channel = input.channelId || (this.channelAuth.isClient && (input.contextMode ?? input.mode) === 'home') ? await this.channelAuth.destination(viewer) : null;
 		const link = channel ? null : await this.links.privateLink(viewer.id);
 		const credential = channel ? channel.credential : this.links.privateCredential(link!);
 		if ((input.query || input.mode === 'search' || input.contextMode === 'search') && (!input.query?.trim() || !(await this.roles.getUserPolicies(viewer.id)).canSearchNotes)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');

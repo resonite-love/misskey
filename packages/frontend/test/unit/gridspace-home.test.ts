@@ -72,6 +72,16 @@ function mountHome(isTop = () => false, delegated = true) {
 }
 
 describe('private home lifecycle', () => {
+	it('loads followed source channels for a GridSpace-only account and removes an unfollowed note on validation', async () => {
+		const channelNote = { ...privateNote(8), channelId: 'subscribed' };
+		api.mockResolvedValueOnce({ available: true, enabled: true, granted: false, peerRole: 'source' }).mockResolvedValueOnce(page([channelNote]));
+		const { home } = mountHome(); await settle();
+		expect(home.rows.value.map(row => row.note.id)).toEqual(['p8']);
+		api.mockResolvedValueOnce(page()).mockResolvedValueOnce(page());
+		await vi.advanceTimersByTimeAsync(10000);
+		expect(api.mock.calls[2][1]).toMatchObject({ mode: 'validate', contextMode: 'home', ids: ['p8'] });
+		expect(home.rows.value).toEqual([]);
+	});
 	it('preserves rows and old cursor, reauthorizes without a head reset, and ignores stale validation', async () => {
 		api.mockResolvedValueOnce({ available: true, granted: true }).mockResolvedValueOnce(page([privateNote(8)], 'old-cursor', at(4)));
 		const { home, paginator } = mountHome(); await settle();
