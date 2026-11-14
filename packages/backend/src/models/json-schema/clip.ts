@@ -12,6 +12,7 @@ export const packedClipSchema = {
 			format: 'id',
 			example: 'xxxxxxxxxx',
 		},
+		gridspaceOrigin: { type: 'string', optional: true, nullable: false },
 		createdAt: {
 			type: 'string',
 			optional: false, nullable: false,

@@ -10,6 +10,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div :class="kind === 'gallery' ? $style.gallery : '_gaps'">
 			<template v-for="item in items" :key="`${item.gridspaceOrigin ?? ''}:${item.id}`">
 				<MkPagePreview v-if="kind === 'pages'" :page="item as Misskey.entities.Page"/>
+				<MkClipPreview v-else-if="kind === 'clips'" :clip="item as Misskey.entities.Clip" :peerOrigin="item.gridspaceOrigin" noUserInfo/>
 				<MkGalleryPostPreview v-else :post="item as Misskey.entities.GalleryPost"/>
 			</template>
 		</div>
@@ -25,6 +26,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 import { computed, markRaw, onActivated, onDeactivated, onBeforeUnmount, ref, watch } from 'vue';
 import type * as Misskey from 'misskey-js';
 import MkPaginationControl from '@/components/MkPaginationControl.vue';
+import MkClipPreview from '@/components/MkClipPreview.vue';
 import MkPagePreview from '@/components/MkPagePreview.vue';
 import MkGalleryPostPreview from '@/components/MkGalleryPostPreview.vue';
 import MkTimelineLoadMore from '@/components/MkTimelineLoadMore.vue';
@@ -34,12 +36,12 @@ import { prefer } from '@/preferences.js';
 import { $i } from '@/i.js';
 
 const props = withDefaults(defineProps<{
-	kind: 'pages' | 'gallery';
+	kind: 'pages' | 'gallery' | 'clips';
 	mode?: 'recent' | 'featured' | 'mine' | 'liked';
 	userId?: string;
 }>(), { mode: 'recent' });
 
-type Item = Misskey.entities.Page | Misskey.entities.GalleryPost;
+type Item = (Misskey.entities.Page | Misskey.entities.GalleryPost | Misskey.entities.Clip) & { gridspaceLikedAt?: string; gridspaceLikeId?: string; gridspaceOriginalId?: string };
 const local = ref<Item[]>([]), remote = ref<Item[]>([]);
 const loading = ref(false), failed = ref(false);
 const localMore = ref(true), remoteMore = ref(true);
@@ -58,7 +60,7 @@ const chronological = (a: Item, b: Item) => Date.parse(props.mode === 'liked' ? 
 const compare = (a: Item, b: Item) => chronological(a, b) * (ascending.value ? -1 : 1);
 const items = computed(() => {
 	const all = [...local.value, ...remote.value];
-	if (props.mode === 'featured') return all.sort(props.kind === 'pages' ? (a, b) => b.likedCount - a.likedCount || chronological(a, b) : chronological);
+	if (props.mode === 'featured') return all.sort(props.kind === 'pages' ? (a, b) => ('likedCount' in b ? b.likedCount : 0) - ('likedCount' in a ? a.likedCount : 0) || chronological(a, b) : chronological);
 	// Only expose the merged prefix for which both sources have been scanned.
 	// Later batches cannot insert above already visible rows.
 	const tails = [localMore.value ? local.value.at(-1) : undefined, remoteMore.value ? remote.value.at(-1) : undefined].filter((item): item is Item => item != null).sort(compare);
@@ -95,6 +97,8 @@ async function load() {
 			localBefore = likes.at(-1)?.id;
 			localMore.value = likes.length === limit;
 			return;
+		} else if (props.kind === 'clips') {
+			rows = userId ? await misskeyApi('users/clips', { ...params, userId: localUserId! }) : [];
 		} else if (props.kind === 'pages') {
 			rows = props.mode === 'mine' ? await misskeyApi('i/pages', params) : userId ? await misskeyApi('users/pages', { ...params, userId: localUserId! }) : await misskeyApi('pages/featured');
 		} else {
@@ -119,7 +123,7 @@ async function load() {
 		}
 		const result = await misskeyApi('gridspace/content', { kind: props.kind, mode: props.mode === 'featured' ? 'featured' : 'recent', userId, ...(ascending.value ? { after: remoteBefore ?? (control.initialDate ? undefined : '0'), sinceDate: remoteBefore ? undefined : control.initialDate ?? undefined } : { before: remoteBefore, untilDate: remoteBefore ? undefined : control.initialDate ?? undefined }), limit });
 		if (current !== generation) return;
-		const rows = props.kind === 'pages' ? result.pages : result.gallery;
+		const rows = props.kind === 'pages' ? result.pages : props.kind === 'clips' ? result.clips ?? [] : result.gallery;
 		const ids = new Set(remote.value.map(item => item.id));
 		remote.value.push(...rows.filter(item => !ids.has(item.id)));
 		remoteBefore = result.next ?? undefined;

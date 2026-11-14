@@ -10,6 +10,7 @@ import type { Config } from '@/config.js';
 import type { IdService } from '@/core/IdService.js';
 import type { CustomEmojiService } from '@/core/CustomEmojiService.js';
 import type { MetaService } from '@/core/MetaService.js';
+import type { ClipEntityService } from '@/core/entities/ClipEntityService.js';
 import type { PageEntityService } from '@/core/entities/PageEntityService.js';
 import type { GalleryPostEntityService } from '@/core/entities/GalleryPostEntityService.js';
 import { GridspaceContentService } from './GridspaceContentService.js';
@@ -23,7 +24,7 @@ function fixture() {
 	const config = { url: 'https://g.example', gridspace: { enabled: true, peerUrl: 'https://r.example' } } as Config;
 	meta.fetch.mockResolvedValue({ ugcVisibilityForVisitor: 'all' } as never);
 	db.getRepository.mockReturnValue({ findBy: async () => [] } as never);
-	const service = new GridspaceContentService(db, config, pages, gallery, links, history, meta, mockDeep<IdService>(), mockDeep<CustomEmojiService>());
+	const service = new GridspaceContentService(db, config, pages, gallery, links, history, meta, mockDeep<IdService>(), mockDeep<CustomEmojiService>(), mockDeep<ClipEntityService>());
 	return { service, db, config, links, history, pages, gallery, meta };
 }
 
@@ -85,4 +86,34 @@ describe('public linked pages and gallery', () => {
 			expect((await f.service.list({ kind: 'pages', ...options }, true)).pages.map(page => page.id)).toEqual(ids);
 		}
 	});
+});
+
+test('public profile clips are scoped to the linked author and private clips are rejected', async () => {
+ const f = fixture();
+ f.db.getRepository.mockReturnValue({ findOneBy: async () => ({ id: 'local', host: null }), findBy: async () => [] } as never);
+ f.history.findLink.mockResolvedValue({ peerUserId: 'owner' } as never);
+ const clip = { id: 'clip1', userId: 'owner', user: { id: 'owner', host: null }, isPublic: true };
+ f.links.json.mockResolvedValue({ origin: 'https://r.example', pages: [], gallery: [], clips: [clip], next: null });
+ expect((await f.service.list({ kind: 'clips', userId: 'local' }, true)).clips?.[0]).toMatchObject({ id: 'clip1', gridspaceOrigin: 'https://r.example', userId: 'gridspace:owner' });
+ expect(f.links.json).toHaveBeenCalledWith('/gridspace/v1/content', { kind: 'clips', userId: 'owner' });
+ f.links.json.mockResolvedValue({ origin: 'https://r.example', pages: [], gallery: [], clips: [{ ...clip, userId: 'other' }], next: null });
+ await expect(f.service.list({ kind: 'clips', userId: 'local' }, true)).rejects.toThrow('PEER_UNAVAILABLE');
+ f.links.json.mockResolvedValue({ origin: 'https://r.example', pages: [], gallery: [], clips: [{ ...clip, isPublic: false }], next: null });
+ await expect(f.service.list({ kind: 'clips' }, true)).rejects.toThrow('PEER_UNAVAILABLE');
+});
+
+test('source profile clips query excludes private clips, deleted and suspended authors', async () => {
+ const f = fixture();
+ const query = { innerJoin: vi.fn(), where: vi.fn(), andWhere: vi.fn(), addOrderBy: vi.fn(), take: vi.fn(), getMany: vi.fn().mockResolvedValue([]) };
+ for (const key of ['innerJoin', 'where', 'andWhere', 'addOrderBy', 'take'] as const) query[key].mockReturnValue(query);
+ f.db.getRepository.mockReturnValue({ createQueryBuilder: () => query } as never);
+ // No rows means the mocked entity packer must still produce a valid array.
+ const pack = mockDeep<ClipEntityService>(); pack.packMany.mockResolvedValue([]);
+ const service = new GridspaceContentService(f.db, f.config, f.pages, f.gallery, f.links, f.history, f.meta, mockDeep<IdService>(), mockDeep<CustomEmojiService>(), pack);
+ await service.peer({ kind: 'clips', userId: 'owner', after: 'a', limit: 12 });
+ expect(query.where).toHaveBeenCalledWith(expect.stringContaining('author.isDeleted = false'));
+ expect(query.andWhere).toHaveBeenCalledWith('item.isPublic = true');
+ expect(query.andWhere).toHaveBeenCalledWith('item.userId = :userId', { userId: 'owner' });
+ expect(query.addOrderBy).toHaveBeenCalledWith('item.id', 'ASC');
+ expect(query.take).toHaveBeenCalledWith(13);
 });

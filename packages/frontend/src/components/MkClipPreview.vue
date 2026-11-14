@@ -11,7 +11,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div :class="$style.description">
 			<div v-if="clip.description"><Mfm :text="clip.description" :plain="true" :nowrap="true"/></div>
 			<div v-if="clip.lastClippedAt">{{ i18n.ts.updatedAt }}: <MkTime :time="clip.lastClippedAt" mode="detail"/></div>
-			<div v-if="clip.notesCount != null && !peerOrigin">{{ i18n.ts.notesCount }}: {{ number(clip.notesCount) }} / {{ $i?.policies.noteEachClipsLimit }} ({{ i18n.tsx.remainingN({ n: remaining }) }})</div>
+			<div v-if="clip.notesCount != null && !peerOrigin && clip.userId === $i?.id">{{ i18n.ts.notesCount }}: {{ number(clip.notesCount) }} / {{ $i?.policies.noteEachClipsLimit }} ({{ i18n.tsx.remainingN({ n: remaining }) }})</div>
 		</div>
 		<template v-if="!props.noUserInfo">
 			<div :class="$style.divider"></div>

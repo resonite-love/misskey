@@ -11,7 +11,7 @@ import { GridspaceLinkError } from '@/core/gridspace/GridspaceLinkService.js';
 import { contentOptionsSchema, contentPageSchema } from '@/core/gridspace/content-protocol.js';
 
 export const meta = {
-	tags: ['pages', 'gallery'], requireCredential: false, limit: { duration: 60000, max: 120 },
+	tags: ['pages', 'gallery', 'clips'], requireCredential: false, limit: { duration: 60000, max: 120 },
 	errors: { unavailable: { message: 'The linked public content is unavailable.', code: 'GRIDSPACE_CONTENT_UNAVAILABLE', id: '601831a9-216c-43aa-a968-19b435873cb4' } },
 	res: contentPageSchema,
 } as const;

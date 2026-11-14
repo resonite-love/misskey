@@ -5573,6 +5573,7 @@ export type components = {
              * @example xxxxxxxxxx
              */
             id: string;
+            gridspaceOrigin?: string;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -26035,7 +26036,7 @@ export interface operations {
             content: {
                 'application/json': {
                     /** @enum {string} */
-                    kind: 'pages' | 'gallery';
+                    kind: 'pages' | 'gallery' | 'clips';
                     /**
                      * @default recent
                      * @enum {string}
@@ -26063,6 +26064,7 @@ export interface operations {
                         origin: string | null;
                         pages: components['schemas']['Page'][];
                         gallery: components['schemas']['GalleryPost'][];
+                        clips?: components['schemas']['Clip'][];
                         next: string | null;
                     };
                 };
