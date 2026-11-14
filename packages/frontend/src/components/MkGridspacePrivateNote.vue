@@ -77,7 +77,7 @@ import { extractUrlFromMfm } from '@/utility/extract-url-from-mfm.js';
 import { isEnabledUrlPreview } from '@/utility/url-preview.js';
 import { DI } from '@/di.js';
 import { gridspacePost } from '@/utility/gridspace-post.js';
-import { GridspaceChannelRenoteError, renoteGridspaceChannel } from '@/utility/gridspace-channel-renote.js';
+import { GridspaceChannelRenoteError, renoteGridspaceChannel, selfRenoteGridspace } from '@/utility/gridspace-channel-renote.js';
 import { getRenoteMenu } from '@/utility/get-note-menu.js';
 import { getGridspaceNoteMenu } from '@/utility/gridspace-note-menu.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
@@ -105,7 +105,7 @@ const actions = useTemplateRef('actions');
 const article = useTemplateRef('article');
 const renoteButton = useTemplateRef('renoteButton');
 const isPureRenote = computed(() => !!note.value.renoteId && note.value.text == null && note.value.cw == null && !note.value.replyId && !note.value.files.length && !note.value.poll);
-const canRenote = computed(() => !!$i && ['public', 'home'].includes(note.value.visibility) && (!note.value.channelId || !note.value.renoteId || !!(note.value.text || note.value.cw || note.value.replyId || note.value.files.length || note.value.poll)) && !isUnavailableGridspaceNote(note.value, true));
+const canRenote = computed(() => !!$i && (['public', 'home'].includes(note.value.visibility) || (!note.value.channelId && note.value.canSelfRenote)) && (!note.value.channelId || !note.value.renoteId || !!(note.value.text || note.value.cw || note.value.replyId || note.value.files.length || note.value.poll)) && !isUnavailableGridspaceNote(note.value, true));
 const renoteLoading = ref(false);
 const expanded = defineModel<boolean>('expanded', { default: false });
 const deleted = ref(false);
@@ -136,6 +136,21 @@ async function renote() {
 	if (!canRenote.value || renoteLoading.value) return;
 	const current = generation;
 	const target = note.value;
+	if (!target.channelId && target.canSelfRenote) {
+		await os.popupMenu([{
+			text: i18n.tsx._gridspace.selfRenoteAs({ account: `@${target.author.username}@${target.author.host}` }), icon: 'ti ti-repeat', action: async () => {
+				if (current !== generation || renoteLoading.value || !$i) return;
+				renoteLoading.value = true;
+				try {
+					await selfRenoteGridspace($i.id, target.id, target.author.uri, AbortSignal.timeout(20000));
+					if (current === generation) { os.toast(i18n.ts.renoted); emit('replied'); }
+				} catch (error) {
+					if (current === generation) await os.alert({ type: 'error', text: error instanceof GridspaceChannelRenoteError && error.permissionRequired ? i18n.ts._gridspace.replyConsent : error instanceof GridspaceChannelRenoteError && !error.uncertain ? i18n.ts._gridspace.replyUnavailable : i18n.ts._gridspace.replyUncertain });
+				} finally { renoteLoading.value = false; }
+			},
+		}], renoteButton.value);
+		return;
+	}
 	if (target.channelId) {
 		const channelId = target.channelId;
 		await os.popupMenu([{

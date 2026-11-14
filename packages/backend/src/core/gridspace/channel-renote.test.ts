@@ -77,7 +77,7 @@ test('rejects channel escape, private targets, pure renote targets and incompati
 	}
 	for (const input of [{ channelId: undefined }, { noteId: 'reply' }]) {
 		const f = fixture();
-		await expect(f.run(input)).rejects.toMatchObject({ code: 'REPLY_UNAVAILABLE' });
+		await expect(f.run(input)).rejects.toMatchObject({ code: 'channelId' in input ? 'AUTHORIZATION_REVOKED' : 'REPLY_UNAVAILABLE' });
 		expect(f.create.fetchAndCreate).not.toHaveBeenCalled();
 	}
 });

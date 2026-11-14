@@ -176,8 +176,8 @@ export class GridspaceNotificationService {
 		for (const item of page.items) {
 			if (item.user && !await actorAllows(item.user)) continue;
 			if (item.note && !await this.notes.localAllows(user, item.note, false, link.peerUserId, actorAllows)) continue;
-			const note = item.note ? (({ filterActors: _, ...display }) => display)(item.note) : null;
-			const renote = item.renote && await this.notes.localAllows(user, item.renote, false, link.peerUserId, actorAllows) ? (({ filterActors: _, ...display }) => display)(item.renote) : null;
+			const note = item.note ? await this.notes.filterChannelRenote(user, (({ filterActors: _, ...display }) => display)(item.note), link.peerUserId) : null;
+			const renote = item.renote && await this.notes.localAllows(user, item.renote, false, link.peerUserId, actorAllows) ? await this.notes.filterChannelRenote(user, (({ filterActors: _, ...display }) => display)(item.renote), link.peerUserId) : null;
 			items.push({ ...item, note, renote });
 		}
 		await this.links.checkPrivateUnchanged(link);

@@ -45,3 +45,8 @@ export const Channel = {
 	...Default,
 	args: { note: { ...Default.args.note, channelId: 'channel1', channel: { id: 'channel1', name: '#NSFWな話', color: '#ff8a8a' }, visibility: 'public', text: 'チャンネルへの投稿です。', reactions: { '👍': 2 } } },
 } satisfies StoryObj<typeof MkGridspacePrivateNote>;
+
+export const OwnFollowers = {
+	...Default,
+	args: { note: { ...Default.args.note, canSelfRenote: true } },
+} satisfies StoryObj<typeof MkGridspacePrivateNote>;

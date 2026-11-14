@@ -11,6 +11,22 @@ import type { MiLocalUser } from '@/models/User.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
 import type { PrivatePeerRequest, PrivateWireNote } from './private-protocol.js';
 
+test.each([true, false])('own followers-only renote preview uses the related batch and rechecks access (%s)', async readable => {
+	const parent = { id: 'wrapper', userId: 'viewer', channelId: null, visibility: 'followers', text: null, renoteId: 'target', fileIds: [] };
+	const target = { id: 'target', userId: 'viewer', channelId: null, visibility: 'followers', text: 'Own original', renoteId: null, fileIds: [] };
+	const query = mockDeep<SelectQueryBuilder<MiNote>>(); query.andWhere.mockReturnValue(query);
+	const read = vi.fn().mockResolvedValueOnce([target]).mockResolvedValueOnce([parent]).mockResolvedValueOnce(readable ? [target] : []);
+	const service = Object.assign(Object.create(GridspacePrivateService.prototype), {
+		collectionClient: false, authorizeRead: vi.fn(async () => ({ localUserId: 'viewer', initiator: false })), sourceNotes: vi.fn(async () => [parent]),
+		query: () => query, search: { read }, pack: vi.fn(async (note: MiNote) => ({ ...note, filterActors: [] })),
+		extendedReactions: { show: async () => [] }, ids: { parse: () => ({ date: new Date(0) }) },
+	}) as GridspacePrivateService;
+	const result = await service.peerNotes({ mode: 'profile' } as PrivatePeerRequest);
+	if (readable) expect(result.notes[0].renote).toMatchObject({ id: 'target', text: 'Own original' });
+	else expect(result.notes[0]).not.toHaveProperty('renote');
+	expect(read).toHaveBeenCalledTimes(3);
+});
+
 test.each(([
 	{ mode: 'channel', channelId: 'channel' }, { mode: 'home' }, { mode: 'validate', contextMode: 'home', ids: ['wrapper'] },
 ] as PrivatePeerRequest[]).flatMap(input => [true, false].map(stillReadable => ({ input, stillReadable }))))('embeds only a readable same-channel RN in %j', async ({ input, stillReadable }) => {

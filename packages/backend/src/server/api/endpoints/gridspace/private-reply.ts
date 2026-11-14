@@ -16,7 +16,7 @@ export const meta = {
 	errors: { unavailable: { message: 'The delegated reply could not be completed.', code: 'GRIDSPACE_REPLY_UNAVAILABLE', id: 'ac627fc4-5283-48ec-bb42-c475432f7ea4' } },
 	res: replyResultSchema,
 } as const;
-export const paramDef = { type: 'object', properties: replyOptionsSchema, required: ['noteId'] } as const;
+export const paramDef = { type: 'object', properties: replyOptionsSchema, anyOf: [{ required: ['noteId'] }, { required: ['renoteId'] }] } as const;
 
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export

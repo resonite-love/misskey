@@ -39,6 +39,7 @@ import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService
 import { GridspaceSearchService } from './GridspaceSearchService.js';
 import { GridspaceReactionService } from './GridspaceReactionService.js';
 import { supportsGridspaceReactions } from './reaction-protocol.js';
+import { canSelfRenote } from './reply-protocol.js';
 import { GridspaceHistoryService } from './GridspaceHistoryService.js';
 import { decodeHistoryCursor, encodeHistoryCursor } from './history-protocol.js';
 import { gridspaceHash } from './link-crypto.js';
@@ -254,6 +255,7 @@ export class GridspacePrivateService {
 			visibility: note.visibility, localOnly: note.localOnly, emojis: emojiUrls,
 			...(this.collectionId(note) ? { collectionId: this.collectionId(note), collectionAt: this.ids.parse(this.collectionId(note)!).date.toISOString() } : {}),
 			channelId: note.channelId, canDelete: !!note.channelId && note.userId === viewerId,
+			canSelfRenote: !this.collectionClient && canSelfRenote(note, viewerId),
 			channel: note.channel ? { id: note.channel.id, name: note.channel.name, color: note.channel.color } : null,
 			reactions, reactionEmojis, myReaction, myReactions, extendedReactions: !!note.channelId || supportsGridspaceReactions(note, this.peer),
 			reactionPreviews: reactionState.reactionPreviews?.filter(row => Object.keys(reactions).some(reaction => reaction.replace('@.:', ':') === row.reaction.replace('@.:', ':'))),
@@ -281,13 +283,17 @@ export class GridspacePrivateService {
 		const relatedIds = selected.flatMap(note => [note.replyId, note.renoteId]).filter((id): id is string => id != null);
 		const relatedQuery = () => this.query(link.localUserId, { mode: 'show', channelId: input.channelId, withChannelNotes: !link.initiator }, undefined, homeChannels);
 		const related = relatedIds.length ? await this.search.read(relatedQuery().andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
-		const previewTargets = input.channelId || homeChannels ? related.filter(note => !!note.channelId && selected.some(parent => parent.channelId === note.channelId && parent.renoteId === note.id)) : [];
+		const previewTargets = related.filter(note => selected.some(parent => parent.renoteId === note.id && (
+			((input.channelId || homeChannels) && !!note.channelId && parent.channelId === note.channelId) ||
+			(!link.initiator && !this.collectionClient && canSelfRenote(note, link.localUserId))
+		)));
 		const reactionIds = [...new Set([...selected, ...previewTargets].map(note => note.id))];
 		const reactionStates = new Map((reactionIds.length ? await this.extendedReactions.show(reactionIds, { id: link.localUserId }, true) : []).map(state => [state.noteId, state]));
 		const authors = new Map<string, Promise<Packed<'UserLite'>>>();
 		const packed = await Promise.all(selected.map(note => this.pack(note, link.localUserId, new Set(related.map(item => item.id)), reactionStates.get(note.id), authors)));
 		const previews = new Map(await Promise.all(previewTargets.map(async note => [note.id, await this.pack(note, link.localUserId, new Set(), reactionStates.get(note.id), authors)] as const)));
 		for (const note of packed) if (note.renoteId && previews.has(note.renoteId)) note.renote = previews.get(note.renoteId);
+		if (link.initiator) for (const note of [...packed, ...previews.values()]) note.canSelfRenote = false;
 		// Recheck after packing attachments/polls, not just before the asynchronous work.
 		await this.authorizeRead(input);
 		const fresh = selected.length ? await this.search.read(this.query(link.localUserId, sourceInput).andWhere('note.id IN (:...selected)', { selected: selected.map(note => note.id) })) : [];

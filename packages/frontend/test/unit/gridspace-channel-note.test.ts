@@ -27,7 +27,7 @@ vi.mock('@/components/MkNoteHeader.vue', () => ({ default: { template: '<div/>' 
 vi.mock('@/components/global/MkAvatar.vue', () => ({ default: { props: ['preview'], template: '<div data-avatar :data-preview="preview"/>' } }));
 vi.mock('@/components/MkInstanceTicker.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkUrlPreview.vue', () => ({ default: { template: '<div/>' } }));
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { reply: 'Reply', renote: 'Renote', cantRenote: 'Unavailable', reaction: 'React', more: 'More', inChannelRenote: 'Channel renote', inChannelQuote: 'Channel quote', renoted: 'Renoted', _gridspace: {}, _visibility: { public: 'Public' } } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { reply: 'Reply', renote: 'Renote', cantRenote: 'Unavailable', reaction: 'React', more: 'More', inChannelRenote: 'Channel renote', inChannelQuote: 'Channel quote', renoted: 'Renoted', _gridspace: {}, _visibility: { public: 'Public' } }, tsx: { _gridspace: { selfRenoteAs: ({ account }: { account: string }) => `Self-renote as ${account}` } } } }));
 
 beforeEach(() => {
 	vi.clearAllMocks(); window.sessionStorage.clear();
@@ -38,6 +38,19 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 type PrivateNote = entities.GridspacePrivateNotesResponse['notes'][number];
 const original = { id: 'original', channelId: 'channel', uri: 'https://r.example/notes/original', origin: 'https://r.example', createdAt: '2026-11-14T00:00:00Z', author: { name: 'Author', username: 'author', host: 'r.example', uri: 'https://r.example/users/author', avatarUrl: '', emojis: {} }, text: 'Original content', cw: null, visibility: 'public', localOnly: true, files: [], poll: null, renoteId: null, replyId: null } as PrivateNote;
 const globals = { stubs: { Mfm: { props: ['text'], template: '<span>{{ text }}</span>' }, MkA: { props: ['to'], template: '<a :href="to"><slot/></a>' }, MkTime: true, MkUserName: true, I18n: { template: '<span><slot name="user"/></span>' } } };
+
+test('only a server-authorized own follower note exposes the old-account self-renote', async () => {
+	const note = { ...original, channelId: null, visibility: 'followers', canSelfRenote: true };
+	api.mockResolvedValue({ canReply: true, createdNoteId: 'created', account: { uri: original.author.uri } });
+	const view = render(Note, { props: { note }, global: globals });
+	await fireEvent.click(view.getByRole('button', { name: 'Renote' }));
+	const items = menu.mock.calls[0][0];
+	expect(items).toHaveLength(1); expect(items[0].text).toBe('Self-renote as @author@r.example');
+	await items[0].action();
+	expect(api).toHaveBeenLastCalledWith('gridspace/private-reply', expect.objectContaining({ action: 'send', renoteId: 'original', expectedActorUri: original.author.uri }), undefined, expect.anything());
+	await view.rerender({ note: { ...note, canSelfRenote: false } });
+	expect((view.getByRole('button', { name: 'Renote' }) as HTMLButtonElement).disabled).toBe(true);
+});
 
 test('a home channel note uses the shared channel name, link and color, without a channel-page context', async () => {
 	const channel = { id: 'channel', name: '#NSFWな話', color: '#ff8a8a' };

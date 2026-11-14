@@ -20,13 +20,14 @@ import type { NotificationReadService } from '@/core/NotificationReadService.js'
 import type { NotificationEntityService } from '@/core/entities/NotificationEntityService.js';
 import { GridspaceNotificationService } from './GridspaceNotificationService.js';
 import type { GridspaceLinkService } from './GridspaceLinkService.js';
-import type { GridspacePrivateService } from './GridspacePrivateService.js';
+import { GridspacePrivateService } from './GridspacePrivateService.js';
 import type { GridspaceSearchService } from './GridspaceSearchService.js';
 import type { NotificationOptions, WireNotification } from './notification-protocol.js';
 
 function fixture() {
 	const links = mockDeep<GridspaceLinkService>();
 	const notes = mockDeep<GridspacePrivateService>();
+	notes.filterChannelRenote.mockImplementation((...args) => GridspacePrivateService.prototype.filterChannelRenote.call(notes, ...args));
 	const notifications = mockDeep<NotificationService>();
 	const reads = mockDeep<NotificationReadService>();
 	const packer = mockDeep<NotificationEntityService>();
@@ -48,6 +49,22 @@ function fixture() {
 }
 
 describe('GridSpace notifications', () => {
+	test.each([true, false])('filters nested previews in both notification note fields (%s)', async readable => {
+		const f = fixture();
+		const preview = { id: 'original', text: 'Own follower post', filterActors: [], renote: { text: 'deeper' } };
+		const note = { id: 'wrapper', filterActors: [], renote: preview };
+		f.notes.localAllows.mockImplementation(async (_user, item) => item.id === 'wrapper' || readable);
+		f.links.json.mockResolvedValue({ items: [{ id: 'notification', note, renote: note }], origin: 'https://r.example', recipientId: 'old' });
+		const result = await f.service.remote(f.viewer, {});
+		for (const item of [result.items[0].note, result.items[0].renote]) {
+			expect(item).not.toHaveProperty('filterActors');
+			if (readable) expect(item?.renote).toEqual({ id: 'original', text: 'Own follower post' });
+			else expect(item).not.toHaveProperty('renote');
+		}
+		expect(f.notes.filterChannelRenote).toHaveBeenCalledTimes(2);
+		expect(f.links.checkPrivateUnchanged).toHaveBeenCalledOnce();
+	});
+
 	test('never forwards caller secrets or allows caller-supplied binding overrides', async () => {
 		const f = fixture();
 		f.links.json.mockResolvedValue({ items: [], origin: 'https://r.example', recipientId: 'old' });

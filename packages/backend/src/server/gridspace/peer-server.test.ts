@@ -109,6 +109,18 @@ describe('GridSpace reaction transport', () => {
 });
 
 describe('GridSpace delegated reply transport', () => {
+	test('accepts a signed old-account self-renote without a reply or channel target', async () => {
+		const received: object[] = [];
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, async body => { received.push(body); return { createdNoteId: 'renote' }; });
+		const url = '/gridspace/v1/private/reply';
+		const input = { accessToken: 'fixture', linkId: '00000000-0000-4000-8000-000000000001', generation: 1, localUserId: 'viewer', renoteId: 'parent', action: 'send', requestId: '00000000-0000-4000-8000-000000000002' };
+		for (const [body, expected] of [[input, 200], [{ ...input, renoteId: '../parent' }, 400]] as const) {
+			const payload = Buffer.from(JSON.stringify(body));
+			expect((await app.inject({ method: 'POST', url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) })).statusCode).toBe(expected);
+		}
+		expect(received).toEqual([input]);
+	});
+
 	test('preserves signed channel renote targets and rejects malformed or unsigned requests', async () => {
 		const received: object[] = [];
 		const app = await server(true, undefined, undefined, undefined, undefined, undefined, async body => { received.push(body); return { createdNoteId: 'renote' }; });

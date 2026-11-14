@@ -27015,6 +27015,7 @@ export interface operations {
                                 collectionId?: string;
                                 collectionAt?: string;
                                 canDelete?: boolean;
+                                canSelfRenote?: boolean;
                                 author: {
                                     name: string | null;
                                     username: string;
@@ -27102,6 +27103,7 @@ export interface operations {
                                     collectionId?: string;
                                     collectionAt?: string;
                                     canDelete?: boolean;
+                                    canSelfRenote?: boolean;
                                     author: {
                                         name: string | null;
                                         username: string;
@@ -27193,6 +27195,7 @@ export interface operations {
                                 collectionId?: string;
                                 collectionAt?: string;
                                 canDelete?: boolean;
+                                canSelfRenote?: boolean;
                                 author: {
                                     name: string | null;
                                     username: string;
@@ -27280,6 +27283,7 @@ export interface operations {
                                     collectionId?: string;
                                     collectionAt?: string;
                                     canDelete?: boolean;
+                                    canSelfRenote?: boolean;
                                     author: {
                                         name: string | null;
                                         username: string;
@@ -27828,6 +27832,7 @@ export interface operations {
                             collectionId?: string;
                             collectionAt?: string;
                             canDelete?: boolean;
+                            canSelfRenote?: boolean;
                             author: {
                                 name: string | null;
                                 username: string;
@@ -27915,6 +27920,7 @@ export interface operations {
                                 collectionId?: string;
                                 collectionAt?: string;
                                 canDelete?: boolean;
+                                canSelfRenote?: boolean;
                                 author: {
                                     name: string | null;
                                     username: string;
@@ -28322,6 +28328,7 @@ export interface operations {
                             collectionId?: string;
                             collectionAt?: string;
                             canDelete?: boolean;
+                            canSelfRenote?: boolean;
                             author: {
                                 name: string | null;
                                 username: string;
@@ -28409,6 +28416,7 @@ export interface operations {
                                 collectionId?: string;
                                 collectionAt?: string;
                                 canDelete?: boolean;
+                                canSelfRenote?: boolean;
                                 author: {
                                     name: string | null;
                                     username: string;
@@ -28551,7 +28559,7 @@ export interface operations {
                      * @enum {string}
                      */
                     action?: 'prepare' | 'send' | 'status';
-                    noteId: string;
+                    noteId?: string;
                     renoteId?: string;
                     channelId?: string;
                     expectedActorUri?: string;
@@ -28564,7 +28572,7 @@ export interface operations {
                         multiple: boolean;
                         expiresAt: number | null;
                     };
-                };
+                } | unknown | unknown;
             };
         };
         responses: {

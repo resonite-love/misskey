@@ -4,6 +4,8 @@
  */
 
 import { MAX_NOTE_TEXT_LENGTH } from '@/const.js';
+import type { MiNote } from '@/models/Note.js';
+import { isRenote, isQuote } from '@/misc/is-renote.js';
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import { privateNoteSchema } from './private-protocol.js';
 
@@ -46,4 +48,9 @@ export function replyAudience(parent: { visibility: string; visibleUserIds: stri
 		visibleUserIds: parent.visibility === 'specified' ? [...new Set([...parent.visibleUserIds, parent.userId])] : [],
 		localOnly: parent.localOnly,
 	};
+}
+
+/** Only the authenticated source author can rebroadcast their own follower note. */
+export function canSelfRenote(note: MiNote, actorId: string): boolean {
+	return note.channelId == null && note.visibility === 'followers' && note.userId === actorId && (!isRenote(note) || isQuote(note));
 }

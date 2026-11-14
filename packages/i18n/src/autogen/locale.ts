@@ -9680,7 +9680,7 @@ export interface Locale extends ILocale {
          */
         "write:gridspace-actions": string;
         /**
-         * 連携先から、このアカウントの名義で限定公開の返信を投稿する
+         * 連携先から、このアカウントの名義で限定公開の返信と自分のフォロワー限定投稿のリノートをする
          */
         "write:gridspace-reply": string;
         /**
@@ -14299,15 +14299,19 @@ export interface Locale extends ILocale {
          */
         "replyRevoke": string;
         /**
-         * 連携先のアカウント名義で返信するには、投稿の許可が必要です。閲覧の許可だけでは投稿しません。
+         * 連携先のアカウント名義で返信・セルフリノートするには、投稿の許可が必要です。閲覧の許可だけでは投稿しません。
          */
         "replyConsent": string;
         /**
-         * 連携先の名義での返信を許可する
+         * 連携先の名義での返信・セルフリノートを許可する
          */
         "replyAuthorize": string;
         /**
-         * このサーバーから、連携先のアカウント名義で返信できます。
+         * {account} としてセルフリノート
+         */
+        "selfRenoteAs": ParameterizedString<"account">;
+        /**
+         * このサーバーから、連携先のアカウント名義で返信・セルフリノートできます。
          */
         "replyGranted": string;
         /**
@@ -14343,7 +14347,7 @@ export interface Locale extends ILocale {
          */
         "replyOpen": string;
         /**
-         * 返信先か権限を確認できませんでした。時間をおいて再試行してください。
+         * 元の投稿か権限を確認できませんでした。時間をおいて再試行してください。
          */
         "replyUnavailable": string;
         /**
