@@ -50,7 +50,7 @@ function mountTimeline(initial: ReturnType<typeof normal>[], animation = true) {
 			mocks: { $style: {} },
 			components: { MkNote: Note, MkAd: { render: () => Vue.h('aside', { 'data-ad': '' }, 'Ad') } },
 			directives: { appear: {} },
-			stubs: { transition: false, 'transition-group': false, MkButton: true, MkInfo: true, MkLoading: true, MkError: true, MkResult: true, MkGridspacePrivateNoteRow: true },
+			stubs: { transition: false, 'transition-group': false, MkButton: true, MkInfo: true, MkLoading: true, MkError: true, MkResult: true, MkGridspacePrivateNoteRow: true, MkTimelineLoadMore: true },
 		},
 	});
 	return { view, rows };

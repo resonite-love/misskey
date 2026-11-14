@@ -234,6 +234,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 					if (!antennaHeadCursor) break;
 				}
 			}
+			pagingKey.value++;
 		} catch (error) { if (current === privateGeneration) readFailed(error); } finally { if (checking === current) checking = null; }
 	}
 

@@ -135,6 +135,7 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 					break;
 				}
 			}
+			pagingKey.value++;
 		} catch { if (current === generation) fail(); } finally { if (polling === current) polling = null; }
 	}
 

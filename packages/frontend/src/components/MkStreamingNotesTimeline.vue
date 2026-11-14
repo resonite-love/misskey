@@ -51,15 +51,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</template>
 			</template>
 		</component>
-		<button
-			v-show="home.hasMore.value" :key="home.pagingKey.value"
-			v-appear="prefer.s.enableInfiniteScroll ? home.fetchOlder : null"
-			:disabled="home.loading.value" class="_button" :class="$style.more"
-			@click="home.fetchOlder"
-		>
-			<div v-if="!home.loading.value">{{ i18n.ts.loadMore }}</div>
-			<MkLoading v-else :inline="true"/>
-		</button>
+		<MkLoading v-if="home.loading.value"/>
+		<MkTimelineLoadMore :key="home.pagingKey.value" :hasMore="home.hasMore.value" :loading="home.loading.value" @load="home.fetchOlder"/>
 	</div>
 </component>
 </template>
@@ -97,6 +90,7 @@ import MkInfo from '@/components/MkInfo.vue';
 import { useGridspaceHome } from '@/utility/use-gridspace-home.js';
 import { clearLeavingPrivateNote } from '@/utility/gridspace-note-suspension.js';
 import MkButton from '@/components/MkButton.vue';
+import MkTimelineLoadMore from '@/components/MkTimelineLoadMore.vue';
 import { i18n } from '@/i18n.js';
 import { DI } from '@/di.js';
 import { globalEvents, useGlobalEvent } from '@/events.js';
@@ -685,11 +679,4 @@ defineExpose({
 	}
 }
 
-.more {
-	display: block;
-	width: 100%;
-	box-sizing: border-box;
-	padding: 16px;
-	background: var(--MI_THEME-panel);
-}
 </style>

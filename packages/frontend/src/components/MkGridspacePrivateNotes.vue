@@ -16,13 +16,13 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<component :is="prefer.s.animation ? TransitionGroup : 'div'" tag="div" :enterActiveClass="$style.enterActive" :enterFromClass="$style.enterFrom" :moveClass="$style.move" @beforeLeave="clearLeavingPrivateNote">
 			<MkGridspacePrivateNoteRow v-for="note in displayed" :key="note.id" :note="note" :data-scroll-anchor="note.uri" @unavailable="fail" @replied="refresh"/>
 		</component>
-		<div :class="$style.heading" class="_gaps_s">
+		<div v-if="error || loading || (notes.length === 0 && !hasMore)" :class="$style.heading" class="_gaps_s">
 			<p v-if="error" role="alert">{{ params.channelId ? i18n.ts._gridspace.channelNotesUnavailable : i18n.ts._gridspace.privateUnavailable }}</p>
 			<MkLoading v-if="loading"/>
 			<p v-else-if="!error && notes.length === 0 && !hasMore">{{ i18n.ts.noNotes }}</p>
 			<MkButton v-if="error" :disabled="loading" @click="refresh">{{ i18n.ts.retry }}</MkButton>
-			<MkButton v-else-if="hasMore" :disabled="loading" @click="load">{{ i18n.ts.loadMore }}</MkButton>
 		</div>
+		<MkTimelineLoadMore :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" @load="load"/>
 	</template>
 </section>
 </component>
@@ -34,6 +34,7 @@ import { isHeadVisible, onScrollTop, scrollToTop } from '@@/js/scroll.js';
 import type { entities } from 'misskey-js';
 import type { GridspaceNoteEntry } from '@/utility/gridspace-note-suspension.js';
 import MkButton from '@/components/MkButton.vue';
+import MkTimelineLoadMore from '@/components/MkTimelineLoadMore.vue';
 import MkPullToRefresh from '@/components/MkPullToRefresh.vue';
 import MkGridspacePrivateNoteRow from '@/components/MkGridspacePrivateNoteRow.vue';
 import { prefer } from '@/preferences.js';
@@ -57,6 +58,7 @@ const signal = () => AbortSignal.any([controller.signal, AbortSignal.timeout(150
 const displayed = computed(() => notes.value.filter(note => isVisiblePrivateNote(note)));
 const loading = ref(false);
 const hasMore = ref(false);
+const pagingKey = ref(0);
 const error = ref(false);
 let cursor: string | undefined;
 let generation = 0;
@@ -158,6 +160,9 @@ async function revalidate(retry = false) {
 			}
 			emit('loaded');
 		}
+		// The bottom marker may have intersected while reads were suspended.
+		// Re-arm it after authorization has finished, without resetting pages.
+		pagingKey.value++;
 	} catch (err) { if (current === generation) readFailed(err); } finally {
 		if (checking === current) {
 			checking = null;
