@@ -18,6 +18,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<template v-if="selected">
 			<section v-if="tab === 'overview'" class="_panel" :class="$style.overview">
 				<div :class="$style.hero" :style="{ backgroundImage: selected.bannerUrl ? `url(${selected.bannerUrl})` : undefined }">
+					<MkChannelFollowButton :key="selected.id" :channel="selected" full :disabled="updating" :updateFollowing="updateFollowing" :class="$style.subscribe"/>
+					<MkButton v-tooltip="selected.isFavorited ? i18n.ts.unfavorite : i18n.ts.favorite" asLike rounded :primary="selected.isFavorited" :disabled="updating" :aria-label="selected.isFavorited ? i18n.ts.unfavorite : i18n.ts.favorite" :aria-pressed="selected.isFavorited" :class="$style.favorite" @click="toggleFavorite"><i class="ti ti-star"></i></MkButton>
 					<div :class="$style.statistics"><div><i class="ti ti-users ti-fw"></i> {{ i18n.tsx._channel.usersCount({ n: selected.usersCount }) }}</div><div><i class="ti ti-pencil ti-fw"></i> {{ i18n.tsx._channel.notesCount({ n: selected.notesCount }) }}</div></div>
 					<span v-if="selected.isSensitive" :class="$style.sensitive">{{ i18n.ts.sensitive }}</span>
 				</div>
@@ -58,6 +60,7 @@ import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import MkInput from '@/components/MkInput.vue';
 import MkSwitch from '@/components/MkSwitch.vue';
+import MkChannelFollowButton from '@/components/MkChannelFollowButton.vue';
 import MkGridspacePrivateNotes from '@/components/MkGridspacePrivateNotes.vue';
 import MkGridspacePostForm from '@/components/MkGridspacePostForm.vue';
 import { gridspacePost } from '@/utility/gridspace-post.js';
@@ -67,6 +70,7 @@ import { misskeyApi } from '@/utility/misskey-api.js';
 import { definePage } from '@/page.js';
 import { i18n } from '@/i18n.js';
 import { miLocalStorage } from '@/local-storage.js';
+import * as os from '@/os.js';
 
 const props = defineProps<{ channelId?: string }>();
 type Channel = entities.GridspaceChannelsResponse['channels'][number];
@@ -80,6 +84,7 @@ const originHost = computed(() => origin.value ? new URL(origin.value).host : ''
 const next = ref<string | null>(null);
 const loading = ref(false);
 const error = ref(false);
+const updating = ref(false);
 const tab = ref('timeline');
 const headerTabs = computed(() => props.channelId ? [
 	{ key: 'overview', title: i18n.ts.overview, icon: 'ti ti-info-circle' },
@@ -124,6 +129,40 @@ async function load(more: boolean, background = false) {
 
 function refreshNotes() { timeline.value?.refresh(); }
 
+async function updateChannel(action: entities.GridspaceChannelUpdateRequest['action']) {
+	if (!selected.value || updating.value) throw new Error('Channel update unavailable');
+	const channelId = selected.value.id;
+	// Cancel metadata reads that started before this write, so stale flags cannot
+	// overwrite the server-confirmed follow/favorite state.
+	suspend();
+	const current = generation;
+	updating.value = true;
+	try {
+		const state = await misskeyApi('gridspace/channel-update', { channelId, action }, undefined, AbortSignal.timeout(15000));
+		if (current === generation && props.channelId === channelId) channels.value = channels.value.map(channel => channel.id === channelId ? { ...channel, ...state } : channel);
+		return state;
+	} catch (err) {
+		if (current === generation) await os.alert({ type: 'error', text: i18n.ts._gridspace.connectionError });
+		throw err;
+	} finally {
+		updating.value = false;
+		if (current !== generation && active && !window.document.hidden) void load(false, true);
+	}
+}
+
+async function updateFollowing(following: boolean) {
+	return (await updateChannel(following ? 'follow' : 'unfollow')).isFollowing;
+}
+
+async function toggleFavorite() {
+	if (!selected.value || updating.value) return;
+	const channelId = selected.value.id;
+	const favorited = selected.value.isFavorited;
+	if (favorited && (await os.confirm({ type: 'warning', text: i18n.ts.unfavoriteConfirm })).canceled) return;
+	if (selected.value?.id !== channelId) return;
+	await updateChannel(favorited ? 'unfavorite' : 'favorite').catch(() => {});
+}
+
 function search() { appliedSearch.value = searchQuery.value.trim(); }
 
 function openPostForm() { if (selected.value) void gridspacePost({ channelId: selected.value.id, channel: selected.value }, refreshNotes); }
@@ -132,7 +171,7 @@ function refresh() { refreshNotes(); void load(false); }
 
 function suspend() { generation++; controller.abort(); controller = new AbortController(); loading.value = false; }
 
-function resume() { if (props.channelId || !channels.value.length) void load(false, channels.value.length > 0); }
+function resume() { if (!updating.value && (props.channelId || !channels.value.length)) void load(false, channels.value.length > 0); }
 
 function visibility() { if (window.document.hidden) suspend(); else resume(); }
 
@@ -143,7 +182,7 @@ watch(selected, () => {
 watch(() => props.channelId, () => { composerReady.value = false; void load(false); }, { immediate: true });
 onDeactivated(() => { active = false; suspend(); });
 onActivated(() => { if (!active) { active = true; resume(); } });
-onBeforeUnmount(() => { clear(); window.document.removeEventListener('visibilitychange', visibility); });
+onBeforeUnmount(() => { active = false; clear(); window.document.removeEventListener('visibilitychange', visibility); });
 definePage(() => ({ title: selected.value?.name ?? i18n.ts._gridspace.channels, icon: 'ti ti-device-tv' }));
 </script>
 
@@ -152,6 +191,8 @@ definePage(() => ({ title: selected.value?.name ?? i18n.ts._gridspace.channels, 
 .detail h2 { margin: 0; font-size: 1.25em; }
 .overview { overflow: clip; }
 .hero { height: 200px; position: relative; background: var(--MI_THEME-bg) center / cover; }
+.subscribe { position: absolute; z-index: 1; top: 16px; left: 16px; }
+.favorite { position: absolute; z-index: 1; top: 16px; right: 16px; }
 .statistics { position: absolute; bottom: 16px; right: 16px; background: var(--MI_THEME-tooltipBg); color: var(--MI_THEME-tooltipFg); padding: 8px 12px; border-radius: 6px; font-size: 0.8em; }
 .sensitive { position: absolute; bottom: 16px; left: 16px; background: var(--MI_THEME-tooltipBg); color: var(--MI_THEME-warn); padding: 4px 7px; border-radius: 6px; }
 .origin { display: block; margin-block: 8px; color: var(--MI_THEME-fgTransparentWeak); font-size: 0.85em; }

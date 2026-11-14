@@ -488,6 +488,7 @@ export * as 'gridspace/layout-reference' from './endpoints/gridspace/layout-refe
 export * as 'gridspace/channels' from './endpoints/gridspace/channels.js';
 export * as 'gridspace/channel-post' from './endpoints/gridspace/channel-post.js';
 export * as 'gridspace/channel-delete' from './endpoints/gridspace/channel-delete.js';
+export * as 'gridspace/channel-update' from './endpoints/gridspace/channel-update.js';
 export * as 'gridspace/link' from './endpoints/gridspace/link.js';
 
 export * as 'admin/gridspace/status' from './endpoints/admin/gridspace/status.js';

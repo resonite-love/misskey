@@ -2117,6 +2117,8 @@ declare namespace entities {
         GridspaceChannelDeleteResponse,
         GridspaceChannelPostRequest,
         GridspaceChannelPostResponse,
+        GridspaceChannelUpdateRequest,
+        GridspaceChannelUpdateResponse,
         GridspaceChannelsRequest,
         GridspaceChannelsResponse,
         GridspaceCollectionsRequest,
@@ -2778,6 +2780,12 @@ type GridspaceChannelsRequest = operations['gridspace___channels']['requestBody'
 
 // @public (undocumented)
 type GridspaceChannelsResponse = operations['gridspace___channels']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceChannelUpdateRequest = operations['gridspace___channel-update']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceChannelUpdateResponse = operations['gridspace___channel-update']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type GridspaceCollectionsRequest = operations['gridspace___collections']['requestBody']['content']['application/json'];

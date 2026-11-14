@@ -67,3 +67,14 @@ export const Default = {
 		},
 	},
 } satisfies StoryObj<typeof MkChannelFollowButton>;
+
+export const Linked = {
+	...Default,
+	args: {
+		...Default.args,
+		updateFollowing: async (following: boolean) => {
+			action('linked channel follow')(following);
+			return following;
+		},
+	},
+} satisfies StoryObj<typeof MkChannelFollowButton>;

@@ -96,7 +96,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 			// node-fetch bounds streaming bodies, not just Content-Length.
 			const result = await response.json();
 			if (!response.ok) {
-				const known = ['LINK_CONFLICT', 'LINK_REVOKED', 'AUTHORIZATION_REVOKED', 'SNAPSHOT_TOO_LARGE', 'REPLY_UNAVAILABLE', 'REPLY_REJECTED', 'REPLY_CONFLICT', 'REPLY_DELETED', 'RATE_LIMITED', 'ACTION_REJECTED', 'FILE_REJECTED', 'PLAY_UNAVAILABLE'];
+				const known = ['LINK_CONFLICT', 'LINK_REVOKED', 'AUTHORIZATION_REVOKED', 'SNAPSHOT_TOO_LARGE', 'REPLY_UNAVAILABLE', 'REPLY_REJECTED', 'REPLY_CONFLICT', 'REPLY_DELETED', 'RATE_LIMITED', 'ACTION_REJECTED', 'FILE_REJECTED', 'PLAY_UNAVAILABLE', 'CHANNEL_UNAVAILABLE'];
 				const code = (result as { error?: unknown } | null)?.error;
 				throw new GridspaceLinkError(typeof code === 'string' && known.includes(code) ? code : 'PEER_UNAVAILABLE');
 			}

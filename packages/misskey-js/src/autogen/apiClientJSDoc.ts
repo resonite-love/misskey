@@ -2976,6 +2976,17 @@ declare module '../api.js' {
     /**
      * No description provided.
      * 
+     * **Credential required**: *Yes* / **Permission**: *write:gridspace-channel*
+     */
+    request<E extends 'gridspace/channel-update', P extends Endpoints[E]['req']>(
+      endpoint: E,
+      params: P,
+      credential?: string | null,
+    ): Promise<SwitchCaseResponseType<E, P>>;
+
+    /**
+     * No description provided.
+     * 
      * **Credential required**: *Yes* / **Permission**: *read:gridspace-private*
      */
     request<E extends 'gridspace/channels', P extends Endpoints[E]['req']>(

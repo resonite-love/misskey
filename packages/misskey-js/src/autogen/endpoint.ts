@@ -414,6 +414,8 @@ import type {
 	GridspaceChannelDeleteResponse,
 	GridspaceChannelPostRequest,
 	GridspaceChannelPostResponse,
+	GridspaceChannelUpdateRequest,
+	GridspaceChannelUpdateResponse,
 	GridspaceChannelsRequest,
 	GridspaceChannelsResponse,
 	GridspaceCollectionsRequest,
@@ -1018,6 +1020,7 @@ export type Endpoints = {
 	'get-online-users-count': { req: EmptyRequest; res: GetOnlineUsersCountResponse };
 	'gridspace/channel-delete': { req: GridspaceChannelDeleteRequest; res: GridspaceChannelDeleteResponse };
 	'gridspace/channel-post': { req: GridspaceChannelPostRequest; res: GridspaceChannelPostResponse };
+	'gridspace/channel-update': { req: GridspaceChannelUpdateRequest; res: GridspaceChannelUpdateResponse };
 	'gridspace/channels': { req: GridspaceChannelsRequest; res: GridspaceChannelsResponse };
 	'gridspace/collections': { req: GridspaceCollectionsRequest; res: GridspaceCollectionsResponse };
 	'gridspace/content': { req: GridspaceContentRequest; res: GridspaceContentResponse };

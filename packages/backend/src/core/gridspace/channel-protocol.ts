@@ -7,6 +7,14 @@ import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 
 export type ChannelOptions = { channelId?: string; query?: string; queryType?: 'nameOnly' | 'nameAndDescription'; list?: 'featured' | 'favorites' | 'following' | 'owned' | 'search'; followed?: boolean; before?: string; limit?: number };
 export type ChannelPeerRequest = GridspacePeerLinkRequest & ChannelOptions;
+export const channelActionSchema = { type: 'string', enum: ['follow', 'unfollow', 'favorite', 'unfavorite'] } as const;
+export type ChannelAction = typeof channelActionSchema.enum[number];
+export type ChannelUpdate = { channelId: string; action: ChannelAction };
+export type ChannelUpdatePeerRequest = GridspacePeerLinkRequest & ChannelUpdate;
+export const channelStateSchema = { type: 'object', optional: false, nullable: false, properties: {
+	isFollowing: { type: 'boolean', optional: false, nullable: false },
+	isFavorited: { type: 'boolean', optional: false, nullable: false },
+} } as const;
 export const channelOptionsSchema = {
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	query: { type: 'string', maxLength: 100 }, followed: { type: 'boolean', default: false },

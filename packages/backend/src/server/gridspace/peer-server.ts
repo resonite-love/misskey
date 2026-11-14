@@ -5,7 +5,7 @@
 
 import { sharedDriveRequestSchema, type SharedDriveRequest } from '@/core/gridspace/shared-drive-protocol.js';
 import { managedPeerSchema, type ManagedPeerInput } from '@/core/gridspace/managed-resource-protocol.js';
-import { channelOptionsSchema, type ChannelPeerRequest } from '@/core/gridspace/channel-protocol.js';
+import { channelActionSchema, channelOptionsSchema, type ChannelPeerRequest, type ChannelUpdatePeerRequest } from '@/core/gridspace/channel-protocol.js';
 import { contentOptionsSchema, type ContentOptions } from '@/core/gridspace/content-protocol.js';
 import { driveOptionsSchema, type DrivePeerRequest } from '@/core/gridspace/drive-protocol.js';
 import { GRIDSPACE_NOTE_BATCH_LIMIT } from '@/core/gridspace/note-protocol.js';
@@ -25,7 +25,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 export type ClaimGridspaceNonce = (key: string, ttlMs: number) => Promise<boolean>;
 
 /** Mounted under /gridspace/v1; independent from user-authorized /api endpoints. */
-export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>, channels?: (input: ChannelPeerRequest) => Promise<object>, channelDelete?: (input: GridspacePeerLinkRequest & { noteId: string; channelId: string }) => Promise<object>, drive?: (input: DrivePeerRequest) => Promise<object>, content?: (input: ContentOptions) => Promise<object>, sharedDrive?: (input: SharedDriveRequest) => Promise<object>, managed?: (input: ManagedPeerInput) => Promise<object>): void {
+export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>, channels?: (input: ChannelPeerRequest) => Promise<object>, channelDelete?: (input: GridspacePeerLinkRequest & { noteId: string; channelId: string }) => Promise<object>, drive?: (input: DrivePeerRequest) => Promise<object>, content?: (input: ContentOptions) => Promise<object>, sharedDrive?: (input: SharedDriveRequest) => Promise<object>, managed?: (input: ManagedPeerInput) => Promise<object>, channelUpdate?: (input: ChannelUpdatePeerRequest) => Promise<object>): void {
 	if (config === null) return;
 	// Preserve wire bytes for the signature without changing other server plugins' parsers.
 	const parseJson = fastify.getDefaultJsonParser('error', 'error');
@@ -117,6 +117,25 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			} } },
 		}, async (request, reply) => {
 			try { return await channels(request.body); } catch { return reply.code(403).send({ error: 'AUTHORIZATION_REVOKED' }); }
+		});
+	}
+	if (channelUpdate) {
+		fastify.post<{ Body: ChannelUpdatePeerRequest }>('/private/channel-update', {
+			bodyLimit: 4096, config: { rawBody: true }, preHandler: authenticate,
+			schema: { body: { type: 'object', additionalProperties: false, required: ['channelId', 'action'], oneOf: [
+				{ required: ['accessToken', 'linkId', 'generation', 'localUserId'], not: { required: ['channelActorId'] } },
+				{ required: ['channelActorId'], not: { required: ['accessToken'] } },
+			], properties: {
+				channelId: channelOptionsSchema.channelId, action: channelActionSchema, channelActorId: channelOptionsSchema.channelId,
+				accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
+				generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: channelOptionsSchema.channelId,
+			} } },
+		}, async (request, reply) => {
+			try { return await channelUpdate(request.body); } catch (error) {
+				const code = error instanceof Error && 'code' in error ? error.code : null;
+				const denied = code === 'AUTHORIZATION_REVOKED' || code === 'LINK_REVOKED';
+				return reply.code(code === 'CHANNEL_UNAVAILABLE' ? 404 : denied ? 403 : 503).send({ error: code === 'CHANNEL_UNAVAILABLE' ? 'CHANNEL_UNAVAILABLE' : denied ? 'AUTHORIZATION_REVOKED' : 'PEER_UNAVAILABLE' });
+			}
 		});
 	}
 	if (channelDelete) {

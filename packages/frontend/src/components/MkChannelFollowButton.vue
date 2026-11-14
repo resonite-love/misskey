@@ -7,7 +7,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 <button
 	class="_button"
 	:class="[$style.root, { [$style.wait]: wait, [$style.active]: isFollowing, [$style.full]: full }]"
-	:disabled="wait"
+	:disabled="wait || disabled"
+	:aria-label="isFollowing ? i18n.ts.unfollow : i18n.ts.follow"
+	:aria-pressed="isFollowing"
 	@click="onClick"
 >
 	<template v-if="!wait">
@@ -25,40 +27,40 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import * as Misskey from 'misskey-js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 
 const props = withDefaults(defineProps<{
-	channel: Misskey.entities.Channel;
+	channel: Pick<Misskey.entities.Channel, 'id' | 'isFollowing'>;
 	full?: boolean;
+	disabled?: boolean;
+	updateFollowing?: (following: boolean) => Promise<boolean>;
 }>(), {
 	full: false,
 });
 
 const isFollowing = ref(props.channel.isFollowing);
 const wait = ref(false);
+let sequence = 0;
+watch(() => props.channel.isFollowing, value => { isFollowing.value = value; });
+watch(() => props.channel.id, () => { sequence++; wait.value = false; isFollowing.value = props.channel.isFollowing; });
 
 async function onClick() {
+	if (wait.value || props.disabled) return;
+	const current = ++sequence;
+	const channelId = props.channel.id;
+	const next = !isFollowing.value;
 	wait.value = true;
 
 	try {
-		if (isFollowing.value) {
-			await misskeyApi('channels/unfollow', {
-				channelId: props.channel.id,
-			});
-			isFollowing.value = false;
-		} else {
-			await misskeyApi('channels/follow', {
-				channelId: props.channel.id,
-			});
-			isFollowing.value = true;
-		}
+		const confirmed = props.updateFollowing ? await props.updateFollowing(next) : await misskeyApi(next ? 'channels/follow' : 'channels/unfollow', { channelId }).then(() => next);
+		if (current === sequence && props.channel.id === channelId) isFollowing.value = confirmed;
 	} catch (err) {
 		console.error(err);
 	} finally {
-		wait.value = false;
+		if (current === sequence) wait.value = false;
 	}
 }
 </script>

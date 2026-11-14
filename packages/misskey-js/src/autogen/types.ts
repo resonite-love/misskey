@@ -2436,6 +2436,15 @@ export type paths = {
          */
         post: operations['gridspace___channel-post'];
     };
+    '/gridspace/channel-update': {
+        /**
+         * gridspace/channel-update
+         * @description No description provided.
+         *
+         *     **Credential required**: *Yes* / **Permission**: *write:gridspace-channel*
+         */
+        post: operations['gridspace___channel-update'];
+    };
     '/gridspace/channels': {
         /**
          * gridspace/channels
@@ -25683,6 +25692,86 @@ export interface operations {
                         }[];
                         maxTextLength: number;
                         createdNoteId: string | null;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___channel-update': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** Format: misskey:id */
+                    channelId: string;
+                    /** @enum {string} */
+                    action: 'follow' | 'unfollow' | 'favorite' | 'unfavorite';
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        isFollowing: boolean;
+                        isFavorited: boolean;
                     };
                 };
             };

@@ -9,14 +9,18 @@ import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import type { MiLocalUser } from '@/models/User.js';
 import { MiChannel } from '@/models/Channel.js';
+import { MiChannelFollowing } from '@/models/ChannelFollowing.js';
+import { MiChannelFavorite } from '@/models/ChannelFavorite.js';
 import { MiNote } from '@/models/Note.js';
 import { MiUser } from '@/models/User.js';
 import { NoteDeleteService } from '@/core/NoteDeleteService.js';
 import { ChannelEntityService } from '@/core/entities/ChannelEntityService.js';
+import { IdService } from '@/core/IdService.js';
+import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { sqlLikeEscape } from '@/misc/sql-like-escape.js';
 import { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
 import { GridspaceLinkError, GridspaceLinkService, type GridspacePeerLinkRequest } from './GridspaceLinkService.js';
-import type { ChannelOptions, ChannelPeerRequest } from './channel-protocol.js';
+import type { ChannelOptions, ChannelPeerRequest, ChannelUpdate, ChannelUpdatePeerRequest } from './channel-protocol.js';
 
 @Injectable()
 export class GridspaceChannelService {
@@ -27,6 +31,8 @@ export class GridspaceChannelService {
 		private channels: ChannelEntityService,
 		private auth: GridspaceChannelAuthService,
 		private noteDelete: NoteDeleteService,
+		private ids: IdService,
+		private events: GlobalEventService,
 	) {}
 
 	public async peerList(input: ChannelPeerRequest) {
@@ -80,6 +86,41 @@ export class GridspaceChannelService {
 			else await this.links.lockReplyAuthorization(input, manager, 'write:gridspace-channel');
 		});
 		return { deleted: true };
+	}
+
+	public async peerUpdate(input: ChannelUpdatePeerRequest) {
+		this.auth.assertSource();
+		if (!['follow', 'unfollow', 'favorite', 'unfavorite'].includes(input.action)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const guest = input.channelActorId ? await this.auth.source(input.channelActorId) : null;
+		const link = guest ? null : await this.links.authorizePrivate(input);
+		if (link && link.initiator) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const userId = guest?.id ?? link!.localUserId;
+		const result = await this.db.transaction(async manager => {
+			if (input.channelActorId) {
+				if ((await this.auth.source(input.channelActorId, manager)).id !== userId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			} else await this.links.lockReplyAuthorization(input, manager, 'write:gridspace-channel');
+			if (!await manager.getRepository(MiChannel).existsBy({ id: input.channelId })) throw new GridspaceLinkError('CHANNEL_UNAVAILABLE');
+			const followings = manager.getRepository(MiChannelFollowing);
+			const favorites = manager.getRepository(MiChannelFavorite);
+			const followKey = { followerId: userId, followeeId: input.channelId };
+			const favoriteKey = { userId, channelId: input.channelId };
+			if (input.action === 'follow') await followings.createQueryBuilder().insert().values({ id: this.ids.gen(), ...followKey }).orIgnore().execute();
+			else if (input.action === 'unfollow') await followings.delete(followKey);
+			else if (input.action === 'favorite') await favorites.createQueryBuilder().insert().values({ id: this.ids.gen(), ...favoriteKey }).orIgnore().execute();
+			else await favorites.delete(favoriteKey);
+			return { isFollowing: await followings.existsBy(followKey), isFavorited: await favorites.existsBy(favoriteKey) };
+		});
+		// Use the same cache invalidation events as ordinary channel following,
+		// after the authorized transaction has committed successfully.
+		if (input.action === 'follow' || input.action === 'unfollow') this.events.publishInternalEvent(input.action === 'follow' ? 'followChannel' : 'unfollowChannel', { userId, channelId: input.channelId });
+		return result;
+	}
+
+	public async update(viewer: MiLocalUser, input: ChannelUpdate) {
+		const context = await this.auth.destination(viewer);
+		const result = await this.links.json<{ isFollowing: boolean; isFavorited: boolean }>('/gridspace/v1/private/channel-update', { ...input, ...context.credential });
+		await context.check();
+		return result;
 	}
 
 	public async delete(viewer: MiLocalUser, input: { noteId: string; channelId: string; asCurrentAccount?: boolean }) {
