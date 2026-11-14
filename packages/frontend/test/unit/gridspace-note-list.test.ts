@@ -259,3 +259,17 @@ it('sorts linked clip pages oldest first and keeps filters on validation', async
  source.value = { kind: 'clip', clipId: 'clip', order: 'newest', query: 'other' }; await settle();
  expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ mode: 'clip', order: 'newest', query: 'other', cursor: undefined });
 });
+
+it('does not restore an unclipped row when an earlier validation response arrives', async () => {
+ let release!: (value: unknown) => void;
+ respond = async (_endpoint, params) => {
+  if (_endpoint === 'gridspace/private-grant') return { available: true, granted: true };
+  if (_endpoint === 'gridspace/collections') return { enabled: true, clips: true };
+  return params.mode === 'validate' ? new Promise(resolve => { release = resolve; }) : page([privateNote(5)]);
+ };
+ const { list } = mount({ kind: 'clip', clipId: 'clip' }); await settle();
+ expect(list.rows.value.map(row => row.note.id)).toEqual(['p5']);
+ await vi.advanceTimersByTimeAsync(15000); await settle();
+ list.removePrivate('p5'); release(page([privateNote(5)])); await settle();
+ expect(list.rows.value).toHaveLength(0);
+});

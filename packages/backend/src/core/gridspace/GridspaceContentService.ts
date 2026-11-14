@@ -80,7 +80,7 @@ export class GridspaceContentService {
 		if (result.origin !== origin || !Array.isArray(result.pages) || !Array.isArray(result.gallery) || !Array.isArray(result.clips) || result.pages.length + result.gallery.length + result.clips.length > (input.itemId ? 1 : input.limit ?? 12)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		const items = [...result.pages, ...result.gallery, ...result.clips];
 		const ascending = Boolean(input.after || input.sinceDate);
-		if ((items.length !== result[input.kind].length) || (result.next !== null && (!items.length || result.next !== items.at(-1)!.id || input.itemId || input.mode === 'featured'))) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		if ((items.length !== (input.kind === 'clips' ? result.clips : input.kind === 'pages' ? result.pages : result.gallery).length) || (result.next !== null && (!items.length || result.next !== items.at(-1)!.id || input.itemId || input.mode === 'featured'))) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		for (let index = 0; index < items.length; index++) {
 			const item = items[index];
 			if (input.kind === 'clips' && (!('isPublic' in item) || !item.isPublic)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
@@ -94,7 +94,7 @@ export class GridspaceContentService {
 			if (!/^[a-zA-Z0-9]{1,32}$/.test(item.id) || !/^[a-zA-Z0-9]{1,32}$/.test(item.userId) || item.user.host != null) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 			item.gridspaceOrigin = origin;
 			if (('attachedFiles' in item || 'files' in item) && input.kind !== 'clips' && ownLink?.peerUserId === item.userId) item.gridspaceManagedId = managedId(input.kind === 'pages' ? 'page' : 'gallery', item.id);
-			const files = 'attachedFiles' in item ? [...item.attachedFiles, ...(item.eyeCatchingImage ? [item.eyeCatchingImage] : [])] : 'files' in item ? item.files : [];
+			const files = 'attachedFiles' in item ? [...item.attachedFiles, ...(item.eyeCatchingImage ? [item.eyeCatchingImage] : [])] : 'files' in item ? item.files ?? [] : [];
 			for (const file of files) file.gridspaceOrigin = origin;
 			item.user = { ...item.user, host: new URL(origin).host, id: known.find(user => user.uri === `${origin}/users/${item.userId}`)?.id ?? `gridspace:${item.userId}` };
 			item.userId = item.user.id;

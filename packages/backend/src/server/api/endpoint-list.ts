@@ -474,6 +474,7 @@ export * as 'gridspace/private-notes' from './endpoints/gridspace/private-notes.
 export * as 'gridspace/private-file' from './endpoints/gridspace/private-file.js';
 export * as 'gridspace/private-reply' from './endpoints/gridspace/private-reply.js';
 export * as 'gridspace/private-upload' from './endpoints/gridspace/private-upload.js';
+export * as 'gridspace/note-menu' from './endpoints/gridspace/note-menu.js';
 export * as 'gridspace/private-action' from './endpoints/gridspace/private-action.js';
 export * as 'gridspace/palette' from './endpoints/gridspace/palette.js';
 export * as 'gridspace/profile-import' from './endpoints/gridspace/profile-import.js';

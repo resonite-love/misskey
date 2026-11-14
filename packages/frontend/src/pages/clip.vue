@@ -108,6 +108,7 @@ async function loadClip() {
 
 watch(() => [props.clipId, props.peer], () => { generation++; checking = false; clip.value = null; managedClipId.value = null; void loadClip(); }, { immediate: true });
 provide('currentClip', computed(() => isPeer.value ? null : clip.value));
+provide('gridspaceClip', computed(() => isPeer.value ? { id: props.clipId, canManage: isOwned.value === true } : null));
 
 function suspendPeer() { if (isPeer.value) { generation++; checking = false; clip.value = null; } }
 

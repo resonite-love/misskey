@@ -55,6 +55,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 import { computed, inject, onBeforeUnmount, onDeactivated, onMounted, ref, useTemplateRef, watch } from 'vue';
 import * as mfm from 'mfm-js';
 import { url } from '@@/js/config.js';
+import type { Ref } from 'vue';
+import type { LinkedClipContext } from '@/utility/gridspace-note-menu.js';
+import { useGlobalEvent } from '@/events.js';
 import type { entities } from 'misskey-js';
 import MkGridspaceNoteActions from '@/components/MkGridspaceNoteActions.vue';
 import MkButton from '@/components/MkButton.vue';
@@ -165,13 +168,15 @@ async function renote() {
 	} finally { renoteLoading.value = false; }
 }
 
+const linkedClip = inject<Ref<LinkedClipContext | null> | null>('gridspaceClip', null);
+useGlobalEvent('gridspaceNoteDeleted', id => { if (id === note.value.id) { clear(); deleted.value = true; } });
 let disposeMenu: (() => void) | null = null;
 
 async function showMenu(event: MouseEvent) {
 	disposeMenu?.();
 	const anchor = event.currentTarget ?? event.target;
 	const current = generation;
-	const { menu, cleanup } = await getGridspaceNoteMenu(note.value, noteLink(note.value.id), translation, translating);
+	const { menu, cleanup } = await getGridspaceNoteMenu(note.value, noteLink(note.value.id), translation, translating, props.nested ? null : linkedClip?.value, () => current === generation);
 	if (current !== generation) { cleanup(); return; }
 	disposeMenu = cleanup;
 	if (note.value.channelId && (note.value.canDelete || isOwnGridNote.value)) menu.push({ text: i18n.ts.delete, icon: 'ti ti-trash', danger: true, action: deleteNote });

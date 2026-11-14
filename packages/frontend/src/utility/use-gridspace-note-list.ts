@@ -29,6 +29,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	const normal = shallowRef<(entities.Note & { collectionAt?: string })[]>([]);
 	const preview = shallowRef<(entities.Note & { collectionAt?: string })[]>([]);
 	const delegated = shallowRef<GridspaceNoteEntry[]>([]);
+	const removed = new Set<string>();
 	let suspended = false;
 	let privatePageLoaded = false;
 	const normalMore = ref(true);
@@ -68,7 +69,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	});
 	const rows = computed(() => {
 		const n = [...normal.value, ...preview.value].filter(item => !$i || !checkNoteWordMute(noteUtils.isPureRenote(item) ? item.renote ?? item : item, $i, $i.hardMutedWords));
-		const p = delegated.value.filter(item => isVisiblePrivateNote(item));
+		const p = delegated.value.filter(item => !removed.has(item.id) && isVisiblePrivateNote(item));
 		// A linked clip has a single source; its ascending keyset is already
 		// permission-filtered and must not use the descending merge boundary.
 		if (source.value.kind === 'clip' && source.value.order === 'oldest') return p.map(note => ({ kind: 'private' as const, key: note.uri, createdAt: note.createdAt, note })).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.key.localeCompare(b.key));
@@ -196,6 +197,7 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 	}
 
 	async function reload() {
+		removed.clear();
 		normalGeneration++; normalController.abort(); normalController = new AbortController();
 		normal.value = []; preview.value = []; normalCursor = undefined; normalBoundary.value = Infinity; normalMore.value = true; normalBusy.value = false; normalError.value = null;
 		await Promise.all([loadNormal(), initPrivate()]);
@@ -258,6 +260,8 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 
 	function visibility() { if (window.document.hidden) suspend(); else focus(); }
 
+	function removePrivate(id: string) { removed.add(id); delegated.value = delegated.value.filter(item => item.id !== id); }
+
 	function removeNormal(id: string) { normal.value = normal.value.filter(item => item.id !== id); preview.value = preview.value.filter(item => item.id !== id); }
 
 	const timer = window.setInterval(() => {
@@ -272,5 +276,5 @@ export function useGridspaceNoteList(source: ComputedRef<GridspaceNoteSource>) {
 		active = false; clearPrivate(); normalGeneration++; normalController.abort();
 		window.clearInterval(timer); window.document.removeEventListener('visibilitychange', visibility); window.removeEventListener('focus', focus);
 	});
-	return { rows, loading, hasMore, normalError, privateError, needsAuthorization, pagingKey, load, reload, retry, failPrivate, removeNormal };
+	return { rows, loading, hasMore, normalError, privateError, needsAuthorization, pagingKey, load, reload, retry, failPrivate, removeNormal, removePrivate };
 }

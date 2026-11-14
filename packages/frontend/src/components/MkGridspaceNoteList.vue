@@ -55,9 +55,11 @@ async function applyFilters(): Promise<void> {
 }
 
 const source = computed<GridspaceNoteSource>(() => props.source.kind === 'clip' && props.withControl ? { ...props.source, ...filters.value } : props.source);
-const { rows, loading, hasMore, normalError, privateError, needsAuthorization, pagingKey, load, reload, retry, failPrivate, removeNormal } = useGridspaceNoteList(source);
+const { rows, loading, hasMore, normalError, privateError, needsAuthorization, pagingKey, load, reload, retry, failPrivate, removeNormal, removePrivate } = useGridspaceNoteList(source);
 watch(normalError, value => { if (value === 'LINK_UNAVAILABLE') emit('unavailable'); });
 useGlobalEvent('noteDeleted', removeNormal);
+useGlobalEvent('gridspaceNoteDeleted', removePrivate);
+useGlobalEvent('gridspaceClipNoteRemoved', (clipId, noteId) => { if (source.value.kind === 'clip' && source.value.clipId === clipId) removePrivate(noteId); });
 defineExpose({ reload });
 </script>
 

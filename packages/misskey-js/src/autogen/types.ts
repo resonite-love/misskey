@@ -2551,6 +2551,16 @@ export type paths = {
          */
         post: operations['gridspace___member'];
     };
+    '/gridspace/note-menu': {
+        /**
+         * gridspace/note-menu
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___note-menu'];
+    };
     '/gridspace/notifications': {
         /**
          * gridspace/notifications
@@ -26772,6 +26782,111 @@ export interface operations {
                         linked: boolean;
                         available: boolean;
                         accounts: components['schemas']['UserLite'][];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___note-menu': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default state
+                     * @enum {string}
+                     */
+                    action?: 'state' | 'clips' | 'favorite' | 'unfavorite' | 'mute-thread' | 'unmute-thread' | 'pin' | 'unpin' | 'delete' | 'translate' | 'report' | 'clip-add' | 'clip-remove' | 'clip-create';
+                    noteId: string;
+                    channelId?: string;
+                    expectedActorUri?: string;
+                    clipId?: string;
+                    name?: string;
+                    description?: string | null;
+                    isPublic?: boolean;
+                    targetLang?: string;
+                    comment?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        actorUri: string;
+                        canWrite: boolean;
+                        isOwn: boolean;
+                        isPinned: boolean;
+                        isFavorited: boolean;
+                        isMutedThread: boolean;
+                        deleted: boolean;
+                        clips: {
+                            id: string;
+                            name: string;
+                        }[];
+                        translation?: {
+                            text: string;
+                            sourceLang: string;
+                        };
+                        /** @enum {string} */
+                        clipError?: 'already-added' | 'too-many';
                     };
                 };
             };

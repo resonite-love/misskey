@@ -22,7 +22,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</MkTextarea>
 			</div>
 			<div class="">
-				<MkButton primary full :disabled="comment.length === 0" @click="send">{{ i18n.ts.send }}</MkButton>
+				<MkButton primary full :disabled="comment.length === 0 || sending" @click="send">{{ i18n.ts.send }}</MkButton>
 			</div>
 		</div>
 	</div>
@@ -41,6 +41,7 @@ import { i18n } from '@/i18n.js';
 const props = defineProps<{
 	user: Misskey.entities.UserLite;
 	initialComment?: string;
+	sendHandler?: (comment: string) => Promise<unknown>;
 }>();
 
 const emit = defineEmits<{
@@ -50,18 +51,27 @@ const emit = defineEmits<{
 const uiWindow = useTemplateRef('uiWindow');
 const comment = ref(props.initialComment ?? '');
 
-function send() {
-	os.apiWithDialog('users/report-abuse', {
-		userId: props.user.id,
-		comment: comment.value,
-	}, undefined).then(res => {
+const sending = ref(false);
+
+async function send() {
+	if (sending.value) return;
+	sending.value = true;
+	try {
+				const submitted = props.sendHandler ? props.sendHandler(comment.value) : os.apiWithDialog('users/report-abuse', {
+			userId: props.user.id,
+			comment: comment.value,
+		}, undefined);
+		const result = await submitted;
+		if (result === false) return;
 		os.alert({
 			type: 'success',
 			text: i18n.ts.abuseReported,
 		});
 		uiWindow.value?.close();
 		emit('closed');
-	});
+	} catch {
+		// apiWithDialog (including a delegated transport) already shows the error.
+	} finally { sending.value = false; }
 }
 </script>
 

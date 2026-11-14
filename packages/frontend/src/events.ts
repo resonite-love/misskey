@@ -8,6 +8,8 @@ import * as Misskey from 'misskey-js';
 import { onBeforeUnmount } from 'vue';
 
 type Events = {
+	gridspaceClipNoteRemoved: (clipId: string, noteId: string) => void;
+	gridspaceNoteDeleted: (noteId: string) => void;
 	clientNotification: (notification: Misskey.entities.Notification) => void;
 	notePosted: (note: Misskey.entities.Note) => void;
 	noteDeleted: (noteId: Misskey.entities.Note['id']) => void;

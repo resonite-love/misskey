@@ -11,6 +11,7 @@ import { GridspaceSearchService } from './gridspace/GridspaceSearchService.js';
 import { GridspacePrivateService } from './gridspace/GridspacePrivateService.js';
 import { GridspaceNotificationService } from './gridspace/GridspaceNotificationService.js';
 import { GridspaceReplyService } from './gridspace/GridspaceReplyService.js';
+import { GridspaceNoteMenuService } from './gridspace/GridspaceNoteMenuService.js';
 import { GridspaceActionService } from './gridspace/GridspaceActionService.js';
 import { GridspaceIdentityService } from './gridspace/GridspaceIdentityService.js';
 import { GridspaceFollowExpansionService } from './gridspace/GridspaceFollowExpansionService.js';
@@ -356,6 +357,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspacePrivateService,
 		GridspaceReplyService,
 	GridspaceActionService,
+	GridspaceNoteMenuService,
 		GridspaceNotificationService,
 		GridspaceFollowGuardService,
 		VmimiRelayTimelineService,
@@ -684,6 +686,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspacePrivateService,
 		GridspaceReplyService,
 	GridspaceActionService,
+	GridspaceNoteMenuService,
 		GridspaceNotificationService,
 		GridspaceFollowGuardService,
 		VmimiRelayTimelineService,

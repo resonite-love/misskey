@@ -438,6 +438,8 @@ import type {
 	GridspaceManagedResourceResponse,
 	GridspaceMemberRequest,
 	GridspaceMemberResponse,
+	GridspaceNoteMenuRequest,
+	GridspaceNoteMenuResponse,
 	GridspaceNotificationsRequest,
 	GridspaceNotificationsResponse,
 	GridspaceNotificationsFollowRequestRequest,
@@ -1032,6 +1034,7 @@ export type Endpoints = {
 	'gridspace/list-import': { req: GridspaceListImportRequest; res: GridspaceListImportResponse };
 	'gridspace/managed-resource': { req: GridspaceManagedResourceRequest; res: GridspaceManagedResourceResponse };
 	'gridspace/member': { req: GridspaceMemberRequest; res: GridspaceMemberResponse };
+	'gridspace/note-menu': { req: GridspaceNoteMenuRequest; res: GridspaceNoteMenuResponse };
 	'gridspace/notifications': { req: GridspaceNotificationsRequest; res: GridspaceNotificationsResponse };
 	'gridspace/notifications/follow-request': { req: GridspaceNotificationsFollowRequestRequest; res: GridspaceNotificationsFollowRequestResponse };
 	'gridspace/notifications/read': { req: GridspaceNotificationsReadRequest; res: GridspaceNotificationsReadResponse };
