@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<component :is="prefer.s.enablePullToRefresh ? MkPullToRefresh : 'div'" v-if="enabled || alwaysShow" :refresher="reload">
+<component :is="prefer.s.enablePullToRefresh && direction !== 'up' ? MkPullToRefresh : 'div'" v-if="enabled || alwaysShow" :refresher="reload">
 	<section ref="root" class="_panel _gaps_s" :class="$style.root" data-gridspace-private :aria-label="params.channelId ? i18n.ts.channel : i18n.ts._gridspace.privateTitle">
 		<div v-if="!plain || !enabled" :class="$style.heading" class="_gaps_s">
 			<h2 v-if="!plain" :class="$style.title"><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateTitle }}</h2>
@@ -12,6 +12,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkA v-if="!enabled" to="/settings/gridspace">{{ i18n.ts._gridspace.privateAuthorize }}</MkA>
 		</div>
 		<template v-if="enabled">
+			<MkTimelineLoadMore v-if="direction === 'up'" :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" :automatic="false" @load="load"/>
 			<MkButton v-if="queued.length" :class="$style.new" rounded primary @click="releaseQueue(true)">{{ i18n.ts.newNote }}</MkButton>
 			<component :is="prefer.s.animation ? TransitionGroup : 'div'" tag="div" :enterActiveClass="$style.enterActive" :enterFromClass="$style.enterFrom" :moveClass="$style.move" @beforeLeave="clearLeavingPrivateNote">
 				<MkGridspacePrivateNoteRow v-for="note in displayed" :key="note.id" :note="note" :detailed="params.mode === 'show'" :data-scroll-anchor="note.uri" @unavailable="fail" @replied="refresh"/>
@@ -22,7 +23,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<p v-else-if="!error && notes.length === 0 && !hasMore">{{ i18n.ts.noNotes }}</p>
 				<MkButton v-if="error" :disabled="loading" @click="refresh">{{ i18n.ts.retry }}</MkButton>
 			</div>
-			<MkTimelineLoadMore :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" @load="load"/>
+			<MkTimelineLoadMore v-if="direction !== 'up'" :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" @load="load"/>
 		</template>
 	</section>
 </component>
@@ -43,8 +44,8 @@ import { i18n } from '@/i18n.js';
 import { $i } from '@/i.js';
 import { clearLeavingPrivateNote, isRevokedGridspaceRead, isVisiblePrivateNote, suspendPrivateNotes } from '@/utility/gridspace-note-suspension.js';
 
-const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; alwaysShow?: boolean; plain?: boolean }>();
-const emit = defineEmits<{ (event: 'loaded'): void }>();
+const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; alwaysShow?: boolean; plain?: boolean; direction?: 'up' | 'down' }>();
+const emit = defineEmits<{ (event: 'loaded'): void; (event: 'snapshot', note: entities.GridspacePrivateNotesResponse['notes'][number] | null): void }>();
 type Note = entities.GridspacePrivateNotesResponse['notes'][number];
 const enabled = ref(false);
 const notes = ref<GridspaceNoteEntry[]>([]);
@@ -55,7 +56,13 @@ let lastSync: number | null = null;
 let newer: { start: number; cursor?: string; observedAt?: number; notes: GridspaceNoteEntry[] } | null = null;
 let controller = new AbortController();
 const signal = () => AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
-const displayed = computed(() => notes.value.filter(note => isVisiblePrivateNote(note)));
+const displayed = computed(() => {
+	const visible = notes.value.filter(note => isVisiblePrivateNote(note));
+	return props.params.order === 'oldest' ? visible.toSorted((a, b) => b.id.localeCompare(a.id)) : visible;
+});
+watch(() => notes.value.map(note => note), items => {
+	if (props.params.mode === 'show') emit('snapshot', items.find(note => !('suspended' in note) && isVisiblePrivateNote(note)) as Note | undefined ?? null);
+}, { immediate: true });
 const loading = ref(false);
 const hasMore = ref(false);
 const pagingKey = ref(0);

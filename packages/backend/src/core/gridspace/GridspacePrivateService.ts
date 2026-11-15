@@ -90,14 +90,14 @@ export class GridspacePrivateService {
 			return link;
 		}
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
-		if (!(mode === 'home' && !input.channelId && !input.targetUris) && (!input.channelId || (mode !== 'channel' && mode !== 'show'))) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		if (!(mode === 'home' && !input.channelId && !input.targetUris) && (!input.channelId || (mode !== 'channel' && mode !== 'show' && mode !== 'context'))) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		return { localUserId: (await this.channelAuth.source(input.channelActorId)).id, initiator: false };
 	}
 
 	private query(viewerId: string, input: Partial<PrivatePeerRequest> = {}, authors?: Pick<MiUser, 'id' | 'makeNotesFollowersOnlyBefore'>[], includeSensitiveChannels = false) {
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
-		if ((mode === 'channel' && !input.channelId) || (input.channelId && mode !== 'channel' && mode !== 'show')) throw new GridspaceLinkError('INVALID_REQUEST');
-		if (input.order === 'oldest' && mode !== 'clip') throw new GridspaceLinkError('INVALID_REQUEST');
+		if ((mode === 'channel' && !input.channelId) || (input.channelId && mode !== 'channel' && mode !== 'show' && mode !== 'context')) throw new GridspaceLinkError('INVALID_REQUEST');
+		if (input.order === 'oldest' && mode !== 'clip' && mode !== 'context') throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((mode === 'clip' && !input.clipId) || (input.clipId && mode !== 'clip')) throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((mode === 'antenna' && !input.antennaId) || (input.antennaId && mode !== 'antenna')) throw new GridspaceLinkError('INVALID_REQUEST');
 		const query = this.search.noteQuery({ id: viewerId }, { query: mode === 'clip' ? '' : input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length, includeSensitiveChannels || mode === 'home' || mode === 'mentions' || mode === 'direct' || mode === 'favorites' || mode === 'clip' || mode === 'antenna');
@@ -133,9 +133,9 @@ export class GridspacePrivateService {
 				ELSE :nowMs::bigint + "user"."makeNotesFollowersOnlyBefore"::bigint * 1000 END)))`;
 			query.andWhere(input.channelActorId ? followedChannel : `(${privateHome} OR ${followedChannel})`);
 			this.queries.generateMutedNoteThreadQuery(query, { id: viewerId });
-		} else if (mode && mode !== 'show' && mode !== 'channel' && mode !== 'antenna' && authors?.every(author => author.makeNotesFollowersOnlyBefore == null)) {
+		} else if (mode && mode !== 'show' && mode !== 'channel' && mode !== 'context' && mode !== 'antenna' && authors?.every(author => author.makeNotesFollowersOnlyBefore == null)) {
 			query.andWhere('note.visibility IN (\'followers\', \'specified\')');
-		} else if (mode && mode !== 'show' && mode !== 'channel' && mode !== 'antenna') {
+		} else if (mode && mode !== 'show' && mode !== 'channel' && mode !== 'context' && mode !== 'antenna') {
 			query.andWhere(`(note.visibility IN ('followers', 'specified') OR ("user"."makeNotesFollowersOnlyBefore" IS NOT NULL
 				AND ${this.noteTime} <= CASE WHEN "user"."makeNotesFollowersOnlyBefore" > 0 THEN "user"."makeNotesFollowersOnlyBefore"::bigint * 1000
 				ELSE :nowMs::bigint + "user"."makeNotesFollowersOnlyBefore"::bigint * 1000 END))`);
@@ -154,6 +154,23 @@ export class GridspacePrivateService {
 		return query;
 	}
 
+	/** Anchor-derived scopes prevent a channel guest from choosing arbitrary authors. */
+	private async contextQuery(viewerId: string, input: PrivatePeerRequest) {
+		if (!input.noteId || !input.contextScope || input.targetUris?.length || input.query || input.clipId || input.antennaId) throw new GridspaceLinkError('INVALID_REQUEST');
+		if (input.contextScope !== 'channel' && input.contextScope !== 'user') throw new GridspaceLinkError('INVALID_REQUEST');
+		const anchor = await this.readableSourceNote(viewerId, input.noteId, undefined, input.channelId);
+		if (!anchor || (input.channelId && anchor.channelId !== input.channelId)) throw new GridspaceLinkError('UNAVAILABLE');
+		const channelId = input.contextScope === 'channel' ? anchor.channelId : undefined;
+		if (input.contextScope === 'channel' && !channelId) throw new GridspaceLinkError('INVALID_REQUEST');
+		const query = this.query(viewerId, { ...input, channelId: channelId ?? undefined });
+		query.andWhere(`note.id ${input.order === 'oldest' ? '>' : '<'} :contextAnchor`, { contextAnchor: anchor.id });
+		if (input.contextScope === 'user') {
+			query.andWhere('note.userId = :contextAuthor AND note.channelId IS NULL', { contextAuthor: anchor.userId });
+			if (input.channelActorId) query.andWhere("note.visibility IN ('public', 'home')");
+		}
+		return query.orderBy('note.id', input.order === 'oldest' ? 'ASC' : 'DESC');
+	}
+
 	private async sourceNotes(viewerId: string, input: PrivatePeerRequest) {
 		let authors: Pick<MiUser, 'id' | 'makeNotesFollowersOnlyBefore'>[] | undefined;
 		if (input.targetUris) {
@@ -166,7 +183,8 @@ export class GridspacePrivateService {
 		}
 		// Resolve author policies before planning the scan. The final body packing
 		// still rechecks current visibility and authorization without this shortcut.
-		const query = this.query(viewerId, input, authors);
+		const context = (input.contextMode ?? input.mode) === 'context';
+		const query = context ? await this.contextQuery(viewerId, input) : this.query(viewerId, input, authors);
 		if ((input.contextMode ?? input.mode) === 'antenna') {
 			if (!this.fanout || !input.antennaId) throw new GridspaceLinkError('INVALID_REQUEST');
 			const antenna = await this.db.getRepository(MiAntenna).findOneBy({ id: input.antennaId, userId: viewerId });
@@ -181,7 +199,7 @@ export class GridspacePrivateService {
 		if (input.mode === 'show') query.andWhere('note.id = :noteId', { noteId: input.noteId });
 		if (input.mode === 'validate') query.andWhere('note.id IN (:...ids)', { ids: input.ids });
 		const order = (input.contextMode ?? input.mode) === 'favorites' ? 'collection' : 'note';
-		const ascending = (input.contextMode ?? input.mode) === 'clip' && input.order === 'oldest';
+		const ascending = ['clip', 'context'].includes(input.contextMode ?? input.mode) && input.order === 'oldest';
 		if (input.before) query.andWhere(`${order}.id ${ascending ? '>' : '<'} :before`, { before: input.before });
 		if (input.head && !ascending) query.andWhere(`${order}.id <= :head`, { head: input.head });
 		const limit = input.mode === 'validate' ? 100 : input.mode === 'show' ? 1 : (input.limit ?? 10) + 1;
@@ -270,8 +288,10 @@ export class GridspacePrivateService {
 
 	/** No delegated body, attachment URL or search document is persisted. */
 	public async peerNotes(input: PrivatePeerRequest): Promise<PrivatePage> {
+		if (input.mode !== 'validate' && input.contextMode) throw new GridspaceLinkError('INVALID_REQUEST');
 		const observedAt = new Date().toISOString();
 		const link = await this.authorizeRead(input);
+		if ((input.contextMode ?? input.mode) === 'context' && link.initiator) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if (input.channelId && link.initiator) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const sourceInput = link.initiator ? { ...input, withChannelNotes: false } : input;
 		if ((input.query || input.mode === 'search' || input.contextMode === 'search') && (!(input.query?.trim()) || !(await this.roles.getUserPolicies(link.localUserId)).canSearchNotes)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
@@ -281,7 +301,7 @@ export class GridspacePrivateService {
 		const selected = rows.slice(0, limit);
 		const homeChannels = !link.initiator && (input.contextMode ?? input.mode) === 'home';
 		const relatedIds = selected.flatMap(note => [note.replyId, note.renoteId]).filter((id): id is string => id != null);
-		const relatedQuery = () => this.query(link.localUserId, { mode: 'show', channelId: input.channelId, withChannelNotes: !link.initiator }, undefined, homeChannels);
+		const relatedQuery = () => this.query(link.localUserId, { mode: 'show', channelId: (input.contextMode ?? input.mode) === 'context' && input.contextScope === 'user' ? undefined : input.channelId, withChannelNotes: !link.initiator }, undefined, homeChannels);
 		const related = relatedIds.length ? await this.search.read(relatedQuery().andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
 		const previewTargets = related.filter(note => selected.some(parent => parent.renoteId === note.id && (
 			((input.channelId || homeChannels) && !!note.channelId && parent.channelId === note.channelId) ||
@@ -296,7 +316,8 @@ export class GridspacePrivateService {
 		if (link.initiator) for (const note of [...packed, ...previews.values()]) note.canSelfRenote = false;
 		// Recheck after packing attachments/polls, not just before the asynchronous work.
 		await this.authorizeRead(input);
-		const fresh = selected.length ? await this.search.read(this.query(link.localUserId, sourceInput).andWhere('note.id IN (:...selected)', { selected: selected.map(note => note.id) })) : [];
+		const freshQuery = (input.contextMode ?? input.mode) === 'context' ? await this.contextQuery(link.localUserId, sourceInput) : this.query(link.localUserId, sourceInput);
+		const fresh = selected.length ? await this.search.read(freshQuery.andWhere('note.id IN (:...selected)', { selected: selected.map(note => note.id) })) : [];
 		const allowed = new Set(fresh.map(note => note.id));
 		const freshRelated = relatedIds.length ? await this.search.read(relatedQuery().andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
 		const relatedAllowed = new Set(freshRelated.map(note => note.id));
@@ -356,13 +377,14 @@ export class GridspacePrivateService {
 	}
 
 	public async notes(viewer: MiLocalUser, input: PrivateOptions, limit: number, cursor?: string) {
+		if (input.mode !== 'validate' && input.contextMode) throw new GridspaceLinkError('INVALID_REQUEST');
 		const channel = input.channelId || (this.channelAuth.isClient && (input.contextMode ?? input.mode) === 'home') ? await this.channelAuth.destination(viewer) : null;
 		const link = channel ? null : await this.links.privateLink(viewer.id);
 		const credential = channel ? channel.credential : this.links.privateCredential(link!);
 		if ((input.query || input.mode === 'search' || input.contextMode === 'search') && (!input.query?.trim() || !(await this.roles.getUserPolicies(viewer.id)).canSearchNotes)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if ((input.mode === 'profile' && !input.userId) || (input.mode === 'show' && !input.noteId) || (input.mode === 'validate' && !input.ids?.length)) throw new GridspaceLinkError('INVALID_REQUEST');
 		const options: PrivateOptions = {
-			mode: input.mode, contextMode: input.contextMode, order: input.order, query: input.query?.trim(), userId: input.userId, noteId: input.noteId, channelId: input.channelId, clipId: input.clipId, antennaId: input.antennaId,
+			mode: input.mode, contextMode: input.contextMode, contextScope: input.contextScope, order: input.order, query: input.query?.trim(), userId: input.userId, noteId: input.noteId, channelId: input.channelId, clipId: input.clipId, antennaId: input.antennaId,
 			ids: input.ids, rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt,
 			withReplies: input.withReplies ?? true, withRenotes: input.withRenotes ?? true, withFiles: input.withFiles ?? false, withChannelNotes: input.withChannelNotes ?? true,
 		};

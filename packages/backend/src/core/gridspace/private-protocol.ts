@@ -9,8 +9,9 @@ import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import type { ReactionPreview } from './reaction-protocol.js';
 
 export type PrivateOptions = {
-	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna' | 'validate';
-	contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna';
+	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna' | 'context' | 'validate';
+	contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna' | 'context';
+	contextScope?: 'channel' | 'user';
 	channelId?: string; clipId?: string; antennaId?: string;
 	order?: 'newest' | 'oldest';
 	query?: string; userId?: string; noteId?: string; ids?: string[];
@@ -90,8 +91,9 @@ export const privateNoteSchema = {
 } as const;
 
 export const privateOptionsSchema = {
-	mode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip', 'antenna', 'validate'], default: 'home' },
-	contextMode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip', 'antenna'] },
+	mode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip', 'antenna', 'context', 'validate'], default: 'home' },
+	contextMode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip', 'antenna', 'context'] },
+	contextScope: { type: 'string', enum: ['channel', 'user'] },
 	antennaId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	clipId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },

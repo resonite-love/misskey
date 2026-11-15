@@ -28273,9 +28273,11 @@ export interface operations {
                      * @default home
                      * @enum {string}
                      */
-                    mode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna' | 'validate';
+                    mode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna' | 'context' | 'validate';
                     /** @enum {string} */
-                    contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna';
+                    contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna' | 'context';
+                    /** @enum {string} */
+                    contextScope?: 'channel' | 'user';
                     antennaId?: string;
                     clipId?: string;
                     channelId?: string;

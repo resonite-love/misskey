@@ -14311,6 +14311,22 @@ export interface Locale extends ILocale {
          */
         "selfRenoteAs": ParameterizedString<"account">;
         /**
+         * このチャンネルの後の投稿を表示
+         */
+        "newerChannelNotes": string;
+        /**
+         * このチャンネルの前の投稿を表示
+         */
+        "olderChannelNotes": string;
+        /**
+         * このユーザーの後の投稿を表示
+         */
+        "newerUserNotes": string;
+        /**
+         * このユーザーの前の投稿を表示
+         */
+        "olderUserNotes": string;
+        /**
          * このサーバーから、連携先のアカウント名義で返信・セルフリノートできます。
          */
         "replyGranted": string;

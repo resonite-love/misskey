@@ -18,7 +18,7 @@ const g = resolveGridspaceConfig(source, 'https://g.example', env)!;
 const r = resolveGridspaceConfig({ ...source, peerUrl: g.origin }, source.peerUrl, env)!;
 const servers: FastifyInstance[] = [];
 
-async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8], reactions?: Parameters<typeof registerGridspacePeer>[12], reactionUpdates?: Parameters<typeof registerGridspacePeer>[13], readNotes?: Parameters<typeof registerGridspacePeer>[14], channelUpdate?: Parameters<typeof registerGridspacePeer>[21]) {
+async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8], reactions?: Parameters<typeof registerGridspacePeer>[12], reactionUpdates?: Parameters<typeof registerGridspacePeer>[13], readNotes?: Parameters<typeof registerGridspacePeer>[14], channelUpdate?: Parameters<typeof registerGridspacePeer>[21], privateAction?: Parameters<typeof registerGridspacePeer>[7]) {
 	const app = Fastify();
 	servers.push(app);
 	const used = new Set<string>();
@@ -29,7 +29,7 @@ async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Para
 			if (used.has(key)) return false;
 			used.add(key);
 			return true;
-		}), action, notes, history, search, undefined, replyAction, undefined, undefined, undefined, reactions, reactionUpdates, readNotes, undefined, undefined, undefined, undefined, undefined, undefined, channelUpdate);
+		}), action, notes, history, search, privateAction, replyAction, undefined, undefined, undefined, reactions, reactionUpdates, readNotes, undefined, undefined, undefined, undefined, undefined, undefined, channelUpdate);
 	}, { prefix: '/gridspace/v1' });
 	return app;
 }
@@ -44,6 +44,17 @@ afterEach(async () => {
 });
 
 describe('GridSpace channel actions', () => {
+	test('signed context navigation preserves its source anchor, scope and direction', async () => {
+		const action = vi.fn(async () => ({}));
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, action);
+		const url = '/gridspace/v1/private/notes';
+		const input = { channelActorId: 'guest', mode: 'context', channelId: 'channel', noteId: 'anchor', contextScope: 'user', order: 'oldest' };
+		const send = (value: object) => { const payload = Buffer.from(JSON.stringify(value)); return app.inject({ method: 'POST', url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) }); };
+		expect((await send(input)).statusCode).toBe(200);
+		expect(action).toHaveBeenCalledWith('notes', expect.objectContaining(input));
+		expect((await send({ ...input, contextScope: 'anyone' })).statusCode).toBe(400);
+	});
+
 	test('requires a signed peer and exactly one bounded actor credential', async () => {
 		const update = vi.fn(async () => ({ isFollowing: true, isFavorited: false }));
 		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, update);
