@@ -44,6 +44,25 @@ afterEach(async () => {
 });
 
 describe('GridSpace channel actions', () => {
+	test('public note reads require the paired-server signature and pass only valid note references', async () => {
+		const read = vi.fn(async () => ({ id: 'note' }));
+		const app = Fastify(); servers.push(app);
+		await app.register(fastifyRawBody, { global: false, encoding: null, runFirst: true });
+		await app.register(async child => {
+			const handlers = new Array(20).fill(undefined) as Parameters<typeof registerGridspacePeer> extends [unknown, unknown, unknown, ...infer Rest] ? Rest : never;
+			handlers[20] = read;
+			registerGridspacePeer(child, r, async () => true, ...handlers);
+		}, { prefix: '/gridspace/v1' });
+		const url = '/gridspace/v1/notes/public';
+		const send = (input: object, signed = true) => { const payload = Buffer.from(JSON.stringify(input)); return app.inject({ method: 'POST', url, payload, headers: signed ? createGridspaceHeaders(g, 'POST', url, payload) : { 'content-type': 'application/json' } }); };
+		expect((await send({ noteId: 'note', channelId: 'channel' }, false)).statusCode).toBe(403);
+		expect((await send({ noteId: 'note', channelId: 'channel' })).statusCode).toBe(200);
+		// Fastify strips extra fields before dispatching the signed request.
+		expect((await send({ noteId: 'note', accessToken: 'private', url: 'https://other.example' })).statusCode).toBe(200);
+		expect(read).toHaveBeenLastCalledWith({ noteId: 'note' });
+		expect((await send({ noteId: '../note' })).statusCode).toBe(400);
+		expect(read).toHaveBeenCalledTimes(2);
+	});
 	test('channel notification inbox requires a signature and rejects mixed credentials', async () => {
 		const notifications = vi.fn(async () => ({}));
 		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, notifications);

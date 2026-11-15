@@ -2557,7 +2557,7 @@ export type paths = {
          * @description Resolve a paired-server note link with the current viewer permissions.
          *
          *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
-         *     **Credential required**: *Yes*
+         *     **Credential required**: *No*
          */
         post: operations['gridspace___note-link'];
     };
@@ -27046,6 +27046,7 @@ export interface operations {
                             } | null;
                         } | null;
                         localNote: components['schemas']['Note'] | null;
+                        publicUrl?: string;
                     };
                 };
             };

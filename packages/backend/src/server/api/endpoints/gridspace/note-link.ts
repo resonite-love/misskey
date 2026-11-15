@@ -13,6 +13,7 @@ import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { GridspacePrivateService } from '@/core/gridspace/GridspacePrivateService.js';
 import { GridspaceLinkError } from '@/core/gridspace/GridspaceLinkService.js';
 import { privateNoteSchema } from '@/core/gridspace/private-protocol.js';
+import { GridspacePublicNoteService } from '@/core/gridspace/GridspacePublicNoteService.js';
 
 export function parseNoteLink(value: string, config: Pick<Config, 'url' | 'gridspace'>) {
 	const link = new URL(value);
@@ -30,22 +31,27 @@ export function parseNoteLink(value: string, config: Pick<Config, 'url' | 'grids
 
 export const meta = {
 	description: 'Resolve a paired-server note link with the current viewer permissions.',
-	tags: ['notes'], requireCredential: true, secure: true,
+	tags: ['notes'], requireCredential: false, secure: true,
 	limit: { duration: 60000, max: 120 },
 	errors: { unavailable: { message: 'This linked note is unavailable.', code: 'GRIDSPACE_NOTE_LINK_UNAVAILABLE', id: '893f773b-682d-44de-8cce-4076760e726e' } },
 	res: { type: 'object', optional: false, nullable: false, properties: {
 		note: { ...privateNoteSchema, nullable: true },
 		localNote: { type: 'object', optional: false, nullable: true, ref: 'Note' },
+		publicUrl: { type: 'string', optional: true, nullable: false },
 	} },
 } as const;
 export const paramDef = { type: 'object', properties: { url: { type: 'string', minLength: 1, maxLength: 2048 } }, required: ['url'] } as const;
 
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
-	constructor(@Inject(DI.config) config: Config, reader: GridspacePrivateService, getter: GetterService, packer: NoteEntityService) {
+	constructor(@Inject(DI.config) config: Config, reader: GridspacePrivateService, getter: GetterService, packer: NoteEntityService, publicNotes: GridspacePublicNoteService) {
 		super(meta, paramDef, async (ps, me) => {
 			try {
 				const target = parseNoteLink(ps.url, config);
+				if (!me) {
+					const result = await publicNotes.resolve({ noteId: target.noteId, channelId: target.channelId }, target.local);
+					return { note: null, localNote: result.note, publicUrl: result.publicUrl };
+				}
 				if (target.local) {
 					if (target.channelId && config.gridspace?.channelRole !== 'source') throw new GridspaceLinkError('UNAVAILABLE');
 					const source = await getter.getNote(target.noteId);

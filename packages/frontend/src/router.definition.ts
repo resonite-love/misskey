@@ -271,7 +271,6 @@ export const ROUTE_DEF = [{
 }, {
 	path: '/gridspace/private',
 	component: page(() => import('@/pages/gridspace-private.vue')),
-	loginRequired: true,
 	query: { noteId: 'noteId', channelId: 'channelId' },
 }, {
 	path: '/gridspace/channels/:channelId?',

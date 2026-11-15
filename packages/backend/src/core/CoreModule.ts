@@ -9,6 +9,7 @@ import { GridspaceReactionDeliveryService } from './gridspace/GridspaceReactionD
 import { GridspaceHistoryService } from './gridspace/GridspaceHistoryService.js';
 import { GridspaceSearchService } from './gridspace/GridspaceSearchService.js';
 import { GridspacePrivateService } from './gridspace/GridspacePrivateService.js';
+import { GridspacePublicNoteService } from './gridspace/GridspacePublicNoteService.js';
 import { GridspaceNotificationService } from './gridspace/GridspaceNotificationService.js';
 import { GridspaceReplyService } from './gridspace/GridspaceReplyService.js';
 import { GridspaceNoteMenuService } from './gridspace/GridspaceNoteMenuService.js';
@@ -355,6 +356,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceHistoryService,
 		GridspaceSearchService,
 		GridspacePrivateService,
+		GridspacePublicNoteService,
 		GridspaceReplyService,
 	GridspaceActionService,
 	GridspaceNoteMenuService,
@@ -684,6 +686,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceHistoryService,
 		GridspaceSearchService,
 		GridspacePrivateService,
+		GridspacePublicNoteService,
 		GridspaceReplyService,
 	GridspaceActionService,
 	GridspaceNoteMenuService,

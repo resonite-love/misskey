@@ -20,6 +20,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div v-if="mock">
 			<MkTime :time="note.createdAt" colored/>
 		</div>
+		<a v-else-if="externalNoteUrl" :href="noteUrl">
+			<MkTime :time="note.createdAt" colored/>
+		</a>
 		<MkA v-else :to="noteUrl ?? notePage(note)">
 			<MkTime :time="note.createdAt" colored/>
 		</MkA>
@@ -48,6 +51,7 @@ defineProps<{
 		channel?: { name: string } | null;
 	};
 	noteUrl?: string;
+	externalNoteUrl?: boolean;
 	userPreview?: string;
 }>();
 

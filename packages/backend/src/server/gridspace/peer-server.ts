@@ -21,12 +21,13 @@ import type { GridspacePeerLinkRequest } from '@/core/gridspace/GridspaceLinkSer
 import type { HistoryPeerRequest } from '@/core/gridspace/history-protocol.js';
 import type { SearchPeerRequest } from '@/core/gridspace/search-protocol.js';
 import type { ReactionPeerRequest, ReactionUpdate } from '@/core/gridspace/reaction-protocol.js';
+import type { PublicNoteTarget } from '@/core/gridspace/GridspacePublicNoteService.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 export type ClaimGridspaceNonce = (key: string, ttlMs: number) => Promise<boolean>;
 
 /** Mounted under /gridspace/v1; independent from user-authorized /api endpoints. */
-export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>, channels?: (input: ChannelPeerRequest) => Promise<object>, channelDelete?: (input: GridspacePeerLinkRequest & { noteId: string; channelId: string }) => Promise<object>, drive?: (input: DrivePeerRequest) => Promise<object>, content?: (input: ContentOptions) => Promise<object>, sharedDrive?: (input: SharedDriveRequest) => Promise<object>, managed?: (input: ManagedPeerInput) => Promise<object>, channelUpdate?: (input: ChannelUpdatePeerRequest) => Promise<object>, noteMenu?: (input: NoteMenuPeerRequest) => Promise<object>): void {
+export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>, channels?: (input: ChannelPeerRequest) => Promise<object>, channelDelete?: (input: GridspacePeerLinkRequest & { noteId: string; channelId: string }) => Promise<object>, drive?: (input: DrivePeerRequest) => Promise<object>, content?: (input: ContentOptions) => Promise<object>, sharedDrive?: (input: SharedDriveRequest) => Promise<object>, managed?: (input: ManagedPeerInput) => Promise<object>, channelUpdate?: (input: ChannelUpdatePeerRequest) => Promise<object>, noteMenu?: (input: NoteMenuPeerRequest) => Promise<object>, publicNote?: (input: PublicNoteTarget) => Promise<object>): void {
 	if (config === null) return;
 	// Preserve wire bytes for the signature without changing other server plugins' parsers.
 	const parseJson = fastify.getDefaultJsonParser('error', 'error');
@@ -212,6 +213,17 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			} },
 		}, async (request, reply) => {
 			try { return await history(request.body); } catch { return reply.code(503).send({ error: 'PEER_HISTORY_UNAVAILABLE' }); }
+		});
+	}
+	if (publicNote) {
+		fastify.post<{ Body: PublicNoteTarget }>('/notes/public', {
+			bodyLimit: 4096, config: { rawBody: true }, preHandler: authenticate,
+			schema: { body: { type: 'object', additionalProperties: false, required: ['noteId'], properties: {
+				noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+				channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+			} } },
+		}, async (request, reply) => {
+			try { return await publicNote(request.body); } catch { return reply.code(404).send({ error: 'NOTE_UNAVAILABLE' }); }
 		});
 	}
 	if (readNotes) {

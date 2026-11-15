@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <div ref="root" :class="$style.root" data-gridspace-link-preview>
 	<template v-if="note">
-		<MkNoteHeader :note="header!" :noteUrl="detailUrl" :userPreview="`@${header!.user.username}${header!.user.host ? `@${header!.user.host}` : ''}`"/>
+		<MkNoteHeader :note="header!" :noteUrl="detailUrl" :externalNoteUrl="!!result?.publicUrl" :userPreview="`@${header!.user.username}${header!.user.host ? `@${header!.user.host}` : ''}`"/>
 		<MkNoteCw v-if="note.cw != null" v-model="expanded" :cw="note.cw" :text="note.text" :author="header!.user" :emojiUrls="note.emojis ?? {}" :files="note.files"/>
 		<template v-if="note.cw == null || expanded">
 			<Mfm :text="note.text ?? ''" :author="header!.user" :emojiUrls="note.emojis ?? {}"/>
@@ -14,8 +14,11 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</template>
 	</template>
 	<MkEllipsis v-else-if="loading"/>
-	<span v-else><i class="ti ti-lock"></i> {{ i18n.ts.invisibleNote }}</span>
-	<div><MkA class="_link" :to="detailUrl">{{ i18n.ts.details }} <i class="ti ti-chevron-right"></i></MkA></div>
+	<span v-else-if="!result?.publicUrl"><i class="ti ti-lock"></i> {{ i18n.ts.invisibleNote }}</span>
+	<div>
+		<a v-if="result?.publicUrl" class="_link" :href="detailUrl">{{ i18n.ts.details }} <i class="ti ti-chevron-right"></i></a>
+		<MkA v-else class="_link" :to="detailUrl">{{ i18n.ts.details }} <i class="ti ti-chevron-right"></i></MkA>
+	</div>
 </div>
 </template>
 
@@ -38,7 +41,7 @@ let observer: IntersectionObserver | undefined;
 const loading = ref(false);
 const expanded = ref(false);
 const note = computed(() => result.value?.note ?? result.value?.localNote ?? null);
-const detailUrl = computed(() => result.value?.localNote ? `/notes/${result.value.localNote.id}` : props.url);
+const detailUrl = computed(() => result.value?.publicUrl ?? (result.value?.localNote ? `/notes/${result.value.localNote.id}` : props.url));
 const header = computed(() => {
 	const value = result.value;
 	if (value?.localNote) return value.localNote;
@@ -54,12 +57,12 @@ let controller = new AbortController();
 function clear() { generation++; controller.abort(); controller = new AbortController(); result.value = null; loading.value = false; expanded.value = false; }
 
 async function load() {
-	if (!active || !visible || window.document.hidden || !$i || loading.value) return;
+	if (!active || !visible || window.document.hidden || loading.value) return;
 	const current = generation;
 	loading.value = true;
 	try {
 		const value = await misskeyApi('gridspace/note-link', { url: props.url }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
-		if (current === generation && active && !window.document.hidden) result.value = value.note ? isVisiblePrivateNote(value.note) ? value : null : value.localNote && (!$i || !checkTextWordMute(`${value.localNote.cw ?? ''}\n${value.localNote.text ?? ''}`, $i.hardMutedWords)) ? value : null;
+		if (current === generation && active && !window.document.hidden) result.value = value.note ? isVisiblePrivateNote(value.note) ? value : null : value.localNote ? (!$i || !checkTextWordMute(`${value.localNote.cw ?? ''}\n${value.localNote.text ?? ''}`, $i.hardMutedWords)) ? value : null : value.publicUrl ? value : null;
 	} catch { if (current === generation) result.value = null; } finally { if (current === generation) loading.value = false; }
 }
 

@@ -3116,7 +3116,7 @@ declare module '../api.js' {
      * Resolve a paired-server note link with the current viewer permissions.
      * 
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
-     * **Credential required**: *Yes*
+     * **Credential required**: *No*
      */
     request<E extends 'gridspace/note-link', P extends Endpoints[E]['req']>(
       endpoint: E,
