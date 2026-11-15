@@ -2556,7 +2556,6 @@ export type paths = {
          * gridspace/note-link
          * @description Resolve a paired-server note link with the current viewer permissions.
          *
-         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
          *     **Credential required**: *No*
          */
         post: operations['gridspace___note-link'];

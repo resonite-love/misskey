@@ -11,12 +11,14 @@ import type { GridspacePublicNoteService } from './GridspacePublicNoteService.js
 import type { GridspacePrivateService } from './GridspacePrivateService.js';
 import type { GetterService } from '@/server/api/GetterService.js';
 import type { NoteEntityService } from '@/core/entities/NoteEntityService.js';
-import Endpoint, { parseNoteLink } from '@/server/api/endpoints/gridspace/note-link.js';
+import Endpoint, { meta, parseNoteLink } from '@/server/api/endpoints/gridspace/note-link.js';
 const config = { url: 'https://g.example', gridspace: { enabled: true, peerUrl: 'https://r.example', channelRole: 'client' } } as Config;
 const link = 'https://g.example/gridspace/private?noteId=abc&channelId=channel';
 
 describe('linked note URLs', () => {
 	test('anonymous readers only use the public resolver, never an account grant', async () => {
+		expect(meta.requireCredential).toBe(false);
+		expect('secure' in meta && meta.secure).toBeFalsy();
 		const reader = mockDeep<GridspacePrivateService>(), publicNotes = mockDeep<GridspacePublicNoteService>();
 		const endpoint = new Endpoint(config, reader, mockDeep<GetterService>(), mockDeep<NoteEntityService>(), publicNotes);
 		publicNotes.resolve.mockResolvedValue({ note: { id: 'abc' }, publicUrl: 'https://r.example/notes/abc' } as never);
@@ -25,6 +27,13 @@ describe('linked note URLs', () => {
 		expect(reader.notes).not.toHaveBeenCalled();
 		publicNotes.resolve.mockRejectedValue(new Error('private'));
 		await expect(endpoint.exec({ url: link }, null, null)).rejects.toMatchObject({ code: 'GRIDSPACE_NOTE_LINK_UNAVAILABLE' });
+	});
+	test('keeps third-party tokens and suspended users out of the delegated reader', async () => {
+		const reader = mockDeep<GridspacePrivateService>();
+		const endpoint = new Endpoint(config, reader, mockDeep<GetterService>(), mockDeep<NoteEntityService>(), mockDeep<GridspacePublicNoteService>());
+		await expect(endpoint.exec({ url: link }, { id: 'viewer' }, { id: 'app' })).rejects.toMatchObject({ code: 'GRIDSPACE_NOTE_LINK_UNAVAILABLE' });
+		await expect(endpoint.exec({ url: link }, { id: 'viewer', isSuspended: true }, null)).rejects.toMatchObject({ code: 'GRIDSPACE_NOTE_LINK_UNAVAILABLE' });
+		expect(reader.notes).not.toHaveBeenCalled();
 	});
 	test('maps the viewer URL to the opposite server rather than assuming the ID is local', () => {
 		expect(parseNoteLink(link, config)).toEqual({ noteId: 'abc', channelId: 'channel', local: false });

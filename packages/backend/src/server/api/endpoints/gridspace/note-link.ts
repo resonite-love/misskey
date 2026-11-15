@@ -31,7 +31,7 @@ export function parseNoteLink(value: string, config: Pick<Config, 'url' | 'grids
 
 export const meta = {
 	description: 'Resolve a paired-server note link with the current viewer permissions.',
-	tags: ['notes'], requireCredential: false, secure: true,
+	tags: ['notes'], requireCredential: false,
 	limit: { duration: 60000, max: 120 },
 	errors: { unavailable: { message: 'This linked note is unavailable.', code: 'GRIDSPACE_NOTE_LINK_UNAVAILABLE', id: '893f773b-682d-44de-8cce-4076760e726e' } },
 	res: { type: 'object', optional: false, nullable: false, properties: {
@@ -45,8 +45,11 @@ export const paramDef = { type: 'object', properties: { url: { type: 'string', m
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
 	constructor(@Inject(DI.config) config: Config, reader: GridspacePrivateService, getter: GetterService, packer: NoteEntityService, publicNotes: GridspacePublicNoteService) {
-		super(meta, paramDef, async (ps, me) => {
+		super(meta, paramDef, async (ps, me, token) => {
 			try {
+				// Preserve the internal-client restriction for authenticated reads.
+				// `secure: true` also denies anonymous requests in ApiCallService.
+				if (token != null || me?.isSuspended) throw new GridspaceLinkError('UNAVAILABLE');
 				const target = parseNoteLink(ps.url, config);
 				if (!me) {
 					const result = await publicNotes.resolve({ noteId: target.noteId, channelId: target.channelId }, target.local);
