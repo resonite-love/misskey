@@ -8,16 +8,31 @@ import { $i } from '@/i.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 
 // Counts only, never notification bodies. A failed peer query is unknown, not zero.
-export const linkedNotifications = reactive({ checked: false, statusKnown: false, enabled: false, available: true, count: null as number | null, origin: '', peerRole: null as 'source' | 'client' | null });
-export const notificationCount = computed(() => ($i?.unreadNotificationsCount ?? 0) + (linkedNotifications.count ?? 0));
+export const linkedNotifications = reactive({ checked: false, statusKnown: false, enabled: false, peerEnabled: false, channelEnabled: false, peerAvailable: true, channelAvailable: true, channelCount: null as number | null, available: true, count: null as number | null, origin: '', peerRole: null as 'source' | 'client' | null });
+export const notificationCount = computed(() => ($i?.unreadNotificationsCount ?? 0) + (linkedNotifications.count ?? 0) + (linkedNotifications.channelCount ?? 0));
 export const notificationIndicator = computed(() => notificationCount.value > 0 || (linkedNotifications.enabled && !linkedNotifications.available));
 export const notificationBadge = computed(() => linkedNotifications.enabled && !linkedNotifications.available ? `${notificationCount.value || ''}?` : notificationCount.value > 99 ? '99+' : notificationCount.value ? String(notificationCount.value) : '');
 export const legacyNotificationsReady = computed(() => linkedNotifications.statusKnown && !linkedNotifications.enabled);
-let countRevision = 0;
+const countRevision = { peer: 0, channel: 0 };
+
+function updateAvailability() {
+	linkedNotifications.available = (!linkedNotifications.peerEnabled || linkedNotifications.peerAvailable) && (!linkedNotifications.channelEnabled || linkedNotifications.channelAvailable);
+}
+
+export function failLinkedNotifications(source: 'peer' | 'channel', clear = true) {
+	countRevision[source]++;
+	if (source === 'peer') { if (clear) linkedNotifications.count = null; linkedNotifications.peerAvailable = false; } else { if (clear) linkedNotifications.channelCount = null; linkedNotifications.channelAvailable = false; }
+	updateAvailability();
+}
 export function setLinkedNotificationCount(value: number) {
-	countRevision++;
+	countRevision.peer++;
 	linkedNotifications.count = value;
-	linkedNotifications.available = true;
+	linkedNotifications.peerAvailable = true; updateAvailability();
+}
+export function setChannelNotificationCount(value: number) {
+	countRevision.channel++;
+	linkedNotifications.channelCount = value;
+	linkedNotifications.channelAvailable = true; updateAvailability();
 }
 let working = false;
 let started = false;
@@ -31,17 +46,24 @@ export async function refreshLinkedNotifications() {
 		linkedNotifications.peerRole = status.peerRole;
 		if (!status.available) throw new Error('Peer unavailable');
 		linkedNotifications.statusKnown = true;
-		linkedNotifications.enabled = status.canReadNotifications;
-		linkedNotifications.available = true;
+		linkedNotifications.peerEnabled = status.canReadNotifications;
+		linkedNotifications.channelEnabled = status.canReadChannelNotifications === true;
+		linkedNotifications.enabled = linkedNotifications.peerEnabled || linkedNotifications.channelEnabled;
+		updateAvailability();
 		// The timeline can start as soon as the grant is known. Badge counts are
 		// independent and must not delay its first page.
 		linkedNotifications.checked = true;
-		if (!status.canReadNotifications) linkedNotifications.count = null;
-		if (status.canReadNotifications) {
-			const revision = countRevision;
-			const page = await misskeyApi('gridspace/notifications', { source: 'peer', countOnly: true }, undefined, AbortSignal.timeout(15000));
-			if (revision === countRevision) setLinkedNotificationCount(page.unreadCount);
-		}
+		if (!linkedNotifications.peerEnabled) linkedNotifications.count = null;
+		if (!linkedNotifications.channelEnabled) linkedNotifications.channelCount = null;
+		await Promise.all((['peer', 'channel'] as const).filter(source => source === 'peer' ? linkedNotifications.peerEnabled : linkedNotifications.channelEnabled).map(async source => {
+			const revision = countRevision[source];
+			try {
+				const page = await misskeyApi('gridspace/notifications', { source, countOnly: true }, undefined, AbortSignal.timeout(15000));
+				if (revision === countRevision[source]) {
+					if (source === 'peer') setLinkedNotificationCount(page.unreadCount); else setChannelNotificationCount(page.unreadCount);
+				}
+			} catch { if (revision === countRevision[source]) failLinkedNotifications(source, false); }
+		}));
 	} catch { linkedNotifications.available = false; } finally {
 		linkedNotifications.checked = true; working = false;
 	}

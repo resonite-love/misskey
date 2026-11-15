@@ -7,7 +7,7 @@ import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, react
 import type { ComputedRef } from 'vue';
 import type { entities } from 'misskey-js';
 import { misskeyApi } from '@/utility/misskey-api.js';
-import { linkedNotifications, refreshLinkedNotifications, setLinkedNotificationCount } from '@/utility/gridspace-notification-state.js';
+import { linkedNotifications, refreshLinkedNotifications, setLinkedNotificationCount, setChannelNotificationCount, failLinkedNotifications } from '@/utility/gridspace-notification-state.js';
 import { $i } from '@/i.js';
 import { updateCurrentAccount } from '@/accounts.js';
 import { useStream } from '@/stream.js';
@@ -17,38 +17,38 @@ import { checkTextWordMute } from '@/utility/check-word-mute.js';
 import { checkNoteWordMute } from '@/composables/use-note.js';
 
 type Page = entities.GridspaceNotificationsResponse;
-type Source = 'local' | 'peer';
+type Source = 'local' | 'peer' | 'channel';
 export type NotificationRow = { key: string; origin: string; recipientId: string; source: Source; id: string; createdAt: string; isRead: boolean; suspended?: boolean } &
-	({ source: 'local'; local: Page['local'][number]['notification'] } | { source: 'peer'; remote: Page['remote'][number] });
+	({ source: 'local'; local: Page['local'][number]['notification'] } | { source: 'peer' | 'channel'; remote: Page['remote'][number] });
 export type NotificationGroup = NotificationRow & { members: NotificationRow[] };
 const makeState = () => ({ before: undefined as string | undefined, newest: undefined as string | undefined, boundary: Infinity, more: true, busy: false, error: false });
 
 export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTop: () => boolean = () => true) {
 	const suspendedRows = shallowRef<NotificationGroup[] | null>(null);
 	const queuedKeys = shallowRef(new Set<string>());
-	const queued = computed(() => [...data.local.value, ...data.peer.value].filter(row => queuedKeys.value.has(row.key)).length);
+	const queued = computed(() => [...data.local.value, ...data.peer.value, ...data.channel.value].filter(row => queuedKeys.value.has(row.key)).length);
 	const releaseQueue = () => { if (!suspendedRows.value) queuedKeys.value = new Set(); };
-	const data = { local: shallowRef<NotificationRow[]>([]), peer: shallowRef<NotificationRow[]>([]) };
-	const state = reactive({ local: makeState(), peer: makeState() });
-	const readErrors = reactive({ local: false, peer: false });
-	const reading: Record<Source, Promise<void> | null> = { local: null, peer: null };
+	const data = { local: shallowRef<NotificationRow[]>([]), peer: shallowRef<NotificationRow[]>([]), channel: shallowRef<NotificationRow[]>([]) };
+	const state = reactive({ local: makeState(), peer: makeState(), channel: makeState() });
+	const readErrors = reactive({ local: false, peer: false, channel: false });
+	const reading: Record<Source, Promise<void> | null> = { local: null, peer: null, channel: null };
 	let generation = 0;
 	let active = true;
 	let controller = new AbortController();
 	let timer: number | undefined;
-	const pending = { local: new Set<string>(), peer: new Set<string>() };
-	const epochs = { local: 0, peer: 0 };
-	const readRevisions = { local: 0, peer: 0 };
-	const allReadRevisions = { local: 0, peer: 0 };
-	const confirmedRead = { local: new Set<string>(), peer: new Set<string>() };
+	const pending = { local: new Set<string>(), peer: new Set<string>(), channel: new Set<string>() };
+	const epochs = { local: 0, peer: 0, channel: 0 };
+	const readRevisions = { local: 0, peer: 0, channel: 0 };
+	const allReadRevisions = { local: 0, peer: 0, channel: 0 };
+	const confirmedRead = { local: new Set<string>(), peer: new Set<string>(), channel: new Set<string>() };
 	const usable = () => active && !window.document.hidden;
-	const sources: Source[] = ['local', 'peer'];
+	const sources: Source[] = ['local', 'peer', 'channel'];
 	const individualRows = computed(() => {
 		const boundary = Math.max(...sources.map(s => state[s].error ? -Infinity : state[s].boundary));
 		return sources.flatMap(s => data[s].value).filter(row => {
 			if (Date.parse(row.createdAt) <= boundary || queuedKeys.value.has(row.key)) return false;
 			if (!$i) return true;
-			if (row.source === 'peer') return !checkTextWordMute(`${row.remote.body ?? ''}\n${row.remote.note?.cw ?? ''}\n${row.remote.note?.text ?? ''}\n${row.remote.renote?.cw ?? ''}\n${row.remote.renote?.text ?? ''}`, $i.hardMutedWords);
+			if (row.source !== 'local') return !checkTextWordMute(`${row.remote.body ?? ''}\n${row.remote.note?.cw ?? ''}\n${row.remote.note?.text ?? ''}\n${row.remote.renote?.cw ?? ''}\n${row.remote.renote?.text ?? ''}`, $i.hardMutedWords);
 			return !('note' in row.local) || !checkNoteWordMute(row.local.note, $i, $i.hardMutedWords);
 		}).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.key.localeCompare(b.key));
 	});
@@ -83,7 +83,7 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 	const readError = computed(() => sources.some(s => readErrors[s]));
 
 	function count(source: Source, value: number) {
-		if (source === 'peer') { setLinkedNotificationCount(value); } else updateCurrentAccount({ unreadNotificationsCount: value, hasUnreadNotification: value > 0 });
+		if (source === 'channel') { setChannelNotificationCount(value); } else if (source === 'peer') { setLinkedNotificationCount(value); } else updateCurrentAccount({ unreadNotificationsCount: value, hasUnreadNotification: value > 0 });
 	}
 
 	function convert(page: Page, source: Source): NotificationRow[] {
@@ -97,7 +97,7 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 		epochs[source]++;
 		state[source].busy = false;
 		state[source].error = true;
-		if (source === 'peer') { data.peer.value = []; linkedNotifications.count = null; linkedNotifications.available = false; }
+		if (source !== 'local') { data[source].value = []; failLinkedNotifications(source); }
 	}
 
 	async function request(source: Source, options: entities.GridspaceNotificationsRequest) {
@@ -114,6 +114,9 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 	}
 
 	async function load(source: Source, newer = false) {
+		if ((source === 'channel' && !linkedNotifications.channelEnabled) || (source === 'peer' && linkedNotifications.peerEnabled === false)) {
+			state[source].more = false; state[source].boundary = -Infinity; return;
+		}
 		if (!usable() || state[source].busy || (!newer && !state[source].more)) return;
 		// An initially empty stream has no cursor. Treat its first arrival as a
 		// fresh page, keeping the older continuation instead of skipping it.
@@ -172,6 +175,7 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 	}
 
 	async function read(source: Source, ids: string[], all = false): Promise<boolean> {
+		if ((source === 'channel' && !linkedNotifications.channelEnabled) || (source === 'peer' && linkedNotifications.peerEnabled === false)) return true;
 		const current = generation;
 		const epoch = epochs[source];
 		// Explicit all-read waits behind an automatic seen update instead of disappearing.
@@ -216,7 +220,7 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 
 	async function resetSource(source: Source) { epochs[source]++; state[source] = makeState(); data[source].value = []; await load(source); }
 
-	function clear() { suspendedRows.value = null; queuedKeys.value = new Set(); generation++; controller.abort(); controller = new AbortController(); data.peer.value = []; pending.local.clear(); pending.peer.clear(); confirmedRead.local.clear(); confirmedRead.peer.clear(); }
+	function clear() { suspendedRows.value = null; queuedKeys.value = new Set(); generation++; controller.abort(); controller = new AbortController(); for (const source of sources) { if (source !== 'local') data[source].value = []; pending[source].clear(); confirmedRead[source].clear(); } }
 
 	async function reload() { clear(); await Promise.all(sources.map(resetSource)); }
 
@@ -228,14 +232,14 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 
 	function stripped(row: NotificationRow): NotificationRow {
 		if (row.source === 'local') return row;
-		return { key: row.key, origin: row.origin, recipientId: row.recipientId, source: 'peer', id: row.id, createdAt: row.createdAt, isRead: row.isRead, suspended: true,
+		return { key: row.key, origin: row.origin, recipientId: row.recipientId, source: row.source, id: row.id, createdAt: row.createdAt, isRead: row.isRead, suspended: true,
 			remote: { id: row.id, createdAt: row.createdAt, isRead: row.isRead, type: 'test', note: null, user: null, body: null, reaction: null } };
 	}
 
 	function suspend() {
 		generation++; controller.abort(); controller = new AbortController();
 		suspendedRows.value ??= rows.value.map(row => ({ ...stripped(row), members: row.members.map(stripped) }));
-		data.peer.value = data.peer.value.map(stripped);
+		data.peer.value = data.peer.value.map(stripped); data.channel.value = data.channel.value.map(stripped);
 		for (const source of sources) { state[source].busy = false; pending[source].clear(); }
 	}
 
@@ -270,6 +274,15 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 	onActivated(() => { if (!active) { active = true; void resume(); } });
 	onDeactivated(() => { active = false; suspend(); });
 	onBeforeUnmount(() => { active = false; clear(); window.clearInterval(timer); stream?.dispose(); window.document.removeEventListener('visibilitychange', visibility); void refreshLinkedNotifications(); });
+	watch(() => [linkedNotifications.peerEnabled, linkedNotifications.channelEnabled] as const, (next, previous) => {
+		for (const [index, source] of (['peer', 'channel'] as const).entries()) if (next[index] !== previous[index]) {
+			pending[source].clear(); confirmedRead[source].clear(); readErrors[source] = false;
+			const removed = new Set(data[source].value.map(row => row.key));
+			queuedKeys.value = new Set([...queuedKeys.value].filter(key => !removed.has(key)));
+			if (suspendedRows.value) suspendedRows.value = suspendedRows.value.filter(row => row.source !== source);
+			void resetSource(source);
+		}
+	});
 	watch(exclude, reload, { deep: true });
 	return { rows, hasMore, busy, error, readError, older, reload, seen, markDisplayed, markAll, queued, releaseQueue };
 }

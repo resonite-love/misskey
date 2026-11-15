@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div ref="root" :data-gridspace-peer-notification="row.source === 'peer' ? '' : undefined" :style="height ? { minHeight: `${height}px`, boxSizing: 'border-box' } : undefined" @pointerdown="releaseHeight" @keydown="releaseHeight">
+<div ref="root" :data-gridspace-peer-notification="row.source !== 'local' ? '' : undefined" :style="height ? { minHeight: `${height}px`, boxSizing: 'border-box' } : undefined" @pointerdown="releaseHeight" @keydown="releaseHeight">
 	<div v-if="row.suspended" :style="{ height: `${height}px` }" aria-busy="true"></div>
 	<slot v-else></slot>
 </div>

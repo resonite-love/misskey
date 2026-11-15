@@ -11,6 +11,7 @@ import { ReplyError } from 'ioredis';
 import { DI } from '@/di-symbols.js';
 import type { UsersRepository } from '@/models/_.js';
 import type { MiUser } from '@/models/User.js';
+import type { MiNote } from '@/models/Note.js';
 import type { MiNotification } from '@/models/Notification.js';
 import { bindThis } from '@/decorators.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
@@ -72,6 +73,14 @@ export class NotificationService implements OnApplicationShutdown {
 	private postReadAllNotifications(userId: MiUser['id']) {
 		this.globalEventService.publishMainStream(userId, 'readAllNotifications');
 		this.pushNotificationService.pushNotification(userId, 'readAllNotifications', undefined);
+	}
+
+	@bindThis
+	public createReactionNotification(note: Pick<MiNote, 'id' | 'userId' | 'userHost' | 'channelId' | 'localOnly' | 'uri'>, reaction: string, notifierId: string) {
+		const peer = this.config.gridspace;
+		const channelRecipient = peer?.enabled === true && peer.channelRole === 'source' &&
+			note.channelId != null && note.localOnly && note.uri === null && note.userHost === new URL(peer.peerUrl).host;
+		if (note.userHost === null || channelRecipient) this.createNotification(note.userId, 'reaction', { noteId: note.id, reaction }, notifierId);
 	}
 
 	@bindThis

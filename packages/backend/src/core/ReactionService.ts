@@ -294,13 +294,7 @@ export class ReactionService {
 			userId: user.id,
 		});
 
-		// リアクションされたユーザーがローカルユーザーなら通知を作成
-		if (note.userHost === null) {
-			this.notificationService.createNotification(note.userId, 'reaction', {
-				noteId: note.id,
-				reaction: reaction,
-			}, user.id);
-		}
+		this.notificationService.createReactionNotification(note, reaction, user.id);
 
 		//#region 配信
 		if (this.userEntityService.isLocalUser(user) && !note.localOnly) {

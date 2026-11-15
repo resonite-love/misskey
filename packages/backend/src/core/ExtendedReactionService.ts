@@ -60,7 +60,7 @@ export class ExtendedReactionService {
 			await this.reactionService.createUnlocked(user, note, reaction);
 		} else {
 			await this.reactionDelivery.mutate(note, manager => manager.insert(MiExtendedNoteReaction, { id: this.idService.gen(), userId: user.id, noteId: note.id, reaction }));
-			if (note.userHost === null) this.notificationService.createNotification(note.userId, 'reaction', { noteId: note.id, reaction }, user.id);
+			this.notificationService.createReactionNotification(note, reaction, user.id);
 		}
 		this.globalEventService.publishNoteStream(note, 'extendedReactionUpdated', {});
 	}

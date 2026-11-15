@@ -10,10 +10,31 @@ import { misskeyApi } from '@/utility/misskey-api.js';
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: vi.fn() }));
 vi.mock('@/i.js', () => ({ $i: { id: 'viewer', unreadNotificationsCount: 0 } }));
 const api = vi.mocked(misskeyApi);
-beforeEach(() => { api.mockReset(); Object.assign(linkedNotifications, { checked: false, statusKnown: false, enabled: false, available: true, count: null, origin: '' }); });
+beforeEach(() => { api.mockReset(); Object.assign(linkedNotifications, { checked: false, statusKnown: false, enabled: false, peerEnabled: false, channelEnabled: false, channelCount: null, peerAvailable: true, channelAvailable: true, available: true, count: null, origin: '' }); });
 afterEach(() => vi.restoreAllMocks());
 
 describe('linked notification counts', () => {
+	it('does not hide a peer outage after a successful channel count', async () => {
+		api.mockImplementation((async (endpoint, params) => {
+			if (endpoint === 'gridspace/private-grant') return { available: true, canReadNotifications: true, canReadChannelNotifications: true };
+			if ((params as { source?: string })?.source === 'peer') throw new Error('peer failed');
+			return { unreadCount: 3 };
+		}) as typeof misskeyApi);
+		await refreshLinkedNotifications();
+		expect(linkedNotifications.available).toBe(false);
+		expect(linkedNotifications.channelCount).toBe(3);
+	});
+
+	it('enables channel notifications for users without an old account', async () => {
+		api.mockImplementation((async (endpoint, params) => endpoint === 'gridspace/private-grant'
+			? { available: true, canReadNotifications: false, canReadChannelNotifications: true }
+			: { unreadCount: (params as { source?: string })?.source === 'channel' ? 3 : 0 }) as typeof misskeyApi);
+		await refreshLinkedNotifications();
+		expect(linkedNotifications.enabled).toBe(true);
+		expect(linkedNotifications.channelCount).toBe(3);
+		expect(legacyNotificationsReady.value).toBe(false);
+	});
+
 	it('allows ordinary notifications after confirming no notification grant', async () => {
 		api.mockResolvedValue({ available: true, canReadNotifications: false } as never);
 		await refreshLinkedNotifications();

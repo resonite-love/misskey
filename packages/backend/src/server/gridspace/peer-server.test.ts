@@ -18,7 +18,7 @@ const g = resolveGridspaceConfig(source, 'https://g.example', env)!;
 const r = resolveGridspaceConfig({ ...source, peerUrl: g.origin }, source.peerUrl, env)!;
 const servers: FastifyInstance[] = [];
 
-async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8], reactions?: Parameters<typeof registerGridspacePeer>[12], reactionUpdates?: Parameters<typeof registerGridspacePeer>[13], readNotes?: Parameters<typeof registerGridspacePeer>[14], channelUpdate?: Parameters<typeof registerGridspacePeer>[21], privateAction?: Parameters<typeof registerGridspacePeer>[7]) {
+async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8], reactions?: Parameters<typeof registerGridspacePeer>[12], reactionUpdates?: Parameters<typeof registerGridspacePeer>[13], readNotes?: Parameters<typeof registerGridspacePeer>[14], channelUpdate?: Parameters<typeof registerGridspacePeer>[21], privateAction?: Parameters<typeof registerGridspacePeer>[7], notifications?: Parameters<typeof registerGridspacePeer>[9]) {
 	const app = Fastify();
 	servers.push(app);
 	const used = new Set<string>();
@@ -29,7 +29,7 @@ async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Para
 			if (used.has(key)) return false;
 			used.add(key);
 			return true;
-		}), action, notes, history, search, privateAction, replyAction, undefined, undefined, undefined, reactions, reactionUpdates, readNotes, undefined, undefined, undefined, undefined, undefined, undefined, channelUpdate);
+		}), action, notes, history, search, privateAction, replyAction, notifications, undefined, undefined, reactions, reactionUpdates, readNotes, undefined, undefined, undefined, undefined, undefined, undefined, channelUpdate);
 	}, { prefix: '/gridspace/v1' });
 	return app;
 }
@@ -44,6 +44,17 @@ afterEach(async () => {
 });
 
 describe('GridSpace channel actions', () => {
+	test('channel notification inbox requires a signature and rejects mixed credentials', async () => {
+		const notifications = vi.fn(async () => ({}));
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, notifications);
+		const url = '/gridspace/v1/notifications/query';
+		const send = (input: object, signed = true) => { const payload = Buffer.from(JSON.stringify(input)); return app.inject({ method: 'POST', url, payload, headers: signed ? createGridspaceHeaders(g, 'POST', url, payload) : { 'content-type': 'application/json' } }); };
+		expect((await send({ channelActorId: 'viewer' }, false)).statusCode).toBe(403);
+		expect((await send({ channelActorId: 'viewer' })).statusCode).toBe(200);
+		expect(notifications).toHaveBeenCalledWith('query', expect.objectContaining({ channelActorId: 'viewer' }));
+		for (const input of [{ channelActorId: 'viewer', accessToken: 'mixed' }, { channelActorId: 'viewer', localUserId: 'other' }, { channelActorId: 'bad/id' }, {}]) expect((await send(input)).statusCode).toBe(400);
+	});
+
 	test('signed context navigation preserves its source anchor, scope and direction', async () => {
 		const action = vi.fn(async () => ({}));
 		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, action);

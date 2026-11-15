@@ -57,7 +57,7 @@ import { misskeyApi } from '@/utility/misskey-api.js';
 import $style from '@/components/notification.module.scss';
 import { i18n } from '@/i18n.js';
 
-const props = defineProps<{ row: NotificationGroup & { source: 'peer' } }>();
+const props = defineProps<{ row: NotificationGroup & { source: 'peer' | 'channel' } }>();
 const acting = ref(false);
 const done = ref(false);
 const actionFailed = ref(false);
@@ -75,7 +75,7 @@ async function decide(accept: boolean) {
 const notice = computed(() => props.row.remote);
 const presentation = computed(() => notice.value.presentation);
 const type = computed(() => notice.value.type);
-const peerMembers = computed(() => props.row.members.filter(n => n.source === 'peer'));
+const peerMembers = computed(() => props.row.members.filter(n => n.source !== 'local'));
 const grouped = computed(() => peerMembers.value.length > 1);
 const avatar = computed(() => type.value === 'app' ? null : presentation.value?.user ?? presentation.value?.noteUser ?? presentation.value?.recipient);
 const title = computed(() => {

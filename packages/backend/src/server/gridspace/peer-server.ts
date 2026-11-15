@@ -244,7 +244,10 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			fastify.post<{ Body: NotificationPeerRequest }>(`/notifications/${name}`, {
 				bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
 				schema: { body: { type: 'object', additionalProperties: false,
-					required: ['accessToken', 'linkId', 'generation', 'localUserId', ...(name === 'read' ? ['ids'] : [])], properties: {
+					required: name === 'read' ? ['ids'] : [], oneOf: [
+						{ required: ['accessToken', 'linkId', 'generation', 'localUserId'], not: { required: ['channelActorId'] } },
+						{ required: ['channelActorId'], not: { anyOf: ['accessToken', 'linkId', 'generation', 'localUserId', 'pairId'].map(key => ({ required: [key] })) } },
+					], properties: {
 						...notificationOptionsSchema,
 						followRequestId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 						channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },

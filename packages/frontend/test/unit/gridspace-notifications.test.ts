@@ -17,7 +17,12 @@ vi.mock('@/composables/use-note.js', () => ({ checkNoteWordMute: () => false }))
 vi.mock('@/preferences.js', () => ({ prefer: { s: { useGroupedNotifications: true } } }));
 vi.mock('@/store.js', () => ({ store: { s: { realtimeMode: false } } }));
 vi.mock('@/stream.js', () => ({ useStream: () => { throw new Error('WebSocket forbidden in polling mode'); } }));
-vi.mock('@/utility/gridspace-notification-state.js', () => ({ linkedNotifications: { count: null, available: true }, refreshLinkedNotifications: vi.fn(), setLinkedNotificationCount: (value: number) => { linkedNotifications.count = value; linkedNotifications.available = true; } }));
+vi.mock('@/utility/gridspace-notification-state.js', async () => {
+	const { reactive } = await import('vue');
+	return { linkedNotifications: reactive({ count: null, available: true, peerEnabled: true, channelEnabled: false }), refreshLinkedNotifications: vi.fn(),
+		setChannelNotificationCount: vi.fn(), failLinkedNotifications: (source: string) => { if (source === 'peer') linkedNotifications.count = null; linkedNotifications.available = false; },
+		setLinkedNotificationCount: (value: number) => { linkedNotifications.count = value; linkedNotifications.available = true; } };
+});
 
 const api = vi.mocked(misskeyApi);
 const at = (n: number) => new Date(1700000000000 + n * 1000).toISOString();
@@ -35,10 +40,31 @@ function mount(isAtTop = () => true) {
 	app.mount(document.createElement('div')); cleanup = () => app.unmount();
 	return list;
 }
-beforeEach(() => { vi.useFakeTimers(); api.mockReset(); api.mockImplementation(((endpoint, params) => respond(endpoint, params ?? {})) as typeof misskeyApi); });
+beforeEach(() => { Object.assign(linkedNotifications, { channelEnabled: false, peerEnabled: true }); vi.useFakeTimers(); api.mockReset(); api.mockImplementation(((endpoint, params) => respond(endpoint, params ?? {})) as typeof misskeyApi); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('combined notifications', () => {
+	it('immediately clears a revoked peer source while keeping channel notifications active', async () => {
+		Object.assign(linkedNotifications, { channelEnabled: true });
+		respond = async (_, p) => ({ ...page(p.source === 'local' ? 'local' : 'peer', [notice(9, String(p.source))]), recipientId: String(p.source) });
+		const list = mount(); await settle();
+		expect(list.rows.value.some(row => row.source === 'peer')).toBe(true);
+		linkedNotifications.peerEnabled = false; await settle();
+		expect(list.rows.value.some(row => row.source === 'peer')).toBe(false);
+		expect(list.rows.value.some(row => row.source === 'channel')).toBe(true);
+		linkedNotifications.peerEnabled = true; await settle();
+		expect(list.rows.value.some(row => row.source === 'peer')).toBe(true);
+	});
+
+	it('merges own channel notifications and marks them read through the channel identity', async () => {
+		Object.assign(linkedNotifications, { channelEnabled: true });
+		respond = async (endpoint, p) => endpoint.endsWith('/read') ? { unreadCount: 0 } : { ...page(p.source === 'local' ? 'local' : 'peer', [notice(p.source === 'channel' ? 9 : 8, String(p.source))]), recipientId: String(p.source) };
+		const list = mount(); await settle();
+		expect(list.rows.value.map(row => row.source)).toEqual(['channel', 'local', 'peer']);
+		list.seen(list.rows.value[0]); await list.markDisplayed();
+		expect(api).toHaveBeenCalledWith('gridspace/notifications/read', expect.objectContaining({ source: 'channel', ids: ['channel'] }), undefined, expect.anything());
+	});
+
 	it('revalidates rows loaded while an all-read write is still in flight', async () => {
 		let releasePage!: (value: unknown) => void;
 		let releaseRead!: (value: unknown) => void;

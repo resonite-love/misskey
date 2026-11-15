@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { mockDeep } from 'vitest-mock-extended';
 import { UserFollowingService } from '@/core/UserFollowingService.js';
 import type { UserEntityService } from '@/core/entities/UserEntityService.js';
@@ -18,6 +18,8 @@ import type { MiGridspaceLink } from '@/models/Gridspace.js';
 import type { NotificationService } from '@/core/NotificationService.js';
 import type { NotificationReadService } from '@/core/NotificationReadService.js';
 import type { NotificationEntityService } from '@/core/entities/NotificationEntityService.js';
+import type { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
+import { MiNote } from '@/models/Note.js';
 import { GridspaceNotificationService } from './GridspaceNotificationService.js';
 import type { GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
@@ -44,11 +46,84 @@ function fixture() {
 	moduleRef.get.mockImplementation(((token: unknown) => token === UserFollowingService ? following : users) as ModuleRef['get']);
 	users.pack.mockResolvedValue({ id: 'viewer', username: 'viewer', host: null } as Packed<'UserLite'>);
 	const search = mockDeep<GridspaceSearchService>();
-	const service = new GridspaceNotificationService({ url: 'https://g.example' } as Config, db, notifications, reads, packer, links, notes, search, moduleRef);
-	return { service, following, users, search, db, links, notes, notifications, reads, packer, viewer: { id: 'viewer' } as MiLocalUser };
+	const channels = mockDeep<GridspaceChannelAuthService>();
+	const service = new GridspaceNotificationService({ url: 'https://g.example' } as Config, db, notifications, reads, packer, links, notes, search, moduleRef, channels);
+	return { service, channels, following, users, search, db, links, notes, notifications, reads, packer, viewer: { id: 'viewer' } as MiLocalUser };
 }
 
 describe('GridSpace notifications', () => {
+	test('does not display or count a channel notification rejected by current visibility/mute filters', async () => {
+		const f = fixture(); f.channels.source.mockResolvedValue({ id: 'remoteViewer' } as never);
+		const row = { id: 'hidden', type: 'reaction', noteId: 'mutedChannelNote', notifierId: 'reactor', reaction: '👍', createdAt: new Date().toISOString() } as MiNotification;
+		f.notifications.getNotifications.mockResolvedValue([row]);
+		f.db.getRepository.mockReturnValue({ findBy: async () => [{ id: row.noteId, channelId: 'muted' }] } as never);
+		const query = { andWhere: () => query };
+		f.search.noteQuery.mockReturnValue(query as never); f.search.read.mockResolvedValue([]);
+		f.packer.packMany.mockResolvedValue([]); f.reads.state.mockResolvedValue({ unreadCount: 1, changed: false, isRead: [] });
+		const page = await f.service.peer('query', { channelActorId: 'viewer' });
+		expect(page.items).toEqual([]); expect(page.unreadCount).toBe(0);
+		await f.service.peer('read', { channelActorId: 'viewer', ids: [row.id] });
+		expect(f.notifications.readNotifications).toHaveBeenCalledWith('remoteViewer', []);
+	});
+
+	test('counts and marks only still-visible channel reactions, not other inbox entries', async () => {
+		const f = fixture(); f.channels.source.mockResolvedValue({ id: 'remoteViewer' } as never);
+		vi.spyOn(f.service as never, 'channelRows' as never).mockResolvedValue([{ id: 'visible' }] as never);
+		f.reads.state.mockResolvedValue({ unreadCount: 99, changed: false, isRead: [false] });
+		f.notifications.getNotifications.mockResolvedValue([]); f.packer.packMany.mockResolvedValue([]);
+		expect((await f.service.peer('query', { channelActorId: 'viewer', countOnly: true })).unreadCount).toBe(1);
+		await f.service.peer('read-all', { channelActorId: 'viewer' });
+		expect(f.notifications.readNotifications).toHaveBeenCalledWith('remoteViewer', ['visible']);
+		expect(f.notifications.readAllNotification).not.toHaveBeenCalled();
+	});
+
+	test('reads channel reactions with the current identity even without an old-account link', async () => {
+		const f = fixture();
+		f.channels.destination.mockResolvedValue({ credential: { channelActorId: 'viewer' }, peerOrigin: 'https://r.example', key: 'actor:viewer', peerUserId: '', check: async () => {} });
+		f.links.privateLink.mockRejectedValue(new Error('no old account'));
+		f.links.json.mockResolvedValue({ items: [{ id: 'reaction', type: 'reaction', note: { id: 'n', channelId: 'channel', author: { uri: 'https://g.example/users/viewer' }, filterActors: [] } }], origin: 'https://r.example', recipientId: 'remoteViewer' });
+		expect((await f.service.remote(f.viewer, {}, 'query', true)).items).toHaveLength(1);
+		expect(f.links.json).toHaveBeenCalledWith('/gridspace/v1/notifications/query', expect.objectContaining({ channelActorId: 'viewer' }));
+		expect(f.links.privateLink).not.toHaveBeenCalled();
+	});
+	test('rejects another author or a non-channel response on the channel inbox', async () => {
+		const f = fixture();
+		f.channels.destination.mockResolvedValue({ credential: { channelActorId: 'viewer' }, peerOrigin: 'https://r.example', key: 'actor:viewer', peerUserId: '', check: async () => {} });
+		for (const note of [{ channelId: 'channel', author: { uri: 'https://g.example/users/other' } }, { channelId: null, author: { uri: 'https://g.example/users/viewer' } }]) {
+			f.links.json.mockResolvedValue({ items: [{ id: 'n', type: 'reaction', note }], origin: 'https://r.example', recipientId: 'remoteViewer' });
+			await expect(f.service.remote(f.viewer, {}, 'query', true)).rejects.toMatchObject({ code: 'PEER_UNAVAILABLE' });
+		}
+	});
+	test('authorizes and rechecks a channel identity before marking notifications read', async () => {
+		const f = fixture();
+		f.channels.source.mockResolvedValue({ id: 'remoteViewer' } as never);
+		vi.spyOn(f.service as never, 'channelRows' as never).mockResolvedValue([{ id: 'reaction' }] as never);
+		f.reads.state.mockResolvedValue({ unreadCount: 0, changed: false, isRead: [true] });
+		f.notifications.readNotifications.mockResolvedValue({ unreadCount: 0, changed: true, isRead: [true] });
+		await f.service.peer('read', { channelActorId: 'viewer', ids: ['reaction'] });
+		expect(f.channels.source).toHaveBeenCalledWith('viewer', f.db.manager);
+		expect(f.notifications.readNotifications).toHaveBeenCalledWith('remoteViewer', ['reaction']);
+		await expect(f.service.peer('accept-follow', { channelActorId: 'viewer' })).rejects.toMatchObject({ code: 'ACTION_REJECTED' });
+		await expect(f.service.peer('query', { channelActorId: 'viewer', accessToken: 'mixed' })).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+	});
+	test('channel inbox exposes only reactions on posts owned by its resolved actor', async () => {
+		const f = fixture(); f.channels.source.mockResolvedValue({ id: 'remoteViewer' } as never);
+		const rows = ['owned', 'other'].map((noteId, i) => ({ id: String(i), type: 'reaction', noteId, notifierId: 'reactor', reaction: '👍', createdAt: new Date().toISOString() } as MiNotification));
+		f.notifications.getNotifications.mockResolvedValue(rows);
+		f.db.getRepository.mockReturnValue({ findBy: async () => [{ id: 'owned', channelId: 'channel' }] } as never);
+		f.packer.packMany.mockImplementation(async rows => rows.map(row => ({ ...row, user: { id: 'reactor' }, note: { user: { id: 'remoteViewer' } } })) as never);
+		const query = { andWhere: () => query, getMany: async () => [{ id: 'reactor', username: 'reactor', host: null, uri: null, name: null }] };
+		f.search.userQuery.mockReturnValue(query as never);
+		f.search.noteQuery.mockReturnValue(query as never);
+		f.search.read.mockResolvedValue([{ id: 'owned', channelId: 'channel' } as MiNote]);
+		f.notes.peerNotes.mockResolvedValue({ notes: [{ id: 'owned' } as PrivateWireNote], next: null, head: null, scannedThrough: null, observedAt: '' });
+		f.reads.state.mockResolvedValue({ unreadCount: 1, changed: false, isRead: [false] });
+		const result = await f.service.peer('query', { channelActorId: 'viewer' });
+		expect(result.items.map(n => n.id)).toEqual(['0']);
+		expect(f.db.getRepository).toHaveBeenCalledWith(MiNote);
+		expect(f.notes.peerNotes).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'channel', channelActorId: 'viewer', ids: ['owned'] }));
+	});
+
 	test.each([true, false])('filters nested previews in both notification note fields (%s)', async readable => {
 		const f = fixture();
 		const preview = { id: 'original', text: 'Own follower post', filterActors: [], renote: { text: 'deeper' } };

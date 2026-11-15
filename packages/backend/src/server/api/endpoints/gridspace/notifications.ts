@@ -24,15 +24,15 @@ export const meta = {
 		remote: { type: 'array', optional: false, nullable: false, items: peerNotificationSchema },
 	} },
 } as const;
-export const paramDef = { type: 'object', properties: { ...notificationOptionsSchema, source: { type: 'string', enum: ['local', 'peer'], default: 'local' } }, required: [] } as const;
+export const paramDef = { type: 'object', properties: { ...notificationOptionsSchema, source: { type: 'string', enum: ['local', 'peer', 'channel'], default: 'local' } }, required: [] } as const;
 
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
 	constructor(private notifications: GridspaceNotificationService) {
 		super(meta, paramDef, async (ps, me) => {
 			try {
-				if (ps.source === 'peer') {
-					const { items, ...page } = await this.notifications.remote(me, ps);
+				if (ps.source !== 'local') {
+					const { items, ...page } = await this.notifications.remote(me, ps, 'query', ps.source === 'channel');
 					return { ...page, local: [], remote: items };
 				}
 				const { items, ...page } = await this.notifications.local(me, ps);

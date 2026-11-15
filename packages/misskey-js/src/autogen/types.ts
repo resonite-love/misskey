@@ -26962,7 +26962,7 @@ export interface operations {
                      * @default local
                      * @enum {string}
                      */
-                    source?: 'local' | 'peer';
+                    source?: 'local' | 'peer' | 'channel';
                 };
             };
         };
@@ -27517,7 +27517,7 @@ export interface operations {
                      * @default local
                      * @enum {string}
                      */
-                    source?: 'local' | 'peer';
+                    source?: 'local' | 'peer' | 'channel';
                     ids?: string[];
                     /** @default false */
                     all?: boolean;
@@ -28200,6 +28200,7 @@ export interface operations {
                         canReply: boolean;
                         canInteract: boolean;
                         canReadNotifications: boolean;
+                        canReadChannelNotifications: boolean;
                         canWriteChannels: boolean;
                         canManageFollowRequests: boolean;
                         available: boolean;
