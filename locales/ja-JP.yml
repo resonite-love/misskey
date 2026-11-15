@@ -3693,6 +3693,7 @@ _autoTranslation:
   showTranslation: "翻訳を表示"
   failed: "翻訳できなかったため、原文を表示しています。"
 _gridspace:
+  quoteInChannel: "この投稿は「{name}」チャンネル内で引用します。書きかけの内容もそのチャンネルに投稿されます。続けますか？"
   layoutPartial: "一部の列・ウィジェットは参照先を設定し直してください。"
   layoutReferenceUnavailable: "元の参照先を引き継げませんでした。設定から選び直してください。"
   startImportedScript: "引き継いだスクリプトを実行する"

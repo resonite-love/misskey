@@ -502,3 +502,5 @@ export * as 'gridspace/content' from './endpoints/gridspace/content.js';
 export * as 'admin/gridspace/drive' from './endpoints/admin/gridspace/drive.js';
 
 export * as 'gridspace/managed-resource' from './endpoints/gridspace/managed-resource.js';
+
+export * as 'gridspace/note-link' from './endpoints/gridspace/note-link.js';

@@ -2141,6 +2141,8 @@ declare namespace entities {
         GridspaceManagedResourceResponse,
         GridspaceMemberRequest,
         GridspaceMemberResponse,
+        GridspaceNoteLinkRequest,
+        GridspaceNoteLinkResponse,
         GridspaceNoteMenuRequest,
         GridspaceNoteMenuResponse,
         GridspaceNotificationsRequest,
@@ -2848,6 +2850,12 @@ type GridspaceMemberRequest = operations['gridspace___member']['requestBody']['c
 
 // @public (undocumented)
 type GridspaceMemberResponse = operations['gridspace___member']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceNoteLinkRequest = operations['gridspace___note-link']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceNoteLinkResponse = operations['gridspace___note-link']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type GridspaceNoteMenuRequest = operations['gridspace___note-menu']['requestBody']['content']['application/json'];

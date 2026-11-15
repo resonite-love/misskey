@@ -2551,6 +2551,16 @@ export type paths = {
          */
         post: operations['gridspace___member'];
     };
+    '/gridspace/note-link': {
+        /**
+         * gridspace/note-link
+         * @description Resolve a paired-server note link with the current viewer permissions.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___note-link'];
+    };
     '/gridspace/note-menu': {
         /**
          * gridspace/note-menu
@@ -26782,6 +26792,260 @@ export interface operations {
                         linked: boolean;
                         available: boolean;
                         accounts: components['schemas']['UserLite'][];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___note-link': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    url: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        note: {
+                            id: string;
+                            uri: string;
+                            createdAt: string;
+                            origin: string;
+                            text: string | null;
+                            cw: string | null;
+                            visibility: string;
+                            localOnly: boolean;
+                            channelId?: string | null;
+                            channel?: {
+                                id: string;
+                                name: string;
+                                color: string;
+                            } | null;
+                            collectionId?: string;
+                            collectionAt?: string;
+                            canDelete?: boolean;
+                            canSelfRenote?: boolean;
+                            author: {
+                                name: string | null;
+                                username: string;
+                                host: string;
+                                uri: string;
+                                avatarUrl: string;
+                                emojis?: {
+                                    [key: string]: string;
+                                };
+                                avatarBlurhash?: string | null;
+                                avatarDecorations?: {
+                                    /** Format: id */
+                                    id: string;
+                                    angle?: number;
+                                    flipH?: boolean;
+                                    /** Format: url */
+                                    url: string;
+                                    offsetX?: number;
+                                    offsetY?: number;
+                                }[];
+                                isBot?: boolean;
+                                isCat?: boolean;
+                                instance?: {
+                                    name?: string | null;
+                                    faviconUrl?: string | null;
+                                    themeColor?: string | null;
+                                };
+                            };
+                            emojis?: {
+                                [key: string]: string;
+                            };
+                            reactions?: {
+                                [key: string]: number;
+                            };
+                            reactionEmojis?: {
+                                [key: string]: string;
+                            };
+                            myReaction?: string | null;
+                            myReactions?: string[];
+                            reactionPreviews?: {
+                                reaction: string;
+                                account: {
+                                    name: string | null;
+                                    username: string;
+                                    host: string;
+                                    uri: string;
+                                    avatarUrl: string;
+                                };
+                            }[];
+                            extendedReactions?: boolean;
+                            replyId: string | null;
+                            renoteId: string | null;
+                            files: {
+                                id: string;
+                                name: string;
+                                type: string;
+                                size: number;
+                                comment: string | null;
+                                isSensitive: boolean;
+                            }[];
+                            poll: {
+                                choices: {
+                                    text: string;
+                                    votes: number;
+                                    isVoted?: boolean;
+                                }[];
+                                expiresAt: string | null;
+                                multiple: boolean;
+                            } | null;
+                            renote?: {
+                                id: string;
+                                uri: string;
+                                createdAt: string;
+                                origin: string;
+                                text: string | null;
+                                cw: string | null;
+                                visibility: string;
+                                localOnly: boolean;
+                                channelId?: string | null;
+                                channel?: {
+                                    id: string;
+                                    name: string;
+                                    color: string;
+                                } | null;
+                                collectionId?: string;
+                                collectionAt?: string;
+                                canDelete?: boolean;
+                                canSelfRenote?: boolean;
+                                author: {
+                                    name: string | null;
+                                    username: string;
+                                    host: string;
+                                    uri: string;
+                                    avatarUrl: string;
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    avatarBlurhash?: string | null;
+                                    avatarDecorations?: {
+                                        /** Format: id */
+                                        id: string;
+                                        angle?: number;
+                                        flipH?: boolean;
+                                        /** Format: url */
+                                        url: string;
+                                        offsetX?: number;
+                                        offsetY?: number;
+                                    }[];
+                                    isBot?: boolean;
+                                    isCat?: boolean;
+                                    instance?: {
+                                        name?: string | null;
+                                        faviconUrl?: string | null;
+                                        themeColor?: string | null;
+                                    };
+                                };
+                                emojis?: {
+                                    [key: string]: string;
+                                };
+                                reactions?: {
+                                    [key: string]: number;
+                                };
+                                reactionEmojis?: {
+                                    [key: string]: string;
+                                };
+                                myReaction?: string | null;
+                                myReactions?: string[];
+                                reactionPreviews?: {
+                                    reaction: string;
+                                    account: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                    };
+                                }[];
+                                extendedReactions?: boolean;
+                                replyId: string | null;
+                                renoteId: string | null;
+                                files: {
+                                    id: string;
+                                    name: string;
+                                    type: string;
+                                    size: number;
+                                    comment: string | null;
+                                    isSensitive: boolean;
+                                }[];
+                                poll: {
+                                    choices: {
+                                        text: string;
+                                        votes: number;
+                                        isVoted?: boolean;
+                                    }[];
+                                    expiresAt: string | null;
+                                    multiple: boolean;
+                                } | null;
+                            } | null;
+                        } | null;
+                        localNote: components['schemas']['Note'] | null;
                     };
                 };
             };

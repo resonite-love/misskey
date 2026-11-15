@@ -12,16 +12,17 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</template>
 		<span :class="[$style.headerRightItem, $style.visibility]" :title="audience"><i :class="channelId ? 'ti ti-device-tv' : info?.visibility === 'specified' ? 'ti ti-mail' : 'ti ti-lock'"></i><span :class="$style.headerRightButtonText">{{ audience }}</span></span>
 		<span v-if="info?.localOnly && !channelId" :title="i18n.ts._visibility.disableFederation"><i class="ti ti-rocket-off"></i></span>
-		<button class="_button" :class="$style.submit" :disabled="!canSend" data-testid="post-form-submit" @click="send"><div :class="$style.submitInner"><MkEllipsis v-if="sending"/><template v-else>{{ pending ? i18n.ts.retry : reply ? i18n.ts.reply : renote ? i18n.ts.quote : i18n.ts.note }}</template><i style="margin-left: 6px;" :class="reply ? 'ti ti-arrow-back-up' : renote ? 'ti ti-quote' : 'ti ti-send'"></i></div></button>
+		<button class="_button" :class="$style.submit" :disabled="!canSend" data-testid="post-form-submit" @click="send"><div :class="$style.submitInner"><MkEllipsis v-if="sending"/><template v-else>{{ pending ? i18n.ts.retry : reply ? i18n.ts.reply : (renote || pastedQuote) ? i18n.ts.quote : i18n.ts.note }}</template><i style="margin-left: 6px;" :class="reply ? 'ti ti-arrow-back-up' : (renote || pastedQuote) ? 'ti ti-quote' : 'ti ti-send'"></i></div></button>
 	</MkPostFormHeader>
 	<MkLoading v-if="loading"/>
 	<MkInfo v-if="error" warn role="alert" :class="$style.peerInfo">{{ error }}</MkInfo>
 	<template v-if="info">
 		<div v-if="!channelId && info.recipients.length" :class="$style.peerInfo">{{ i18n.ts._gridspace.replyRecipients }}: {{ info.recipients.map(person => `@${person.username}@${person.host}`).join(', ') }}</div>
-		<div v-if="targetNote" :class="$style.targetNote"><i v-if="renote" class="ti ti-quote"></i><strong>{{ targetNote.author.name || targetNote.author.username }}</strong><Mfm :text="targetNote.cw ?? targetNote.text ?? ''" :author="targetNote.author" :emojiUrls="targetNote.emojis ?? {}" :plain="true"/></div>
+		<div v-if="targetNote" :class="$style.targetNote"><i v-if="renote || pastedQuote" class="ti ti-quote"></i><strong>{{ targetNote.author.name || targetNote.author.username }}</strong><Mfm :text="targetNote.cw ?? targetNote.text ?? ''" :author="targetNote.author" :emojiUrls="targetNote.emojis ?? {}" :plain="true"/></div>
+		<div v-if="pastedQuoteId" :class="$style.peerInfo">{{ i18n.ts.quoteAttached }} <button class="_button" :aria-label="i18n.ts.remove" :disabled="locked" @click="pastedQuoteId = null; pastedQuote = null"><i class="ti ti-x"></i></button></div>
 		<template v-if="info.canReply">
 			<fieldset :disabled="locked" :class="$style.peerFields">
-				<MkPostFormFields :useCw="useCw" :channelColor="channel?.color"><template #cw><input ref="cwInput" v-model="cw" :class="$style.cw" :placeholder="i18n.ts.annotation" :aria-label="i18n.ts.annotation" maxlength="100" @keydown="keydown"></template><textarea ref="textarea" v-model="text" :class="$style.text" :aria-label="i18n.ts.text" :placeholder="reply ? i18n.ts._postForm.replyPlaceholder : renote ? i18n.ts._postForm.quotePlaceholder : i18n.ts._postForm.channelPlaceholder" data-testid="post-form-text" @keydown="keydown" @paste="pasteFiles"></textarea><template #counter><div v-if="remaining < 100" :class="[$style.textCount, { [$style.textOver]: remaining < 0 }]">{{ remaining }}</div></template></MkPostFormFields>
+				<MkPostFormFields :useCw="useCw" :channelColor="channel?.color"><template #cw><input ref="cwInput" v-model="cw" :class="$style.cw" :placeholder="i18n.ts.annotation" :aria-label="i18n.ts.annotation" maxlength="100" @keydown="keydown"></template><textarea ref="textarea" v-model="text" :class="$style.text" :aria-label="i18n.ts.text" :placeholder="reply ? i18n.ts._postForm.replyPlaceholder : (renote || pastedQuote) ? i18n.ts._postForm.quotePlaceholder : i18n.ts._postForm.channelPlaceholder" data-testid="post-form-text" @keydown="keydown" @paste="pasteFiles"></textarea><template #counter><div v-if="remaining < 100" :class="[$style.textCount, { [$style.textOver]: remaining < 0 }]">{{ remaining }}</div></template></MkPostFormFields>
 				<div v-if="uploader.items.value.length" :class="$style.peerAttachments"><MkUploaderItems :items="uploader.items.value" @showMenu="showFileMenu" @showMenuViaContextmenu="showFileMenu"/></div>
 				<MkPollEditor v-if="poll" v-model="poll"/>
 				<div v-if="preview" :class="$style.preview"><Mfm v-if="useCw" :text="cw" :author="info.account"/><Mfm :text="text" :author="info.account"/></div>
@@ -32,7 +33,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</template>
 		<div v-else :class="$style.peerInfo"><p>{{ channelId ? i18n.ts._gridspace.channelPostUnavailable : i18n.ts._gridspace.replyConsent }}</p><MkA to="/settings/gridspace">{{ i18n.ts._gridspace.replyAuthorize }}</MkA></div>
 	</template>
-	<MkButton v-if="!info && !loading" :class="$style.peerInfo" @click="reauthorize">{{ i18n.ts.retry }}</MkButton>
+	<MkButton v-if="!info && !loading" :class="$style.peerInfo" @click="transferFailed ? load() : reauthorize()">{{ i18n.ts.retry }}</MkButton>
 </section>
 </template>
 
@@ -56,10 +57,11 @@ import { mfmFunctionPicker } from '@/utility/mfm-function-picker.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 import { $i } from '@/i.js';
+import { isGridspaceNoteLink, isConfiguredGridspaceNoteLink } from '@/utility/gridspace-note-link.js';
 import { pendingReplyRequest, rememberReplyRequest, forgetReplyRequest } from '@/utility/gridspace-reply-request.js';
 import * as os from '@/os.js';
 
-const props = defineProps<{ channelId?: string; channel?: { name: string; color: string }; reply?: entities.GridspacePrivateNotesResponse['notes'][number]; renote?: entities.GridspacePrivateNotesResponse['notes'][number]; embedded?: boolean; autofocus?: boolean }>();
+const props = defineProps<{ channelId?: string; channel?: { name: string; color: string }; reply?: entities.GridspacePrivateNotesResponse['notes'][number]; renote?: entities.GridspacePrivateNotesResponse['notes'][number]; embedded?: boolean; autofocus?: boolean; initialText?: string; initialCw?: string; initialFiles?: import('@/utility/gridspace-note-link.js').LinkedQuoteAttachment[]; initialPoll?: PollEditorModelValue | null }>();
 const emit = defineEmits<{ (event: 'close'): void; (event: 'sent'): void }>();
 const accountId = $i?.id ?? 'storybook';
 const info = shallowRef<entities.GridspacePrivateReplyResponse | null>(null);
@@ -76,17 +78,21 @@ const uploaded = new Map<string, { blob: Blob; metadata: string; id: string }>()
 const textarea = useTemplateRef('textarea');
 const cwInput = useTemplateRef('cwInput');
 const fileInput = useTemplateRef('fileInput');
-type PostRequest = Omit<entities.GridspacePrivateReplyRequest, 'noteId'> & { noteId?: string; channelId?: string };
+type PostRequest = Omit<entities.GridspaceChannelPostRequest, 'channelId'> & { channelId?: string };
 const pending = shallowRef<PostRequest | null>(null);
-const locked = computed(() => sending.value || !!pending.value);
+const resolvingQuote = ref(false);
+const transferFailed = ref(false);
+const locked = computed(() => sending.value || resolvingQuote.value || !!pending.value);
 const identity = computed(() => info.value ? `@${info.value.account.username}@${info.value.account.host}` : '');
 const audience = computed(() => props.channelId ? props.channel?.name ?? i18n.ts.channel : info.value?.visibility === 'specified' ? i18n.ts._visibility.specified : i18n.ts._visibility.followers);
 const remaining = computed(() => (info.value?.maxTextLength ?? 0) - Array.from(text.value).length);
-const targetNote = computed(() => props.reply ?? props.renote);
+const pastedQuoteId = ref<string | null>(null);
+const pastedQuote = shallowRef<entities.GridspacePrivateNotesResponse['notes'][number] | null>(null);
+const targetNote = computed(() => props.reply ?? props.renote ?? pastedQuote.value);
 const validPoll = computed(() => !poll.value || (poll.value.choices.length >= 2 && poll.value.choices.length <= 10 && new Set(poll.value.choices).size === poll.value.choices.length && poll.value.choices.every(choice => choice.trim() && Array.from(choice).length <= 50)));
-const canSend = computed(() => !!info.value?.canReply && !sending.value && !loading.value && (!!pending.value || (remaining.value >= 0 && validPoll.value && !!(text.value.trim() || uploader.items.value.length || poll.value) && !uploader.items.value.some(item => item.preprocessing))));
-const target = () => ({ noteId: props.reply?.id, renoteId: props.renote?.id, channelId: props.channelId });
-const operationKey = () => props.channelId ? `channel:${props.channelId}:${props.renote ? `quote:${props.renote.id}` : props.reply?.id ?? 'new'}` : props.reply!.id;
+const canSend = computed(() => !!info.value?.canReply && !transferFailed.value && !sending.value && !loading.value && !resolvingQuote.value && (!!pending.value || (remaining.value >= 0 && validPoll.value && !!(text.value.trim() || uploader.items.value.length || poll.value || props.renote || pastedQuoteId.value) && !uploader.items.value.some(item => item.preprocessing))));
+const target = () => ({ noteId: props.reply?.id, renoteId: props.renote?.id ?? pastedQuoteId.value ?? undefined, channelId: props.channelId });
+const operationKey = () => props.channelId ? `channel:${props.channelId}:${(props.renote?.id ?? pastedQuoteId.value) ? `quote:${props.renote?.id ?? pastedQuoteId.value}` : props.reply?.id ?? 'new'}` : props.reply!.id;
 let generation = 0;
 let active = true;
 let rechecking = false;
@@ -102,34 +108,47 @@ function request(input: PostRequest) {
 
 function clear() {
 	generation++; controller.abort(); controller = new AbortController();
-	info.value = null; pending.value = null; text.value = ''; cw.value = ''; poll.value = null; useCw.value = false; preview.value = false;
+	info.value = null; pastedQuote.value = null; pastedQuoteId.value = null; resolvingQuote.value = false; pending.value = null; pastedQuote.value = null; pastedQuoteId.value = null; text.value = ''; cw.value = ''; poll.value = null; useCw.value = false; preview.value = false;
 	uploader.reset(); uploaded.clear(); loading.value = false; sending.value = false;
 	authorizedActor = undefined;
 }
 
 async function load() {
-	clear(); error.value = ''; loading.value = true;
+	clear(); transferFailed.value = false; error.value = ''; loading.value = true;
 	const current = generation;
 	try {
 		const requestId = pendingReplyRequest(accountId, operationKey());
 		if (requestId) pending.value = { action: 'status', ...target(), requestId };
 		const result = await request({ action: 'prepare', ...target() });
-		if (generation === current) {
+		if (generation === current && active && !window.document.hidden) {
 			info.value = result;
 			authorizedActor = result.account.uri;
 			if (props.reply?.cw) { cw.value = props.reply.cw; useCw.value = true; }
+			text.value = props.initialText ?? '';
+			if (props.initialCw != null) { cw.value = props.initialCw; useCw.value = true; }
+			poll.value = props.initialPoll ? { ...props.initialPoll, choices: [...props.initialPoll.choices] } : null;
+			if (props.initialFiles?.length) {
+				if (!result.canAttach || props.initialFiles.length > 16 || props.initialFiles.some(item => !item.file.size || item.file.size > 16 * 1024 * 1024)) throw new Error('Attachments unavailable');
+				addFiles(props.initialFiles.map(item => item.file));
+				uploader.items.value.forEach((item, index) => { item.isSensitive = props.initialFiles![index].isSensitive; item.caption = props.initialFiles![index].caption; });
+			}
 			await nextTick(); if (props.autofocus) textarea.value?.focus();
 		}
-	} catch { if (generation === current) error.value = i18n.ts._gridspace.replyUnavailable; } finally { if (generation === current) loading.value = false; }
+	} catch { if (generation === current) { transferFailed.value = true; info.value = null; error.value = i18n.ts._gridspace.replyUnavailable; } } finally { if (generation === current) loading.value = false; }
 }
 
 async function reauthorize() {
-	if (!active || window.document.hidden || rechecking || sending.value || loading.value) return;
+	if (transferFailed.value || !active || window.document.hidden || rechecking || sending.value || loading.value) return;
 	rechecking = true;
 	const current = generation;
 	try {
 		const result = await request({ action: 'prepare', ...target(), expectedActorUri: authorizedActor });
-		if (current !== generation) return;
+		if (pastedQuoteId.value) {
+			const page = await misskeyApi('gridspace/private-notes', { mode: 'show', channelId: props.channelId, noteId: pastedQuoteId.value }, undefined, signal());
+			if (!page.notes[0]) throw new Error('Quote unavailable');
+			if (current === generation) pastedQuote.value = page.notes[0];
+		}
+		if (current !== generation || !active || window.document.hidden) return;
 		info.value = result; authorizedActor ??= result.account.uri; error.value = '';
 	} catch {
 		if (current === generation) { info.value = null; error.value = i18n.ts._gridspace.replyUnavailable; }
@@ -138,7 +157,7 @@ async function reauthorize() {
 
 function visibility() {
 	if (window.document.hidden && !props.channelId) { clear(); emit('close'); return; }
-	if (window.document.hidden) { generation++; controller.abort(); controller = new AbortController(); info.value = null; sending.value = false; loading.value = false; } else void reauthorize();
+	if (window.document.hidden) { generation++; controller.abort(); controller = new AbortController(); info.value = null; sending.value = false; loading.value = false; resolvingQuote.value = false; pastedQuote.value = null; } else void reauthorize();
 }
 
 async function send() {
@@ -177,7 +196,7 @@ async function send() {
 		if (generation !== current) return;
 		if (!result.createdNoteId) { error.value = i18n.ts._gridspace.replyPending; return; }
 		forgetReplyRequest(accountId, operationKey(), pending.value.requestId!);
-		pending.value = null; text.value = ''; cw.value = ''; poll.value = null; useCw.value = false;
+		pending.value = null; pastedQuote.value = null; pastedQuoteId.value = null; text.value = ''; cw.value = ''; poll.value = null; useCw.value = false;
 		uploader.reset(); uploaded.clear(); emit('sent');
 	} catch (err) {
 		if (generation !== current) return;
@@ -200,7 +219,28 @@ function selectFiles(event: Event) { const input = event.target as HTMLInputElem
 
 function dropFiles(event: DragEvent) { addFiles(Array.from(event.dataTransfer?.files ?? [])); }
 
-function pasteFiles(event: ClipboardEvent) { if (event.clipboardData?.files.length) { event.preventDefault(); addFiles(Array.from(event.clipboardData.files)); } }
+async function pasteFiles(event: ClipboardEvent) {
+	if (locked.value) { event.preventDefault(); return; }
+	if (event.clipboardData?.files.length) { event.preventDefault(); addFiles(Array.from(event.clipboardData.files)); return; }
+	const value = event.clipboardData?.getData('text').trim();
+	if (!value || !isGridspaceNoteLink(value) || targetNote.value || locked.value) return;
+	event.preventDefault();
+	resolvingQuote.value = true;
+	const current = generation;
+	try {
+		if (!await isConfiguredGridspaceNoteLink(value)) { resolvingQuote.value = false; insertText(value); return; }
+		const result = await misskeyApi('gridspace/note-link', { url: value }, undefined, signal());
+		if (current !== generation || window.document.hidden || !active) return;
+		if (!result.note || result.note.channelId !== props.channelId) { resolvingQuote.value = false; insertText(value); return; }
+		if ((await os.confirm({ type: 'info', text: i18n.ts.quoteQuestion })).canceled) { resolvingQuote.value = false; insertText(value); return; }
+		if (current !== generation || window.document.hidden || !active) return;
+		const prepared = await request({ action: 'prepare', renoteId: result.note.id, channelId: props.channelId });
+		if (current !== generation || window.document.hidden || !active) return;
+		pastedQuote.value = result.note; pastedQuoteId.value = result.note.id; info.value = prepared; authorizedActor = prepared.account.uri;
+		const requestId = pendingReplyRequest(accountId, operationKey());
+		if (requestId) pending.value = { action: 'status', ...target(), requestId };
+	} catch { resolvingQuote.value = false; if (current === generation && active && !window.document.hidden) insertText(value); } finally { resolvingQuote.value = false; }
+}
 
 function showFileMenu(item: UploaderItem, event: MouseEvent) { if (!locked.value) os.popupMenu(uploader.getMenu(item), event.currentTarget ?? event.target); }
 

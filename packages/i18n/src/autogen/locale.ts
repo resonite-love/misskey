@@ -13803,6 +13803,10 @@ export interface Locale extends ILocale {
     };
     "_gridspace": {
         /**
+         * この投稿は「{name}」チャンネル内で引用します。書きかけの内容もそのチャンネルに投稿されます。続けますか？
+         */
+        "quoteInChannel": ParameterizedString<"name">;
+        /**
          * 一部の列・ウィジェットは参照先を設定し直してください。
          */
         "layoutPartial": string;

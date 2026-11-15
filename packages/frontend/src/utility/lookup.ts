@@ -9,6 +9,8 @@ import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 import { mainRouter } from '@/router.js';
 import { acct } from '@@/js/user.js';
+import { isGridspaceNoteLink } from '@/utility/gridspace-note-link.js';
+import { url } from '@@/js/config.js';
 
 export async function lookup(router?: Router) {
 	const _router = router ?? mainRouter;
@@ -30,6 +32,12 @@ export async function lookup(router?: Router) {
 				tag: query.substring(1),
 			}
 		});
+		return;
+	}
+
+	if (isGridspaceNoteLink(query)) {
+		const resolved = await os.apiWithDialog('gridspace/note-link', { url: query });
+		_router.pushByPath(resolved.localNote ? `/notes/${resolved.localNote.id}` : new URL(query).origin === url ? new URL(query).pathname + new URL(query).search : query);
 		return;
 	}
 

@@ -4,7 +4,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<template v-if="player.url && playerEnabled">
+<MkGridspaceNoteLinkPreview v-if="linkedNote" :url="url"/>
+<template v-else-if="player.url && playerEnabled">
 	<div
 		:class="$style.player"
 		:style="player.width ? `padding: ${(player.height || 0) / player.width * 100}% 0 0` : `padding: ${(player.height || 0)}px 0 0`"
@@ -67,7 +68,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 					>{{ new Date(catalystData.createdAt).toLocaleString() }}</span>
 				</div>
 			</div>
-			<div v-if="catalystData.medias && catalystData.medias.length" :class="$style.catalystImageWrap" ref="catalystImageWrap">
+			<div v-if="catalystData.medias && catalystData.medias.length" ref="catalystImageWrap" :class="$style.catalystImageWrap">
 				<template v-for="(img, i) in catalystData.medias" :key="img.id">
 					<MkCatalystSensitiveImage
 						v-if="img.metadata?.isSensitive"
@@ -153,6 +154,8 @@ import { computed, defineAsyncComponent, onDeactivated, onUnmounted, ref } from 
 import { url as local } from '@@/js/config.js';
 import { versatileLang } from '@@/js/intl-const.js';
 import { maybeMakeRelative } from '@@/js/url.js';
+import MkGridspaceNoteLinkPreview from '@/components/MkGridspaceNoteLinkPreview.vue';
+import { isGridspaceNoteLink, isConfiguredGridspaceNoteLink } from '@/utility/gridspace-note-link.js';
 import MkCatalystSensitiveImage from './MkCatalystSensitiveImage.vue';
 import { openImageLightbox } from './MkImageLightboxController';
 import type { SummalyResult } from '@misskey-dev/summaly';
@@ -175,6 +178,7 @@ const props = withDefaults(defineProps<{
 	showActions: true,
 });
 
+const linkedNote = ref(isGridspaceNoteLink(props.url));
 const MOBILE_THRESHOLD = 500;
 const isMobile = ref(deviceKind === 'smartphone' || window.innerWidth <= MOBILE_THRESHOLD);
 
@@ -238,7 +242,8 @@ if (requestUrl.hostname === 'catalyst.natsuneko.com') {
 
 requestUrl.hash = '';
 
-window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`)
+function fetchPreview() {
+ window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`)
 	.then(res => {
 		if (!res.ok) {
 			if (_DEV_) {
@@ -261,6 +266,10 @@ window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLa
 
 		summalyResult.value = info;
 	});
+}
+
+if (linkedNote.value) void isConfiguredGridspaceNoteLink(props.url).then(configured => { if (configured === false) { linkedNote.value = false; fetchPreview(); } });
+else fetchPreview();
 
 function adjustTweetHeight(message: MessageEvent) {
 	if (message.origin !== 'https://platform.twitter.com') return;
@@ -312,8 +321,8 @@ const onMouseDown = (e: MouseEvent) => {
 	el.style.cursor = 'grabbing';
 	wasDrag = false;
 	e.preventDefault();
-	document.addEventListener('mousemove', onMouseMove);
-	document.addEventListener('mouseup', onMouseUp);
+	window.document.addEventListener('mousemove', onMouseMove);
+	window.document.addEventListener('mouseup', onMouseUp);
 };
 const onMouseMove = (e: MouseEvent) => {
 	if (!isDown || !el) return;
@@ -339,7 +348,7 @@ function handleImageClick(img: any, i: number) {
 		wasDrag = false;
 		return;
 	}
-	openLightbox(img.url + '/original', img.alt || `Embed Image ${i+1}`, img.id);
+	openLightbox(img.url + '/original', img.alt || `Embed Image ${i + 1}`, img.id);
 }
 
 watch(catalystImageWrap, (val, oldVal) => {

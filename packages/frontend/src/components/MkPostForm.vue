@@ -136,6 +136,9 @@ import { checkDragDataType, getDragData } from '@/drag-and-drop.js';
 import { useUploader } from '@/composables/use-uploader.js';
 import { startTour } from '@/utility/tour.js';
 import { closeTip } from '@/tips.js';
+import type { LinkedQuoteAttachment } from '@/utility/gridspace-note-link.js';
+import { isGridspaceNoteLink, isConfiguredGridspaceNoteLink } from '@/utility/gridspace-note-link.js';
+import { gridspacePost } from '@/utility/gridspace-post.js';
 
 const $i = ensureSignin();
 
@@ -171,6 +174,13 @@ const accountMenuEl = useTemplateRef('accountMenuEl');
 const footerEl = useTemplateRef('footerEl');
 const submitButtonEl = useTemplateRef('submitButtonEl');
 
+const resolvingLinkedQuote = ref(false);
+let linkedQuoteGeneration = 0;
+
+function expireLinkedQuote() { if (window.document.hidden) linkedQuoteGeneration++; }
+
+window.document.addEventListener('visibilitychange', expireLinkedQuote);
+onBeforeUnmount(() => { linkedQuoteGeneration++; window.document.removeEventListener('visibilitychange', expireLinkedQuote); });
 const posting = ref(false);
 const posted = ref(false);
 const text = ref(props.initialText ?? '');
@@ -285,7 +295,7 @@ const cwTextLength = computed((): number => {
 const maxCwTextLength = 100;
 
 const canPost = computed((): boolean => {
-	return !props.mock && !posting.value && !posted.value && !uploader.uploading.value && (uploader.items.value.length === 0 || uploader.readyForUpload.value) &&
+	return !props.mock && !resolvingLinkedQuote.value && !posting.value && !posted.value && !uploader.uploading.value && (uploader.items.value.length === 0 || uploader.readyForUpload.value) &&
 		(
 			1 <= textLength.value ||
 			1 <= files.value.length ||
@@ -723,6 +733,7 @@ const pastedFileName = 'yyyy-MM-dd HH-mm-ss [{{number}}]';
 
 async function onPaste(ev: ClipboardEvent) {
 	if (props.mock) return;
+	if (resolvingLinkedQuote.value || posting.value) { ev.preventDefault(); return; }
 	if (ev.clipboardData == null) return;
 	if (textareaEl.value == null) return;
 
@@ -745,6 +756,76 @@ async function onPaste(ev: ClipboardEvent) {
 	}
 
 	const paste = ev.clipboardData.getData('text');
+
+	if (!renoteTargetNote.value && !quoteId.value && !replyTargetNote.value && isGridspaceNoteLink(paste.trim())) {
+		ev.preventDefault();
+		resolvingLinkedQuote.value = true;
+		textAreaReadOnly.value = true;
+		const current = ++linkedQuoteGeneration;
+		const draftState = () => JSON.stringify([text.value, cw.value, useCw.value, withHashtags.value, hashtags.value, poll.value, postAccount.value?.id, scheduledAt.value, targetChannel.value?.id, visibility.value, localOnly.value, visibleUsers.value.map(u => u.id), files.value.map(f => [f.id, f.name, f.isSensitive, f.comment]), uploader.items.value.map(f => [f.id, f.name, f.caption, f.isSensitive])]);
+		const initialState = draftState();
+		const unchanged = () => current === linkedQuoteGeneration && !window.document.hidden && !!textareaEl.value?.isConnected && draftState() === initialState;
+		try {
+			if (postAccount.value || scheduledAt.value || !await isConfiguredGridspaceNoteLink(paste.trim()) || (await os.confirm({ type: 'info', text: i18n.ts.quoteQuestion })).canceled) {
+				if (unchanged()) insertTextAtCursor(textareaEl.value!, paste); return;
+			}
+			if (!unchanged()) return;
+			const resolved = await misskeyApi('gridspace/note-link', { url: paste.trim() });
+			if (!unchanged()) return;
+			const quoteChannel = resolved.note?.channel ?? resolved.localNote?.channel;
+			if (quoteChannel && targetChannel.value?.id !== quoteChannel.id) {
+				if ((await os.confirm({ type: 'warning', text: i18n.tsx._gridspace.quoteInChannel({ name: quoteChannel.name }) })).canceled) { if (unchanged()) insertTextAtCursor(textareaEl.value!, paste); return; }
+				if (!unchanged()) return;
+			}
+			if (resolved.localNote) {
+				if (resolved.localNote.channel) {
+					const channel = await misskeyApi('channels/show', { channelId: resolved.localNote.channel.id });
+					if (!unchanged()) return;
+					targetChannel.value = channel;
+					visibility.value = 'public';
+					visibleUsers.value = [];
+					localOnly.value = true;
+				}
+				renoteTargetNote.value = resolved.localNote; quoteId.value = resolved.localNote.id;
+			} else if (resolved.note?.channelId) {
+				// Keep the original draft until the delegated quote is successfully sent.
+				// Copy only attachment bytes into the new composer, never a foreign file ID.
+				textAreaReadOnly.value = true;
+				const copiedText = withHashtags.value && hashtags.value.trim() ? `${text.value}\n${hashtags.value.trim().split(/\s+/).map(tag => tag.startsWith('#') ? tag : `#${tag}`).join(' ')}` : text.value, copiedCw = cw.value, copiedPoll = poll.value;
+				const attachedFiles = [...files.value], pendingFiles = [...uploader.items.value];
+				const copiedFiles: LinkedQuoteAttachment[] = [];
+				if (attachedFiles.length + pendingFiles.length > 16 || attachedFiles.some(file => !file.size || file.size > 16 * 1024 * 1024) || pendingFiles.some(item => item.preprocessing || item.uploading || !(item.preprocessedFile ?? item.file).size || (item.preprocessedFile ?? item.file).size > 16 * 1024 * 1024)) throw new Error('Attachment cannot be transferred');
+				for (const file of attachedFiles) {
+					if (file.size > 16 * 1024 * 1024) throw new Error('Attachment too large');
+					const response = await window.fetch(file.url, { credentials: 'omit', signal: AbortSignal.timeout(15000) });
+					if (!response.ok) throw new Error('Attachment unavailable');
+					copiedFiles.push({ file: new File([await response.blob()], file.name, { type: file.type }), isSensitive: file.isSensitive, caption: file.comment });
+				}
+				for (const item of pendingFiles) {
+					if (item.preprocessing || item.uploading) throw new Error('Attachment still processing');
+					copiedFiles.push({ file: new File([item.preprocessedFile ?? item.file], item.name, { type: item.file.type }), isSensitive: item.isSensitive, caption: item.caption });
+				}
+				if (!unchanged()) return;
+				await gridspacePost({ channelId: resolved.note.channelId, channel: resolved.note.channel ?? undefined, renote: resolved.note,
+					initialText: copiedText, initialCw: useCw.value ? copiedCw ?? '' : undefined, initialFiles: copiedFiles, initialPoll: copiedPoll ? { ...copiedPoll, choices: [...copiedPoll.choices] } : null }, () => {
+					if (unchanged()) { clear(); deleteDraft(); emit('posted'); }
+				});
+			} else if (resolved.note && ['public', 'home'].includes(resolved.note.visibility)) {
+				const local = await misskeyApi('gridspace/renote-target', { noteId: resolved.note.id });
+				if (!unchanged()) return;
+				renoteTargetNote.value = local; quoteId.value = local.id;
+			} else {
+				await os.alert({ type: 'info', text: i18n.ts.cantRenote });
+				insertTextAtCursor(textareaEl.value, paste);
+			}
+		} catch {
+			if (unchanged()) {
+				await os.alert({ type: 'error', text: i18n.ts.invisibleNote });
+				if (unchanged()) insertTextAtCursor(textareaEl.value!, paste);
+			}
+		} finally { textAreaReadOnly.value = false; resolvingLinkedQuote.value = false; }
+		return;
+	}
 
 	if (!renoteTargetNote.value && !quoteId.value && paste.startsWith(url + '/notes/')) {
 		ev.preventDefault();
