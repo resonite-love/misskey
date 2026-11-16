@@ -44,6 +44,26 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</MkButton>
 	</div>
 </template>
+<div v-else-if="catalystImageUrl" :class="$style.directImagePreview">
+	<button
+		v-if="!catalystImageFailed && !prefer.s.dataSaver.urlPreviewThumbnail"
+		type="button"
+		class="_button"
+		:class="$style.directImageButton"
+		:aria-label="i18n.ts.image"
+		@click="openLightbox(catalystImageUrl, i18n.ts.image)"
+	>
+		<img
+			:class="$style.directImage"
+			:src="catalystImageUrl"
+			:alt="i18n.ts.image"
+			loading="lazy"
+			decoding="async"
+			@error="catalystImageFailed = true"
+		/>
+	</button>
+	<a :href="url" target="_blank" rel="nofollow noopener" :class="$style.directImageLink">{{ url }}</a>
+</div>
 <template v-else-if="catalystStatusId">
 	<div :class="$style.catalystEmbed">
 		<template v-if="!catalystData">
@@ -204,6 +224,7 @@ const unknownUrl = ref(false);
 
 const catalystStatusId = ref<string | null>(null);
 const catalystData = ref<any | null>(null);
+const catalystImageFailed = ref(false);
 
 onDeactivated(() => {
 	playerEnabled.value = false;
@@ -215,6 +236,11 @@ function openLightbox(src: string, alt?: string, id?: string) {
 
 const requestUrl = new URL(props.url, window.location.href);
 if (!['http:', 'https:'].includes(requestUrl.protocol)) throw new Error('invalid url');
+
+const catalystImageUrl = requestUrl.hostname === 'citlali.natsuneko.com'
+	&& /^\/r2\/[^/]+\/[^/]+\/(?:tiny|medium|original|blur)\/?$/.test(requestUrl.pathname)
+	? requestUrl.href
+	: null;
 
 if (requestUrl.hostname === 'twitter.com' || requestUrl.hostname === 'mobile.twitter.com' || requestUrl.hostname === 'x.com' || requestUrl.hostname === 'mobile.x.com') {
 	const m = requestUrl.pathname.match(/^\/.+\/status(?:es)?\/(\d+)/);
@@ -243,29 +269,31 @@ if (requestUrl.hostname === 'catalyst.natsuneko.com') {
 requestUrl.hash = '';
 
 function fetchPreview() {
- window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`)
-	.then(res => {
-		if (!res.ok) {
-			if (_DEV_) {
-				console.warn(`[HTTP${res.status}] Failed to fetch url preview`);
+	if (catalystImageUrl) return;
+
+	window.fetch(`/url?url=${encodeURIComponent(requestUrl.href)}&lang=${versatileLang}`)
+		.then(res => {
+			if (!res.ok) {
+				if (_DEV_) {
+					console.warn(`[HTTP${res.status}] Failed to fetch url preview`);
+				}
+				return null;
 			}
-			return null;
-		}
 
-		return res.json();
-	})
-	.then((info: SummalyResult | null) => {
-		if (!info || info.url == null) {
+			return res.json();
+		})
+		.then((info: SummalyResult | null) => {
+			if (!info || info.url == null) {
+				fetching.value = false;
+				unknownUrl.value = true;
+				return;
+			}
+
 			fetching.value = false;
-			unknownUrl.value = true;
-			return;
-		}
+			unknownUrl.value = false;
 
-		fetching.value = false;
-		unknownUrl.value = false;
-
-		summalyResult.value = info;
-	});
+			summalyResult.value = info;
+		});
 }
 
 if (linkedNote.value) void isConfiguredGridspaceNoteLink(props.url).then(configured => { if (configured === false) { linkedNote.value = false; fetchPreview(); } });
@@ -486,6 +514,32 @@ onUnmounted(() => {
 	gap: 6px;
 	flex-wrap: wrap;
 	margin-top: 6px;
+}
+
+.directImagePreview {
+	display: flex;
+	flex-direction: column;
+	gap: var(--MI-marginHalf);
+}
+
+.directImageButton {
+	display: block;
+	width: 100%;
+	overflow: clip;
+	border-radius: var(--MI-radius);
+	background: var(--MI_THEME-bg);
+}
+
+.directImage {
+	display: block;
+	width: 100%;
+	max-height: 480px;
+	object-fit: contain;
+}
+
+.directImageLink {
+	font-size: 0.8em;
+	overflow-wrap: anywhere;
 }
 
 @container (max-width: 400px) {

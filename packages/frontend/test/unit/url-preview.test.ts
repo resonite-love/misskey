@@ -3,14 +3,24 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { describe, test, assert, afterEach } from 'vitest';
-import { render, cleanup, type RenderResult } from '@testing-library/vue';
+import { describe, test, assert, beforeEach, afterEach, vi } from 'vitest';
+import { render, cleanup, fireEvent, type RenderResult } from '@testing-library/vue';
 import type { SummalyResult } from '@misskey-dev/summaly';
+import { preferState } from '../setup.unit.js';
 import { components } from '@/components/index.js';
 import { directives } from '@/directives/index.js';
 import MkUrlPreview from '@/components/MkUrlPreview.vue';
+import { openImageLightbox } from '@/components/MkImageLightboxController';
+
+vi.mock('@/components/MkImageLightboxController', () => ({
+	openImageLightbox: vi.fn(),
+}));
 
 describe('MkUrlPreview', () => {
+	beforeEach(() => {
+		fetchMock.mockClear();
+	});
+
 	const renderPreviewBy = async (summary: Partial<SummalyResult>): Promise<RenderResult> => {
 		if (!summary.player) {
 			summary.player = {
@@ -59,7 +69,71 @@ describe('MkUrlPreview', () => {
 
 	afterEach(() => {
 		fetchMock.resetMocks();
+		vi.clearAllMocks();
 		cleanup();
+	});
+
+	const catalystImageBase = 'https://citlali.natsuneko.com/r2/57dd6525-2f7d-4179-b01e-5265ec608e88/8f2c300f-cdf0-4ed8-9e67-bc54aa775007';
+
+	test.each(['medium', 'tiny', 'original', 'blur', 'medium/', 'medium?download=1#image'])('Renders a Catalyst direct image (%s) without fetching a page preview', (variant) => {
+		const url = `${catalystImageBase}/${variant}`;
+		const result = render(MkUrlPreview, { props: { url }, global: { directives, components } });
+		const image = result.getByRole('img') as HTMLImageElement;
+
+		assert.strictEqual(image.src, url);
+		assert.strictEqual(image.loading, 'lazy');
+		assert.strictEqual(result.getByRole('link').getAttribute('href'), url);
+		assert.strictEqual(fetchMock.mock.calls.length, 0);
+	});
+
+	test('Opens the linked image in the lightbox without changing its variant', async () => {
+		const url = `${catalystImageBase}/blur`;
+		const result = render(MkUrlPreview, { props: { url }, global: { directives, components } });
+		const image = result.getByRole('img') as HTMLImageElement;
+
+		await fireEvent.click(result.getByRole('button'));
+
+		assert.deepEqual(vi.mocked(openImageLightbox).mock.calls, [[{ src: url, alt: image.alt }]]);
+	});
+
+	test('Keeps the original link when the direct image fails to load', async () => {
+		const url = `${catalystImageBase}/medium`;
+		const result = render(MkUrlPreview, { props: { url }, global: { directives, components } });
+
+		await fireEvent.error(result.getByRole('img'));
+
+		assert.isNull(result.queryByRole('img'));
+		assert.isNull(result.queryByRole('button'));
+		assert.strictEqual(result.getByRole('link').getAttribute('href'), url);
+	});
+
+	test('Does not load the direct image when URL preview thumbnails are disabled', () => {
+		const originalDataSaver = preferState.dataSaver;
+		preferState.dataSaver = { urlPreviewThumbnail: true };
+		try {
+			const url = `${catalystImageBase}/medium`;
+			const result = render(MkUrlPreview, { props: { url }, global: { directives, components } });
+
+			assert.isNull(result.queryByRole('img'));
+			assert.isNull(result.queryByRole('button'));
+			assert.strictEqual(result.getByRole('link').getAttribute('href'), url);
+			assert.strictEqual(fetchMock.mock.calls.length, 0);
+		} finally {
+			preferState.dataSaver = originalDataSaver;
+		}
+	});
+
+	test.each([
+		`${catalystImageBase}/unknown`,
+		`${catalystImageBase}/medium/extra`,
+		'https://citlali.natsuneko.com/status/example',
+		'https://example.local/r2/user/image/medium',
+		'https://citlali.natsuneko.com.example.local/r2/user/image/medium',
+	])('Uses the regular preview for other URLs (%s)', async (url) => {
+		const result = await renderPreviewBy({ url, description: 'Regular preview' });
+
+		result.getByText('Regular preview');
+		assert.isNull(result.queryByRole('img'));
 	});
 
 	test('Should render the description', async () => {
