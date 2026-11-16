@@ -4,7 +4,7 @@
  */
 
 import { createVisibilityAwareInterval } from '@@/js/interval.js';
-import type { StorageProvider } from '@/preferences/manager.js';
+import type { PreferencesProfile, StorageProvider } from '@/preferences/manager.js';
 import { cloudBackup } from '@/preferences/utility.js';
 import { miLocalStorage } from '@/local-storage.js';
 import { isSameScope, PreferencesManager } from '@/preferences/manager.js';
@@ -111,9 +111,12 @@ const preferencesChannel = new BroadcastChannel<{
 	type: 'preferencesUpdate';
 	tabId: string;
 	timestamp: number;
-}>('preferences');
+	profile: PreferencesProfile;
+}>('preferences:v2');
 
-prefer.on('committed', () => {
+// Carry the saved value: localStorage can still be stale in another renderer
+// when it receives a BroadcastChannel notification. Keep old clients isolated.
+prefer.on('saved', (profile) => {
 	latestPreferencesUpdate = {
 		tabId: TAB_ID,
 		timestamp: Date.now(),
@@ -122,6 +125,7 @@ prefer.on('committed', () => {
 		type: 'preferencesUpdate',
 		tabId: TAB_ID,
 		timestamp: latestPreferencesUpdate.timestamp,
+		profile,
 	});
 });
 
@@ -129,10 +133,9 @@ preferencesChannel.addEventListener('message', (ev) => {
 	const msg = ev.data;
 	if (msg.type === 'preferencesUpdate') {
 		if (msg.tabId === TAB_ID) return;
-		if (latestPreferencesUpdate != null) {
-			if (msg.timestamp <= latestPreferencesUpdate.timestamp) return;
-		}
-		prefer.reloadProfile();
+		// Merge each setting's version, including older messages carrying an
+		// independent edit. Wall-clock message ordering loses concurrent changes.
+		prefer.reloadProfile(msg.profile);
 		if (_DEV_) console.log('prefer:received update from other tab');
 		latestPreferencesUpdate = {
 			tabId: msg.tabId,

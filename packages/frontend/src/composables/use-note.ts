@@ -29,7 +29,7 @@ import { claimAchievement } from '@/utility/achievements.js';
 import { showMovedDialog } from '@/utility/show-moved-dialog.js';
 import { getAppearNote } from '@/utility/get-appear-note.js';
 import { prefer } from '@/preferences.js';
-import { getPluginHandlers } from '@/plugin.js';
+import { applyNoteViewPlugins } from '@/utility/note-view-plugins.js';
 import { $i } from '@/i.js';
 import { i18n } from '@/i18n.js';
 import { globalEvents, useGlobalEvent } from '@/events.js';
@@ -107,30 +107,9 @@ export function useNote(
 	const currentAntenna = options.currentAntenna ?? null;
 
 	// プラグインの割り込み処理
-	let rawNote = deepClone(props.note);
-	let hideByPlugin = false;
-	const noteViewInterruptors = getPluginHandlers('note_view_interruptor');
-
-	if (noteViewInterruptors.length > 0) {
-		let result: Misskey.entities.Note | null = deepClone(rawNote);
-		for (const interruptor of noteViewInterruptors) {
-			try {
-				result = interruptor.handler(result!) as Misskey.entities.Note | null;
-
-				// nullになった場合（非表示）はこれ以上やることがないのでループを抜ける
-				if (result == null) {
-					break;
-				}
-			} catch (err) {
-				console.error(err);
-			}
-		}
-		if (result == null) {
-			hideByPlugin = true;
-		} else {
-			rawNote = result;
-		}
-	}
+	const result = applyNoteViewPlugins(props.note);
+	const rawNote = result ?? deepClone(props.note);
+	const hideByPlugin = result == null;
 
 	// 基本状態
 	const isRenote = Misskey.note.isPureRenote(rawNote);

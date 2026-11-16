@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div v-if="!deleted" ref="article" :class="[$style.note, { [$style.detailed]: detailed, [$style.renoteWrapper]: isPureRenote && note.renote, [$style.nested]: nested }]" data-gridspace-private-note>
+<div v-if="!deleted && !hideByPlugin" ref="article" :class="[$style.note, { [$style.detailed]: detailed, [$style.renoteWrapper]: isPureRenote && note.renote, [$style.nested]: nested }]" data-gridspace-private-note>
 	<template v-if="isPureRenote && note.renote">
 		<div :class="$style.renoteHeader">
 			<MkNoteChannel v-if="channel" :channel="channel" display="bar" compact/>
@@ -22,21 +22,21 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkInstanceTicker v-if="showTicker && !detailed" :host="displayAuthor.host" :instance="displayAuthor.instance"/>
 		</template>
 		<div v-if="(note.replyId || note.renoteId)" :class="$style.parentLinks"><MkA v-if="note.replyId" :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA><MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA></div>
-		<MkNoteCw v-if="note.cw != null" v-model="expanded" :cw="note.cw" :text="note.text" :author="note.author" :emojiUrls="note.emojis ?? {}" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/>
-		<div v-if="note.cw == null || expanded" :class="$style.body"><span v-if="isUnavailableGridspaceNote(note, true)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span><MkNoteText v-else :text="translation?.text ?? note.text ?? ''" :author="note.author" :emojiUrls="note.emojis ?? {}"/></div>
-		<MkGridspacePrivateNote v-if="note.renote && (note.cw == null || expanded)" :note="note.renote" :class="$style.quote" dense nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
+		<MkNoteCw v-if="displayNote.cw != null" v-model="expanded" :cw="displayNote.cw" :text="displayNote.text" :author="displayNote.author" :emojiUrls="displayNote.emojis ?? {}" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/>
+		<div v-if="displayNote.cw == null || expanded" :class="$style.body"><span v-if="isUnavailableGridspaceNote(note, true)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span><MkNoteText v-else :text="translation?.text ?? displayNote.text ?? ''" :author="displayNote.author" :emojiUrls="displayNote.emojis ?? {}"/></div>
+		<MkGridspacePrivateNote v-if="note.renote && (displayNote.cw == null || expanded)" :note="note.renote" :class="$style.quote" dense nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 		<button v-if="translation" class="_textButton" @click="translation = null">{{ i18n.ts._autoTranslation.showOriginal }}</button>
-		<div v-if="visible && isEnabledUrlPreview && (note.cw == null || expanded)">
+		<div v-if="visible && isEnabledUrlPreview && (displayNote.cw == null || expanded)">
 			<MkUrlPreview v-for="link in urls" :key="link" :url="link" :compact="true" :detail="detailed" :class="$style.urlPreview"/>
 		</div>
-		<div v-if="note.cw == null || expanded" class="_gaps_s">
+		<div v-if="displayNote.cw == null || expanded" class="_gaps_s">
 			<MkMediaList v-if="media.length" :mediaList="media" :raw="true" ephemeral/>
 			<MkButton v-for="file in note.files.filter(item => !blobs[item.id])" :key="file.id" small :disabled="loading === file.id" @click="loadFile(file.id)">
 				<i :class="file.isSensitive ? 'ti ti-eye-exclamation' : 'ti ti-photo'"></i> {{ file.isSensitive ? i18n.ts.sensitive : i18n.ts.clickToShow }}: {{ file.name }}
 			</MkButton>
 		</div>
 		<template #reactions>
-			<MkGridspaceNoteActions v-show="note.cw == null || expanded" ref="actions" :note="note" :compact="true" @changed="updated = $event" @unavailable="emit('unavailable')"/>
+			<MkGridspaceNoteActions v-show="displayNote.cw == null || expanded" ref="actions" :note="note" :compact="true" @changed="updated = $event" @unavailable="emit('unavailable')"/>
 			<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateFileError }}</p>
 		</template>
 		<template #footer="{ buttonClass }">
@@ -83,6 +83,7 @@ import { getGridspaceNoteMenu } from '@/utility/gridspace-note-menu.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 import { isUnavailableGridspaceNote } from '@/utility/is-unavailable-gridspace-note.js';
+import { applyGridspaceNoteViewPlugins } from '@/utility/gridspace-note-plugins.js';
 import { prefer } from '@/preferences.js';
 import { $i } from '@/i.js';
 import * as os from '@/os.js';
@@ -90,15 +91,18 @@ import * as os from '@/os.js';
 const props = withDefaults(defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number]; compactTop?: boolean; dense?: boolean; nested?: boolean; detailed?: boolean }>(), { compactTop: false, dense: false, nested: false, detailed: false });
 const updated = ref<entities.GridspacePrivateNotesResponse['notes'][number] | null>(null);
 const note = computed(() => updated.value ?? props.note);
-const displayAuthor = computed<entities.UserLite>(() => ({ ...note.value.author, id: note.value.author.uri, host: note.value.author.host === new URL(url).host ? null : note.value.author.host,
-																																																											avatarBlurhash: note.value.author.avatarBlurhash ?? null, avatarDecorations: note.value.author.avatarDecorations ?? [], isBot: note.value.author.isBot ?? false, isCat: note.value.author.isCat ?? false,
-																																																											emojis: note.value.author.emojis ?? {}, onlineStatus: 'unknown', instance: note.value.author.instance ? { name: null, faviconUrl: null, themeColor: null, softwareName: null, softwareVersion: null, iconUrl: null, ...note.value.author.instance } : undefined }));
+const pluginNote = computed(() => applyGridspaceNoteViewPlugins(props.note));
+const hideByPlugin = computed(() => pluginNote.value == null);
+const displayNote = computed(() => pluginNote.value ?? note.value);
+const displayAuthor = computed<entities.UserLite>(() => ({ ...displayNote.value.author, id: note.value.author.uri, host: note.value.author.host === new URL(url).host ? null : note.value.author.host,
+																																								avatarBlurhash: note.value.author.avatarBlurhash ?? null, avatarDecorations: note.value.author.avatarDecorations ?? [], isBot: note.value.author.isBot ?? false, isCat: displayNote.value.author.isCat ?? false,
+																																									emojis: displayNote.value.author.emojis ?? {}, onlineStatus: 'unknown', instance: note.value.author.instance ? { name: null, faviconUrl: null, themeColor: null, softwareName: null, softwareVersion: null, iconUrl: null, ...note.value.author.instance } : undefined }));
 const channelContext = inject(DI.linkedChannel, undefined);
 const inChannel = computed(() => channelContext?.value?.id === note.value.channelId);
 const channel = computed(() => { const value = channelContext?.value; return note.value.channel ?? (value && value.id === note.value.channelId ? value : undefined); });
 const headerNote = computed(() => ({ id: note.value.id, createdAt: note.value.createdAt, user: displayAuthor.value, visibility: (['public', 'home', 'followers', 'specified'].includes(note.value.visibility) ? note.value.visibility : 'specified') as entities.Note['visibility'], localOnly: note.value.localOnly, channel: note.value.channelId ? { name: channel.value?.name ?? i18n.ts.channel } : null }));
 const showTicker = computed(() => prefer.s.instanceTicker === 'always' || (prefer.s.instanceTicker === 'remote' && displayAuthor.value.host != null && displayAuthor.value.instance != null));
-const urls = computed(() => extractUrlFromMfm(mfm.parse(note.value.text ?? '')));
+const urls = computed(() => extractUrlFromMfm(mfm.parse(displayNote.value.text ?? '')));
 watch(() => props.note, () => { updated.value = null; });
 const emit = defineEmits<{ (event: 'unavailable'): void; (event: 'replied'): void }>();
 const actions = useTemplateRef('actions');
@@ -253,7 +257,7 @@ watch(() => props.note.files, files => {
 	for (const id of Object.keys(blobs.value)) if (!files.some(file => file.id === id)) clearFile(id);
 });
 watch([visible, expanded, () => props.note.id], async () => {
-	if (!visible.value || prefer.s.dataSaver.media || (note.value.cw != null && !expanded.value)) return;
+	if (!visible.value || hideByPlugin.value || prefer.s.dataSaver.media || (displayNote.value.cw != null && !expanded.value)) return;
 	const current = generation;
 	for (const file of note.value.files) {
 		if (current !== generation) return;

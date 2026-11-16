@@ -52,6 +52,10 @@ function parseScope(scope: Scope): {
 	};
 }
 
+function revisionKey(key: string, scope: Scope): string {
+	return JSON.stringify([key, parseScope(scope)]);
+}
+
 function makeScope(scope: Partial<{
 	server: string | null;
 	account: string | null;
@@ -76,6 +80,8 @@ export type PreferencesProfile = {
 	type: 'main';
 	modifiedAt: number;
 	name: string;
+	/** Per-setting/scope versions preserve independent edits in concurrent tabs. */
+	revisions?: Record<string, [number, string]>;
 	preferences: {
 		[K in keyof PREF]: PrefRecord<K>[];
 	};
@@ -103,6 +109,7 @@ type PreferencesDefinitionRecord<Default, T = Default extends (...args: any) => 
 export type PreferencesDefinition = Record<string, PreferencesDefinitionRecord<any>>;
 
 type PreferencesManagerEvents = {
+	'saved': (profile: PreferencesProfile) => void;
 	'committed': <K extends keyof PREF>(ctx: {
 		key: K;
 		value: ValueOf<K>;
@@ -196,6 +203,8 @@ export class PreferencesManager extends EventEmitter<PreferencesManagerEvents> {
 	private currentAccount: { id: string } | null;
 	public profile: PreferencesProfile;
 	public cloudReady: Promise<void>;
+	private readonly writerId = genId();
+	private savedProfile: PreferencesProfile;
 
 	/**
 	 * static / state の略 (static が予約語のため)
@@ -222,6 +231,7 @@ export class PreferencesManager extends EventEmitter<PreferencesManagerEvents> {
 			...loadedProfile,
 			preferences: normalizePreferences(loadedProfile.preferences, currentAccount),
 		};
+		this.savedProfile = deepClone(this.profile);
 
 		const states = this.genStates();
 
@@ -246,7 +256,6 @@ export class PreferencesManager extends EventEmitter<PreferencesManagerEvents> {
 		this.r[key].value = this.s[key] = v;
 	}
 
-	// TODO: desync対策 cloudの値のfetchが正常に完了していない状態でcommitすると多分値が上書きされる
 	public commit<K extends keyof PREF>(key: K, value: ValueOf<K>) {
 		const currentAccount = this.currentAccount; // TSを黙らせるため
 		const v = JSON.parse(JSON.stringify(value)); // deep copy 兼 vueのプロキシ解除
@@ -258,6 +267,7 @@ export class PreferencesManager extends EventEmitter<PreferencesManagerEvents> {
 
 		if (_DEV_) console.log('prefer:commit', key, v);
 
+		const oldValue = this.s[key];
 		this.rewriteRawState(key, v);
 
 		const record = this.getMatchedRecordOf(key);
@@ -267,7 +277,7 @@ export class PreferencesManager extends EventEmitter<PreferencesManagerEvents> {
 			this.emit('committed', {
 				key,
 				value: v,
-				oldValue: this.s[key],
+				oldValue,
 			});
 		};
 
@@ -350,11 +360,14 @@ export class PreferencesManager extends EventEmitter<PreferencesManagerEvents> {
 	}
 
 	private async fetchCloudValues() {
+		const profile = this.profile;
 		const needs = [] as { key: keyof PREF; scope: Scope; }[];
+		const requested = new Map<keyof PREF, PrefRecord<keyof PREF>>();
 		for (const _key in PREF_DEF) {
 			const key = _key as keyof PREF;
 			const record = this.getMatchedRecordOf(key);
 			if (record[2].sync) {
+				requested.set(key, deepClone(record));
 				needs.push({
 					key,
 					scope: record[0],
@@ -363,28 +376,72 @@ export class PreferencesManager extends EventEmitter<PreferencesManagerEvents> {
 		}
 
 		const cloudValues = await this.io.cloudGetBulk({ needs });
+		// A tab update may replace the profile while this request is in flight.
+		if (this.profile !== profile) return;
 
+		let changed = false;
 		for (const _key in PREF_DEF) {
 			const key = _key as keyof PREF;
 			const record = this.getMatchedRecordOf(key);
-			if (record[2].sync && Object.hasOwn(cloudValues, key) && cloudValues[key] !== undefined) {
+			if (record[2].sync && deepEqual(record, requested.get(key)) && Object.hasOwn(cloudValues, key) && cloudValues[key] !== undefined) {
 				const cloudValue = cloudValues[key];
 				if (!deepEqual(cloudValue, record[1])) {
 					this.rewriteRawState(key, cloudValue);
 					record[1] = cloudValue;
+					changed = true;
 					if (_DEV_) console.log('cloud fetched', key, cloudValue);
 				}
 			}
 		}
 
-		this.save();
+		if (changed) this.save();
 		if (_DEV_) console.log('cloud fetch completed');
 	}
 
 	public save() {
+		const stored = this.io.load();
+		const revisions = { ...this.profile.revisions };
+		let clock = Math.max(0, ...Object.values(revisions).map(value => value[0]),
+			...Object.values(stored?.id === this.profile.id ? stored.revisions ?? {} : {}).map(value => value[0]));
+		for (const key in this.profile.preferences) {
+			const records = this.profile.preferences[key as keyof PREF];
+			const previous = this.savedProfile.preferences[key as keyof PREF];
+			for (const record of records) {
+				if (!deepEqual(record, previous.find(([scope]) => isSameScope(scope, record[0])))) {
+					revisions[revisionKey(key, record[0])] = [++clock, this.writerId];
+				}
+			}
+			for (const [scope] of previous) {
+				if (!records.some(([current]) => isSameScope(current, scope))) revisions[revisionKey(key, scope)] = [++clock, this.writerId];
+			}
+		}
+		if (this.profile.name !== this.savedProfile.name) revisions.$name = [++clock, this.writerId];
+		this.profile.revisions = revisions;
+		if (stored?.id === this.profile.id) this.mergeProfile(stored);
 		this.profile.modifiedAt = Date.now();
 		this.profile.version = version;
 		this.io.save({ profile: this.profile });
+		this.savedProfile = deepClone(this.profile);
+		this.emit('saved', deepClone(this.profile));
+	}
+
+	private mergeProfile(incoming: PossiblyNonNormalizedPreferencesProfile) {
+		const revisions = this.profile.revisions ??= {};
+		for (const [key, stamp] of Object.entries(incoming.revisions ?? {})) {
+			const current = revisions[key] ?? [0, ''];
+			if (stamp[0] < current[0] || (stamp[0] === current[0] && stamp[1] <= current[1])) continue;
+			if (key === '$name') this.profile.name = incoming.name;
+			else {
+				const [setting, scope] = JSON.parse(key) as [keyof PREF, Scope];
+				if (!Object.hasOwn(PREF_DEF, setting)) continue;
+				const record = incoming.preferences[setting]?.find(([candidate]) => isSameScope(candidate, scope));
+				const others = this.profile.preferences[setting].filter(([candidate]) => !isSameScope(candidate, scope));
+				Object.assign(this.profile.preferences, { [setting]: record ? [...others, deepClone(record)] : others });
+			}
+			revisions[key] = stamp;
+		}
+		this.profile.preferences = normalizePreferences(this.profile.preferences, this.currentAccount);
+		for (const key in PREF_DEF) this.rewriteRawState(key as keyof PREF, this.getMatchedRecordOf(key as keyof PREF)[1]);
 	}
 
 	public getMatchedRecordOf<K extends keyof PREF>(key: K): PrefRecord<K> {
@@ -553,21 +610,35 @@ export class PreferencesManager extends EventEmitter<PreferencesManagerEvents> {
 		this.save();
 	}
 
-	public reloadProfile() {
-		const newProfile = this.io.load();
+	public reloadProfile(newProfile = this.io.load()) {
 		if (newProfile == null) return;
+		if (newProfile.id === this.profile.id && newProfile.revisions) {
+			this.mergeProfile(newProfile);
+			this.savedProfile = deepClone(this.profile);
+			// Repair a simultaneous whole-profile write only when this tab has
+			// newer settings absent from the sender. Normal receives stay read-only.
+			if (!deepEqual(this.profile.revisions, newProfile.revisions)) {
+				this.io.save({ profile: this.profile });
+				this.emit('saved', deepClone(this.profile));
+			}
+			return;
+		}
 
+		// Received snapshots must not share mutable records with another manager.
+		newProfile = deepClone(newProfile);
 		this.profile = {
 			...newProfile,
 			preferences: normalizePreferences(newProfile.preferences, this.currentAccount),
 		};
+		this.savedProfile = deepClone(this.profile);
 		const states = this.genStates();
 		for (const _key in states) {
 			const key = _key as keyof PREF;
 			this.rewriteRawState(key, states[key]);
 		}
 
-		this.fetchCloudValues();
+		// Applying another tab's snapshot is read-only. Refetching and saving here
+		// can write a stale whole profile over the change that triggered the update.
 	}
 
 	public getPerPrefMenu<K extends keyof PREF>(key: K): MenuItem[] {
