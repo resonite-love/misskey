@@ -18,7 +18,7 @@ const g = resolveGridspaceConfig(source, 'https://g.example', env)!;
 const r = resolveGridspaceConfig({ ...source, peerUrl: g.origin }, source.peerUrl, env)!;
 const servers: FastifyInstance[] = [];
 
-async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8], reactions?: Parameters<typeof registerGridspacePeer>[12], reactionUpdates?: Parameters<typeof registerGridspacePeer>[13], readNotes?: Parameters<typeof registerGridspacePeer>[14], channelUpdate?: Parameters<typeof registerGridspacePeer>[21], privateAction?: Parameters<typeof registerGridspacePeer>[7], notifications?: Parameters<typeof registerGridspacePeer>[9]) {
+async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Parameters<typeof registerGridspacePeer>[3], notes?: Parameters<typeof registerGridspacePeer>[4], history?: Parameters<typeof registerGridspacePeer>[5], search?: Parameters<typeof registerGridspacePeer>[6], replyAction?: Parameters<typeof registerGridspacePeer>[8], reactions?: Parameters<typeof registerGridspacePeer>[12], reactionUpdates?: Parameters<typeof registerGridspacePeer>[13], readNotes?: Parameters<typeof registerGridspacePeer>[14], channelUpdate?: Parameters<typeof registerGridspacePeer>[21], privateAction?: Parameters<typeof registerGridspacePeer>[7], notifications?: Parameters<typeof registerGridspacePeer>[9], reactionNotification?: Parameters<typeof registerGridspacePeer>[24]) {
 	const app = Fastify();
 	servers.push(app);
 	const used = new Set<string>();
@@ -29,7 +29,7 @@ async function server(enabled = true, claim?: ClaimGridspaceNonce, action?: Para
 			if (used.has(key)) return false;
 			used.add(key);
 			return true;
-		}), action, notes, history, search, privateAction, replyAction, notifications, undefined, undefined, reactions, reactionUpdates, readNotes, undefined, undefined, undefined, undefined, undefined, undefined, channelUpdate);
+		}), action, notes, history, search, privateAction, replyAction, notifications, undefined, undefined, reactions, reactionUpdates, readNotes, undefined, undefined, undefined, undefined, undefined, undefined, channelUpdate, undefined, undefined, reactionNotification);
 	}, { prefix: '/gridspace/v1' });
 	return app;
 }
@@ -103,6 +103,25 @@ describe('GridSpace channel actions', () => {
 });
 
 describe('GridSpace reaction transport', () => {
+	test('accepts reaction notifications only from the signed peer with bounded IDs and metadata', async () => {
+		const received: object[] = [];
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, async body => { received.push(body); return { ok: true }; });
+		const url = '/gridspace/v1/reactions/notify';
+		const input = { reactionId: 'reaction1', actorId: 'actor', noteId: 'note', reaction: ':wave@g.example:', createdAt: Date.now() };
+		const send = (body: object, signed = true) => {
+			const payload = Buffer.from(JSON.stringify(body));
+			return app.inject({ method: 'POST', url, payload, headers: signed ? createGridspaceHeaders(g, 'POST', url, payload) : { 'content-type': 'application/json' } });
+		};
+		expect((await send(input, false)).statusCode).toBe(403);
+		expect((await send(input)).statusCode).toBe(200);
+		expect(received).toEqual([input]);
+		for (const body of [{ ...input, actorId: 'https://evil.example/a' }, { ...input, reaction: 'a'.repeat(261) }, { ...input, createdAt: -1 }]) {
+			expect((await send(body)).statusCode).toBe(400);
+		}
+		expect((await send({ ...input, text: 'stripped by the schema' })).statusCode).toBe(200);
+		expect(received.at(-1)).toEqual(input);
+	});
+
 	test('authenticates update notifications and bounds them without accepting reaction content', async () => {
 		const received: object[] = [];
 		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, async input => { received.push(input); return { ok: true }; });

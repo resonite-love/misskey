@@ -9,7 +9,7 @@ import { DataSource, In, LessThanOrEqual, type EntityManager } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { MiNote } from '@/models/Note.js';
-import { MiGridspaceReactionDelivery } from '@/models/Gridspace.js';
+import { MiGridspaceReactionDelivery, MiGridspaceReactionNotification } from '@/models/Gridspace.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { resolveGridspaceConfig, GRIDSPACE_PROTOCOL_VERSION, type GridspacePeerConfig } from './peer-protocol.js';
 import { gridspaceNoteId } from './note-protocol.js';
@@ -38,10 +38,16 @@ export class GridspaceReactionDeliveryService implements OnModuleInit, OnApplica
 
 	public onApplicationShutdown(): void { clearInterval(this.timer); }
 
-	public async mutate<T>(note: MiNote, write: (manager: EntityManager) => Promise<T>): Promise<T> {
+	public async mutate<T>(note: MiNote, write: (manager: EntityManager) => Promise<T>, notification?: { id: string; userId: string; reaction: string }): Promise<T> {
 		if (!supportsGridspaceReactions(note, this.peer)) return write(this.db.manager);
 		return this.db.transaction(async manager => {
 			const result = await write(manager);
+			if (notification && note.localOnly && note.userHost === new URL(this.peer!.peerOrigin).host) {
+				await manager.insert(MiGridspaceReactionNotification, {
+					reactionId: notification.id, noteId: note.id, notifierId: notification.userId, reaction: notification.reaction,
+					createdAt: new Date(), retryAt: new Date(), attempts: 0,
+				});
+			}
 			await manager.upsert(MiGridspaceReactionDelivery, {
 				noteId: note.id, peerOrigin: this.peer!.peerOrigin, version: randomUUID(), retryAt: new Date(), attempts: 0,
 			}, ['noteId']);

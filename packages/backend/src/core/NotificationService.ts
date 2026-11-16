@@ -26,6 +26,14 @@ import { FilterUnionByProperty, groupedNotificationTypes, obsoleteNotificationTy
 import { trackPromise } from '@/misc/promise-tracker.js';
 // import { escapeHtml } from '@/misc/escape-html.js';
 
+/** Commit the receipt and timeline entry together; a failed write leaves neither. */
+export const reactionNotificationOnceScript = `
+if redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
+redis.call('XADD', KEYS[1], 'MAXLEN', '~', ARGV[1], ARGV[2], 'data', ARGV[3])
+redis.call('SET', KEYS[2], '1', 'EX', 604800)
+return 1
+`;
+
 @Injectable()
 export class NotificationService implements OnApplicationShutdown {
 	#shutdownController = new AbortController();
@@ -83,6 +91,12 @@ export class NotificationService implements OnApplicationShutdown {
 		if (note.userHost === null || channelRecipient) this.createNotification(note.userId, 'reaction', { noteId: note.id, reaction }, notifierId);
 	}
 
+	/** The caller has verified a new, still-visible reaction from the configured peer. */
+	public async createReactionNotificationOnce(note: MiNote, reaction: string, notifierId: string, receipt: string): Promise<void> {
+		if (note.userHost !== null) return;
+		await this.#createNotificationInternal(note.userId, 'reaction', { noteId: note.id, reaction }, notifierId, receipt);
+	}
+
 	@bindThis
 	public createNotification<T extends MiNotification['type']>(
 		notifieeId: MiUser['id'],
@@ -100,6 +114,7 @@ export class NotificationService implements OnApplicationShutdown {
 		type: T,
 		data: Omit<FilterUnionByProperty<MiNotification, 'type', T>, 'type' | 'id' | 'createdAt' | 'notifierId'>,
 		notifierId?: MiUser['id'] | null,
+		receipt?: string,
 	): Promise<MiNotification | null> {
 		const profile = await this.cacheService.userProfileCache.fetch(notifieeId);
 
@@ -170,14 +185,21 @@ export class NotificationService implements OnApplicationShutdown {
 			} as unknown as FilterUnionByProperty<MiNotification, 'type', T>;
 
 			try {
-				redisId = (await this.redisClient.xadd(
-					`notificationTimeline:${notifieeId}`,
-					'MAXLEN', '~', this.config.perUserNotificationsMaxCount.toString(),
-					this.toXListId(notification.id),
-					'data', JSON.stringify(notification)))!;
+				if (receipt) {
+					const added = await this.redisClient.eval(reactionNotificationOnceScript, 2,
+						`notificationTimeline:${notifieeId}`, `gridspace:reaction-notification:${receipt}`,
+						this.config.perUserNotificationsMaxCount.toString(), this.toXListId(notification.id), JSON.stringify(notification));
+					if (added === 0) return null;
+				} else {
+					redisId = (await this.redisClient.xadd(
+						`notificationTimeline:${notifieeId}`,
+						'MAXLEN', '~', this.config.perUserNotificationsMaxCount.toString(),
+						this.toXListId(notification.id),
+						'data', JSON.stringify(notification)))!;
+				}
 			} catch (e) {
 				// The ID specified in XADD is equal or smaller than the target stream top item で失敗することがあるのでリトライ
-				if (e instanceof ReplyError) continue;
+				if (e instanceof ReplyError && (!receipt || (e instanceof Error && e.message.includes('equal or smaller than the target stream top item')))) continue;
 				throw e;
 			}
 

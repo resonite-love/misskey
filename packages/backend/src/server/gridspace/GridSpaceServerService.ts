@@ -20,6 +20,7 @@ import { GridspaceNoteMenuService } from '@/core/gridspace/GridspaceNoteMenuServ
 import { GridspaceActionService } from '@/core/gridspace/GridspaceActionService.js';
 import { GridspaceReactionService } from '@/core/gridspace/GridspaceReactionService.js';
 import { GridspaceReactionDeliveryService } from '@/core/gridspace/GridspaceReactionDeliveryService.js';
+import { GridspaceReactionNotificationService } from '@/core/gridspace/GridspaceReactionNotificationService.js';
 import { GridspaceReplyService } from '@/core/gridspace/GridspaceReplyService.js';
 import { GridspaceChannelService } from '@/core/gridspace/GridspaceChannelService.js';
 import { GridspaceSharedDriveService } from '@/core/gridspace/GridspaceSharedDriveService.js';
@@ -51,6 +52,7 @@ export class GridSpaceServerService {
 		private noteMenus: GridspaceNoteMenuService,
 		private reactions: GridspaceReactionService,
 		private reactionDelivery: GridspaceReactionDeliveryService,
+		private reactionNotifications: GridspaceReactionNotificationService,
 		private notifications: GridspaceNotificationService,
 		private roles: RoleService,
 		private limiter: RateLimiterService,
@@ -79,7 +81,7 @@ export class GridSpaceServerService {
 		}), (action, input) => this.notifications.peer(action, input),
 		input => this.actions.peerAction(input, userId => this.limitAction(userId, 'gridspace/action', 60)),
 		input => this.actions.peerUpload(input, userId => this.limitAction(userId, 'drive/files/create', 20)),
-		input => this.reactions.peerRead(input), input => this.reactionDelivery.receive(input), noteIds => this.notes.readMany(noteIds), input => this.channels.peerList(input), input => this.channels.peerDelete(input), input => this.drive.peer(input), input => this.content.peer(input), input => this.sharedDrive.peer(input), input => this.managed.peer(input), input => this.channels.peerUpdate(input), input => this.noteMenus.peer(input, userId => this.limitAction(userId, 'gridspace/note-menu', 60)), input => this.publicNotes.local(input));
+		input => this.reactions.peerRead(input), input => this.reactionDelivery.receive(input), noteIds => this.notes.readMany(noteIds), input => this.channels.peerList(input), input => this.channels.peerDelete(input), input => this.drive.peer(input), input => this.content.peer(input), input => this.sharedDrive.peer(input), input => this.managed.peer(input), input => this.channels.peerUpdate(input), input => this.noteMenus.peer(input, userId => this.limitAction(userId, 'gridspace/note-menu', 60)), input => this.publicNotes.local(input), input => this.reactionNotifications.receive(input));
 		done();
 	}
 }

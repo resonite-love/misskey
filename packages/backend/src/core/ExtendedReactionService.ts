@@ -59,7 +59,8 @@ export class ExtendedReactionService {
 			// Only the first reaction uses the legacy path and federates.
 			await this.reactionService.createUnlocked(user, note, reaction);
 		} else {
-			await this.reactionDelivery.mutate(note, manager => manager.insert(MiExtendedNoteReaction, { id: this.idService.gen(), userId: user.id, noteId: note.id, reaction }));
+			const record = { id: this.idService.gen(), userId: user.id, noteId: note.id, reaction };
+			await this.reactionDelivery.mutate(note, manager => manager.insert(MiExtendedNoteReaction, record), user.host === null ? record : undefined);
 			this.notificationService.createReactionNotification(note, reaction, user.id);
 		}
 		this.globalEventService.publishNoteStream(note, 'extendedReactionUpdated', {});

@@ -113,6 +113,18 @@ export class MiGridspaceReactionDelivery {
 	@Column('integer', { default: 0 }) public attempts: number;
 }
 
+/** Only new reactions are queued: deploying this must not notify old reaction history. */
+@Entity('gridspace_reaction_notification')
+export class MiGridspaceReactionNotification {
+	@PrimaryColumn({ ...id(), primaryKeyConstraintName: 'PK_gridspace_reaction_notification' }) public reactionId: string;
+	@Column(id()) public noteId: string;
+	@Column(id()) public notifierId: string;
+	@Column('varchar', { length: 260 }) public reaction: string;
+	@Column('timestamp with time zone') public createdAt: Date;
+	@Index('IDX_gridspace_reaction_notification_retry') @Column('timestamp with time zone') public retryAt: Date;
+	@Column('integer', { default: 0 }) public attempts: number;
+}
+
 /** Permanent tombstones also guard against ordinary ActivityPub replay. */
 @Entity('gridspace_note_tombstone')
 export class MiGridspaceNoteTombstone {

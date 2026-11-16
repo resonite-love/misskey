@@ -12,7 +12,7 @@ import { mockDeep } from 'vitest-mock-extended';
 import { loadConfig } from '@/config.js';
 import type { Config } from '@/config.js';
 import { MiNote } from '@/models/Note.js';
-import { MiGridspaceReactionDelivery } from '@/models/Gridspace.js';
+import { MiGridspaceReactionDelivery, MiGridspaceReactionNotification } from '@/models/Gridspace.js';
 import { GridspaceReactionDeliveryService } from './GridspaceReactionDeliveryService.js';
 import { requestGridspacePeer } from './peer-client.js';
 
@@ -20,7 +20,7 @@ vi.mock('./peer-client.js', () => ({ requestGridspacePeer: vi.fn() }));
 const config = loadConfig();
 const schema = `reaction_test_${randomBytes(8).toString('hex')}`;
 const db = new DataSource({ type: 'postgres', host: config.db.host, port: config.db.port, username: config.db.user, password: config.db.pass, database: config.db.db,
-	schema, extra: { options: `-c search_path=${schema}` }, entities: [MiGridspaceReactionDelivery] });
+	schema, extra: { options: `-c search_path=${schema}` }, entities: [MiGridspaceReactionDelivery, MiGridspaceReactionNotification] });
 const note = { id: 'note', userHost: null, uri: null, channelId: null } as MiNote;
 let service: GridspaceReactionDeliveryService;
 let migration: { up: (runner: unknown) => Promise<void>; down: (runner: unknown) => Promise<void> };
@@ -31,6 +31,9 @@ beforeAll(async () => {
 	const module = await import(pathToFileURL(resolve('migration/1794484393403-GridspaceReactionDelivery.js')).href);
 	migration = new module.GridspaceReactionDelivery1794484393403();
 	await migration.up(db); await migration.down(db); await migration.up(db);
+	const added = await import(pathToFileURL(resolve('migration/1794840813097-GridspaceReactionNotification.js')).href);
+	const notifications = new added.GridspaceReactionNotification1794840813097();
+	await notifications.up(db); await notifications.down(db); await notifications.up(db);
 	await db.query('CREATE TABLE writes (id text PRIMARY KEY)');
 	vi.stubEnv('REACTION_TEST_KEY', Buffer.alloc(32, 1).toString('base64'));
 	const cfg = { ...config, url: 'https://g.example', gridspace: { enabled: true, communityId: 'test', peerUrl: 'https://r.example', keyId: 'v1', secretEnv: 'REACTION_TEST_KEY' } } as Config;
@@ -69,4 +72,15 @@ test('two independent workers do not send concurrently and an in-flight mutation
 	expect(await repo(MiGridspaceReactionDelivery).count()).toBe(1);
 	await service.flush();
 	expect(await repo(MiGridspaceReactionDelivery).count()).toBe(0);
+});
+
+test('notification insertion failure rolls back reaction and invalidation, while success commits all three', async () => {
+	await db.query('ALTER TABLE gridspace_reaction_notification ADD CONSTRAINT reject_notification CHECK ("reactionId" <> \'rejected\')');
+	const remote = { ...note, id: 'remote', userHost: 'r.example', uri: 'https://r.example/notes/source', localOnly: true };
+	await expect(service.mutate(remote, manager => manager.query("INSERT INTO writes VALUES ('rollback-notification')"), { id: 'rejected', userId: 'actor', reaction: '👍' })).rejects.toThrow();
+	expect(await db.query("SELECT * FROM writes WHERE id='rollback-notification'")).toEqual([]);
+	expect(await db.getRepository(MiGridspaceReactionDelivery).findOneBy({ noteId: 'remote' })).toBeNull();
+	await db.query('ALTER TABLE gridspace_reaction_notification DROP CONSTRAINT reject_notification');
+	await service.mutate(remote, manager => manager.query("INSERT INTO writes VALUES ('notified')"), { id: 'accepted', userId: 'actor', reaction: '👍' });
+	expect(await db.getRepository(MiGridspaceReactionNotification).findOneBy({ reactionId: 'accepted' })).toMatchObject({ noteId: 'remote', notifierId: 'actor', reaction: '👍' });
 });

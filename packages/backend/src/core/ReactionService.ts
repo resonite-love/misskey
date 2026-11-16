@@ -212,7 +212,7 @@ export class ReactionService {
 		};
 
 		try {
-			await this.reactionDelivery.mutate(note, manager => manager.insert(MiNoteReaction, record));
+			await this.reactionDelivery.mutate(note, manager => manager.insert(MiNoteReaction, record), user.host === null ? record : undefined);
 		} catch (e) {
 			if (isDuplicateKeyValueError(e)) {
 				const exists = await this.noteReactionsRepository.findOneByOrFail({
@@ -223,7 +223,7 @@ export class ReactionService {
 				if (exists.reaction !== reaction) {
 					// 別のリアクションがすでにされていたら置き換える
 					await this.deleteUnlocked(user, note);
-					await this.reactionDelivery.mutate(note, manager => manager.insert(MiNoteReaction, record));
+					await this.reactionDelivery.mutate(note, manager => manager.insert(MiNoteReaction, record), user.host === null ? record : undefined);
 				} else {
 					// 同じリアクションがすでにされていたらエラー
 					throw new IdentifiableError('51c42bb4-931a-456b-bff7-e5a8a70dd298');

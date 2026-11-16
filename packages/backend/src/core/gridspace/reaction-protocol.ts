@@ -20,6 +20,7 @@ export function supportsGridspaceChannelReactions(note: { userHost: string | nul
 
 export const GRIDSPACE_REACTIONS_PATH = '/gridspace/v1/reactions';
 export type ReactionUpdate = { uris: string[] };
+export type ReactionNotification = { reactionId: string; noteId: string; actorId: string; reaction: string; createdAt: number };
 export type ReactionPosition = { time: number; id: string; origin: string };
 export type ReactionRow = ReactionPosition & { reaction: string; userUri: string };
 export type ReactionPeerRequest = {
