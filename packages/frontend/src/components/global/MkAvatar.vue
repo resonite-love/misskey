@@ -203,6 +203,7 @@ watch(() => props.user.avatarBlurhash, () => {
 .cat {
 	> .ears {
 		contain: strict;
+		display: flex;
 		position: absolute;
 		top: -50%;
 		left: -50%;

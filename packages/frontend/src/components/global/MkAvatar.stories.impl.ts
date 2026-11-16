@@ -70,3 +70,15 @@ export const ProfilePageCat = {
 		},
 	},
 } satisfies StoryObj<typeof MkAvatar>;
+
+export const ReactionCat = {
+	...common,
+	args: {
+		user: ProfilePageCat.args.user,
+	},
+	decorators: [
+		() => ({
+			template: '<div style="display: flex; align-items: center; height: 42px; font-size: 21px"><div style="display: grid; width: 14px; height: 14px"><story/></div></div>',
+		}),
+	],
+} satisfies StoryObj<typeof MkAvatar>;
