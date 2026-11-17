@@ -7,159 +7,85 @@ import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef,
 import type { ComputedRef } from 'vue';
 import type { entities } from 'misskey-js';
 import type { IPaginator } from '@/utility/paginator.js';
+import type { TimelineDisplayRow } from '@/utility/timeline-client.js';
+import { TimelineClient } from '@/utility/timeline-client.js';
+import { useLegacyGridspaceHome } from '@/utility/use-legacy-gridspace-home.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
-import { mergeHomeRows } from '@/utility/gridspace-home-merge.js';
-import { isVisiblePrivateNote, suspendPrivateNotes } from '@/utility/gridspace-note-suspension.js';
-import type { GridspaceNoteEntry } from '@/utility/gridspace-note-suspension.js';
-import { url } from '@@/js/config.js';
-import { $i } from '@/i.js';
+import { supportsTimelineKind } from '@/utility/timeline-capabilities.js';
+import { subscribeTimeline } from '@/utility/timeline-stream.js';
 
-type PrivateNote = entities.GridspacePrivateNotesResponse['notes'][number];
-
-export function useGridspaceHome(normal: IPaginator<entities.Note>, params: ComputedRef<entities.GridspacePrivateNotesRequest | null>, isTop: () => boolean, withSensitive: ComputedRef<boolean>) {
-	const notes = shallowRef<GridspaceNoteEntry[]>([]);
-	const queued = shallowRef<GridspaceNoteEntry[]>([]);
-	const enabled = ref(false);
-	const error = ref(false);
-	const busy = ref(false);
-	const more = ref(false);
-	const boundary = ref(Infinity);
-	const pagingKey = ref(0);
-	let cursor: string | undefined;
+/** The legacy reader remains isolated until both servers advertise the new contract. */
+export function useGridspaceHome(normal: IPaginator<entities.Note>, params: ComputedRef<entities.GridspacePrivateNotesRequest | null>, isTop: () => boolean, withSensitive: ComputedRef<boolean>, kind: ComputedRef<'home' | 'social'> = computed(() => 'home'), view: { anchor?: () => string | undefined; beforeReplace?: () => void; afterReplace?: () => void; onNewItems?: (items: TimelineDisplayRow[]) => void; prepareNote?: (note: entities.Note) => entities.Note } = {}) {
+	const integrated = ref(false);
+	const deciding = ref(true);
+	const legacyAllowed = ref(false);
+	const client = shallowRef<TimelineClient | null>(null);
+	const legacy = useLegacyGridspaceHome(normal, computed(() => legacyAllowed.value ? params.value : null), isTop, withSensitive);
 	let generation = 0;
 	let active = true;
-	let polling: number | null = null;
-	let suspended = false;
-	let controller = new AbortController();
-	let lastSync: number | null = null;
-	let newer: { start: number; observedAt?: number; cursor?: string; notes: GridspaceNoteEntry[] } | null = null;
-	const normalBoundary = computed(() => normal.fetching.value ? Infinity : normal.canFetchOlder.value ? Date.parse(normal.items.value.at(-1)?.createdAt ?? '') || Infinity : -Infinity);
-	const rows = computed(() => {
-		if (!params.value || !enabled.value || error.value) return normal.items.value.map(note => ({ kind: 'normal' as const, key: note.uri || `${url}/notes/${note.id}`, createdAt: note.createdAt, note }));
-		const filtered = notes.value.filter(note => isVisiblePrivateNote(note, withSensitive.value));
-		return mergeHomeRows(normal.items.value, filtered, url, normalBoundary.value, boundary.value);
-	});
-	const hasMore = computed(() => normal.canFetchOlder.value || (enabled.value && more.value && !error.value));
-	const loading = computed(() => normal.fetchingOlder.value || busy.value);
-	const queuedCount = computed(() => queued.value.length + normal.queuedAheadItemsCount.value);
-	const signal = () => AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
-	const usable = () => active && !window.document.hidden && params.value != null;
+	const rows = computed<TimelineDisplayRow[]>(() => integrated.value ? client.value?.rows.value ?? [] : legacy.rows.value.map(row => ({ ...row, leased: row.kind === 'private' })));
+	const busy = computed(() => deciding.value || (integrated.value ? client.value?.busy.value ?? false : legacy.busy.value));
+	const initialLoading = computed(() => deciding.value || (integrated.value ? client.value?.loading.value ?? false : normal.fetching.value));
+	const initialError = computed(() => integrated.value ? (client.value?.error.value ?? false) && rows.value.length === 0 : normal.error.value);
+	const loading = computed(() => integrated.value ? client.value?.busy.value ?? false : legacy.loading.value);
+	const error = computed(() => integrated.value ? client.value?.error.value ?? false : legacy.error.value);
+	const hasMore = computed(() => integrated.value ? client.value?.hasMore.value ?? false : legacy.hasMore.value);
+	const queuedCount = computed(() => integrated.value ? client.value?.queuedCount.value ?? 0 : legacy.queuedCount.value);
+	const pagingKey = computed(() => integrated.value ? client.value?.pagingKey.value ?? 0 : legacy.pagingKey.value);
 
-	function clear() {
-		generation++; controller.abort(); controller = new AbortController(); polling = null; suspended = false;
-		notes.value = []; queued.value = []; newer = null; cursor = undefined; more.value = false; boundary.value = Infinity; busy.value = false;
-	}
-
-	function fail() { clear(); error.value = true; }
-
-	function releaseQueue() {
-		if (!usable() || suspended) return;
-		notes.value = [...new Map([...notes.value, ...queued.value].map(note => [note.uri, note])).values()];
-		queued.value = [];
-	}
-
-	async function loadOld() {
-		if (!usable() || suspended || busy.value || !more.value || error.value) return;
-		const current = generation; busy.value = true;
-		try {
-			const result = await misskeyApi('gridspace/private-notes', { ...params.value!, cursor, limit: 20 }, undefined, signal());
-			if (current !== generation) return;
-			const time = result.scannedThrough == null ? NaN : Date.parse(result.scannedThrough);
-			if (result.cursor && !Number.isFinite(time)) throw new Error('Invalid scan boundary');
-			lastSync ??= Date.parse(result.observedAt);
-			notes.value = [...new Map([...notes.value, ...result.notes].map(note => [note.uri, note])).values()];
-			cursor = result.cursor ?? undefined; more.value = result.cursor != null;
-			boundary.value = more.value ? time : -Infinity;
-		} catch { if (current === generation) fail(); } finally { if (current === generation) busy.value = false; }
+	async function select() {
+		const current = ++generation;
+		client.value?.dispose(); client.value = null;
+		legacyAllowed.value = false; integrated.value = false; deciding.value = true;
+		if (params.value) {
+			try {
+				const status = await misskeyApi('gridspace/link', { action: 'status' });
+				if (current !== generation) return;
+				if (supportsTimelineKind(status, kind.value)) {
+					integrated.value = true;
+					const { mode: _mode, ...filters } = params.value;
+					client.value = new TimelineClient({ ...filters, kind: kind.value }, { ...view, subscribe: subscribeTimeline, isTop, withSensitive: () => withSensitive.value });
+					if (active) await client.value.reload();
+					if (current === generation) deciding.value = false;
+					return;
+				}
+			} catch { /* Older servers retain the existing reader. */ }
+		}
+		if (current !== generation) return;
+		legacyAllowed.value = true; deciding.value = false;
+		await normal.init();
 	}
 
 	async function reload() {
-		clear(); error.value = false; enabled.value = false; lastSync = null;
-		if (!usable() || !$i) return;
-		const current = generation;
-		try {
-			const status = await misskeyApi('gridspace/private-grant', {}, undefined, signal());
-			if (current !== generation) return;
-			if (!status.available) { if (status.granted) fail(); return; }
-			enabled.value = status.granted || (status.enabled && status.peerRole === 'source');
-			if (enabled.value) { more.value = true; await loadOld(); }
-		} catch { if (current === generation) fail(); }
+		if (integrated.value) await client.value?.reload();
+		else await Promise.all([normal.reload(), legacy.reload()]);
 	}
 
-	async function fetchOlder() {
-		if (loading.value || suspended || !active || window.document.hidden) return;
-		if (!enabled.value || error.value || !params.value) { await normal.fetchOlder(); return; }
-		const n = normalBoundary.value; const p = boundary.value;
-		const beforeCursor = cursor;
-		const beforeNormalId = normal.items.value.at(-1)?.id;
-		await Promise.all([
-			...(normal.canFetchOlder.value && n >= p ? [normal.fetchOlder()] : []),
-			...(more.value && p >= n ? [loadOld()] : []),
-		]);
-		// A filtered page can advance the boundary without adding a visible row.
-		// Remount the sentinel after progress so infinite scroll can ask again.
-		if (normalBoundary.value !== n || boundary.value !== p || cursor !== beforeCursor || normal.items.value.at(-1)?.id !== beforeNormalId) pagingKey.value++;
+	async function refresh() { if (integrated.value) await client.value?.refresh(); }
+
+	function visibility() {
+		if (!integrated.value) return;
+		if (window.document.hidden) client.value?.suspend();
+		else if (active) void client.value?.resume();
 	}
 
-	async function poll() {
-		if (polling != null || !usable() || !enabled.value || error.value || lastSync == null) return;
-		const current = generation; polling = current;
-		try {
-			// Validate every retained body, including rows waiting for the other stream
-			// and new notes queued while the user is reading older history.
-			const snapshot = [...new Map([...notes.value, ...queued.value, ...(newer?.notes ?? [])].map(note => [note.id, note])).values()];
-			const allowed = new Map<string, PrivateNote>();
-			for (let i = 0; i < snapshot.length; i += 100) {
-				const result = await misskeyApi('gridspace/private-notes', { ...params.value!, mode: 'validate', contextMode: 'home', ids: snapshot.slice(i, i + 100).map(note => note.id) }, undefined, signal());
-				if (current !== generation) return;
-				for (const note of result.notes) allowed.set(note.uri, note);
-			}
-			const previous = new Set(snapshot.map(note => note.uri));
-			const valid = (items: GridspaceNoteEntry[]) => items.flatMap(note => !previous.has(note.uri) ? [note] : allowed.has(note.uri) ? [allowed.get(note.uri)!] : []);
-			notes.value = valid(notes.value); queued.value = valid(queued.value);
-			if (newer) newer.notes = valid(newer.notes);
-			suspended = false;
-			// Include the preceding second for peers whose IDs have second precision.
-			newer ??= { start: Math.max(1, lastSync - 1001), notes: [] };
-			// Bounded per tick, but retain the cursor until this entire window is read.
-			for (let page = 0; page < 5; page++) {
-				const result = await misskeyApi('gridspace/private-notes', { ...params.value!, rangeStartAt: newer.start, cursor: newer.cursor, limit: 20 }, undefined, signal());
-				if (current !== generation) return;
-				newer.observedAt ??= Date.parse(result.observedAt);
-				newer.notes.push(...result.notes); newer.cursor = result.cursor ?? undefined;
-				if (!result.cursor) {
-					const retained = new Set([...notes.value, ...queued.value].map(note => note.uri));
-					queued.value = [...queued.value, ...newer.notes.filter(note => !retained.has(note.uri))];
-					lastSync = newer.observedAt; newer = null;
-					if (isTop()) releaseQueue();
-					break;
-				}
-			}
-			pagingKey.value++;
-		} catch { if (current === generation) fail(); } finally { if (polling === current) polling = null; }
-	}
+	function focus() { if (active && integrated.value && !window.document.hidden) void client.value?.resume(); }
 
-	function suspend() {
-		if (!params.value || error.value) return;
-		generation++; controller.abort(); controller = new AbortController(); polling = null; busy.value = false; suspended = true;
-		notes.value = suspendPrivateNotes(notes.value, withSensitive.value);
-		queued.value = suspendPrivateNotes(queued.value, withSensitive.value);
-		if (newer) newer.notes = suspendPrivateNotes(newer.notes, withSensitive.value);
-	}
-
-	function focus() {
-		if (!usable()) return;
-		if ((!enabled.value || lastSync == null) && !error.value) void reload(); else void poll();
-	}
-
-	function visibility() { if (window.document.hidden) suspend(); else focus(); }
-
-	const timer = window.setInterval(poll, 10000);
 	window.document.addEventListener('visibilitychange', visibility);
 	window.addEventListener('focus', focus);
-	watch(() => JSON.stringify(params.value), reload, { immediate: true });
-	onDeactivated(() => { active = false; suspend(); });
+	watch(() => JSON.stringify([params.value, kind.value]), select, { immediate: true });
+	onDeactivated(() => { active = false; client.value?.suspend(); });
 	onActivated(() => { if (!active) { active = true; focus(); } });
-	onBeforeUnmount(() => { active = false; clear(); window.clearInterval(timer); window.document.removeEventListener('visibilitychange', visibility); window.removeEventListener('focus', focus); });
-	return { rows, hasMore, loading, busy, queuedCount, pagingKey, error, reload, fetchOlder, releaseQueue, fail };
+	onBeforeUnmount(() => {
+		generation++; active = false; client.value?.dispose();
+		window.document.removeEventListener('visibilitychange', visibility); window.removeEventListener('focus', focus);
+	});
+	return {
+		rows, hasMore, loading, initialLoading, initialError, busy, queuedCount, pagingKey, error, integrated, deciding,
+		reload, refresh,
+		fetchOlder: () => integrated.value ? client.value?.load() : legacy.fetchOlder(),
+		releaseQueue: () => integrated.value ? client.value?.releaseQueue() : legacy.releaseQueue(),
+		fail: () => integrated.value ? client.value?.fail() : legacy.fail(),
+		removeNormal: (id: string) => { normal.removeItem(id); client.value?.removeNormal(id); },
+	};
 }

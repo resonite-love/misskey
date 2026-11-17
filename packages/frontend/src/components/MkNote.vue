@@ -189,7 +189,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { inject, ref, useTemplateRef, provide, computed } from 'vue';
+import { inject, ref, useTemplateRef, provide, computed, watch } from 'vue';
 import * as Misskey from 'misskey-js';
 import { userPage } from '@@/js/user.js';
 import type { Ref } from 'vue';
@@ -227,6 +227,8 @@ const props = withDefaults(defineProps<{
 }>(), {
 	mock: false,
 });
+
+const expanded = defineModel<boolean>('expanded');
 
 const emit = defineEmits<{
 	(ev: 'reaction', emoji: string): void;
@@ -295,6 +297,9 @@ const {
 	currentClip,
 	currentAntenna,
 });
+
+if (expanded.value !== undefined) showContent.value = expanded.value;
+watch(showContent, value => { expanded.value = value; });
 
 // provide
 provide(DI.mfmEmojiReactCallback, reactViaMfmEmoji);

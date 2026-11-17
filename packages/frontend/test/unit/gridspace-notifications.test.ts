@@ -26,215 +26,123 @@ vi.mock('@/utility/gridspace-notification-state.js', async () => {
 
 const api = vi.mocked(misskeyApi);
 const at = (n: number) => new Date(1700000000000 + n * 1000).toISOString();
-const notice = (n: number, id = String(n), type = 'test') => ({ id, createdAt: at(n), type, isRead: false, note: null as { id: string } | null, user: null, body: null as string | null, reaction: null });
-const page = (source: string, items: ReturnType<typeof notice>[] = [], next: string | null = null, boundary = 0) => ({
-	origin: source === 'peer' ? 'https://r.example' : 'https://g.example', recipientId: source, unreadCount: 5, next, newest: items[0]?.id ?? null, boundary: boundary ? at(boundary) : null,
-	local: source === 'local' ? items.map(n => ({ ...n, notification: n })) : [], remote: source === 'peer' ? items : [],
+const notice = (source: 'local' | 'peer' | 'channel', id: string, n: number, type = 'test') => ({
+ key: JSON.stringify([source, id]), origin: source === 'local' ? 'https://g.example' : 'https://r.example', recipientId: source,
+ source, id, createdAt: at(n), isRead: false,
+ local: source === 'local' ? { id, type, createdAt: at(n) } : null,
+ remote: source === 'local' ? null : { id, createdAt: at(n), type, isRead: false, note: null as { id: string } | null, user: null, body: 'protected', reaction: null },
 });
-const settle = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); await nextTick(); };
+const page = (items: ReturnType<typeof notice>[] = [], nextCursor: string | null = null) => ({
+ cursor: 'snapshot', nextCursor, scannedCount: items.length, complete: true, revalidateAfterMs: 10000, items,
+ sources: ['local', 'peer', 'channel'].map(source => ({ source, status: source === 'channel' ? 'disabled' : 'ok', unreadCount: 5 })),
+});
+const settle = async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); await nextTick(); };
 let respond: (endpoint: string, params: Record<string, unknown>) => Promise<unknown>;
 let cleanup = () => {};
 function mount(isAtTop = () => true) {
-	let list!: ReturnType<typeof useGridspaceNotifications>;
-	const app = createApp({ setup() { list = useGridspaceNotifications(computed(() => []), isAtTop); return () => null; } });
-	app.mount(document.createElement('div')); cleanup = () => app.unmount();
-	return list;
+ let list!: ReturnType<typeof useGridspaceNotifications>;
+ const app = createApp({ setup() { list = useGridspaceNotifications(computed(() => []), isAtTop); return () => null; } });
+ app.mount(document.createElement('div')); cleanup = () => app.unmount();
+ return list;
 }
 beforeEach(() => { Object.assign(linkedNotifications, { channelEnabled: false, peerEnabled: true }); vi.useFakeTimers(); api.mockReset(); api.mockImplementation(((endpoint, params) => respond(endpoint, params ?? {})) as typeof misskeyApi); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
-describe('combined notifications', () => {
-	it('immediately clears a revoked peer source while keeping channel notifications active', async () => {
-		Object.assign(linkedNotifications, { channelEnabled: true });
-		respond = async (_, p) => ({ ...page(p.source === 'local' ? 'local' : 'peer', [notice(9, String(p.source))]), recipientId: String(p.source) });
-		const list = mount(); await settle();
-		expect(list.rows.value.some(row => row.source === 'peer')).toBe(true);
-		linkedNotifications.peerEnabled = false; await settle();
-		expect(list.rows.value.some(row => row.source === 'peer')).toBe(false);
-		expect(list.rows.value.some(row => row.source === 'channel')).toBe(true);
-		linkedNotifications.peerEnabled = true; await settle();
-		expect(list.rows.value.some(row => row.source === 'peer')).toBe(true);
-	});
-
-	it('merges own channel notifications and marks them read through the channel identity', async () => {
-		Object.assign(linkedNotifications, { channelEnabled: true });
-		respond = async (endpoint, p) => endpoint.endsWith('/read') ? { unreadCount: 0 } : { ...page(p.source === 'local' ? 'local' : 'peer', [notice(p.source === 'channel' ? 9 : 8, String(p.source))]), recipientId: String(p.source) };
-		const list = mount(); await settle();
-		expect(list.rows.value.map(row => row.source)).toEqual(['channel', 'local', 'peer']);
-		list.seen(list.rows.value[0]); await list.markDisplayed();
-		expect(api).toHaveBeenCalledWith('gridspace/notifications/read', expect.objectContaining({ source: 'channel', ids: ['channel'] }), undefined, expect.anything());
-	});
-
-	it('revalidates rows loaded while an all-read write is still in flight', async () => {
-		let releasePage!: (value: unknown) => void;
-		let releaseRead!: (value: unknown) => void;
-		respond = async (endpoint, p) => {
-			if (endpoint.endsWith('/read')) return p.source === 'peer' ? new Promise(resolve => { releaseRead = resolve; }) : { unreadCount: 0 };
-			if (p.source === 'local') return page('local');
-			if (p.ids) return { ...page('peer', [{ ...notice(9), isRead: true }]), unreadCount: 0 };
-			return new Promise(resolve => { releasePage = resolve; });
-		};
-		const list = mount(); await settle();
-		const writing = list.markAll(); await settle();
-		releasePage(page('peer', [notice(9)])); await settle();
-		expect(list.rows.value[0].isRead).toBe(false);
-		releaseRead({ unreadCount: 0 }); await writing;
-		expect(list.rows.value[0].isRead).toBe(true);
-		expect(linkedNotifications.count).toBe(0);
-	});
-	it('refetches a page that was still loading at all-read and keeps later arrivals unread', async () => {
-		let release!: (value: unknown) => void;
-		let queried = false;
-		respond = async (endpoint, p) => {
-			if (endpoint.endsWith('/read')) return { unreadCount: 0 };
-			if (p.source === 'local') return page('local');
-			if (!queried) { queried = true; return new Promise(resolve => { release = resolve; }); }
-			return { ...page('peer', [notice(10), { ...notice(9), isRead: true }]), unreadCount: 1 };
-		};
-		const list = mount(); await settle();
-		await list.markAll();
-		release(page('peer', [notice(9)])); await settle();
-		expect(list.rows.value.map(n => [n.id, n.isRead])).toEqual([['10', false], ['9', true]]);
-		expect(linkedNotifications.count).toBe(1);
-	});
-	it('retains confirmed read flags and counts when older validation completes later', async () => {
-		let release!: (page: unknown) => void;
-		let read = false;
-		respond = async (endpoint, p) => {
-			if (endpoint.endsWith('/read')) { if (p.source === 'peer') read = true; return { unreadCount: 0 }; }
-			if (p.source === 'peer' && p.ids && !read) return new Promise(resolve => { release = resolve; });
-			return { ...page(String(p.source), [{ ...notice(9), isRead: read }]), unreadCount: read ? 0 : 5 };
-		};
-		const list = mount(); await settle();
-		// The timer callback awaits validation, so release it after the read below.
-		await vi.advanceTimersByTimeAsync(9000);
-		vi.advanceTimersByTime(1000); await settle();
-		await list.markAll();
-		release(page('peer', [notice(9)])); await settle();
-		expect(list.rows.value.find(n => n.source === 'peer')!.isRead).toBe(true);
-		expect(linkedNotifications.count).toBe(0);
-	});
-	it('retains equal short IDs across origins and holds the common page boundary', async () => {
-		respond = async (_, p) => p.before ? page(String(p.source), [notice(1)]) : page(String(p.source), [notice(9, 'same'), notice(4)], '4', 4);
-		const list = mount(); await settle();
-		expect(list.rows.value).toHaveLength(2); expect(new Set(list.rows.value.map(n => n.key)).size).toBe(2);
-		await list.older(); expect(list.rows.value).toHaveLength(6);
-	});
-	it('never marks background fetched notices read, and sends only seen source IDs', async () => {
-		respond = async (endpoint, p) => endpoint.endsWith('/read') ? { unreadCount: 4 } : page(String(p.source), [notice(9), notice(8)]);
-		const list = mount(); await settle();
-		expect(api.mock.calls.some(([endpoint]) => endpoint.endsWith('/read'))).toBe(false);
-		list.seen(list.rows.value.find(n => n.source === 'peer')!); await list.markDisplayed();
-		const reads = api.mock.calls.filter(([endpoint]) => endpoint.endsWith('/read'));
-		expect(reads).toHaveLength(1); expect(reads[0][1]).toEqual({ source: 'peer', ids: ['9'] });
-	});
-	it('groups same-source reactions and marks every constituent ID without merging accounts', async () => {
-		respond = async (endpoint, p) => endpoint.endsWith('/read') ? { unreadCount: 0 } : p.source === 'local' ? page('local') : page('peer', [
-			{ ...notice(9, 'r1', 'reaction'), note: { id: 'note' } } as ReturnType<typeof notice>,
-			{ ...notice(8, 'r2', 'reaction'), note: { id: 'note' } } as ReturnType<typeof notice>,
-		]);
-		const list = mount(); await settle(); expect(list.rows.value).toHaveLength(1);
-		list.seen(list.rows.value[0]); await list.markDisplayed();
-		expect(api.mock.calls.find(([endpoint]) => endpoint.endsWith('/read'))?.[1]).toEqual({ source: 'peer', ids: ['r1', 'r2'] });
-	});
-	it('keeps older continuation when an initially empty source receives over one page', async () => {
-		let arrived = false;
-		respond = async (_, p) => !arrived || p.source === 'local' ? page(String(p.source)) : p.before ? page('peer', [notice(1)]) : p.since ? page('peer') : page('peer', [notice(99), notice(50)], '50', 50);
-		const list = mount(); await settle(); expect(list.hasMore.value).toBe(false);
-		arrived = true; await vi.advanceTimersByTimeAsync(10000); await settle();
-		expect(list.hasMore.value).toBe(true); await list.older();
-		expect(list.rows.value.map(n => n.id)).toEqual(['99', '50', '1']);
-	});
-	it('clears protected bodies on peer failure while local rows remain and count is unknown', async () => {
-		let online = true;
-		respond = async (_, p) => { if (p.source === 'peer' && !online) throw new Error('offline'); return page(String(p.source), [notice(9)]); };
-		const list = mount(); await settle(); online = false;
-		await vi.advanceTimersByTimeAsync(10000); await settle();
-		expect(list.rows.value.every(n => n.source === 'local')).toBe(true); expect(list.error.value).toBe(true); expect(linkedNotifications.count).toBe(null);
-	});
-	it('invalidates delayed responses when the page is hidden', async () => {
-		let release!: (value: unknown) => void;
-		respond = async (_, p) => p.source === 'local' ? page('local', [notice(8)]) : new Promise(resolve => { release = resolve; });
-		const list = mount(); await settle();
-		vi.spyOn(document, 'hidden', 'get').mockReturnValue(true); document.dispatchEvent(new Event('visibilitychange'));
-		release(page('peer', [notice(9)])); await settle();
-		expect(list.rows.value.some(n => n.source === 'peer')).toBe(false);
-	});
-	it('marks both entire streams read only on the explicit action, including empty filtered pages', async () => {
-		respond = async (endpoint, p) => endpoint.endsWith('/read') ? { unreadCount: 0 } : page(String(p.source));
-		const list = mount(); await settle();
-		await vi.advanceTimersByTimeAsync(10000);
-		expect(api.mock.calls.some(([endpoint]) => endpoint.endsWith('/read'))).toBe(false);
-		await list.markAll();
-		expect(api.mock.calls.filter(([endpoint]) => endpoint.endsWith('/read')).map(([, p]) => p)).toEqual([
-			{ source: 'local', all: true }, { source: 'peer', all: true },
-		]);
-		expect(linkedNotifications.count).toBe(0);
-	});
-	it('keeps unread rows after a read transport failure and retries the same seen IDs', async () => {
-		let online = false;
-		respond = async (endpoint, p) => {
-			if (endpoint.endsWith('/read')) { if (!online) throw new Error('offline'); return { unreadCount: 0 }; }
-			return page(String(p.source), [notice(9)]);
-		};
-		const list = mount(); await settle();
-		const before = list.rows.value.map(n => n.key);
-		list.seen(list.rows.value.find(n => n.source === 'peer')!); await list.markDisplayed();
-		expect(list.rows.value.map(n => n.key)).toEqual(before);
-		expect(list.rows.value.every(n => !n.isRead)).toBe(true); expect(list.readError.value).toBe(true);
-		online = true; await list.markDisplayed();
-		expect(list.rows.value.find(n => n.source === 'peer')!.isRead).toBe(true);
-		expect(list.readError.value).toBe(false);
-	});
-
-	it('queues explicit all-read behind an in-flight automatic read', async () => {
-		let release!: (result: { unreadCount: number }) => void;
-		respond = async (endpoint, p) => {
-			if (endpoint.endsWith('/read')) return p.all ? { unreadCount: 0 } : new Promise(resolve => { release = resolve; });
-			return page(String(p.source), [notice(9)]);
-		};
-		const list = mount(); await settle();
-		list.seen(list.rows.value.find(n => n.source === 'peer')!);
-		const automatic = list.markDisplayed(); await settle();
-		const explicit = list.markAll(); await settle();
-		expect(api.mock.calls.some(([endpoint, p]) => endpoint.endsWith('/read') && (p as { source?: string }).source === 'peer' && (p as { all?: boolean }).all)).toBe(false);
-		release({ unreadCount: 4 }); await automatic; await explicit;
-		expect(api.mock.calls.some(([endpoint, p]) => endpoint.endsWith('/read') && (p as { source?: string }).source === 'peer' && (p as { all?: boolean }).all)).toBe(true);
-		expect(linkedNotifications.count).toBe(0);
-	});
-
-	it('preserves older cursors and row keys while removing protected content during tab suspension', async () => {
-		let hidden = false;
-		vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
-		respond = async (_, p) => p.source === 'local' ? page('local') : p.ids ? page('peer', (p.ids as string[]).map(id => ({ ...notice(Number(id)), body: 'protected' }))) : p.since ? page('peer') : p.before ? page('peer', [notice(1)]) : page('peer', [{ ...notice(9), body: 'protected' }, notice(4)], '4', 4);
-		const list = mount(); await settle();
-		const keys = list.rows.value.map(n => n.key);
-		hidden = true; document.dispatchEvent(new Event('visibilitychange')); await settle();
-		expect(list.rows.value.map(n => n.key)).toEqual(keys);
-		expect(JSON.stringify(list.rows.value)).not.toContain('protected');
-		expect(list.rows.value.every(n => n.suspended)).toBe(true);
-		hidden = false; document.dispatchEvent(new Event('visibilitychange')); await settle();
-		expect(list.rows.value.map(n => n.key)).toEqual(keys);
-		expect(list.rows.value.some(n => n.suspended)).toBe(false);
-		await list.older();
-		expect(api.mock.calls.some(([, p]) => (p as { before?: string }).before === '4')).toBe(true);
-		expect(list.rows.value.map(n => n.id)).toEqual(['9', '4', '1']);
-	});
-	it('queues arrivals while reading older rows and removes deleted queued notifications', async () => {
-		let arrived = false; let deleted = false;
-		respond = async (_, p) => p.source === 'local' ? page('local') : p.ids ? page('peer', (p.ids as string[]).filter(id => id !== '10' || !deleted).map(id => notice(Number(id)))) : p.since ? page('peer', arrived && !deleted ? [notice(10)] : []) : page('peer', [notice(9)]);
-		const list = mount(() => false); await settle(); arrived = true;
-		await vi.advanceTimersByTimeAsync(10000); await settle();
-		expect(list.queued.value).toBe(1); expect(list.rows.value.map(n => n.id)).toEqual(['9']);
-		deleted = true; await vi.advanceTimersByTimeAsync(10000); await settle();
-		expect(list.queued.value).toBe(0);
-	});
-	it('hard-mutes the original note summary in a peer renote', async () => {
-		$i!.hardMutedWords = [['hiddenphrase']];
-		try {
-			respond = async (_, p) => p.source === 'local' ? page('local') : page('peer', [{ ...notice(9, 'renote', 'renote'), renote: { text: 'hiddenphrase', cw: null } } as ReturnType<typeof notice>]);
-			const list = mount(); await settle(); expect(list.rows.value).toHaveLength(0);
-		} finally { $i!.hardMutedWords = []; }
-	});
-
+describe('server-ordered notification timeline', () => {
+ it('keeps server order, opaque cursor and identity even when timestamps disagree', async () => {
+  respond = async (_, p) => p.cursor === 'older' ? page([notice('peer', 'third', 99)]) : page([notice('peer', 'same', 1), notice('local', 'same', 10)], 'older');
+  const list = mount(); await settle();
+  expect(list.rows.value.map(row => [row.source, row.id])).toEqual([['peer', 'same'], ['local', 'same']]);
+  await list.older();
+  expect(list.rows.value.map(row => row.id)).toEqual(['same', 'same', 'third']);
+  expect(api.mock.calls.every(([endpoint]) => endpoint === 'gridspace/notifications/timeline')).toBe(true);
+  expect(api.mock.calls[1][1]).toMatchObject({ cursor: 'older', mode: 'page' });
+  expect(api.mock.calls[1][1]).not.toHaveProperty('source');
+ });
+ it('does not mark fetched rows read; seen writes use the source and recipient identity', async () => {
+  respond = async endpoint => endpoint.endsWith('/read') ? { unreadCount: 0 } : page([notice('peer', 'one', 1)]);
+  const list = mount(); await settle();
+  expect(api.mock.calls.some(([endpoint]) => endpoint.endsWith('/read'))).toBe(false);
+  list.seen(list.rows.value[0]); await list.markDisplayed();
+  expect(api.mock.calls.find(([endpoint]) => endpoint.endsWith('/read'))?.[1]).toEqual({ source: 'peer', origin: 'https://r.example', recipientId: 'peer', ids: ['one'] });
+  expect(list.rows.value[0].isRead).toBe(true);
+ });
+ it('groups reactions only within one account and reads all constituent IDs', async () => {
+  const first = notice('peer', 'r1', 2, 'reaction'); first.remote!.note = { id: 'n' };
+  const second = notice('peer', 'r2', 1, 'reaction'); second.remote!.note = { id: 'n' };
+  respond = async endpoint => endpoint.endsWith('/read') ? { unreadCount: 0 } : page([first, second]);
+  const list = mount(); await settle(); expect(list.rows.value).toHaveLength(1);
+  list.seen(list.rows.value[0]); await list.markDisplayed();
+  expect(api.mock.calls.find(([endpoint]) => endpoint.endsWith('/read'))?.[1]).toMatchObject({ ids: ['r1', 'r2'] });
+ });
+ it('retains confirmed reads when a slower page returns old flags and counts', async () => {
+  let release!: (value: unknown) => void;
+  respond = async (endpoint, p) => endpoint.endsWith('/read') ? { unreadCount: 0 } : p.mode === 'page' ? new Promise(resolve => { release = resolve; }) : page([notice('peer', 'one', 1)], 'older');
+  const list = mount(); await settle(); const pending = list.older(); await settle();
+  list.seen(list.rows.value[0]); await list.markDisplayed();
+  release(page([notice('peer', 'other', 0)])); await pending;
+  expect(list.rows.value[0].isRead).toBe(true); expect(linkedNotifications.count).toBe(0);
+ });
+ it('requeries a page which races an explicit all-read and leaves later arrivals unread', async () => {
+  let release!: (value: unknown) => void; let queried = false;
+  respond = async endpoint => {
+   if (endpoint.endsWith('/read')) return { unreadCount: 0 };
+   if (!queried) { queried = true; return new Promise(resolve => { release = resolve; }); }
+   return page([notice('peer', 'new', 2), { ...notice('peer', 'old', 1), isRead: true }]);
+  };
+  const list = mount(); await settle(); await list.markAll(); release(page([notice('peer', 'old', 1)])); await settle();
+  expect(list.rows.value.map(row => [row.id, row.isRead])).toEqual([['new', false], ['old', true]]);
+ });
+ it('removes failed protected sources from existing pages and keeps local rows', async () => {
+  let failed = false;
+  respond = async () => failed ? { ...page([notice('local', 'local', 1)]), complete: false, sources: [{ source: 'local', status: 'ok', unreadCount: 1 }, { source: 'peer', status: 'unauthorized', unreadCount: null }] } : page([notice('peer', 'one', 2), notice('local', 'local', 1)]);
+  const list = mount(); await settle(); failed = true; await vi.advanceTimersByTimeAsync(10000); await settle();
+  expect(list.rows.value.map(row => row.source)).toEqual(['local']); expect(list.error.value).toBe(true); expect(linkedNotifications.count).toBeNull();
+ });
+ it('hides expired bodies even while network requests are pending', async () => {
+  respond = async (_, p) => p.cursor ? new Promise(() => {}) : page([notice('peer', 'one', 1)]);
+  const list = mount(); await settle(); expect(JSON.stringify(list.rows.value)).toContain('protected');
+  vi.advanceTimersByTime(10000); await settle();
+  expect(JSON.stringify(list.rows.value)).not.toContain('protected'); expect(list.rows.value[0].suspended).toBe(true);
+ });
+ it('strips hidden-tab bodies, ignores delayed responses, and restores only after server validation', async () => {
+  let hidden = false; vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+  respond = async () => page([notice('peer', 'one', 1)], 'older');
+  const list = mount(); await settle(); const keys = list.rows.value.map(row => row.key);
+  hidden = true; document.dispatchEvent(new Event('visibilitychange')); await settle();
+  expect(list.rows.value.map(row => row.key)).toEqual(keys); expect(JSON.stringify(list.rows.value)).not.toContain('protected');
+  hidden = false; document.dispatchEvent(new Event('visibilitychange')); await settle();
+  expect(JSON.stringify(list.rows.value)).toContain('protected');
+  expect(api.mock.calls.some(([, p]) => (p as { mode?: string }).mode === 'validate')).toBe(true);
+ });
+ it('queues server-ordered arrivals while reading older rows and removes deleted queue entries', async () => {
+  let arrived = false; let deleted = false;
+  respond = async () => page([...arrived && !deleted ? [notice('peer', 'new', 2)] : [], notice('peer', 'old', 1)]);
+  const list = mount(() => false); await settle(); expect(list.rows.value.map(row => row.id)).toEqual(['old']);
+  arrived = true; await vi.advanceTimersByTimeAsync(10000); await settle();
+  expect(list.queued.value).toBe(1); expect(list.rows.value.map(row => row.id)).toEqual(['old']);
+  deleted = true; await vi.advanceTimersByTimeAsync(10000); await settle(); expect(list.queued.value).toBe(0);
+ });
+ it('keeps a failed read pending and queues explicit all-read behind an automatic read', async () => {
+  let release!: (value: unknown) => void; let failed = true;
+  respond = async (endpoint, p) => {
+   if (!endpoint.endsWith('/read')) return page([notice('peer', 'one', 1)]);
+   if (p.source === 'local' || p.all) return { unreadCount: 0 };
+   if (failed) throw new Error('offline');
+   return new Promise(resolve => { release = resolve; });
+  };
+  const list = mount(); await settle(); list.seen(list.rows.value[0]); await list.markDisplayed();
+  expect(list.readError.value).toBe(true); expect(list.rows.value[0].isRead).toBe(false);
+  failed = false; const pending = list.markDisplayed(); await settle(); const all = list.markAll(); await settle();
+  expect(api.mock.calls.filter(([, p]) => (p as { source?: string; all?: boolean }).source === 'peer' && (p as { all?: boolean }).all)).toHaveLength(0);
+  release({ unreadCount: 0 }); await pending; await all; expect(list.rows.value[0].isRead).toBe(true);
+ });
+ it('keeps local hard mute presentation without changing cursor logic', async () => {
+  $i!.hardMutedWords = [['hiddenphrase']];
+  try {
+   const item = notice('peer', 'one', 1); item.remote!.body = 'hiddenphrase';
+   respond = async () => page([item], 'older'); const list = mount(); await settle();
+   expect(list.rows.value).toHaveLength(0); expect(list.hasMore.value).toBe(true);
+  } finally { $i!.hardMutedWords = []; }
+ });
 });

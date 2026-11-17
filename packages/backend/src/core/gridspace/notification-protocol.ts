@@ -7,7 +7,7 @@ import type { Packed } from '@/misc/json-schema.js';
 import { privateNoteSchema, type PrivateActor, type PrivateNote, type PrivateWireNote } from './private-protocol.js';
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 
-export type NotificationOptions = { before?: string; since?: string; ids?: string[]; excludeTypes?: string[]; limit?: number; countOnly?: boolean };
+export type NotificationOptions = { before?: string; since?: string; ids?: string[]; excludeTypes?: string[]; limit?: number; countOnly?: boolean; expectedOrigin?: string; expectedRecipientId?: string };
 export type NotificationPeerRequest = GridspacePeerLinkRequest & NotificationOptions & { followRequestId?: string };
 export type NotificationPresentation = {
 	user: Packed<'UserLite'> | null; recipient: Packed<'UserLite'>; noteUser: Packed<'UserLite'> | null;
@@ -20,6 +20,9 @@ export type PeerNotification = { id: string; createdAt: string; type: string; is
 export type WireNotification = Omit<PeerNotification, 'note' | 'renote'> & { note: PrivateWireNote | null; renote?: PrivateWireNote | null };
 export type NotificationPage<T> = { items: T[]; next: string | null; newest: string | null; boundary: string | null; unreadCount: number; origin: string; recipientId: string };
 export type LocalNotification = { id: string; createdAt: string; isRead: boolean; notification: Packed<'Notification'> };
+export type NotificationReference = { id: string; createdAt: string };
+export type NotificationReferences = { items: NotificationReference[]; origin: string; recipientId: string; complete: boolean };
+export const notificationReferenceLimit = 2000;
 
 const text = { type: 'string', optional: false, nullable: false } as const;
 const nullableText = { ...text, nullable: true } as const;

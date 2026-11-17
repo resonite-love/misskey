@@ -8,7 +8,7 @@ import { computed, createApp, nextTick } from 'vue';
 import type { entities } from 'misskey-js';
 import { mergeHomeRows } from '@/utility/gridspace-home-merge.js';
 import { Paginator } from '@/utility/paginator.js';
-import { useGridspaceHome } from '@/utility/use-gridspace-home.js';
+import { useLegacyGridspaceHome as useGridspaceHome } from '@/utility/use-legacy-gridspace-home.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: vi.fn() }));

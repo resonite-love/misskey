@@ -2151,6 +2151,8 @@ declare namespace entities {
         GridspaceNotificationsFollowRequestResponse,
         GridspaceNotificationsReadRequest,
         GridspaceNotificationsReadResponse,
+        GridspaceNotificationsTimelineRequest,
+        GridspaceNotificationsTimelineResponse,
         GridspacePaletteResponse,
         GridspacePlayImportRequest,
         GridspacePlayImportResponse,
@@ -2174,6 +2176,10 @@ declare namespace entities {
         GridspaceSearchInfoResponse,
         GridspaceSettingsImportRequest,
         GridspaceSettingsImportResponse,
+        GridspaceTimelineRequest,
+        GridspaceTimelineResponse,
+        GridspaceTimelineChangesRequest,
+        GridspaceTimelineChangesResponse,
         HashtagsListRequest,
         HashtagsListResponse,
         HashtagsSearchRequest,
@@ -2882,6 +2888,12 @@ type GridspaceNotificationsRequest = operations['gridspace___notifications']['re
 type GridspaceNotificationsResponse = operations['gridspace___notifications']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
+type GridspaceNotificationsTimelineRequest = operations['gridspace___notifications___timeline']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceNotificationsTimelineResponse = operations['gridspace___notifications___timeline']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
 type GridspacePaletteResponse = operations['gridspace___palette']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
@@ -2949,6 +2961,18 @@ type GridspaceSettingsImportRequest = operations['gridspace___settings-import'][
 
 // @public (undocumented)
 type GridspaceSettingsImportResponse = operations['gridspace___settings-import']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceTimelineChangesRequest = operations['gridspace___timeline___changes']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceTimelineChangesResponse = operations['gridspace___timeline___changes']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceTimelineRequest = operations['gridspace___timeline']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceTimelineResponse = operations['gridspace___timeline']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type Hashtag = components['schemas']['Hashtag'];

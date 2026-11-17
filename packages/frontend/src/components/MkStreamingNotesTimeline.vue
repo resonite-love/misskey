@@ -9,9 +9,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 		{{ i18n.ts._gridspace.homeUnavailable }}
 		<MkButton small :disabled="home.busy.value" @click="home.reload">{{ i18n.ts.retry }}</MkButton>
 	</MkInfo>
-	<MkLoading v-if="paginator.fetching.value || (home.busy.value && home.rows.value.length === 0)"/>
+	<MkLoading v-if="home.initialLoading.value || (home.busy.value && home.rows.value.length === 0)"/>
 
-	<MkError v-else-if="paginator.error.value" @retry="paginator.init()"/>
+	<MkError v-else-if="home.initialError.value" @retry="home.reload()"/>
 
 	<div v-else-if="home.rows.value.length === 0 && !home.hasMore.value" key="_empty_">
 		<slot name="empty">
@@ -44,9 +44,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 					<span><i class="ti ti-chevron-up"></i> {{ getSeparatorInfo(home.rows.value[i - 1].createdAt, row.createdAt)?.prevText }}</span>
 					<span>{{ getSeparatorInfo(home.rows.value[i - 1].createdAt, row.createdAt)?.nextText }} <i class="ti ti-chevron-down"></i></span>
 				</div>
-				<MkGridspacePrivateNoteRow v-if="row.kind === 'private'" :class="$style.note" :note="row.note" :data-scroll-anchor="row.key" @unavailable="home.fail"/>
-				<template v-else>
-					<MkNote :key="`note:${row.key}`" :class="$style.note" :note="row.note" :withHardMute="true" :data-scroll-anchor="row.key"/>
+				<MkTimelineNoteRow :class="$style.note" :row="row" :data-scroll-anchor="row.key" @unavailable="home.fail"/>
+				<template v-if="row.kind === 'normal'">
 					<div v-if="row.note._shouldInsertAd_" :key="`ad:${row.key}`" :class="$style.ad"><MkAd :preferForms="['horizontal', 'horizontal-big']"/></div>
 				</template>
 			</template>
@@ -69,6 +68,7 @@ import {
 	shallowRef,
 	ref,
 	markRaw,
+	nextTick,
 } from 'vue';
 import * as Misskey from 'misskey-js';
 import { useInterval } from '@@/js/use-interval.js';
@@ -77,6 +77,7 @@ import { getScrollContainer, scrollToTop } from '@@/js/scroll.js';
 import type { BasicTimelineType } from '@/timelines.js';
 import type { SoundStore } from '@/preferences/def.js';
 import type { IPaginator, MisskeyEntity } from '@/utility/paginator.js';
+import type { TimelineDisplayRow } from '@/utility/timeline-client.js';
 import MkPullToRefresh from '@/components/MkPullToRefresh.vue';
 import { useStream } from '@/stream.js';
 import * as sound from '@/utility/sound.js';
@@ -84,8 +85,7 @@ import { $i } from '@/i.js';
 import { instance } from '@/instance.js';
 import { prefer } from '@/preferences.js';
 import { store } from '@/store.js';
-import MkNote from '@/components/MkNote.vue';
-import MkGridspacePrivateNoteRow from '@/components/MkGridspacePrivateNoteRow.vue';
+import MkTimelineNoteRow from '@/components/MkTimelineNoteRow.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import { useGridspaceHome } from '@/utility/use-gridspace-home.js';
 import { clearLeavingPrivateNote } from '@/utility/gridspace-note-suspension.js';
@@ -260,14 +260,12 @@ if (props.src === 'antenna') {
 
 const home = useGridspaceHome(paginator, computed(() => (props.src === 'home' || props.src === 'social') && $i ? {
 	mode: 'home' as const, withReplies: props.withReplies, withRenotes: props.withRenotes, withFiles: props.onlyFiles, withChannelNotes: true,
-} : null), isTop, computed(() => props.withSensitive));
+} : null), isTop, computed(() => props.withSensitive), computed(() => props.src === 'social' ? 'social' : 'home'), { anchor: timelineAnchor, beforeReplace: captureAnchor, afterReplace: restoreAnchor, onNewItems: playIntegratedSound, prepareNote });
 
 onMounted(() => {
-	paginator.init();
-
 	if (paginator.computedParams) {
 		watch(paginator.computedParams, () => {
-			paginator.reload();
+			if (!home.integrated.value && !home.deciding.value) paginator.reload();
 		}, { immediate: false, deep: true });
 	}
 });
@@ -281,6 +279,29 @@ function isTop() {
 }
 
 let scrollContainer: HTMLElement | null = null;
+let savedAnchor: { key: string; offset: number } | null = null;
+
+function visibleAnchor() {
+	if (!rootEl.value || !scrollContainer) return null;
+	const top = scrollContainer.getBoundingClientRect().top;
+	return [...rootEl.value.querySelectorAll<HTMLElement>('[data-scroll-anchor]')].find(element => element.getBoundingClientRect().bottom > top) ?? null;
+}
+
+function timelineAnchor() { return visibleAnchor()?.dataset.scrollAnchor; }
+
+function captureAnchor() {
+	const element = visibleAnchor();
+	savedAnchor = element?.dataset.scrollAnchor ? { key: element.dataset.scrollAnchor, offset: element.getBoundingClientRect().top } : null;
+}
+
+function restoreAnchor() {
+	const anchor = savedAnchor;
+	if (!anchor) return;
+	void nextTick(() => {
+		const element = [...rootEl.value?.querySelectorAll<HTMLElement>('[data-scroll-anchor]') ?? []].find(row => row.dataset.scrollAnchor === anchor.key);
+		if (element && scrollContainer) scrollContainer.scrollTop += element.getBoundingClientRect().top - anchor.offset;
+	});
+}
 
 function onScrollContainerScroll() {
 	if (isTop()) {
@@ -320,6 +341,18 @@ watch(visibility, () => {
 
 let adInsertionCounter = 0;
 
+function prepareNote(note: Misskey.entities.Note & MisskeyEntity) {
+	adInsertionCounter++;
+	if (instance.notesPerOneAd > 0 && adInsertionCounter % instance.notesPerOneAd === 0) note._shouldInsertAd_ = true;
+	return note;
+}
+
+function playIntegratedSound(rows: TimelineDisplayRow[]) {
+	if (!props.sound || !rows.length) return;
+	if (props.customSound) sound.playMisskeySfxFile(props.customSound);
+	else sound.playMisskeySfx(rows.some(row => row.kind === 'normal' && row.note.userId === $i?.id) ? 'noteMy' : 'note');
+}
+
 const MIN_POLLING_INTERVAL = 1000 * 10;
 const POLLING_INTERVAL =
 	prefer.s.pollingInterval === 1 ? MIN_POLLING_INTERVAL * 1.5 * 1.5 :
@@ -330,6 +363,7 @@ const POLLING_INTERVAL =
 if (!store.s.realtimeMode) {
 	// TODO: 先頭のノートの作成日時が1日以上前であれば流速が遅いTLと見做してインターバルを通常より延ばす
 	useInterval(async () => {
+		if (home.integrated.value || home.deciding.value) return;
 		paginator.fetchNewer({
 			toQueue: !isTop() || isPausingUpdate,
 		});
@@ -339,14 +373,20 @@ if (!store.s.realtimeMode) {
 	});
 
 	useGlobalEvent('notePosted', (note) => {
+		if (home.integrated.value) { void home.refresh(); return; }
+		if (home.deciding.value) return;
 		paginator.fetchNewer({
 			toQueue: !isTop() || isPausingUpdate,
 		});
 	});
 }
 
+useGlobalEvent('notePosted', () => {
+	if (store.s.realtimeMode && home.integrated.value) void home.refresh();
+});
+
 useGlobalEvent('noteDeleted', (noteId) => {
-	paginator.removeItem(noteId);
+	home.removeNormal(noteId);
 });
 
 useGlobalEvent('noteRemovedFromAntenna', (antennaId, noteId) => {
@@ -362,6 +402,8 @@ function releaseQueue() {
 }
 
 function prepend(note: Misskey.entities.Note & MisskeyEntity) {
+	if (home.integrated.value) { void home.refresh(); return; }
+	if (home.deciding.value) return;
 	adInsertionCounter++;
 
 	if (instance.notesPerOneAd > 0 && adInsertionCounter % instance.notesPerOneAd === 0) {
@@ -401,7 +443,7 @@ const connections = {
 };
 
 function connectChannel() {
-	if (stream == null) return;
+	if (stream == null || home.integrated.value || home.deciding.value) return;
 	if (props.src === 'antenna') {
 		if (props.antenna == null) return;
 		connections.antenna = stream.useChannel('antenna', {
@@ -518,6 +560,9 @@ watch(() => [props.list, props.antenna, props.channel, props.role, props.withRen
 		connectChannel();
 	}
 });
+watch(() => [home.integrated.value, home.deciding.value], () => {
+	if (store.s.realtimeMode) { disconnectChannel(); connectChannel(); }
+});
 watch(() => props.withSensitive, reloadTimeline);
 
 onUnmounted(() => {
@@ -528,7 +573,7 @@ function reloadTimeline() {
 	return new Promise<void>((res) => {
 		adInsertionCounter = 0;
 
-		Promise.all([paginator.reload(), home.reload()]).then(() => {
+		home.reload().then(() => {
 			res();
 		});
 	});

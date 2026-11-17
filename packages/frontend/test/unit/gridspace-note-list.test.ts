@@ -6,8 +6,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computed, createApp, nextTick, ref } from 'vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
-import { useGridspaceNoteList } from '@/utility/use-gridspace-note-list.js';
-import type { GridspaceNoteSource } from '@/utility/use-gridspace-note-list.js';
+import { useLegacyGridspaceNoteList as useGridspaceNoteList } from '@/utility/use-legacy-gridspace-note-list.js';
+import type { GridspaceNoteSource } from '@/utility/use-legacy-gridspace-note-list.js';
 
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: vi.fn() }));
 const auth = vi.hoisted(() => ({ user: { id: 'viewer', hardMutedWords: [] } as { id: string; hardMutedWords: [] } | null }));
@@ -96,7 +96,7 @@ describe('one profile/search note list', () => {
 		respond = async (endpoint, params) => {
 			if (endpoint === 'gridspace/private-grant') return { available: true, granted: true };
 			if (endpoint === 'gridspace/search') return params.cursor ? searchPage([normal(1)]) : searchPage([normal(9), normal(4)], 'normal-next');
-			if (params.mode === 'validate') { if (revoked) throw { info: { reason: 'AUTHORIZATION_REVOKED' } }; return page([privateNote(8), privateNote(2)]); }
+			if (params.mode === 'validate') { if (revoked) throw Object.assign(new Error('Revoked'), { info: { reason: 'AUTHORIZATION_REVOKED' } }); return page([privateNote(8), privateNote(2)]); }
 			return params.cursor ? page([privateNote(1)]) : page([privateNote(8), privateNote(2)], 'private-next', 6);
 		};
 		const { list } = mount(); await settle();
@@ -200,7 +200,7 @@ describe('one profile/search note list', () => {
 		respond = async (endpoint, params) => {
 			if (endpoint === 'gridspace/private-grant') return { available: true, granted: true };
 			if (endpoint === 'gridspace/search') return searchPage([normal(7), normal(5)], 'more');
-			if (params.mode === 'validate') { expect(params).toMatchObject({ contextMode: 'search', query: 'query', ids: ['p8', 'p1'] }); if (revoked) throw { info: { reason: 'AUTHORIZATION_REVOKED' } }; }
+			if (params.mode === 'validate') { expect(params).toMatchObject({ contextMode: 'search', query: 'query', ids: ['p8', 'p1'] }); if (revoked) throw Object.assign(new Error('Revoked'), { info: { reason: 'AUTHORIZATION_REVOKED' } }); }
 			return page([privateNote(8), privateNote(1)]);
 		};
 		const { list } = mount(); await settle();
@@ -239,7 +239,6 @@ describe('one profile/search note list', () => {
 		release({ available: true, granted: false }); await settle();
 		expect(list.rows.value[0].note).toBe(original);
 	});
-
 });
 
 it('sorts linked clip pages oldest first and keeps filters on validation', async () => {

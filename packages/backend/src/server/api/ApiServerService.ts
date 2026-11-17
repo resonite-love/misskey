@@ -7,7 +7,6 @@ import { Inject, Injectable } from '@nestjs/common';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { ModuleRef } from '@nestjs/core';
-import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 import type { Config } from '@/config.js';
 import type { InstancesRepository, AccessTokensRepository } from '@/models/_.js';
 import { DI } from '@/di-symbols.js';
@@ -18,6 +17,7 @@ import { ApiCallService } from './ApiCallService.js';
 import { SignupApiService } from './SignupApiService.js';
 import { SigninApiService } from './SigninApiService.js';
 import { SigninWithPasskeyApiService } from './SigninWithPasskeyApiService.js';
+import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
 
 @Injectable()
@@ -59,7 +59,7 @@ export class ApiServerService {
 		// Prevent cache
 		fastify.addHook('onRequest', (request, reply, done) => {
 			reply.header('Cache-Control', 'private, max-age=0, must-revalidate');
-			if (/\/gridspace\/(?:private-(notes|file|grant|reply|action|upload)|notifications(?:\/read)?)(?:\?|$)/.test(request.url)) reply.header('Cache-Control', 'no-store');
+			if (/\/gridspace\/(?:private-(notes|file|grant|reply|action|upload)|notifications(?:\/(?:read|timeline))?|timeline(?:\/changes)?)(?:\?|$)/.test(request.url)) reply.header('Cache-Control', 'private, no-store');
 			done();
 		});
 

@@ -25,3 +25,18 @@ export const ConsentRequired = {
 	...Default,
 	parameters: { msw: { handlers: [http.post('/api/gridspace/private-grant', () => HttpResponse.json({ enabled: true, granted: false, available: true, peerOrigin: 'https://peer.example', authorizationUrl: null, clientKey: null }))] } },
 } satisfies StoryObj<typeof MkGridspacePrivateNotes>;
+
+export const UnifiedChannel = {
+	...Default,
+	args: { params: { mode: 'channel', channelId: 'channel' }, alwaysShow: true, plain: true },
+	parameters: { msw: { handlers: [
+		http.post('/api/gridspace/link', () => HttpResponse.json({ timeline: { version: 1, enabled: true, kinds: ['channel'] } })),
+		http.post('/api/gridspace/timeline', () => HttpResponse.json({
+			version: 1, session: 'channel', revision: '1', items: [{
+				key: Note.args.note.uri, ref: 'channel-note', representation: 'delegated', payload: Note.args.note,
+				sortKey: { sortAt: '1', uri: Note.args.note.uri }, validForMs: 10000,
+			}], nextCursor: null, updatesCursor: 'head', complete: true, mode: 'unified',
+			sources: [{ source: 'peer', status: 'ok', retryable: false }], revalidateAfterMs: 10000,
+		})),
+	] } },
+} satisfies StoryObj<typeof MkGridspacePrivateNotes>;

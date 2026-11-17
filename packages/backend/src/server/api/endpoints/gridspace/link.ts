@@ -7,6 +7,7 @@ import { Injectable } from '@nestjs/common';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { GridspaceLinkError, GridspaceLinkService } from '@/core/gridspace/GridspaceLinkService.js';
 import { ApiError } from '../../error.js';
+import { GridspaceTimelineService } from '@/core/gridspace/timeline/GridspaceTimelineService.js';
 
 const text = { type: 'string', optional: false, nullable: true } as const;
 const count = { type: 'integer', optional: false, nullable: false } as const;
@@ -20,6 +21,10 @@ export const meta = {
 	res: {
 		type: 'object', optional: false, nullable: false,
 		properties: {
+			timeline: { type: 'object', optional: false, nullable: false, properties: {
+				version: { type: 'integer', optional: false, nullable: false }, enabled: { type: 'boolean', optional: false, nullable: false },
+				kinds: { type: 'array', optional: false, nullable: false, items: { type: 'string', optional: false, nullable: false } },
+			} },
 			enabled: { type: 'boolean', optional: false, nullable: false },
 			driveShared: { type: 'boolean', optional: false, nullable: false },
 			driveSeeded: { type: 'boolean', optional: false, nullable: false },
@@ -46,7 +51,7 @@ export const paramDef = {
 
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
-	constructor(private links: GridspaceLinkService) {
+	constructor(private links: GridspaceLinkService, private timeline: GridspaceTimelineService) {
 		super(meta, paramDef, async (ps, me) => {
 			try {
 				let authorization: { authorizationUrl: string; clientKey: string } | null = null;
@@ -57,7 +62,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				}
 				if (ps.action === 'revoke') await this.links.revoke(me);
 				if (ps.action === 'retry') await this.links.retry(me);
-				return { ...await this.links.status(me), ...authorization };
+				return { ...await this.links.status(me), ...authorization, timeline: await this.timeline.capability() };
 			} catch (error) {
 				if (error instanceof GridspaceLinkError) throw new ApiError(meta.errors.linkFailed, { reason: error.code });
 				throw error;

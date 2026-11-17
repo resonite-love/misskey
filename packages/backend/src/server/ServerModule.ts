@@ -43,6 +43,7 @@ import { VmimiRelayTimelineChannel } from './api/stream/channels/vmimi-relay-tim
 import { VmimiRelayHybridTimelineChannel } from './api/stream/channels/vmimi-relay-hybrid-timeline.js';
 import { HashtagChannel } from './api/stream/channels/hashtag.js';
 import { HomeTimelineChannel } from './api/stream/channels/home-timeline.js';
+import { GridspaceTimelineChannel } from './api/stream/channels/gridspace-timeline.js';
 import { HybridTimelineChannel } from './api/stream/channels/hybrid-timeline.js';
 import { LocalTimelineChannel } from './api/stream/channels/local-timeline.js';
 import { QueueStatsChannel } from './api/stream/channels/queue-stats.js';
@@ -104,6 +105,7 @@ import { SigninWithPasskeyApiService } from './api/SigninWithPasskeyApiService.j
 		ReversiGameChannel,
 		AvatarWalkRoomChannel,
 		HomeTimelineChannel,
+		GridspaceTimelineChannel,
 		HybridTimelineChannel,
 		LocalTimelineChannel,
 		QueueStatsChannel,

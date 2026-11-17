@@ -126,7 +126,7 @@ export class GridspaceHistoryService {
 		return query;
 	}
 
-	private viewerQuery(link: MiGridspaceLink, viewer: MiLocalUser | null, options: HistoryViewOptions, includePeerPublic = false) {
+	public viewerQuery(link: MiGridspaceLink, viewer: MiLocalUser | null, options: HistoryViewOptions, includePeerPublic = false) {
 		const query = this.baseQuery(viewer, options).andWhere(new Brackets(authors => {
 			authors.where('note.userId = :localAuthor', { localAuthor: link.localUserId })
 				.orWhere(new Brackets(peer => {

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 import { cleanup, fireEvent, render } from '@testing-library/vue';
 import LoadMore from '@/components/MkTimelineLoadMore.vue';
-import PrivateNotes from '@/components/MkGridspacePrivateNotes.vue';
+import PrivateNotes from '@/components/MkLegacyGridspacePrivateNotes.vue';
 
 const { preference, api } = vi.hoisted(() => ({ preference: { automatic: undefined as unknown as { value: boolean } }, api: vi.fn() }));
 vi.mock('@/preferences.js', () => ({ prefer: { get r() { return { enableInfiniteScroll: preference.automatic }; }, get s() { return { enableInfiniteScroll: preference.automatic.value, animation: false, enablePullToRefresh: false }; } } }));
@@ -19,7 +19,9 @@ vi.mock('@/components/MkGridspacePrivateNoteRow.vue', () => ({ default: { props:
 vi.mock('@@/js/scroll.js', () => ({ isHeadVisible: () => true, onScrollTop: () => () => {}, scrollToTop: vi.fn() }));
 
 const observers: { fire: () => void; disconnect: ReturnType<typeof vi.fn> }[] = [];
+
 async function flushPromises() { for (let i = 0; i < 25; i++) await Promise.resolve(); await nextTick(); }
+
 beforeEach(() => {
 	preference.automatic = ref(true); api.mockReset(); observers.length = 0;
 	vi.stubGlobal('IntersectionObserver', class {

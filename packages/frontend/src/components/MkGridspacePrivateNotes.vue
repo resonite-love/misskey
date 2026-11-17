@@ -4,233 +4,111 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<component :is="prefer.s.enablePullToRefresh && direction !== 'up' ? MkPullToRefresh : 'div'" v-if="enabled || alwaysShow" :refresher="reload">
+<MkLoading v-if="deciding"/>
+<MkLegacyGridspacePrivateNotes v-else-if="!integrated" ref="legacy" v-bind="props" @loaded="emit('loaded')" @snapshot="note => emit('snapshot', note)"/>
+<component :is="prefer.s.enablePullToRefresh && direction !== 'up' ? MkPullToRefresh : 'div'" v-else :refresher="refresh">
 	<section ref="root" class="_panel _gaps_s" :class="$style.root" data-gridspace-private :aria-label="params.channelId ? i18n.ts.channel : i18n.ts._gridspace.privateTitle">
-		<div v-if="!plain || !enabled" :class="$style.heading" class="_gaps_s">
-			<h2 v-if="!plain" :class="$style.title"><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateTitle }}</h2>
-			<p v-if="!plain">{{ i18n.ts._gridspace.privateScope }}</p>
-			<MkA v-if="!enabled" to="/settings/gridspace">{{ i18n.ts._gridspace.privateAuthorize }}</MkA>
+		<div v-if="!plain" :class="$style.heading" class="_gaps_s">
+			<h2 :class="$style.title"><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateTitle }}</h2>
+			<p>{{ i18n.ts._gridspace.privateScope }}</p>
 		</div>
-		<template v-if="enabled">
-			<MkTimelineLoadMore v-if="direction === 'up'" :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" :automatic="false" @load="load"/>
-			<MkButton v-if="queued.length" :class="$style.new" rounded primary @click="releaseQueue(true)">{{ i18n.ts.newNote }}</MkButton>
-			<component :is="prefer.s.animation ? TransitionGroup : 'div'" tag="div" :enterActiveClass="$style.enterActive" :enterFromClass="$style.enterFrom" :moveClass="$style.move" @beforeLeave="clearLeavingPrivateNote">
-				<MkGridspacePrivateNoteRow v-for="note in displayed" :key="note.id" :note="note" :detailed="params.mode === 'show'" :data-scroll-anchor="note.uri" @unavailable="fail" @replied="refresh"/>
-			</component>
-			<div v-if="error || loading || (notes.length === 0 && !hasMore)" :class="$style.heading" class="_gaps_s">
-				<p v-if="error" role="alert">{{ params.channelId ? i18n.ts._gridspace.channelNotesUnavailable : i18n.ts._gridspace.privateUnavailable }}</p>
-				<MkLoading v-if="loading"/>
-				<p v-else-if="!error && notes.length === 0 && !hasMore">{{ i18n.ts.noNotes }}</p>
-				<MkButton v-if="error" :disabled="loading" @click="refresh">{{ i18n.ts.retry }}</MkButton>
-			</div>
-			<MkTimelineLoadMore v-if="direction !== 'up'" :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" @load="load"/>
-		</template>
+		<MkTimelineLoadMore v-if="direction === 'up'" :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" :automatic="false" @load="load"/>
+		<MkButton v-if="queuedCount" :class="$style.new" rounded primary @click="releaseQueue(true)">{{ i18n.ts.newNote }}</MkButton>
+		<component :is="prefer.s.animation ? TransitionGroup : 'div'" tag="div" :enterActiveClass="$style.enterActive" :enterFromClass="$style.enterFrom" :moveClass="$style.move" @beforeLeave="clearLeavingPrivateNote">
+			<MkTimelineNoteRow v-for="row in rows" :key="row.key" :row="row" :data-scroll-anchor="row.key" @unavailable="client?.fail()" @replied="refresh"/>
+		</component>
+		<div v-if="error || loading || (rows.length === 0 && !hasMore)" :class="$style.heading" class="_gaps_s">
+			<p v-if="error" role="alert">{{ params.channelId ? i18n.ts._gridspace.channelNotesUnavailable : i18n.ts._gridspace.privateUnavailable }}</p>
+			<MkLoading v-if="loading"/>
+			<p v-else-if="!error && rows.length === 0 && !hasMore">{{ i18n.ts.noNotes }}</p>
+			<MkButton v-if="error" :disabled="loading" @click="refresh">{{ i18n.ts.retry }}</MkButton>
+		</div>
+		<MkA v-if="needsAuthorization" to="/settings/gridspace" :class="$style.heading">{{ i18n.ts._gridspace.privateAuthorize }}</MkA>
+		<MkTimelineLoadMore v-if="direction !== 'up'" :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" @load="load"/>
 	</section>
 </component>
 </template>
 
 <script setup lang="ts">
-import { computed, onActivated, onDeactivated, onBeforeUnmount, onMounted, ref, useTemplateRef, watch, TransitionGroup } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef, TransitionGroup, useTemplateRef, watch } from 'vue';
 import { isHeadVisible, onScrollTop, scrollToTop } from '@@/js/scroll.js';
 import type { entities } from 'misskey-js';
-import type { GridspaceNoteEntry } from '@/utility/gridspace-note-suspension.js';
 import MkButton from '@/components/MkButton.vue';
 import MkTimelineLoadMore from '@/components/MkTimelineLoadMore.vue';
 import MkPullToRefresh from '@/components/MkPullToRefresh.vue';
-import MkGridspacePrivateNoteRow from '@/components/MkGridspacePrivateNoteRow.vue';
+import MkTimelineNoteRow from '@/components/MkTimelineNoteRow.vue';
+import MkLegacyGridspacePrivateNotes from '@/components/MkLegacyGridspacePrivateNotes.vue';
 import { prefer } from '@/preferences.js';
+import { TimelineClient } from '@/utility/timeline-client.js';
+import { supportsTimelineKind } from '@/utility/timeline-capabilities.js';
+import { subscribeTimeline } from '@/utility/timeline-stream.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
+import { clearLeavingPrivateNote } from '@/utility/gridspace-note-suspension.js';
 import { i18n } from '@/i18n.js';
 import { $i } from '@/i.js';
-import { clearLeavingPrivateNote, isRevokedGridspaceRead, isVisiblePrivateNote, suspendPrivateNotes } from '@/utility/gridspace-note-suspension.js';
 
 const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; alwaysShow?: boolean; plain?: boolean; direction?: 'up' | 'down' }>();
 const emit = defineEmits<{ (event: 'loaded'): void; (event: 'snapshot', note: entities.GridspacePrivateNotesResponse['notes'][number] | null): void }>();
-type Note = entities.GridspacePrivateNotesResponse['notes'][number];
-const enabled = ref(false);
-const notes = ref<GridspaceNoteEntry[]>([]);
-const queued = ref<GridspaceNoteEntry[]>([]);
 const root = useTemplateRef('root');
-let suspended = false;
-let lastSync: number | null = null;
-let newer: { start: number; cursor?: string; observedAt?: number; notes: GridspaceNoteEntry[] } | null = null;
-let controller = new AbortController();
-const signal = () => AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
-const displayed = computed(() => {
-	const visible = notes.value.filter(note => isVisiblePrivateNote(note));
-	return props.params.order === 'oldest' ? visible.toSorted((a, b) => b.id.localeCompare(a.id)) : visible;
-});
-watch(() => notes.value.map(note => note), items => {
-	if (props.params.mode === 'show') emit('snapshot', items.find(note => !('suspended' in note) && isVisiblePrivateNote(note)) as Note | undefined ?? null);
-}, { immediate: true });
-const loading = ref(false);
-const hasMore = ref(false);
-const pagingKey = ref(0);
-const error = ref(false);
-let cursor: string | undefined;
+const legacy = useTemplateRef('legacy');
+const client = shallowRef<TimelineClient | null>(null);
+const deciding = ref(true);
+const integrated = ref(false);
 let generation = 0;
-let checking: number | null = null;
-let stopped = false;
 let active = true;
-let retryAt = 0;
-let retryDelay = 30000;
-let recovering = false;
-let refreshPending = false;
-
-function fail() {
-	invalidate(); notes.value = []; queued.value = []; newer = null; suspended = false; cursor = undefined; hasMore.value = false; loading.value = false; error.value = true;
-	retryAt = Date.now() + retryDelay; retryDelay = Math.min(retryDelay * 2, 120000);
-}
-
-function readFailed(err: unknown) {
-	if (isRevokedGridspaceRead(err)) { fail(); return; }
-	suspend(); error.value = true;
-	retryAt = Date.now() + retryDelay; retryDelay = Math.min(retryDelay * 2, 120000);
-}
-
-async function load() {
-	if (suspended || loading.value || !hasMore.value || window.document.hidden || !active) return;
-	const current = generation;
-	loading.value = true;
-	try {
-		const result = await misskeyApi('gridspace/private-notes', { ...props.params, cursor, limit: 10 }, undefined, signal());
-		if (current !== generation) return;
-		lastSync ??= Date.parse(result.observedAt);
-		const seen = new Set(notes.value.map(note => note.id));
-		notes.value.push(...result.notes.filter(note => !seen.has(note.id)));
-		cursor = result.cursor ?? undefined;
-		hasMore.value = result.cursor != null;
-		retryDelay = 30000;
-		emit('loaded');
-	} catch (err) { if (current === generation) readFailed(err); } finally { if (current === generation) loading.value = false; }
-}
-
-async function reload() {
-	invalidate(); const current = generation;
-	suspended = false; lastSync = null; newer = null; queued.value = [];
-	notes.value = []; cursor = undefined; hasMore.value = false; error.value = false; loading.value = false;
-	if (!$i || window.document.hidden || !active) return;
-	try {
-		if (props.params.channelId) { enabled.value = true; hasMore.value = true; await load(); return; }
-		const status = await misskeyApi('gridspace/private-grant', { action: 'status' }, undefined, signal());
-		if (current !== generation) return;
-		if (!status.available) { if (status.granted || enabled.value || props.alwaysShow) { enabled.value = true; fail(); } return; }
-		enabled.value = status.granted;
-		if (!status.granted) return;
-		hasMore.value = true;
-		await load();
-	} catch { if (current === generation && (enabled.value || props.alwaysShow)) { enabled.value = true; fail(); } }
-}
-
-// Reauthorize every loaded ID, including pages scrolled out of view. No private
-// results are written into the normal note cache, localStorage or IndexedDB.
-async function revalidate(retry = false) {
-	if (checking != null || !enabled.value || (error.value && !retry) || window.document.hidden || !active) return;
-	const current = generation; checking = current;
-	const snapshot = [...notes.value, ...queued.value, ...(newer?.notes ?? [])];
-	try {
-		const allowed = new Map<string, Note>();
-		if (snapshot.length === 0) {
-			if (props.params.channelId) await misskeyApi('gridspace/channels', { channelId: props.params.channelId }, undefined, signal());
-			else {
-				const status = await misskeyApi('gridspace/private-grant', { action: 'status' }, undefined, signal());
-				if (!status.granted || !status.available) throw new Error('Unavailable');
-			}
-		}
-		for (let index = 0; index < snapshot.length; index += 100) {
-			const result = await misskeyApi('gridspace/private-notes', { ...props.params, mode: 'validate', contextMode: props.params.mode === 'validate' ? undefined : props.params.mode,
-																																																																ids: snapshot.slice(index, index + 100).map(note => note.id), cursor: undefined }, undefined, signal());
-			if (current !== generation) return;
-			for (const note of result.notes) allowed.set(note.id, note);
-		}
-		if (current !== generation) return;
-		const previousIds = new Set(snapshot.map(note => note.id));
-		const valid = (items: GridspaceNoteEntry[]) => items.flatMap(note => previousIds.has(note.id) ? allowed.has(note.id) ? [allowed.get(note.id)!] : [] : [note]);
-		notes.value = valid(notes.value); queued.value = valid(queued.value);
-		if (newer) newer.notes = valid(newer.notes);
-		suspended = false;
-		error.value = false; retryDelay = 30000;
-		if (props.params.mode === 'channel' && !loading.value && lastSync != null) {
-			newer ??= { start: Math.max(1, lastSync - 1001), notes: [] };
-			for (let index = 0; index < 5; index++) {
-				const head = await misskeyApi('gridspace/private-notes', { ...props.params, rangeStartAt: newer.start, cursor: newer.cursor, limit: 10 }, undefined, signal());
-				if (current !== generation) return;
-				newer.observedAt ??= Date.parse(head.observedAt);
-				newer.notes.push(...head.notes); newer.cursor = head.cursor ?? undefined;
-				if (!head.cursor) {
-					const existing = new Set([...notes.value, ...queued.value].map(note => note.id));
-					queued.value = [...new Map([...queued.value, ...newer.notes.filter(note => !existing.has(note.id))].map(note => [note.id, note])).values()];
-					lastSync = newer.observedAt; newer = null;
-					if (root.value && isHeadVisible(root.value)) releaseQueue();
-					break;
-				}
-			}
-			emit('loaded');
-		}
-		// The bottom marker may have intersected while reads were suspended.
-		// Re-arm it after authorization has finished, without resetting pages.
-		pagingKey.value++;
-	} catch (err) { if (current === generation) readFailed(err); } finally {
-		if (checking === current) {
-			checking = null;
-			if (refreshPending) { refreshPending = false; void refresh(); }
-		}
-	}
-}
-
-function invalidate() { generation++; controller.abort(); controller = new AbortController(); checking = null; refreshPending = false; }
-
-function suspend() {
-	invalidate(); suspended = true; loading.value = false;
-	notes.value = suspendPrivateNotes(notes.value); queued.value = suspendPrivateNotes(queued.value);
-	if (newer) newer.notes = suspendPrivateNotes(newer.notes);
-}
-
-function releaseQueue(scroll = false) {
-	if (suspended || window.document.hidden || !active) return;
-	notes.value = [...new Map([...queued.value, ...notes.value].map(note => [note.id, note])).values()]
-		.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || b.id.localeCompare(a.id));
-	queued.value = [];
-	if (scroll && root.value) scrollToTop(root.value);
-}
-
-function visibility() { if (window.document.hidden) suspend(); else focus(); }
-
 let stopScroll: (() => void) | null = null;
-onMounted(() => { if (root.value) stopScroll = onScrollTop(root.value, visible => { if (visible) releaseQueue(); }); });
+const rows = computed(() => client.value?.rows.value ?? []);
+const loading = computed(() => client.value?.busy.value ?? false);
+const error = computed(() => client.value?.error.value ?? false);
+const hasMore = computed(() => client.value?.hasMore.value ?? false);
+const queuedCount = computed(() => client.value?.queuedCount.value ?? 0);
+const pagingKey = computed(() => client.value?.pagingKey.value ?? 0);
+const needsAuthorization = computed(() => client.value?.needsAuthorization.value ?? false);
 
-async function recover() {
-	if (recovering || loading.value || stopped || !active || window.document.hidden) return;
-	recovering = true;
-	try { if (notes.value.length) await revalidate(true); else await reload(); } finally { recovering = false; }
+async function select() {
+	const current = ++generation;
+	client.value?.dispose(); client.value = null; integrated.value = false; deciding.value = true;
+	// The detail and private-only screens retain their existing result semantics.
+	const kind = props.params.mode;
+	if ($i && (kind === 'channel' || kind === 'antenna' || kind === 'clip')) {
+		try {
+			const status = await misskeyApi('gridspace/link', { action: 'status' });
+			if (current !== generation) return;
+			if (supportsTimelineKind(status, kind)) {
+				const { mode: _mode, ...filters } = props.params;
+				client.value = new TimelineClient({ ...filters, kind }, { isTop: () => !root.value || isHeadVisible(root.value), subscribe: subscribeTimeline });
+				integrated.value = true;
+				if (active) { await client.value.reload(); if (current === generation) emit('loaded'); }
+			}
+		} catch { /* Unknown capability retains the legacy component. */ }
+	}
+	if (current === generation) deciding.value = false;
 }
 
-function focus() {
-	if (error.value || !enabled.value || lastSync == null) void recover(); else void revalidate();
-}
+async function load() { await client.value?.load(); emit('loaded'); }
 
 async function refresh() {
-	if (checking != null) { refreshPending = true; return; }
-	if (error.value || !enabled.value || lastSync == null) await recover(); else await revalidate();
-	releaseQueue(true);
+	if (!integrated.value) { await legacy.value?.refresh(); return; }
+	await client.value?.refresh(); releaseQueue(true); emit('loaded');
 }
 
-const timer = window.setInterval(() => {
-	if (stopped) return;
-	if (error.value) { if (Date.now() >= retryAt) void recover(); } else void revalidate();
-}, 15000);
-window.document.addEventListener('visibilitychange', visibility);
-window.addEventListener('focus', focus);
-// Parents pass object literals; rerendering an unchanged search must not reset
-// the private pages or repeat consent checks.
-watch(() => JSON.stringify(Object.entries(props.params).sort(([a], [b]) => a.localeCompare(b))), reload, { immediate: true });
-onDeactivated(() => { active = false; suspend(); });
+function releaseQueue(scroll = false) { client.value?.releaseQueue(); if (scroll && root.value) scrollToTop(root.value); }
+
+function visibility() { if (window.document.hidden) client.value?.suspend(); else if (active) void client.value?.resume(); }
+
+function focus() { if (active && !window.document.hidden) void client.value?.resume(); }
+
+window.document.addEventListener('visibilitychange', visibility); window.addEventListener('focus', focus);
+watch(() => JSON.stringify(Object.entries(props.params).sort(([a], [b]) => a.localeCompare(b))), select, { immediate: true });
+watch(root, element => {
+	stopScroll?.();
+	stopScroll = element ? onScrollTop(element, visible => { if (visible) releaseQueue(); }) : null;
+});
+onDeactivated(() => { active = false; client.value?.suspend(); });
 onActivated(() => { if (!active) { active = true; focus(); } });
 onBeforeUnmount(() => {
-	stopped = true; stopScroll?.(); invalidate(); notes.value = []; queued.value = []; newer = null; suspended = false;
-	window.clearInterval(timer);
-	window.document.removeEventListener('visibilitychange', visibility);
-	window.removeEventListener('focus', focus);
+	generation++; active = false; client.value?.dispose(); stopScroll?.();
+	window.document.removeEventListener('visibilitychange', visibility); window.removeEventListener('focus', focus);
 });
 defineExpose({ refresh });
 </script>

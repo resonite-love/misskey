@@ -2600,6 +2600,16 @@ export type paths = {
          */
         post: operations['gridspace___notifications___read'];
     };
+    '/gridspace/notifications/timeline': {
+        /**
+         * gridspace/notifications/timeline
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___notifications___timeline'];
+    };
     '/gridspace/palette': {
         /**
          * gridspace/palette
@@ -2724,6 +2734,26 @@ export type paths = {
          *     **Credential required**: *Yes*
          */
         post: operations['gridspace___settings-import'];
+    };
+    '/gridspace/timeline': {
+        /**
+         * gridspace/timeline
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___timeline'];
+    };
+    '/gridspace/timeline/changes': {
+        /**
+         * gridspace/timeline/changes
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['gridspace___timeline___changes'];
     };
     '/hashtags/list': {
         /**
@@ -26504,6 +26534,11 @@ export interface operations {
                 };
                 content: {
                     'application/json': {
+                        timeline: {
+                            version: number;
+                            enabled: boolean;
+                            kinds: string[];
+                        };
                         enabled: boolean;
                         driveShared: boolean;
                         driveSeeded: boolean;
@@ -27785,6 +27820,8 @@ export interface operations {
                     ids?: string[];
                     /** @default false */
                     all?: boolean;
+                    origin?: string;
+                    recipientId?: string;
                 };
             };
         };
@@ -27797,6 +27834,500 @@ export interface operations {
                 content: {
                     'application/json': {
                         unreadCount: number;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    gridspace___notifications___timeline: {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default page
+                     * @enum {string}
+                     */
+                    mode?: 'page' | 'refresh' | 'validate';
+                    cursor?: string;
+                    /** @default 20 */
+                    limit?: number;
+                    count?: number;
+                    excludeTypes?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        version: number;
+                        scannedCount: number;
+                        cursor: string;
+                        nextCursor: string | null;
+                        complete: boolean;
+                        revalidateAfterMs: number;
+                        items: {
+                            key: string;
+                            /** @enum {string} */
+                            source: 'local' | 'peer' | 'channel';
+                            origin: string;
+                            recipientId: string;
+                            id: string;
+                            createdAt: string;
+                            isRead: boolean;
+                            local: components['schemas']['Notification'] | null;
+                            remote: {
+                                id: string;
+                                createdAt: string;
+                                type: string;
+                                isRead: boolean;
+                                user: {
+                                    name: string | null;
+                                    username: string;
+                                    host: string;
+                                    uri: string;
+                                } | null;
+                                note: {
+                                    id: string;
+                                    uri: string;
+                                    createdAt: string;
+                                    origin: string;
+                                    text: string | null;
+                                    cw: string | null;
+                                    visibility: string;
+                                    localOnly: boolean;
+                                    channelId?: string | null;
+                                    channel?: {
+                                        id: string;
+                                        name: string;
+                                        color: string;
+                                    } | null;
+                                    collectionId?: string;
+                                    collectionAt?: string;
+                                    canDelete?: boolean;
+                                    canSelfRenote?: boolean;
+                                    author: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                        emojis?: {
+                                            [key: string]: string;
+                                        };
+                                        avatarBlurhash?: string | null;
+                                        avatarDecorations?: {
+                                            /** Format: id */
+                                            id: string;
+                                            angle?: number;
+                                            flipH?: boolean;
+                                            /** Format: url */
+                                            url: string;
+                                            offsetX?: number;
+                                            offsetY?: number;
+                                        }[];
+                                        isBot?: boolean;
+                                        isCat?: boolean;
+                                        instance?: {
+                                            name?: string | null;
+                                            faviconUrl?: string | null;
+                                            themeColor?: string | null;
+                                        };
+                                    };
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    reactions?: {
+                                        [key: string]: number;
+                                    };
+                                    reactionEmojis?: {
+                                        [key: string]: string;
+                                    };
+                                    myReaction?: string | null;
+                                    myReactions?: string[];
+                                    reactionPreviews?: {
+                                        reaction: string;
+                                        account: {
+                                            name: string | null;
+                                            username: string;
+                                            host: string;
+                                            uri: string;
+                                            avatarUrl: string;
+                                        };
+                                    }[];
+                                    extendedReactions?: boolean;
+                                    replyId: string | null;
+                                    renoteId: string | null;
+                                    files: {
+                                        id: string;
+                                        name: string;
+                                        type: string;
+                                        size: number;
+                                        comment: string | null;
+                                        isSensitive: boolean;
+                                    }[];
+                                    poll: {
+                                        choices: {
+                                            text: string;
+                                            votes: number;
+                                            isVoted?: boolean;
+                                        }[];
+                                        expiresAt: string | null;
+                                        multiple: boolean;
+                                    } | null;
+                                    renote?: {
+                                        id: string;
+                                        uri: string;
+                                        createdAt: string;
+                                        origin: string;
+                                        text: string | null;
+                                        cw: string | null;
+                                        visibility: string;
+                                        localOnly: boolean;
+                                        channelId?: string | null;
+                                        channel?: {
+                                            id: string;
+                                            name: string;
+                                            color: string;
+                                        } | null;
+                                        collectionId?: string;
+                                        collectionAt?: string;
+                                        canDelete?: boolean;
+                                        canSelfRenote?: boolean;
+                                        author: {
+                                            name: string | null;
+                                            username: string;
+                                            host: string;
+                                            uri: string;
+                                            avatarUrl: string;
+                                            emojis?: {
+                                                [key: string]: string;
+                                            };
+                                            avatarBlurhash?: string | null;
+                                            avatarDecorations?: {
+                                                /** Format: id */
+                                                id: string;
+                                                angle?: number;
+                                                flipH?: boolean;
+                                                /** Format: url */
+                                                url: string;
+                                                offsetX?: number;
+                                                offsetY?: number;
+                                            }[];
+                                            isBot?: boolean;
+                                            isCat?: boolean;
+                                            instance?: {
+                                                name?: string | null;
+                                                faviconUrl?: string | null;
+                                                themeColor?: string | null;
+                                            };
+                                        };
+                                        emojis?: {
+                                            [key: string]: string;
+                                        };
+                                        reactions?: {
+                                            [key: string]: number;
+                                        };
+                                        reactionEmojis?: {
+                                            [key: string]: string;
+                                        };
+                                        myReaction?: string | null;
+                                        myReactions?: string[];
+                                        reactionPreviews?: {
+                                            reaction: string;
+                                            account: {
+                                                name: string | null;
+                                                username: string;
+                                                host: string;
+                                                uri: string;
+                                                avatarUrl: string;
+                                            };
+                                        }[];
+                                        extendedReactions?: boolean;
+                                        replyId: string | null;
+                                        renoteId: string | null;
+                                        files: {
+                                            id: string;
+                                            name: string;
+                                            type: string;
+                                            size: number;
+                                            comment: string | null;
+                                            isSensitive: boolean;
+                                        }[];
+                                        poll: {
+                                            choices: {
+                                                text: string;
+                                                votes: number;
+                                                isVoted?: boolean;
+                                            }[];
+                                            expiresAt: string | null;
+                                            multiple: boolean;
+                                        } | null;
+                                    } | null;
+                                } | null;
+                                body: string | null;
+                                reaction: string | null;
+                                renote?: {
+                                    id: string;
+                                    uri: string;
+                                    createdAt: string;
+                                    origin: string;
+                                    text: string | null;
+                                    cw: string | null;
+                                    visibility: string;
+                                    localOnly: boolean;
+                                    channelId?: string | null;
+                                    channel?: {
+                                        id: string;
+                                        name: string;
+                                        color: string;
+                                    } | null;
+                                    collectionId?: string;
+                                    collectionAt?: string;
+                                    canDelete?: boolean;
+                                    canSelfRenote?: boolean;
+                                    author: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                        emojis?: {
+                                            [key: string]: string;
+                                        };
+                                        avatarBlurhash?: string | null;
+                                        avatarDecorations?: {
+                                            /** Format: id */
+                                            id: string;
+                                            angle?: number;
+                                            flipH?: boolean;
+                                            /** Format: url */
+                                            url: string;
+                                            offsetX?: number;
+                                            offsetY?: number;
+                                        }[];
+                                        isBot?: boolean;
+                                        isCat?: boolean;
+                                        instance?: {
+                                            name?: string | null;
+                                            faviconUrl?: string | null;
+                                            themeColor?: string | null;
+                                        };
+                                    };
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    reactions?: {
+                                        [key: string]: number;
+                                    };
+                                    reactionEmojis?: {
+                                        [key: string]: string;
+                                    };
+                                    myReaction?: string | null;
+                                    myReactions?: string[];
+                                    reactionPreviews?: {
+                                        reaction: string;
+                                        account: {
+                                            name: string | null;
+                                            username: string;
+                                            host: string;
+                                            uri: string;
+                                            avatarUrl: string;
+                                        };
+                                    }[];
+                                    extendedReactions?: boolean;
+                                    replyId: string | null;
+                                    renoteId: string | null;
+                                    files: {
+                                        id: string;
+                                        name: string;
+                                        type: string;
+                                        size: number;
+                                        comment: string | null;
+                                        isSensitive: boolean;
+                                    }[];
+                                    poll: {
+                                        choices: {
+                                            text: string;
+                                            votes: number;
+                                            isVoted?: boolean;
+                                        }[];
+                                        expiresAt: string | null;
+                                        multiple: boolean;
+                                    } | null;
+                                    renote?: {
+                                        id: string;
+                                        uri: string;
+                                        createdAt: string;
+                                        origin: string;
+                                        text: string | null;
+                                        cw: string | null;
+                                        visibility: string;
+                                        localOnly: boolean;
+                                        channelId?: string | null;
+                                        channel?: {
+                                            id: string;
+                                            name: string;
+                                            color: string;
+                                        } | null;
+                                        collectionId?: string;
+                                        collectionAt?: string;
+                                        canDelete?: boolean;
+                                        canSelfRenote?: boolean;
+                                        author: {
+                                            name: string | null;
+                                            username: string;
+                                            host: string;
+                                            uri: string;
+                                            avatarUrl: string;
+                                            emojis?: {
+                                                [key: string]: string;
+                                            };
+                                            avatarBlurhash?: string | null;
+                                            avatarDecorations?: {
+                                                /** Format: id */
+                                                id: string;
+                                                angle?: number;
+                                                flipH?: boolean;
+                                                /** Format: url */
+                                                url: string;
+                                                offsetX?: number;
+                                                offsetY?: number;
+                                            }[];
+                                            isBot?: boolean;
+                                            isCat?: boolean;
+                                            instance?: {
+                                                name?: string | null;
+                                                faviconUrl?: string | null;
+                                                themeColor?: string | null;
+                                            };
+                                        };
+                                        emojis?: {
+                                            [key: string]: string;
+                                        };
+                                        reactions?: {
+                                            [key: string]: number;
+                                        };
+                                        reactionEmojis?: {
+                                            [key: string]: string;
+                                        };
+                                        myReaction?: string | null;
+                                        myReactions?: string[];
+                                        reactionPreviews?: {
+                                            reaction: string;
+                                            account: {
+                                                name: string | null;
+                                                username: string;
+                                                host: string;
+                                                uri: string;
+                                                avatarUrl: string;
+                                            };
+                                        }[];
+                                        extendedReactions?: boolean;
+                                        replyId: string | null;
+                                        renoteId: string | null;
+                                        files: {
+                                            id: string;
+                                            name: string;
+                                            type: string;
+                                            size: number;
+                                            comment: string | null;
+                                            isSensitive: boolean;
+                                        }[];
+                                        poll: {
+                                            choices: {
+                                                text: string;
+                                                votes: number;
+                                                isVoted?: boolean;
+                                            }[];
+                                            expiresAt: string | null;
+                                            multiple: boolean;
+                                        } | null;
+                                    } | null;
+                                } | null;
+                                presentation?: {
+                                    user: components['schemas']['UserLite'] | null;
+                                    recipient: components['schemas']['UserLite'];
+                                    noteUser: components['schemas']['UserLite'] | null;
+                                    header: string | null;
+                                    icon: string | null;
+                                    achievement: string | null;
+                                    roleName: string | null;
+                                    roleIcon: string | null;
+                                    roomName: string | null;
+                                    exportedEntity: string | null;
+                                    fileId: string | null;
+                                    reactionUrl: string | null;
+                                    followRequestId: string | null;
+                                    canManageFollowRequest: boolean;
+                                };
+                            } | null;
+                        }[];
+                        sources: {
+                            /** @enum {string} */
+                            source: 'local' | 'peer' | 'channel';
+                            /** @enum {string} */
+                            status: 'ok' | 'disabled' | 'unavailable' | 'unauthorized';
+                            unreadCount: number | null;
+                        }[];
                     };
                 };
             };
@@ -29390,6 +29921,991 @@ export interface operations {
                         done: number;
                         failed: number;
                         pending: number;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    gridspace___timeline: {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** @enum {string} */
+                    kind: 'home' | 'social' | 'mentions' | 'direct' | 'channel';
+                    channelId?: string;
+                    query?: string;
+                    /** @default false */
+                    withReplies?: boolean;
+                    /** @default true */
+                    withRenotes?: boolean;
+                    /** @default false */
+                    withFiles?: boolean;
+                    /** @default true */
+                    includeMyRenotes?: boolean;
+                    /** @default true */
+                    includeRenotedMyNotes?: boolean;
+                    /** @default true */
+                    includeLocalRenotes?: boolean;
+                    /** @default 20 */
+                    limit?: number;
+                    cursor?: string;
+                    /**
+                     * @default unified
+                     * @enum {string}
+                     */
+                    mode?: 'unified' | 'local-fallback';
+                    anchor?: string;
+                    /** Format: uuid */
+                    previousSession?: string;
+                    previousRevision?: string;
+                    retainedRefs?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        version: number;
+                        session: string;
+                        revision: string;
+                        items: {
+                            key: string;
+                            ref: string;
+                            sortKey: {
+                                sortAt: string;
+                                uri: string;
+                            };
+                            /** @enum {string} */
+                            representation: 'normal' | 'delegated';
+                            payload: components['schemas']['Note'] | {
+                                id: string;
+                                uri: string;
+                                createdAt: string;
+                                origin: string;
+                                text: string | null;
+                                cw: string | null;
+                                visibility: string;
+                                localOnly: boolean;
+                                channelId?: string | null;
+                                channel?: {
+                                    id: string;
+                                    name: string;
+                                    color: string;
+                                } | null;
+                                collectionId?: string;
+                                collectionAt?: string;
+                                canDelete?: boolean;
+                                canSelfRenote?: boolean;
+                                author: {
+                                    name: string | null;
+                                    username: string;
+                                    host: string;
+                                    uri: string;
+                                    avatarUrl: string;
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    avatarBlurhash?: string | null;
+                                    avatarDecorations?: {
+                                        /** Format: id */
+                                        id: string;
+                                        angle?: number;
+                                        flipH?: boolean;
+                                        /** Format: url */
+                                        url: string;
+                                        offsetX?: number;
+                                        offsetY?: number;
+                                    }[];
+                                    isBot?: boolean;
+                                    isCat?: boolean;
+                                    instance?: {
+                                        name?: string | null;
+                                        faviconUrl?: string | null;
+                                        themeColor?: string | null;
+                                    };
+                                };
+                                emojis?: {
+                                    [key: string]: string;
+                                };
+                                reactions?: {
+                                    [key: string]: number;
+                                };
+                                reactionEmojis?: {
+                                    [key: string]: string;
+                                };
+                                myReaction?: string | null;
+                                myReactions?: string[];
+                                reactionPreviews?: {
+                                    reaction: string;
+                                    account: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                    };
+                                }[];
+                                extendedReactions?: boolean;
+                                replyId: string | null;
+                                renoteId: string | null;
+                                files: {
+                                    id: string;
+                                    name: string;
+                                    type: string;
+                                    size: number;
+                                    comment: string | null;
+                                    isSensitive: boolean;
+                                }[];
+                                poll: {
+                                    choices: {
+                                        text: string;
+                                        votes: number;
+                                        isVoted?: boolean;
+                                    }[];
+                                    expiresAt: string | null;
+                                    multiple: boolean;
+                                } | null;
+                                renote?: {
+                                    id: string;
+                                    uri: string;
+                                    createdAt: string;
+                                    origin: string;
+                                    text: string | null;
+                                    cw: string | null;
+                                    visibility: string;
+                                    localOnly: boolean;
+                                    channelId?: string | null;
+                                    channel?: {
+                                        id: string;
+                                        name: string;
+                                        color: string;
+                                    } | null;
+                                    collectionId?: string;
+                                    collectionAt?: string;
+                                    canDelete?: boolean;
+                                    canSelfRenote?: boolean;
+                                    author: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                        emojis?: {
+                                            [key: string]: string;
+                                        };
+                                        avatarBlurhash?: string | null;
+                                        avatarDecorations?: {
+                                            /** Format: id */
+                                            id: string;
+                                            angle?: number;
+                                            flipH?: boolean;
+                                            /** Format: url */
+                                            url: string;
+                                            offsetX?: number;
+                                            offsetY?: number;
+                                        }[];
+                                        isBot?: boolean;
+                                        isCat?: boolean;
+                                        instance?: {
+                                            name?: string | null;
+                                            faviconUrl?: string | null;
+                                            themeColor?: string | null;
+                                        };
+                                    };
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    reactions?: {
+                                        [key: string]: number;
+                                    };
+                                    reactionEmojis?: {
+                                        [key: string]: string;
+                                    };
+                                    myReaction?: string | null;
+                                    myReactions?: string[];
+                                    reactionPreviews?: {
+                                        reaction: string;
+                                        account: {
+                                            name: string | null;
+                                            username: string;
+                                            host: string;
+                                            uri: string;
+                                            avatarUrl: string;
+                                        };
+                                    }[];
+                                    extendedReactions?: boolean;
+                                    replyId: string | null;
+                                    renoteId: string | null;
+                                    files: {
+                                        id: string;
+                                        name: string;
+                                        type: string;
+                                        size: number;
+                                        comment: string | null;
+                                        isSensitive: boolean;
+                                    }[];
+                                    poll: {
+                                        choices: {
+                                            text: string;
+                                            votes: number;
+                                            isVoted?: boolean;
+                                        }[];
+                                        expiresAt: string | null;
+                                        multiple: boolean;
+                                    } | null;
+                                } | null;
+                            };
+                            validForMs: number | null;
+                            nextPolicyCheckAt: string | null;
+                        }[];
+                        nextCursor: string | null;
+                        updatesCursor: string;
+                        complete: boolean;
+                        /** @enum {string} */
+                        mode: 'unified' | 'local-fallback';
+                        sources: {
+                            /** @enum {string} */
+                            source: 'local' | 'peer';
+                            /** @enum {string} */
+                            status: 'ok' | 'unavailable' | 'unauthorized' | 'disabled';
+                            retryable: boolean;
+                        }[];
+                        revalidateAfterMs: number;
+                        retainedItems?: {
+                            key: string;
+                            ref: string;
+                            sortKey: {
+                                sortAt: string;
+                                uri: string;
+                            };
+                            /** @enum {string} */
+                            representation: 'normal' | 'delegated';
+                            payload: components['schemas']['Note'] | {
+                                id: string;
+                                uri: string;
+                                createdAt: string;
+                                origin: string;
+                                text: string | null;
+                                cw: string | null;
+                                visibility: string;
+                                localOnly: boolean;
+                                channelId?: string | null;
+                                channel?: {
+                                    id: string;
+                                    name: string;
+                                    color: string;
+                                } | null;
+                                collectionId?: string;
+                                collectionAt?: string;
+                                canDelete?: boolean;
+                                canSelfRenote?: boolean;
+                                author: {
+                                    name: string | null;
+                                    username: string;
+                                    host: string;
+                                    uri: string;
+                                    avatarUrl: string;
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    avatarBlurhash?: string | null;
+                                    avatarDecorations?: {
+                                        /** Format: id */
+                                        id: string;
+                                        angle?: number;
+                                        flipH?: boolean;
+                                        /** Format: url */
+                                        url: string;
+                                        offsetX?: number;
+                                        offsetY?: number;
+                                    }[];
+                                    isBot?: boolean;
+                                    isCat?: boolean;
+                                    instance?: {
+                                        name?: string | null;
+                                        faviconUrl?: string | null;
+                                        themeColor?: string | null;
+                                    };
+                                };
+                                emojis?: {
+                                    [key: string]: string;
+                                };
+                                reactions?: {
+                                    [key: string]: number;
+                                };
+                                reactionEmojis?: {
+                                    [key: string]: string;
+                                };
+                                myReaction?: string | null;
+                                myReactions?: string[];
+                                reactionPreviews?: {
+                                    reaction: string;
+                                    account: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                    };
+                                }[];
+                                extendedReactions?: boolean;
+                                replyId: string | null;
+                                renoteId: string | null;
+                                files: {
+                                    id: string;
+                                    name: string;
+                                    type: string;
+                                    size: number;
+                                    comment: string | null;
+                                    isSensitive: boolean;
+                                }[];
+                                poll: {
+                                    choices: {
+                                        text: string;
+                                        votes: number;
+                                        isVoted?: boolean;
+                                    }[];
+                                    expiresAt: string | null;
+                                    multiple: boolean;
+                                } | null;
+                                renote?: {
+                                    id: string;
+                                    uri: string;
+                                    createdAt: string;
+                                    origin: string;
+                                    text: string | null;
+                                    cw: string | null;
+                                    visibility: string;
+                                    localOnly: boolean;
+                                    channelId?: string | null;
+                                    channel?: {
+                                        id: string;
+                                        name: string;
+                                        color: string;
+                                    } | null;
+                                    collectionId?: string;
+                                    collectionAt?: string;
+                                    canDelete?: boolean;
+                                    canSelfRenote?: boolean;
+                                    author: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                        emojis?: {
+                                            [key: string]: string;
+                                        };
+                                        avatarBlurhash?: string | null;
+                                        avatarDecorations?: {
+                                            /** Format: id */
+                                            id: string;
+                                            angle?: number;
+                                            flipH?: boolean;
+                                            /** Format: url */
+                                            url: string;
+                                            offsetX?: number;
+                                            offsetY?: number;
+                                        }[];
+                                        isBot?: boolean;
+                                        isCat?: boolean;
+                                        instance?: {
+                                            name?: string | null;
+                                            faviconUrl?: string | null;
+                                            themeColor?: string | null;
+                                        };
+                                    };
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    reactions?: {
+                                        [key: string]: number;
+                                    };
+                                    reactionEmojis?: {
+                                        [key: string]: string;
+                                    };
+                                    myReaction?: string | null;
+                                    myReactions?: string[];
+                                    reactionPreviews?: {
+                                        reaction: string;
+                                        account: {
+                                            name: string | null;
+                                            username: string;
+                                            host: string;
+                                            uri: string;
+                                            avatarUrl: string;
+                                        };
+                                    }[];
+                                    extendedReactions?: boolean;
+                                    replyId: string | null;
+                                    renoteId: string | null;
+                                    files: {
+                                        id: string;
+                                        name: string;
+                                        type: string;
+                                        size: number;
+                                        comment: string | null;
+                                        isSensitive: boolean;
+                                    }[];
+                                    poll: {
+                                        choices: {
+                                            text: string;
+                                            votes: number;
+                                            isVoted?: boolean;
+                                        }[];
+                                        expiresAt: string | null;
+                                        multiple: boolean;
+                                    } | null;
+                                } | null;
+                            };
+                            validForMs: number | null;
+                            nextPolicyCheckAt: string | null;
+                        }[];
+                        order?: string[];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    gridspace___timeline___changes: {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** Format: uuid */
+                    session: string;
+                    revision: string;
+                    updatesCursor: string;
+                    /** @default [] */
+                    refs?: string[];
+                    /**
+                     * @default changes
+                     * @enum {string}
+                     */
+                    phase?: 'validate' | 'changes';
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        version: number;
+                        session: string;
+                        revision: string;
+                        items: {
+                            key: string;
+                            ref: string;
+                            sortKey: {
+                                sortAt: string;
+                                uri: string;
+                            };
+                            /** @enum {string} */
+                            representation: 'normal' | 'delegated';
+                            payload: components['schemas']['Note'] | {
+                                id: string;
+                                uri: string;
+                                createdAt: string;
+                                origin: string;
+                                text: string | null;
+                                cw: string | null;
+                                visibility: string;
+                                localOnly: boolean;
+                                channelId?: string | null;
+                                channel?: {
+                                    id: string;
+                                    name: string;
+                                    color: string;
+                                } | null;
+                                collectionId?: string;
+                                collectionAt?: string;
+                                canDelete?: boolean;
+                                canSelfRenote?: boolean;
+                                author: {
+                                    name: string | null;
+                                    username: string;
+                                    host: string;
+                                    uri: string;
+                                    avatarUrl: string;
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    avatarBlurhash?: string | null;
+                                    avatarDecorations?: {
+                                        /** Format: id */
+                                        id: string;
+                                        angle?: number;
+                                        flipH?: boolean;
+                                        /** Format: url */
+                                        url: string;
+                                        offsetX?: number;
+                                        offsetY?: number;
+                                    }[];
+                                    isBot?: boolean;
+                                    isCat?: boolean;
+                                    instance?: {
+                                        name?: string | null;
+                                        faviconUrl?: string | null;
+                                        themeColor?: string | null;
+                                    };
+                                };
+                                emojis?: {
+                                    [key: string]: string;
+                                };
+                                reactions?: {
+                                    [key: string]: number;
+                                };
+                                reactionEmojis?: {
+                                    [key: string]: string;
+                                };
+                                myReaction?: string | null;
+                                myReactions?: string[];
+                                reactionPreviews?: {
+                                    reaction: string;
+                                    account: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                    };
+                                }[];
+                                extendedReactions?: boolean;
+                                replyId: string | null;
+                                renoteId: string | null;
+                                files: {
+                                    id: string;
+                                    name: string;
+                                    type: string;
+                                    size: number;
+                                    comment: string | null;
+                                    isSensitive: boolean;
+                                }[];
+                                poll: {
+                                    choices: {
+                                        text: string;
+                                        votes: number;
+                                        isVoted?: boolean;
+                                    }[];
+                                    expiresAt: string | null;
+                                    multiple: boolean;
+                                } | null;
+                                renote?: {
+                                    id: string;
+                                    uri: string;
+                                    createdAt: string;
+                                    origin: string;
+                                    text: string | null;
+                                    cw: string | null;
+                                    visibility: string;
+                                    localOnly: boolean;
+                                    channelId?: string | null;
+                                    channel?: {
+                                        id: string;
+                                        name: string;
+                                        color: string;
+                                    } | null;
+                                    collectionId?: string;
+                                    collectionAt?: string;
+                                    canDelete?: boolean;
+                                    canSelfRenote?: boolean;
+                                    author: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                        emojis?: {
+                                            [key: string]: string;
+                                        };
+                                        avatarBlurhash?: string | null;
+                                        avatarDecorations?: {
+                                            /** Format: id */
+                                            id: string;
+                                            angle?: number;
+                                            flipH?: boolean;
+                                            /** Format: url */
+                                            url: string;
+                                            offsetX?: number;
+                                            offsetY?: number;
+                                        }[];
+                                        isBot?: boolean;
+                                        isCat?: boolean;
+                                        instance?: {
+                                            name?: string | null;
+                                            faviconUrl?: string | null;
+                                            themeColor?: string | null;
+                                        };
+                                    };
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    reactions?: {
+                                        [key: string]: number;
+                                    };
+                                    reactionEmojis?: {
+                                        [key: string]: string;
+                                    };
+                                    myReaction?: string | null;
+                                    myReactions?: string[];
+                                    reactionPreviews?: {
+                                        reaction: string;
+                                        account: {
+                                            name: string | null;
+                                            username: string;
+                                            host: string;
+                                            uri: string;
+                                            avatarUrl: string;
+                                        };
+                                    }[];
+                                    extendedReactions?: boolean;
+                                    replyId: string | null;
+                                    renoteId: string | null;
+                                    files: {
+                                        id: string;
+                                        name: string;
+                                        type: string;
+                                        size: number;
+                                        comment: string | null;
+                                        isSensitive: boolean;
+                                    }[];
+                                    poll: {
+                                        choices: {
+                                            text: string;
+                                            votes: number;
+                                            isVoted?: boolean;
+                                        }[];
+                                        expiresAt: string | null;
+                                        multiple: boolean;
+                                    } | null;
+                                } | null;
+                            };
+                            validForMs: number | null;
+                            nextPolicyCheckAt: string | null;
+                        }[];
+                        nextCursor: string | null;
+                        updatesCursor: string;
+                        complete: boolean;
+                        /** @enum {string} */
+                        mode: 'unified' | 'local-fallback';
+                        sources: {
+                            /** @enum {string} */
+                            source: 'local' | 'peer';
+                            /** @enum {string} */
+                            status: 'ok' | 'unavailable' | 'unauthorized' | 'disabled';
+                            retryable: boolean;
+                        }[];
+                        revalidateAfterMs: number;
+                        newItems: {
+                            key: string;
+                            ref: string;
+                            sortKey: {
+                                sortAt: string;
+                                uri: string;
+                            };
+                            /** @enum {string} */
+                            representation: 'normal' | 'delegated';
+                            payload: components['schemas']['Note'] | {
+                                id: string;
+                                uri: string;
+                                createdAt: string;
+                                origin: string;
+                                text: string | null;
+                                cw: string | null;
+                                visibility: string;
+                                localOnly: boolean;
+                                channelId?: string | null;
+                                channel?: {
+                                    id: string;
+                                    name: string;
+                                    color: string;
+                                } | null;
+                                collectionId?: string;
+                                collectionAt?: string;
+                                canDelete?: boolean;
+                                canSelfRenote?: boolean;
+                                author: {
+                                    name: string | null;
+                                    username: string;
+                                    host: string;
+                                    uri: string;
+                                    avatarUrl: string;
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    avatarBlurhash?: string | null;
+                                    avatarDecorations?: {
+                                        /** Format: id */
+                                        id: string;
+                                        angle?: number;
+                                        flipH?: boolean;
+                                        /** Format: url */
+                                        url: string;
+                                        offsetX?: number;
+                                        offsetY?: number;
+                                    }[];
+                                    isBot?: boolean;
+                                    isCat?: boolean;
+                                    instance?: {
+                                        name?: string | null;
+                                        faviconUrl?: string | null;
+                                        themeColor?: string | null;
+                                    };
+                                };
+                                emojis?: {
+                                    [key: string]: string;
+                                };
+                                reactions?: {
+                                    [key: string]: number;
+                                };
+                                reactionEmojis?: {
+                                    [key: string]: string;
+                                };
+                                myReaction?: string | null;
+                                myReactions?: string[];
+                                reactionPreviews?: {
+                                    reaction: string;
+                                    account: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                    };
+                                }[];
+                                extendedReactions?: boolean;
+                                replyId: string | null;
+                                renoteId: string | null;
+                                files: {
+                                    id: string;
+                                    name: string;
+                                    type: string;
+                                    size: number;
+                                    comment: string | null;
+                                    isSensitive: boolean;
+                                }[];
+                                poll: {
+                                    choices: {
+                                        text: string;
+                                        votes: number;
+                                        isVoted?: boolean;
+                                    }[];
+                                    expiresAt: string | null;
+                                    multiple: boolean;
+                                } | null;
+                                renote?: {
+                                    id: string;
+                                    uri: string;
+                                    createdAt: string;
+                                    origin: string;
+                                    text: string | null;
+                                    cw: string | null;
+                                    visibility: string;
+                                    localOnly: boolean;
+                                    channelId?: string | null;
+                                    channel?: {
+                                        id: string;
+                                        name: string;
+                                        color: string;
+                                    } | null;
+                                    collectionId?: string;
+                                    collectionAt?: string;
+                                    canDelete?: boolean;
+                                    canSelfRenote?: boolean;
+                                    author: {
+                                        name: string | null;
+                                        username: string;
+                                        host: string;
+                                        uri: string;
+                                        avatarUrl: string;
+                                        emojis?: {
+                                            [key: string]: string;
+                                        };
+                                        avatarBlurhash?: string | null;
+                                        avatarDecorations?: {
+                                            /** Format: id */
+                                            id: string;
+                                            angle?: number;
+                                            flipH?: boolean;
+                                            /** Format: url */
+                                            url: string;
+                                            offsetX?: number;
+                                            offsetY?: number;
+                                        }[];
+                                        isBot?: boolean;
+                                        isCat?: boolean;
+                                        instance?: {
+                                            name?: string | null;
+                                            faviconUrl?: string | null;
+                                            themeColor?: string | null;
+                                        };
+                                    };
+                                    emojis?: {
+                                        [key: string]: string;
+                                    };
+                                    reactions?: {
+                                        [key: string]: number;
+                                    };
+                                    reactionEmojis?: {
+                                        [key: string]: string;
+                                    };
+                                    myReaction?: string | null;
+                                    myReactions?: string[];
+                                    reactionPreviews?: {
+                                        reaction: string;
+                                        account: {
+                                            name: string | null;
+                                            username: string;
+                                            host: string;
+                                            uri: string;
+                                            avatarUrl: string;
+                                        };
+                                    }[];
+                                    extendedReactions?: boolean;
+                                    replyId: string | null;
+                                    renoteId: string | null;
+                                    files: {
+                                        id: string;
+                                        name: string;
+                                        type: string;
+                                        size: number;
+                                        comment: string | null;
+                                        isSensitive: boolean;
+                                    }[];
+                                    poll: {
+                                        choices: {
+                                            text: string;
+                                            votes: number;
+                                            isVoted?: boolean;
+                                        }[];
+                                        expiresAt: string | null;
+                                        multiple: boolean;
+                                    } | null;
+                                } | null;
+                            };
+                            validForMs: number | null;
+                            nextPolicyCheckAt: string | null;
+                        }[];
+                        removed: string[];
+                        order: string[];
+                        replaceWindow: boolean;
+                        resetRequired: boolean;
                     };
                 };
             };

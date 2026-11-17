@@ -44,6 +44,21 @@ afterEach(async () => {
 });
 
 describe('GridSpace channel actions', () => {
+	test('signed timeline keysets preserve the source ID through consecutive pages', async () => {
+		const action = vi.fn(async (_name: string, input: { timelineBefore?: { noteId?: string } }) => ({ ids: input.timelineBefore?.noteId === 'n2' ? ['n1'] : ['n3', 'n2'] }));
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, action);
+		const url = '/gridspace/v1/private/timeline';
+		const send = (input: object, signed = true) => { const payload = Buffer.from(JSON.stringify(input)); return app.inject({ method: 'POST', url, payload, headers: signed ? createGridspaceHeaders(g, 'POST', url, payload) : { 'content-type': 'application/json' } }); };
+		const input = { channelActorId: 'viewer', mode: 'home' };
+		expect((await send(input, false)).statusCode).toBe(403);
+		expect((await send(input)).json()).toEqual({ ids: ['n3', 'n2'] });
+		const boundary = { sortAt: '1700000000000000', canonicalUri: 'https://r.example/notes/n2', noteId: 'n2' };
+		expect((await send({ ...input, timelineBefore: boundary, timelineUpper: { ...boundary, noteId: 'n3' } })).json()).toEqual({ ids: ['n1'] });
+		expect(action).toHaveBeenLastCalledWith('timeline', expect.objectContaining({ timelineBefore: boundary }));
+		expect((await send({ ...input, timelineBefore: { ...boundary, noteId: '../bad' } })).statusCode).toBe(400);
+		expect((await send({ ...input, mode: 'validate', contextMode: 'home', timelineValidate: true, ids: [], timelineSequence: '0' })).statusCode).toBe(200);
+		expect(action).toHaveBeenLastCalledWith('timeline', expect.objectContaining({ ids: [], timelineValidate: true }));
+	});
 	test('public note reads require the paired-server signature and pass only valid note references', async () => {
 		const read = vi.fn(async () => ({ id: 'note' }));
 		const app = Fastify(); servers.push(app);

@@ -21,6 +21,8 @@ export type GridspaceConfigSource = {
 	peerTlsCaFile?: string;
 	/** One-way channel access. Source hosts channels; client accepts its local users. */
 	channelRole?: 'source' | 'client';
+	/** Roll out the first-party unified timeline after both peers are upgraded. */
+	timelineEnabled?: boolean;
 	keyId: string;
 	secretEnv: string;
 };

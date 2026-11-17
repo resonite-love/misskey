@@ -448,6 +448,8 @@ import type {
 	GridspaceNotificationsFollowRequestResponse,
 	GridspaceNotificationsReadRequest,
 	GridspaceNotificationsReadResponse,
+	GridspaceNotificationsTimelineRequest,
+	GridspaceNotificationsTimelineResponse,
 	GridspacePaletteResponse,
 	GridspacePlayImportRequest,
 	GridspacePlayImportResponse,
@@ -471,6 +473,10 @@ import type {
 	GridspaceSearchInfoResponse,
 	GridspaceSettingsImportRequest,
 	GridspaceSettingsImportResponse,
+	GridspaceTimelineRequest,
+	GridspaceTimelineResponse,
+	GridspaceTimelineChangesRequest,
+	GridspaceTimelineChangesResponse,
 	HashtagsListRequest,
 	HashtagsListResponse,
 	HashtagsSearchRequest,
@@ -1041,6 +1047,7 @@ export type Endpoints = {
 	'gridspace/notifications': { req: GridspaceNotificationsRequest; res: GridspaceNotificationsResponse };
 	'gridspace/notifications/follow-request': { req: GridspaceNotificationsFollowRequestRequest; res: GridspaceNotificationsFollowRequestResponse };
 	'gridspace/notifications/read': { req: GridspaceNotificationsReadRequest; res: GridspaceNotificationsReadResponse };
+	'gridspace/notifications/timeline': { req: GridspaceNotificationsTimelineRequest; res: GridspaceNotificationsTimelineResponse };
 	'gridspace/palette': { req: EmptyRequest; res: GridspacePaletteResponse };
 	'gridspace/play-import': { req: GridspacePlayImportRequest; res: GridspacePlayImportResponse };
 	'gridspace/private-action': { req: GridspacePrivateActionRequest; res: GridspacePrivateActionResponse };
@@ -1054,6 +1061,8 @@ export type Endpoints = {
 	'gridspace/search': { req: GridspaceSearchRequest; res: GridspaceSearchResponse };
 	'gridspace/search-info': { req: EmptyRequest; res: GridspaceSearchInfoResponse };
 	'gridspace/settings-import': { req: GridspaceSettingsImportRequest; res: GridspaceSettingsImportResponse };
+	'gridspace/timeline': { req: GridspaceTimelineRequest; res: GridspaceTimelineResponse };
+	'gridspace/timeline/changes': { req: GridspaceTimelineChangesRequest; res: GridspaceTimelineChangesResponse };
 	'hashtags/list': { req: HashtagsListRequest; res: HashtagsListResponse };
 	'hashtags/search': { req: HashtagsSearchRequest; res: HashtagsSearchResponse };
 	'hashtags/show': { req: HashtagsShowRequest; res: HashtagsShowResponse };

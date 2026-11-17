@@ -245,6 +245,7 @@ type UndefinedAsNullAll<T> = {
 };
 
 export interface InternalEventTypes {
+	gridspaceTimelineChanged: { sequence: string };
 	userChangeSuspendedState: { id: MiUser['id']; isSuspended: MiUser['isSuspended']; };
 	userChangeDeletedState: { id: MiUser['id']; isDeleted: MiUser['isDeleted']; };
 	userTokenRegenerated: { id: MiUser['id']; oldToken: string; newToken: string; };

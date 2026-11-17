@@ -217,13 +217,13 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 		fastify.post<{ Body: HistoryPeerRequest }>('/history', {
 			bodyLimit: 4096, config: { rawBody: true }, preHandler: authenticate,
 			schema: { body: { type: 'object', additionalProperties: false,
-				required: ['userId', 'counterpartId', 'linkId', 'generation', 'limit', 'withReplies', 'withRenotes', 'withFiles'],
-				properties: {
-					userId: id, counterpartId: id, viewerId: id, before: id, head: id,
-					linkId: { type: 'string', format: 'uuid' }, generation: { type: 'integer', minimum: 1, maximum: 2147483647 },
-					limit: { type: 'integer', minimum: 0, maximum: 20 },
-					withReplies: { type: 'boolean' }, withRenotes: { type: 'boolean' }, withFiles: { type: 'boolean' },
-				},
+																					required: ['userId', 'counterpartId', 'linkId', 'generation', 'limit', 'withReplies', 'withRenotes', 'withFiles'],
+																					properties: {
+																						userId: id, counterpartId: id, viewerId: id, before: id, head: id,
+																						linkId: { type: 'string', format: 'uuid' }, generation: { type: 'integer', minimum: 1, maximum: 2147483647 },
+																						limit: { type: 'integer', minimum: 0, maximum: 20 },
+																						withReplies: { type: 'boolean' }, withRenotes: { type: 'boolean' }, withFiles: { type: 'boolean' },
+																					},
 			} },
 		}, async (request, reply) => {
 			try { return await history(request.body); } catch { return reply.code(503).send({ error: 'PEER_HISTORY_UNAVAILABLE' }); }
@@ -266,19 +266,20 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 		}
 	}
 	if (notifications) {
-		for (const name of ['query', 'read', 'read-all', 'accept-follow', 'reject-follow']) {
+		for (const name of ['query', 'references', 'read', 'read-all', 'accept-follow', 'reject-follow']) {
 			fastify.post<{ Body: NotificationPeerRequest }>(`/notifications/${name}`, {
 				bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
 				schema: { body: { type: 'object', additionalProperties: false,
-					required: name === 'read' ? ['ids'] : [], oneOf: [
-						{ required: ['accessToken', 'linkId', 'generation', 'localUserId'], not: { required: ['channelActorId'] } },
-						{ required: ['channelActorId'], not: { anyOf: ['accessToken', 'linkId', 'generation', 'localUserId', 'pairId'].map(key => ({ required: [key] })) } },
-					], properties: {
-						...notificationOptionsSchema,
-						followRequestId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
-						channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
-						generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
-					} } },
+																						required: name === 'read' ? ['ids'] : [], oneOf: [
+																							{ required: ['accessToken', 'linkId', 'generation', 'localUserId'], not: { required: ['channelActorId'] } },
+																							{ required: ['channelActorId'], not: { anyOf: ['accessToken', 'linkId', 'generation', 'localUserId', 'pairId'].map(key => ({ required: [key] })) } },
+																						], properties: {
+																							...notificationOptionsSchema,
+																							expectedRecipientId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+																							followRequestId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+																							channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
+																							generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+																						} } },
 			}, async (request, reply) => {
 				try { return await notifications(name, request.body); } catch (error) {
 					const code = error instanceof Error && 'code' in error ? error.code : null;
@@ -288,19 +289,19 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 		}
 	}
 	if (noteMenu) {
-  fastify.post<{ Body: NoteMenuPeerRequest }>('/private/note-menu', {
-   bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
-   schema: { body: { type: 'object', additionalProperties: false, required: ['noteId', 'accessToken', 'linkId', 'generation', 'localUserId'], properties: {
-    ...noteMenuProperties, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
-    generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
-   } } },
-  }, async (request, reply) => {
-   try { return await noteMenu(request.body); } catch (error) {
-    const code = error instanceof Error && 'code' in error ? error.code : null;
-    return reply.code(403).send({ error: typeof code === 'string' && ['AUTHORIZATION_REVOKED', 'LINK_REVOKED', 'ACTION_REJECTED', 'RATE_LIMITED'].includes(code) ? code : 'PEER_UNAVAILABLE' });
-   }
-  });
- }
+		fastify.post<{ Body: NoteMenuPeerRequest }>('/private/note-menu', {
+			bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
+			schema: { body: { type: 'object', additionalProperties: false, required: ['noteId', 'accessToken', 'linkId', 'generation', 'localUserId'], properties: {
+				...noteMenuProperties, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
+				generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+			} } },
+		}, async (request, reply) => {
+			try { return await noteMenu(request.body); } catch (error) {
+				const code = error instanceof Error && 'code' in error ? error.code : null;
+				return reply.code(403).send({ error: typeof code === 'string' && ['AUTHORIZATION_REVOKED', 'LINK_REVOKED', 'ACTION_REJECTED', 'RATE_LIMITED'].includes(code) ? code : 'PEER_UNAVAILABLE' });
+			}
+		});
+	}
 	if (interact) {
 		fastify.post<{ Body: ActionPeerRequest }>('/private/action', {
 			bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
@@ -354,12 +355,20 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			client_id: config.origin + GRIDSPACE_PRIVATE_CLIENT_PATH, client_uri: config.origin + '/',
 			client_name: 'GridSpace private note reader', redirect_uris: [config.origin + GRIDSPACE_CALLBACK_PATH],
 		}));
-		for (const name of ['authorize', 'check', 'revoke', 'notes', 'file', 'collections', 'mutual-probe', 'reciprocal', 'pair-check']) {
+		for (const name of ['authorize', 'check', 'revoke', 'notes', 'timeline', 'timeline-normalize', 'file', 'collections', 'mutual-probe', 'reciprocal', 'pair-check']) {
 			const { userId: _userId, ...readOptions } = privateOptionsSchema;
 			fastify.post<{ Body: PrivatePeerRequest }>(`/private/${name}`, {
 				bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
 				schema: { body: { type: 'object', additionalProperties: false, allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId'] }] }], properties: {
 					...readOptions,
+					...(name === 'timeline' ? { ids: { type: 'array', minItems: 0, maxItems: 100, uniqueItems: true, items: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } } : {}),
+					timelineBefore: { type: 'object', additionalProperties: false, required: ['sortAt', 'canonicalUri', 'noteId'], properties: { sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 }, noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } },
+					timelineUpper: { type: 'object', additionalProperties: false, required: ['sortAt', 'canonicalUri', 'noteId'], properties: { sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 }, noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } },
+					timelineSequence: { type: 'string', pattern: '^[0-9]{1,19}$' }, timelineValidate: { type: 'boolean' },
+					timelineAnchor: { type: 'string', maxLength: 1024 },
+					timelineUntilAt: { type: 'integer', minimum: 0, maximum: 4102444800000 },
+					timelineIncludeMyRenotes: { type: 'boolean' }, timelineIncludeRenotedMyNotes: { type: 'boolean' }, timelineIncludeLocalRenotes: { type: 'boolean' },
+					timelineCandidates: { type: 'array', maxItems: 512, items: { type: 'object', additionalProperties: false, required: ['noteId', 'sortAt', 'canonicalUri'], properties: { noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 } } } },
 					collectionKind: { type: 'string', enum: ['status', 'clips', 'clip-favorites'] },
 					channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' },
 					pairId: { type: 'string', format: 'uuid' }, expectedRevision: { type: 'integer', minimum: 0, maximum: 2147483647 },

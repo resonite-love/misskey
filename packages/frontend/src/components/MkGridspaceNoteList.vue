@@ -10,8 +10,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div :class="[$style.root, { [$style.noGap]: noGap }]">
 			<MkNoteListLayout :items="rows" :getKey="row => row.key" :getDate="row => row.createdAt" :noGap="noGap" :dateSeparators="!noGap">
 				<template #default="{ item: row }">
-					<MkNote v-if="row.kind === 'normal'" :note="row.note" :withHardMute="true"/>
-					<MkGridspacePrivateNoteRow v-else :note="row.note" @unavailable="failPrivate"/>
+					<MkTimelineNoteRow :row="row" @unavailable="failPrivate"/>
 				</template>
 			</MkNoteListLayout>
 			<div v-if="normalError || privateError" role="status" :class="$style.status">
@@ -32,8 +31,7 @@ import { computed, markRaw, ref, watch } from 'vue';
 import type { GridspaceNoteSource } from '@/utility/use-gridspace-note-list.js';
 import MkPaginationControl from '@/components/MkPaginationControl.vue';
 import MkNoteListLayout from '@/components/MkNoteListLayout.vue';
-import MkNote from '@/components/MkNote.vue';
-import MkGridspacePrivateNoteRow from '@/components/MkGridspacePrivateNoteRow.vue';
+import MkTimelineNoteRow from '@/components/MkTimelineNoteRow.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkTimelineLoadMore from '@/components/MkTimelineLoadMore.vue';
 import MkPullToRefresh from '@/components/MkPullToRefresh.vue';

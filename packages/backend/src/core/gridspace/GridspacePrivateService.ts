@@ -45,7 +45,11 @@ import { decodeHistoryCursor, encodeHistoryCursor } from './history-protocol.js'
 import { gridspaceHash } from './link-crypto.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
 import { searchNoteTimeSql } from './search-visibility.js';
+import { canonicalGridspaceNoteUri } from './note-protocol.js';
+import { requestGridspacePeer } from './peer-client.js';
 import { PRIVATE_FILE_LIMIT, type PrivateNote, type PrivateWireNote, type PrivateOptions, type PrivatePage, type PrivatePeerRequest } from './private-protocol.js';
+import { TimelineReferenceService } from './timeline/TimelineReferenceService.js';
+import type { TimelinePosition, TimelineReference } from './timeline/timeline-protocol.js';
 
 @Injectable()
 export class GridspacePrivateService {
@@ -70,6 +74,7 @@ export class GridspacePrivateService {
 		private channelAuth: GridspaceChannelAuthService,
 		private queries: QueryService,
 		private clips: ClipEntityService,
+		private timelineReferences: TimelineReferenceService,
 		private fanout?: FanoutTimelineService,
 		private events?: GlobalEventService,
 	) {
@@ -151,6 +156,10 @@ export class GridspacePrivateService {
 		if (input.withRenotes === false) query.andWhere(mode === 'home' ? '(note.renoteId IS NULL OR note.text IS NOT NULL OR note.cw IS NOT NULL OR note.replyId IS NOT NULL OR cardinality(note.fileIds) > 0 OR note.hasPoll)' : 'note.renoteId IS NULL');
 		if (input.withFiles) query.andWhere('cardinality(note.fileIds) > 0');
 		if (input.withChannelNotes === false) query.andWhere('note.channelId IS NULL');
+		const pureRenote = '(note.renoteId IS NOT NULL AND note.text IS NULL AND note.cw IS NULL AND note.replyId IS NULL AND cardinality(note.fileIds) = 0 AND NOT note.hasPoll)';
+		if (input.timelineIncludeMyRenotes === false) query.andWhere(`(NOT ${pureRenote} OR note.userId != :timelineSelf)`, { timelineSelf: viewerId });
+		if (input.timelineIncludeRenotedMyNotes === false) query.andWhere(`(NOT ${pureRenote} OR note.renoteUserId IS DISTINCT FROM :timelineSelf)`, { timelineSelf: viewerId });
+		if (input.timelineIncludeLocalRenotes === false) query.andWhere(`NOT (${pureRenote} AND note.renoteUserHost IS NULL)`);
 		return query;
 	}
 
@@ -236,6 +245,104 @@ export class GridspacePrivateService {
 		const query = this.query(viewerId, { mode: 'show', channelId }).andWhere('note.id = :noteId', { noteId });
 		if (runner) return query.setQueryRunner(runner).getOne();
 		return (await this.search.read(query))[0] ?? null;
+	}
+
+	/** Pair-authenticated reference paging; source authorization is rechecked before body reads. */
+	public async peerTimeline(input: PrivatePeerRequest) {
+		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
+		if (!mode || !['home', 'mentions', 'direct', 'channel'].includes(mode)) throw new GridspaceLinkError('INVALID_REQUEST');
+		const link = await this.authorizeRead(input);
+		if (input.channelId && link.initiator) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		if (input.query && (!input.query.trim() || !(await this.roles.getUserPolicies(link.localUserId)).canSearchNotes)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const status = await this.timelineReferences.status();
+		const sourceInput = link.initiator ? { ...input, withChannelNotes: false } : input;
+		const authorizationStarted = Date.now();
+		const changes = input.timelineSequence != null ? await this.timelineReferences.changes(input.timelineSequence, 100) : null;
+		if (input.timelineValidate) {
+			const page = input.ids?.length ? await this.peerNotes({ ...sourceInput, mode: 'validate', contextMode: mode }) : { notes: [] as PrivateWireNote[], next: null, head: null, scannedThrough: null, observedAt: new Date().toISOString() };
+			const ids = [...new Set(changes?.events.flatMap(event => event.noteId ? [event.noteId] : []) ?? [])];
+			const visible = ids.length ? await this.search.read(this.query(link.localUserId, { ...sourceInput, mode, contextMode: undefined }).andWhere('note.id IN (:...changedTimelineIds)', { changedTimelineIds: ids })) : [];
+			const reference = (note: Pick<MiNote, 'id' | 'uri'>) => ({ noteId: note.id, canonicalUri: canonicalGridspaceNoteUri(note.uri ?? `${this.peer!.origin}/notes/${note.id}`, this.peer!.peerOrigin), sortAt: (BigInt(this.ids.parse(note.id).date.getTime()) * 1000n).toString(), normalized: true, generation: 1 });
+			const visibleIds = new Set(visible.map(note => note.id));
+			const policyChanged = changes?.events.some(event => !event.noteId && (!event.affectedUserId || event.affectedUserId === link.localUserId));
+			const retainedIds = new Set(input.ids ?? []);
+			const packedIds = page.notes.flatMap(note => [note.id, ...(note.renote ? [note.renote.id] : [])]);
+			const policies = packedIds.length ? await this.search.read(this.query(link.localUserId, { mode: 'show' }, undefined, true).andWhere('note.id IN (:...leaseIds)', { leaseIds: packedIds })) : [];
+			const finalAllowed = new Set(policies.map(note => note.id));
+			page.notes = page.notes.filter(note => finalAllowed.has(note.id));
+			for (const note of page.notes) if (note.renote && !finalAllowed.has(note.renote.id)) { delete note.renote; note.renoteId = null; }
+			let validForMs = Math.max(0, 10000 - (Date.now() - authorizationStarted));
+			for (const note of policies) {
+				if (note.userId === link.localUserId) continue;
+				for (const [kind, policy] of [['hidden', note.user?.makeNotesHiddenBefore], ['followers', note.user?.makeNotesFollowersOnlyBefore]] as const) {
+					if (policy != null && policy <= 0) {
+						const cutoff = this.ids.parse(note.id).date.getTime() - policy * 1000;
+						const remaining = cutoff - Date.now();
+						if (remaining > 0) validForMs = Math.min(validForMs, remaining);
+						else if (kind === 'hidden' || cutoff > authorizationStarted) validForMs = 0;
+					}
+				}
+			}
+			const nextSequence = changes?.cursor ?? await this.timelineReferences.currentPosition();
+			await this.authorizeRead(input);
+			return { ...page, references: page.notes.map(note => reference({ id: note.id, uri: note.uri })), newReferences: visible.filter(note => changes?.events.some(event => event.noteId === note.id && event.kind === 'insert')).map(reference), sequence: nextSequence, changed: changes ? changes.resetRequired || !!policyChanged || changes.events.some(event => event.noteId && (visibleIds.has(event.noteId) || retainedIds.has(event.noteId)) && event.kind !== 'insert') : false, generation: status.generation, validForMs };
+		}
+		const sequence = await this.timelineReferences.currentPosition();
+		const query = this.query(link.localUserId, sourceInput);
+		if (input.timelineAnchor) {
+			const anchor = await this.search.read(query.clone().andWhere('(note.uri = :timelineAnchor OR :timelineAnchor = :timelineOrigin || \'/notes/\' || note.id)', { timelineAnchor: input.timelineAnchor, timelineOrigin: this.peer!.origin }).limit(1));
+			await this.authorizeRead(input);
+			return { references: anchor.map(note => ({ noteId: note.id, canonicalUri: note.uri ?? `${this.peer!.origin}/notes/${note.id}`, sortAt: (BigInt(this.ids.parse(note.id).date.getTime()) * 1000n).toString(), normalized: true, generation: 1 })), next: null, upper: null, sequence, generation: status.generation, changed: false };
+		}
+		if (input.timelineBefore?.noteId) query.andWhere('note.id < :timelineBeforeId', { timelineBeforeId: input.timelineBefore.noteId });
+		if (input.timelineUpper?.noteId) query.andWhere('note.id <= :timelineUpperId', { timelineUpperId: input.timelineUpper.noteId });
+		if (input.timelineUntilAt != null) query.andWhere('note.id < :timelineUntilId', { timelineUntilId: this.ids.gen(input.timelineUntilAt + 1) });
+		const scan = this.db.getRepository(MiNote).createQueryBuilder('candidate').select(['candidate.id', 'candidate.uri']);
+		if (input.timelineBefore?.noteId) scan.andWhere('candidate.id < :scanBefore', { scanBefore: input.timelineBefore.noteId });
+		if (input.timelineUpper?.noteId) scan.andWhere('candidate.id <= :scanUpper', { scanUpper: input.timelineUpper.noteId });
+		if (input.timelineUntilAt != null) scan.andWhere('candidate.id < :scanUntil', { scanUntil: this.ids.gen(input.timelineUntilAt + 1) });
+		const candidates = await scan.orderBy('candidate.id', 'DESC').limit(513).getMany();
+		const window = candidates.slice(0, 512);
+		const rows = window.length ? await this.search.read(query.andWhere('note.id IN (:...timelineWindow)', { timelineWindow: window.map(note => note.id) }).orderBy('note.id', 'DESC').limit(51)) : [];
+		const references = rows.map(note => ({ noteId: note.id, canonicalUri: canonicalGridspaceNoteUri(note.uri ?? `${this.peer!.origin}/notes/${note.id}`, this.peer!.peerOrigin), sortAt: (BigInt(this.ids.parse(note.id).date.getTime()) * 1000n).toString(), normalized: true, generation: 1 }));
+		const scanned = window.at(-1);
+		const boundary = scanned ? { noteId: scanned.id, canonicalUri: scanned.uri ?? `${this.peer!.origin}/notes/${scanned.id}`, sortAt: (BigInt(this.ids.parse(scanned.id).date.getTime()) * 1000n).toString() } : null;
+		await this.authorizeRead(input);
+		return { references: references.slice(0, 50), next: references.length > 50 ? references[49] : candidates.length > 512 ? boundary : null, upper: input.timelineUpper ?? (candidates[0] ? { noteId: candidates[0].id, canonicalUri: candidates[0].uri ?? `${this.peer!.origin}/notes/${candidates[0].id}`, sortAt: (BigInt(this.ids.parse(candidates[0].id).date.getTime()) * 1000n).toString() } : null), sequence, generation: status.generation, changed: false };
+	}
+
+	/** No payload is retained between requests; credentials never leave this service. */
+	public async timeline(viewer: MiLocalUser, input: { kind?: 'home' | 'social' | 'mentions' | 'direct' | 'channel'; channelId?: string; query?: string; before?: TimelinePosition; upper?: TimelinePosition; ids?: string[]; sequence?: string; anchor?: string; untilAt?: number; deadline?: number; withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean; includeMyRenotes?: boolean; includeRenotedMyNotes?: boolean; includeLocalRenotes?: boolean; }) {
+		const mode = input.kind === 'mentions' || input.kind === 'direct' || input.kind === 'channel' ? input.kind : 'home';
+		if ((mode === 'channel') !== !!input.channelId) throw new GridspaceLinkError('INVALID_REQUEST');
+		const channel = this.channelAuth.isClient && (mode === 'home' || mode === 'channel') ? await this.channelAuth.destination(viewer) : null;
+		const link = channel ? null : await this.links.privateLink(viewer.id);
+		const credential = channel ? channel.credential : this.links.privateCredential(link!);
+		const startedAt = Date.now();
+		const position = (value: TimelinePosition | undefined) => value ? { sortAt: value.sortAt, canonicalUri: value.canonicalUri, noteId: value.noteId } : undefined;
+		let page: { references: Omit<TimelineReference, 'source'>[]; newReferences?: Omit<TimelineReference, 'source'>[]; notes?: PrivateWireNote[]; next?: TimelinePosition | null; upper?: TimelinePosition | null; sequence: string; generation: number; changed: boolean; validForMs?: number };
+		try {
+			page = await requestGridspacePeer(this.peer!, '/gridspace/v1/private/timeline', {
+			...credential, mode: input.ids ? 'validate' : mode, contextMode: input.ids ? mode : undefined, timelineValidate: !!input.ids,
+			channelId: input.channelId, query: input.query,
+			ids: input.ids, timelineBefore: position(input.before), timelineUpper: position(input.upper), timelineSequence: input.sequence,
+			timelineAnchor: input.anchor,
+			timelineUntilAt: input.untilAt,
+			withReplies: mode === 'home' ? input.withReplies : undefined, withRenotes: mode === 'home' ? input.withRenotes : undefined, withFiles: mode === 'home' ? input.withFiles : undefined,
+			timelineIncludeMyRenotes: input.includeMyRenotes, timelineIncludeRenotedMyNotes: input.includeRenotedMyNotes, timelineIncludeLocalRenotes: input.includeLocalRenotes,
+			}, 2 * 1024 * 1024, input.deadline ?? Date.now() + 8000) as typeof page;
+		} catch { throw new GridspaceLinkError('PEER_UNAVAILABLE'); }
+		if (!Array.isArray(page.references) || page.references.length > 100 || !/^\d+$/.test(page.sequence) || !Number.isInteger(page.generation)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		const notes: PrivateNote[] = [];
+		for (const note of page.notes ?? []) {
+			if (note.origin !== this.peer!.peerOrigin) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+			if (await this.localAllows(viewer, note, mode === 'home', channel?.peerUserId ?? link!.peerUserId)) {
+				const { filterActors: _actors, ...display } = note;
+				notes.push(await this.filterChannelRenote(viewer, display, channel?.peerUserId ?? link!.peerUserId));
+			}
+		}
+		if (channel) await channel.check(); else await this.links.checkPrivateUnchanged(link!);
+		return { ...page, references: page.references.map(ref => ({ ...ref, source: 'peer' as const })), newReferences: (page.newReferences ?? []).map(ref => ({ ...ref, source: 'peer' as const })), notes, validForMs: Math.max(0, Math.min(10000, page.validForMs ?? 10000) - (Date.now() - startedAt)) };
 	}
 
 	private collectionId(note: MiNote) { return (note as MiNote & { gridspaceCollection?: { id: string } }).gridspaceCollection?.id; }

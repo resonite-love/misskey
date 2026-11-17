@@ -26,6 +26,7 @@ import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService
 import { GridspacePrivateService } from './GridspacePrivateService.js';
 import { GridspaceSearchService } from './GridspaceSearchService.js';
 import { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
+import { notificationReferenceLimit, type NotificationReferences } from './notification-protocol.js';
 import type { NotificationOptions, NotificationPeerRequest, NotificationPage, WireNotification, LocalNotification, PeerNotification } from './notification-protocol.js';
 
 @Injectable()
@@ -53,8 +54,8 @@ export class GridspaceNotificationService {
 
 	private page<T>(rows: MiNotification[], items: T[], userId: string, unreadCount: number, input: NotificationOptions): NotificationPage<T> {
 		return { items, unreadCount, origin: this.config.url, recipientId: userId,
-			next: rows.length === (input.limit ?? 20) && !input.ids ? rows.at(-1)!.id : null,
-			newest: (input.since ? rows.at(-1)?.id : rows[0]?.id) ?? null, boundary: rows.at(-1)?.createdAt ? new Date(rows.at(-1)!.createdAt).toISOString() : null };
+											next: rows.length === (input.limit ?? 20) && !input.ids ? rows.at(-1)!.id : null,
+											newest: (input.since ? rows.at(-1)?.id : rows[0]?.id) ?? null, boundary: rows.at(-1)?.createdAt ? new Date(rows.at(-1)!.createdAt).toISOString() : null };
 	}
 
 	public async local(user: MiLocalUser, input: NotificationOptions): Promise<NotificationPage<LocalNotification>> {
@@ -92,8 +93,41 @@ export class GridspaceNotificationService {
 		return state.isRead.filter(read => !read).length;
 	}
 
+	/** References only: no protected body or author is cached by the coordinator. */
+	public async localReferences(user: MiLocalUser, input: NotificationOptions): Promise<NotificationReferences> {
+		const rows = await this.raw(user.id, { limit: notificationReferenceLimit + 1 });
+		return this.references(rows, user.id, input);
+	}
+
+	private references(rows: MiNotification[], userId: string, input: NotificationOptions): NotificationReferences {
+		return { origin: this.config.url, recipientId: userId, complete: rows.length <= notificationReferenceLimit,
+											items: rows.slice(0, notificationReferenceLimit).filter(row => !input.excludeTypes?.includes(row.type)).map(row => ({ id: row.id, createdAt: new Date(row.createdAt).toISOString() })) };
+	}
+
+	public async peerReferences(input: NotificationPeerRequest): Promise<NotificationReferences> {
+		const link = await this.authorize(input);
+		const fetched = await this.raw(link.localUserId, { limit: notificationReferenceLimit + 1 });
+		const rows = input.channelActorId ? await this.channelRows(link.localUserId, input, fetched) : fetched;
+		await this.authorize(input);
+		return { ...this.references(rows, link.localUserId, input), complete: fetched.length <= notificationReferenceLimit };
+	}
+
+	public async remoteReferences(user: MiLocalUser, input: NotificationOptions, channel = false): Promise<NotificationReferences> {
+		const identity = channel ? await this.channels.destination(user, true) : null;
+		const link = identity ? null : await this.links.privateLink(user.id);
+		const page = await this.links.json<NotificationReferences>('/gridspace/v1/notifications/references', {
+			excludeTypes: input.excludeTypes, ...(identity ? identity.credential : this.links.privateCredential(link!)),
+		});
+		if (page.origin !== (identity?.peerOrigin ?? link!.peerOrigin) || (!identity && page.recipientId !== link!.peerUserId) ||
+			!Array.isArray(page.items) || page.items.length > notificationReferenceLimit || typeof page.complete !== 'boolean' || !/^[a-zA-Z0-9]{1,32}$/.test(page.recipientId) ||
+			page.items.some(item => !/^[a-zA-Z0-9]{1,32}$/.test(item.id) || !Number.isFinite(Date.parse(item.createdAt)))) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		if (identity) await identity.check(); else await this.links.checkPrivateUnchanged(link!);
+		return page;
+	}
+
 	public async peer(action: string, input: NotificationPeerRequest): Promise<NotificationPage<WireNotification>> {
 		const link = await this.authorize(input);
+		if (input.expectedRecipientId && input.expectedRecipientId !== link.localUserId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if (input.channelActorId && !['query', 'read', 'read-all'].includes(action)) throw new GridspaceLinkError('ACTION_REJECTED');
 		if (action === 'accept-follow' || action === 'reject-follow') {
 			if (input.ids?.length !== 1 || !input.followRequestId) throw new GridspaceLinkError('INVALID_REQUEST');
@@ -162,20 +196,20 @@ export class GridspaceNotificationService {
 				reactionUrl = local?.publicUrl || local?.originalUrl || (await emojis.populateEmojis([name], null))[name] || null;
 			}
 			items.push({ id: raw.id, createdAt: new Date(raw.createdAt).toISOString(), type: raw.type, isRead: false, note: null,
-				user: actor ? { name: actor.name, username: actor.username, host: actor.host ?? new URL(this.config.url).host, uri: actor.uri ?? `${this.config.url}/users/${actor.id}` } : null,
-				body: raw.type === 'app' ? raw.customBody : raw.type === 'followRequestAccepted' ? raw.message : null,
-				reaction: raw.type === 'reaction' ? canonicalReaction(raw.reaction, this.config.url) : null,
-				presentation: {
-					followRequestId: raw.type === 'receiveFollowRequest' && raw.followRequestId && await this.db.getRepository(MiFollowRequest).existsBy({ id: raw.followRequestId, followeeId: link.localUserId, followerId: raw.notifierId }) ? raw.followRequestId : null,
-					canManageFollowRequest,
-					user: 'user' in packed ? displayUser(packed.user) : null, recipient,
-					noteUser: 'note' in packed ? displayUser(packed.note.user) : null,
-					header: raw.type === 'app' ? raw.customHeader : null, icon: raw.type === 'app' ? raw.customIcon ?? null : null,
-					achievement: raw.type === 'achievementEarned' ? raw.achievement : null,
-					roleName: packed.type === 'roleAssigned' ? packed.role.name : null, roleIcon: packed.type === 'roleAssigned' ? packed.role.iconUrl : null,
-					roomName: packed.type === 'chatRoomInvitationReceived' ? packed.invitation.room.name : null,
-					exportedEntity: raw.type === 'exportCompleted' ? raw.exportedEntity : null, fileId: raw.type === 'exportCompleted' ? raw.fileId : null, reactionUrl,
-				} });
+																user: actor ? { name: actor.name, username: actor.username, host: actor.host ?? new URL(this.config.url).host, uri: actor.uri ?? `${this.config.url}/users/${actor.id}` } : null,
+																body: raw.type === 'app' ? raw.customBody : raw.type === 'followRequestAccepted' ? raw.message : null,
+																reaction: raw.type === 'reaction' ? canonicalReaction(raw.reaction, this.config.url) : null,
+																presentation: {
+																	followRequestId: raw.type === 'receiveFollowRequest' && raw.followRequestId && await this.db.getRepository(MiFollowRequest).existsBy({ id: raw.followRequestId, followeeId: link.localUserId, followerId: raw.notifierId }) ? raw.followRequestId : null,
+																	canManageFollowRequest,
+																	user: 'user' in packed ? displayUser(packed.user) : null, recipient,
+																	noteUser: 'note' in packed ? displayUser(packed.note.user) : null,
+																	header: raw.type === 'app' ? raw.customHeader : null, icon: raw.type === 'app' ? raw.customIcon ?? null : null,
+																	achievement: raw.type === 'achievementEarned' ? raw.achievement : null,
+																	roleName: packed.type === 'roleAssigned' ? packed.role.name : null, roleIcon: packed.type === 'roleAssigned' ? packed.role.iconUrl : null,
+																	roomName: packed.type === 'chatRoomInvitationReceived' ? packed.invitation.room.name : null,
+																	exportedEntity: raw.type === 'exportCompleted' ? raw.exportedEntity : null, fileId: raw.type === 'exportCompleted' ? raw.fileId : null, reactionUrl,
+																} });
 		}
 		// Pack protected bodies last, after notifier lookups. peerNotes rechecks
 		// the note audience/deletion and grant after its own asynchronous work.
@@ -209,7 +243,9 @@ export class GridspaceNotificationService {
 		const link = identity ? null : await this.links.privateLink(user.id);
 		// Endpoint inputs can contain login credentials and unknown properties.
 		// Only the documented query fields may cross the server boundary.
-		const options: NotificationOptions = { before: input.before, since: input.since, ids: input.ids, excludeTypes: input.excludeTypes, limit: input.limit, countOnly: input.countOnly };
+		if (input.expectedOrigin && input.expectedOrigin !== (identity?.peerOrigin ?? link!.peerOrigin)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		if (!identity && input.expectedRecipientId && input.expectedRecipientId !== link!.peerUserId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		const options: NotificationOptions = { before: input.before, since: input.since, ids: input.ids, excludeTypes: input.excludeTypes, limit: input.limit, countOnly: input.countOnly, expectedRecipientId: input.expectedRecipientId };
 		const page = await this.links.json<NotificationPage<WireNotification>>(`/gridspace/v1/notifications/${action}`, { ...options, ...(identity ? identity.credential : this.links.privateCredential(link!)) });
 		if (page.origin !== (identity?.peerOrigin ?? link!.peerOrigin) || (!identity && page.recipientId !== link!.peerUserId) || !Array.isArray(page.items) || page.items.length > 100) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		const items: PeerNotification[] = [];

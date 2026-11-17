@@ -21,15 +21,23 @@ type Source = 'local' | 'peer' | 'channel';
 export type NotificationRow = { key: string; origin: string; recipientId: string; source: Source; id: string; createdAt: string; isRead: boolean; suspended?: boolean } &
 	({ source: 'local'; local: Page['local'][number]['notification'] } | { source: 'peer' | 'channel'; remote: Page['remote'][number] });
 export type NotificationGroup = NotificationRow & { members: NotificationRow[] };
-const makeState = () => ({ before: undefined as string | undefined, newest: undefined as string | undefined, boundary: Infinity, more: true, busy: false, error: false });
+type TimelinePage = { cursor: string; nextCursor: string | null; scannedCount: number; complete: boolean; revalidateAfterMs: number;
+																						items: { key: string; source: Source; origin: string; recipientId: string; id: string; createdAt: string; isRead: boolean; local: Page['local'][number]['notification'] | null; remote: Page['remote'][number] | null }[];
+																						sources: { source: Source; status: 'ok' | 'disabled' | 'unavailable' | 'unauthorized'; unreadCount: number | null }[] };
 
 export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTop: () => boolean = () => true) {
 	const suspendedRows = shallowRef<NotificationGroup[] | null>(null);
 	const queuedKeys = shallowRef(new Set<string>());
-	const queued = computed(() => [...data.local.value, ...data.peer.value, ...data.channel.value].filter(row => queuedKeys.value.has(row.key)).length);
+	const queued = computed(() => ordered.value.filter(row => queuedKeys.value.has(row.key)).length);
 	const releaseQueue = () => { if (!suspendedRows.value) queuedKeys.value = new Set(); };
-	const data = { local: shallowRef<NotificationRow[]>([]), peer: shallowRef<NotificationRow[]>([]), channel: shallowRef<NotificationRow[]>([]) };
-	const state = reactive({ local: makeState(), peer: makeState(), channel: makeState() });
+	const ordered = shallowRef<NotificationRow[]>([]);
+	const busy = shallowRef(false);
+	const error = shallowRef(false);
+	const nextCursor = shallowRef<string | null>(null);
+	let cursor: string | undefined;
+	let scannedCount = 0;
+	let expiresAt = Infinity;
+	let expiryTimer: number | undefined;
 	const readErrors = reactive({ local: false, peer: false, channel: false });
 	const reading: Record<Source, Promise<void> | null> = { local: null, peer: null, channel: null };
 	let generation = 0;
@@ -43,15 +51,12 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 	const confirmedRead = { local: new Set<string>(), peer: new Set<string>(), channel: new Set<string>() };
 	const usable = () => active && !window.document.hidden;
 	const sources: Source[] = ['local', 'peer', 'channel'];
-	const individualRows = computed(() => {
-		const boundary = Math.max(...sources.map(s => state[s].error ? -Infinity : state[s].boundary));
-		return sources.flatMap(s => data[s].value).filter(row => {
-			if (Date.parse(row.createdAt) <= boundary || queuedKeys.value.has(row.key)) return false;
-			if (!$i) return true;
-			if (row.source !== 'local') return !checkTextWordMute(`${row.remote.body ?? ''}\n${row.remote.note?.cw ?? ''}\n${row.remote.note?.text ?? ''}\n${row.remote.renote?.cw ?? ''}\n${row.remote.renote?.text ?? ''}`, $i.hardMutedWords);
-			return !('note' in row.local) || !checkNoteWordMute(row.local.note, $i, $i.hardMutedWords);
-		}).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.key.localeCompare(b.key));
-	});
+	const individualRows = computed(() => ordered.value.filter(row => {
+		if (queuedKeys.value.has(row.key)) return false;
+		if (!$i) return true;
+		if (row.source !== 'local') return !checkTextWordMute(`${row.remote.body ?? ''}\n${row.remote.note?.cw ?? ''}\n${row.remote.note?.text ?? ''}\n${row.remote.renote?.cw ?? ''}\n${row.remote.renote?.text ?? ''}`, $i.hardMutedWords);
+		return !('note' in row.local) || !checkNoteWordMute(row.local.note, $i, $i.hardMutedWords);
+	}));
 	const rows = computed<NotificationGroup[]>(() => {
 		if (suspendedRows.value) return suspendedRows.value;
 		const result: NotificationGroup[] = [];
@@ -77,102 +82,77 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 		}
 		return result;
 	});
-	const hasMore = computed(() => sources.some(s => state[s].more && !state[s].error));
-	const busy = computed(() => sources.some(s => state[s].busy));
-	const error = computed(() => sources.some(s => state[s].error));
+	const hasMore = computed(() => nextCursor.value != null);
 	const readError = computed(() => sources.some(s => readErrors[s]));
 
 	function count(source: Source, value: number) {
 		if (source === 'channel') { setChannelNotificationCount(value); } else if (source === 'peer') { setLinkedNotificationCount(value); } else updateCurrentAccount({ unreadNotificationsCount: value, hasUnreadNotification: value > 0 });
 	}
 
-	function convert(page: Page, source: Source): NotificationRow[] {
-		const common = { source, origin: page.origin, recipientId: page.recipientId };
-		return source === 'local'
-			? page.local.map(n => ({ ...common, ...n, isRead: n.isRead || confirmedRead[source].has(n.id), source, key: `${page.origin}:${page.recipientId}:${n.id}`, local: n.notification }))
-			: page.remote.map(n => ({ ...common, id: n.id, createdAt: n.createdAt, isRead: n.isRead || confirmedRead[source].has(n.id), source, key: `${page.origin}:${page.recipientId}:${n.id}`, remote: n }));
-	}
-
 	function fail(source: Source) {
 		epochs[source]++;
-		state[source].busy = false;
-		state[source].error = true;
-		if (source !== 'local') { data[source].value = []; failLinkedNotifications(source); }
-	}
-
-	async function request(source: Source, options: entities.GridspaceNotificationsRequest) {
-		const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
-		while (true) {
-			const allRevision = allReadRevisions[source];
-			const revision = readRevisions[source];
-			const page = await misskeyApi('gridspace/notifications', { ...options, source, excludeTypes: exclude.value, limit: 20 }, undefined, signal);
-			if (allRevision === allReadRevisions[source]) return { page, revision };
-			// All-read includes IDs not loaded yet. Fetch their current flags instead
-			// of accepting an older snapshot or guessing which new arrivals it covers.
-			signal.throwIfAborted();
+		error.value = true;
+		if (source !== 'local') {
+			ordered.value = ordered.value.filter(row => row.source !== source);
+			failLinkedNotifications(source);
 		}
 	}
 
-	async function load(source: Source, newer = false) {
-		if ((source === 'channel' && !linkedNotifications.channelEnabled) || (source === 'peer' && linkedNotifications.peerEnabled === false)) {
-			state[source].more = false; state[source].boundary = -Infinity; return;
-		}
-		if (!usable() || state[source].busy || (!newer && !state[source].more)) return;
-		// An initially empty stream has no cursor. Treat its first arrival as a
-		// fresh page, keeping the older continuation instead of skipping it.
-		if (newer && !state[source].newest) newer = false;
-		if (!newer && !state[source].newest) state[source].more = true;
+	async function load(mode: 'page' | 'refresh' | 'validate' = 'page') {
+		if (!usable() || busy.value || (mode === 'page' && cursor && !nextCursor.value)) return;
 		const current = generation;
-		const epoch = epochs[source];
-		state[source].busy = true;
+		busy.value = true;
+		const startedAt = Date.now();
+		const appending = mode === 'page' && cursor != null;
 		try {
-			let more = true;
-			do {
-				const { page, revision } = await request(source, newer ? { since: state[source].newest } : { before: state[source].before });
-				if (current !== generation || epoch !== epochs[source] || !usable()) return;
-				state[source].error = false;
-				if (newer && !isAtTop()) {
-					const known = new Set(data[source].value.map(n => n.key));
-					queuedKeys.value = new Set([...queuedKeys.value, ...convert(page, source).filter(n => !known.has(n.key)).map(n => n.key)]);
-				}
-				data[source].value = [...new Map([...data[source].value, ...convert(page, source)].map(n => [n.key, n])).values()];
-				if (revision === readRevisions[source]) count(source, page.unreadCount);
-				if (newer) { if (page.newest) state[source].newest = page.newest; more = page.next != null; } else {
-					state[source].newest ??= page.newest ?? undefined;
-					state[source].before = page.next ?? undefined; state[source].more = page.next != null;
-					state[source].boundary = page.next ? Date.parse(page.boundary!) : -Infinity;
-					more = false;
-				}
-			} while (more && usable()); // catch up every missed page after reconnect
-		} catch { if (current === generation && epoch === epochs[source]) fail(source); } finally { if (current === generation && epoch === epochs[source]) state[source].busy = false; }
+			let page: TimelinePage;
+			let revisions: typeof readRevisions;
+			// All-read includes unloaded IDs. A response captured before that write must
+			// be checked again, without guessing which future arrivals it covers.
+			while (true) {
+				const allRevisions = { ...allReadRevisions };
+				revisions = { ...readRevisions };
+				page = await misskeyApi<TimelinePage, 'gridspace/notifications/timeline'>('gridspace/notifications/timeline', {
+					mode, cursor: mode === 'page' ? nextCursor.value ?? undefined : cursor,
+					count: Math.max(20, scannedCount), limit: 20, excludeTypes: exclude.value,
+				}, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
+				if (current !== generation || !usable()) return;
+				if (sources.every(source => allRevisions[source] === allReadRevisions[source])) break;
+			}
+			const incoming = page.items.flatMap<NotificationRow>(item => {
+				const common = { key: item.key, origin: item.origin, recipientId: item.recipientId, id: item.id, createdAt: item.createdAt, isRead: item.isRead || confirmedRead[item.source].has(item.key) };
+				return item.source === 'local' && item.local ? [{ ...common, source: 'local' as const, local: item.local }]
+					: item.source !== 'local' && item.remote ? [{ ...common, source: item.source, remote: item.remote }] : [];
+			}) as NotificationRow[];
+			if (mode === 'refresh' && cursor && !isAtTop()) {
+				const known = new Set(ordered.value.map(row => row.key));
+				queuedKeys.value = new Set([...queuedKeys.value, ...incoming.filter(row => !known.has(row.key)).map(row => row.key)]);
+			}
+			if (mode === 'page' && cursor) {
+				const known = new Set(ordered.value.map(row => row.key));
+				ordered.value = [...ordered.value, ...incoming.filter(row => !known.has(row.key))];
+			} else ordered.value = incoming;
+			cursor = page.cursor; nextCursor.value = page.nextCursor; scannedCount = page.scannedCount;
+			error.value = !page.complete;
+			for (const source of page.sources) {
+				if (source.status === 'unavailable' || source.status === 'unauthorized') fail(source.source);
+				else if (source.unreadCount != null && revisions[source.source] === readRevisions[source.source]) count(source.source, source.unreadCount);
+				if (source.status === 'disabled') ordered.value = ordered.value.filter(row => row.source !== source.source);
+			}
+			const known = new Set(ordered.value.map(row => row.key));
+			queuedKeys.value = new Set([...queuedKeys.value].filter(key => known.has(key)));
+			suspendedRows.value = null;
+			// An older page has not revalidated the rows already on screen.
+			expiresAt = appending ? Math.min(expiresAt, startedAt + page.revalidateAfterMs) : startedAt + page.revalidateAfterMs;
+			window.clearTimeout(expiryTimer);
+			expiryTimer = window.setTimeout(stripProtected, Math.max(0, expiresAt - Date.now()));
+			if (Date.now() >= expiresAt) stripProtected();
+		} catch {
+			if (current === generation) { for (const source of sources) fail(source); }
+		} finally { if (current === generation) busy.value = false; }
 	}
 
-	async function validate(source: Source) {
-		const current = generation;
-		const epoch = epochs[source];
-		const existing = data[source].value;
-		const replacement: NotificationRow[] = [];
-		try {
-			for (let i = 0; i < existing.length; i += 100) {
-				const { page, revision } = await request(source, { ids: existing.slice(i, i + 100).map(n => n.id) });
-				if (current !== generation || epoch !== epochs[source] || !usable()) return;
-				replacement.push(...convert(page, source)); if (revision === readRevisions[source]) count(source, page.unreadCount);
-			}
-			if (current === generation && epoch === epochs[source]) {
-				const checked = new Set(existing.map(n => n.key));
-				data[source].value = [...data[source].value.filter(n => !checked.has(n.key)), ...replacement.map(n => confirmedRead[source].has(n.id) ? { ...n, isRead: true } : n)];
-			}
-		} catch { if (current === generation && epoch === epochs[source]) fail(source); }
-	}
-
-	async function tick() {
-		if (!usable() || suspendedRows.value) return;
-		await Promise.all(sources.map(async source => {
-			if (state[source].error) { await resetSource(source); return; }
-			await validate(source);
-			if (!state[source].error) await load(source, true);
-		}));
-	}
+	async function tick() { if (usable()) await load('refresh'); }
 
 	async function read(source: Source, ids: string[], all = false): Promise<boolean> {
 		if ((source === 'channel' && !linkedNotifications.channelEnabled) || (source === 'peer' && linkedNotifications.peerEnabled === false)) return true;
@@ -181,22 +161,24 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 		// Explicit all-read waits behind an automatic seen update instead of disappearing.
 		while (all && reading[source]) await reading[source];
 		if (current !== generation || epoch !== epochs[source] || !usable() || reading[source] || (!all && !ids.length)) return false;
-		const readIds = new Set(all ? data[source].value.map(n => n.id) : ids);
+		const readIds = new Set(all ? ordered.value.filter(n => n.source === source).map(n => n.id) : ids);
+		const readKeys = new Set(ordered.value.filter(n => n.source === source && readIds.has(n.id)).map(n => n.key));
+		const identity = ordered.value.find(n => n.source === source);
 		let completed!: () => void;
 		reading[source] = new Promise<void>(resolve => { completed = resolve; });
 		try {
-			const result = await misskeyApi('gridspace/notifications/read', { source, ...(all ? { all: true } : { ids }) }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
+			const result = await misskeyApi('gridspace/notifications/read', { source, ...(identity ? { origin: identity.origin, recipientId: identity.recipientId } : {}), ...(all ? { all: true } : { ids }) }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
 			if (current !== generation || epoch !== epochs[source] || !usable()) return false;
 			readRevisions[source]++;
 			if (all) allReadRevisions[source]++;
-			for (const id of readIds) confirmedRead[source].add(id);
-			data[source].value = data[source].value.map(n => readIds.has(n.id) ? { ...n, isRead: true } : n);
+			for (const key of readKeys) confirmedRead[source].add(key);
+			ordered.value = ordered.value.map(n => readKeys.has(n.key) ? { ...n, isRead: true } : n);
 			readErrors[source] = false;
-			for (const id of readIds) pending[source].delete(id);
+			for (const key of readKeys) pending[source].delete(key);
 			count(source, result.unreadCount);
 			// A page may finish after this write started but before it completed.
 			// Check those additional IDs at the source; some may be later arrivals.
-			if (all && data[source].value.some(n => !readIds.has(n.id))) await validate(source);
+			if (all && ordered.value.some(n => n.source === source && !readIds.has(n.id))) await load('validate');
 			return true;
 		} catch (error) {
 			if (current === generation && epoch === epochs[source]) {
@@ -208,23 +190,26 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 		} finally { reading[source] = null; completed(); }
 	}
 
-	function seen(row: NotificationGroup) { if (usable() && !row.suspended) for (const member of row.members) if (!member.isRead) pending[member.source].add(member.id); }
+	function seen(row: NotificationGroup) { if (usable() && !row.suspended) for (const member of row.members) if (!member.isRead) pending[member.source].add(member.key); }
 
 	async function flushSeen() {
 		if (!usable()) return;
 		await Promise.all(sources.map(async source => {
-			const ids = [...pending[source]].filter(id => individualRows.value.some(row => row.source === source && row.id === id)).slice(0, 100);
+			const ids = individualRows.value.filter(row => row.source === source && pending[source].has(row.key)).slice(0, 100).map(row => row.id);
 			await read(source, ids);
 		}));
 	}
 
-	async function resetSource(source: Source) { epochs[source]++; state[source] = makeState(); data[source].value = []; await load(source); }
+	function clear() {
+		suspendedRows.value = null; queuedKeys.value = new Set(); generation++; controller.abort(); controller = new AbortController();
+		window.clearTimeout(expiryTimer);
+		for (const source of sources) { pending[source].clear(); confirmedRead[source].clear(); readErrors[source] = false; }
+		ordered.value = []; cursor = undefined; nextCursor.value = null; scannedCount = 0; busy.value = false; expiresAt = Infinity;
+	}
 
-	function clear() { suspendedRows.value = null; queuedKeys.value = new Set(); generation++; controller.abort(); controller = new AbortController(); for (const source of sources) { if (source !== 'local') data[source].value = []; pending[source].clear(); confirmedRead[source].clear(); } }
+	async function reload() { clear(); await load('refresh'); }
 
-	async function reload() { clear(); await Promise.all(sources.map(resetSource)); }
-
-	async function older() { if (suspendedRows.value) return; await Promise.all(sources.map(s => load(s))); }
+	async function older() { if (!suspendedRows.value) await load(); }
 
 	async function markDisplayed() { await flushSeen(); }
 
@@ -233,39 +218,40 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 	function stripped(row: NotificationRow): NotificationRow {
 		if (row.source === 'local') return row;
 		return { key: row.key, origin: row.origin, recipientId: row.recipientId, source: row.source, id: row.id, createdAt: row.createdAt, isRead: row.isRead, suspended: true,
-			remote: { id: row.id, createdAt: row.createdAt, isRead: row.isRead, type: 'test', note: null, user: null, body: null, reaction: null } };
+											remote: { id: row.id, createdAt: row.createdAt, isRead: row.isRead, type: 'test', note: null, user: null, body: null, reaction: null } };
+	}
+
+	function stripProtected() {
+		ordered.value = ordered.value.map(stripped);
+		if (suspendedRows.value) suspendedRows.value = suspendedRows.value.map(row => ({ ...stripped(row), members: row.members.map(stripped) }));
 	}
 
 	function suspend() {
-		generation++; controller.abort(); controller = new AbortController();
+		generation++; controller.abort(); controller = new AbortController(); busy.value = false;
 		suspendedRows.value ??= rows.value.map(row => ({ ...stripped(row), members: row.members.map(stripped) }));
-		data.peer.value = data.peer.value.map(stripped); data.channel.value = data.channel.value.map(stripped);
-		for (const source of sources) { state[source].busy = false; pending[source].clear(); }
+		stripProtected();
+		for (const source of sources) pending[source].clear();
 	}
 
 	async function resume() {
 		if (!usable()) return;
-		const current = generation;
-		await Promise.all(sources.map(async source => {
-			if (state[source].error || !state[source].newest) await resetSource(source);
-			else await validate(source);
-		}));
-		if (current !== generation || !usable()) return;
-		suspendedRows.value = null;
+		await load(cursor ? 'validate' : 'refresh');
+		if (!usable()) return;
 		if (isAtTop()) releaseQueue();
-		await Promise.all(sources.filter(source => !state[source].error).map(source => load(source, true)));
+		await load('refresh');
 	}
 
 	function visibility() { if (!window.document.hidden && active) void resume(); else suspend(); }
 
 	let ticking = false;
 	const stream = store.s.realtimeMode ? useStream().useChannel('main') : null;
-	const changed = () => { if (!state.local.busy) void load('local', true); };
+	const changed = () => { void load('refresh'); };
 	onMounted(() => {
 		void reload(); window.document.addEventListener('visibilitychange', visibility);
 		stream?.on('notification', changed); stream?.on('notificationRead', changed); stream?.on('notificationFlushed', reload);
 		let elapsed = 0;
 		timer = window.setInterval(async () => {
+			if (Date.now() >= expiresAt) stripProtected();
 			if (ticking || !usable()) return;
 			ticking = true;
 			try { await flushSeen(); if (++elapsed % 10 === 0) await tick(); } finally { ticking = false; }
@@ -274,15 +260,7 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 	onActivated(() => { if (!active) { active = true; void resume(); } });
 	onDeactivated(() => { active = false; suspend(); });
 	onBeforeUnmount(() => { active = false; clear(); window.clearInterval(timer); stream?.dispose(); window.document.removeEventListener('visibilitychange', visibility); void refreshLinkedNotifications(); });
-	watch(() => [linkedNotifications.peerEnabled, linkedNotifications.channelEnabled] as const, (next, previous) => {
-		for (const [index, source] of (['peer', 'channel'] as const).entries()) if (next[index] !== previous[index]) {
-			pending[source].clear(); confirmedRead[source].clear(); readErrors[source] = false;
-			const removed = new Set(data[source].value.map(row => row.key));
-			queuedKeys.value = new Set([...queuedKeys.value].filter(key => !removed.has(key)));
-			if (suspendedRows.value) suspendedRows.value = suspendedRows.value.filter(row => row.source !== source);
-			void resetSource(source);
-		}
-	});
+	watch(() => [linkedNotifications.peerEnabled, linkedNotifications.channelEnabled] as const, () => { void reload(); });
 	watch(exclude, reload, { deep: true });
 	return { rows, hasMore, busy, error, readError, older, reload, seen, markDisplayed, markAll, queued, releaseQueue };
 }

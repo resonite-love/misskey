@@ -4,6 +4,14 @@
  */
 
 import { Module } from '@nestjs/common';
+import { TimelineReferenceService } from './gridspace/timeline/TimelineReferenceService.js';
+import { TimelineSessionStore } from './gridspace/timeline/TimelineSessionStore.js';
+import { TimelineLocalSource } from './gridspace/timeline/TimelineLocalSource.js';
+import { GridspaceTimelineService } from './gridspace/timeline/GridspaceTimelineService.js';
+import { GridspaceTimelineListSourceService } from './gridspace/timeline/GridspaceTimelineListSourceService.js';
+import { TimelineFavoriteSource } from './gridspace/timeline/TimelineFavoriteSource.js';
+import { TimelinePublicListSource } from './gridspace/timeline/TimelinePublicListSource.js';
+import { GridspaceNotificationTimelineService } from './gridspace/GridspaceNotificationTimelineService.js';
 import { GridspaceNoteService } from './gridspace/GridspaceNoteService.js';
 import { GridspaceReactionDeliveryService } from './gridspace/GridspaceReactionDeliveryService.js';
 import { GridspaceReactionNotificationService } from './gridspace/GridspaceReactionNotificationService.js';
@@ -342,6 +350,14 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		QueueModule,
 	],
 	providers: [
+		TimelineReferenceService,
+		TimelineSessionStore,
+		TimelineLocalSource,
+		GridspaceTimelineService,
+		GridspaceTimelineListSourceService,
+		TimelineFavoriteSource,
+		TimelinePublicListSource,
+		GridspaceNotificationTimelineService,
 		GridspaceDriveService,
 		GridspaceContentService,
 		GridspaceSharedDriveService,
@@ -673,6 +689,14 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		//#endregion
 	],
 	exports: [
+		TimelineReferenceService,
+		TimelineSessionStore,
+		TimelineLocalSource,
+		GridspaceTimelineService,
+		GridspaceTimelineListSourceService,
+		TimelineFavoriteSource,
+		TimelinePublicListSource,
+		GridspaceNotificationTimelineService,
 		GridspaceDriveService,
 		GridspaceContentService,
 		GridspaceSharedDriveService,

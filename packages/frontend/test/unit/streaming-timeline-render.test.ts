@@ -25,10 +25,9 @@ function normal(id: string, ad = false) {
 function mountTimeline(initial: ReturnType<typeof normal>[], animation = true) {
 	const rows = Vue.shallowRef(initial);
 	const Note = Vue.defineComponent({
-		props: ['note'],
+		props: ['row'],
 		setup(props) {
-			const id = props.note.id;
-			return () => Vue.h('article', { 'data-note': id }, id);
+			return () => props.row.kind === 'normal' ? Vue.h('article', { 'data-note': props.row.note.id }, props.row.note.id) : Vue.h('div', { 'data-placeholder': '' });
 		},
 	});
 	const Timeline = Vue.defineComponent({
@@ -37,7 +36,7 @@ function mountTimeline(initial: ReturnType<typeof normal>[], animation = true) {
 			TransitionGroup: Vue.TransitionGroup,
 			prefer: { s: { animation, enablePullToRefresh: false, enableInfiniteScroll: false } },
 			paginator: { fetching: Vue.ref(false), error: Vue.ref(false) },
-			home: { rows, error: Vue.ref(false), busy: Vue.ref(false), hasMore: Vue.ref(false), queuedCount: Vue.ref(0), pagingKey: Vue.ref(0), loading: Vue.ref(false) },
+			home: { rows, error: Vue.ref(false), busy: Vue.ref(false), hasMore: Vue.ref(false), queuedCount: Vue.ref(0), pagingKey: Vue.ref(0), loading: Vue.ref(false), initialLoading: Vue.ref(false), initialError: Vue.ref(false) },
 			src: 'home',
 			clearLeavingPrivateNote: vi.fn(),
 			isSeparatorNeeded: () => false,
@@ -48,7 +47,7 @@ function mountTimeline(initial: ReturnType<typeof normal>[], animation = true) {
 	const view = render(Timeline, {
 		global: {
 			mocks: { $style: {} },
-			components: { MkNote: Note, MkAd: { render: () => Vue.h('aside', { 'data-ad': '' }, 'Ad') } },
+			components: { MkTimelineNoteRow: Note, MkAd: { render: () => Vue.h('aside', { 'data-ad': '' }, 'Ad') } },
 			directives: { appear: {} },
 			stubs: { transition: false, 'transition-group': false, MkButton: true, MkInfo: true, MkLoading: true, MkError: true, MkResult: true, MkGridspacePrivateNoteRow: true, MkTimelineLoadMore: true },
 		},

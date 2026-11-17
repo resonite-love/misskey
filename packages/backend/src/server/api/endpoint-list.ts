@@ -471,6 +471,9 @@ export * as 'gridspace/notifications/read' from './endpoints/gridspace/notificat
 export * as 'gridspace/notifications/follow-request' from './endpoints/gridspace/notifications/follow-request.js';
 export * as 'gridspace/private-grant' from './endpoints/gridspace/private-grant.js';
 export * as 'gridspace/private-notes' from './endpoints/gridspace/private-notes.js';
+export * as 'gridspace/timeline' from './endpoints/gridspace/timeline.js';
+export * as 'gridspace/timeline/changes' from './endpoints/gridspace/timeline/changes.js';
+export * as 'gridspace/notifications/timeline' from './endpoints/gridspace/notifications/timeline.js';
 export * as 'gridspace/private-file' from './endpoints/gridspace/private-file.js';
 export * as 'gridspace/private-reply' from './endpoints/gridspace/private-reply.js';
 export * as 'gridspace/private-upload' from './endpoints/gridspace/private-upload.js';
