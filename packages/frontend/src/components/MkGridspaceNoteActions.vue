@@ -139,7 +139,12 @@ async function react(event: MouseEvent) {
 	const anchor = event.currentTarget as HTMLElement;
 	if (!await prepareInteraction()) return;
 	const current = generation; const actor = info.value?.account.uri;
-	reactionPicker.show(anchor, null, value => { if (current === generation && actor === info.value?.account.uri) void toggleReaction(value, actor); }, () => anchor.focus());
+	let pending = Promise.resolve();
+	reactionPicker.show(anchor, null, value => {
+		pending = pending.then(async () => {
+			if (current === generation && actor === info.value?.account.uri) await toggleReaction(value, actor);
+		}).catch(() => { if (current === generation) error.value = true; });
+	}, () => anchor.focus());
 }
 
 const reactionTransport: ReactionTransport = {
