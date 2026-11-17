@@ -25,6 +25,7 @@ export class TimelineChangeBroker {
 	private statistics = { producerLoads: 0, cacheHits: 0, sharedWaits: 0 };
 	constructor(@Inject(DI.redis) private readonly redis: Redis.Redis) {}
 	public metrics() { return { ...this.statistics }; }
+	public async invalidate(): Promise<void> { await this.redis.del(PREFIX + 'current'); }
 
 	private async cached(key: string, load: () => Promise<unknown>): Promise<string> {
 		const existing = await this.redis.get(PREFIX + key);

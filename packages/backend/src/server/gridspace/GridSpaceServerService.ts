@@ -86,7 +86,7 @@ export class GridSpaceServerService {
 		input => this.reactions.peerRead(input), input => this.reactionDelivery.receive(input), noteIds => this.notes.readMany(noteIds), input => this.channels.peerList(input), input => this.channels.peerDelete(input), input => this.drive.peer(input), input => this.content.peer(input), input => this.sharedDrive.peer(input), input => this.managed.peer(input), input => this.channels.peerUpdate(input), input => this.noteMenus.peer(input, userId => this.limitAction(userId, 'gridspace/note-menu', 60)), input => this.publicNotes.local(input), input => this.reactionNotifications.receive(input), async input => {
 			if (input.shared) await this.notes.sync(input.noteId);
 			return this.timelinePeer.receive(input.noteId);
-		});
+		}, () => this.timelinePeer.receiveChanges());
 		done();
 	}
 }

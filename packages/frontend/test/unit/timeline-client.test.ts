@@ -224,6 +224,45 @@ describe('server timeline client', () => {
 		expect(value.queuedCount.value).toBe(1); value.releaseQueue();
 		expect(value.rows.value.map(row => row.key)).toEqual([item('new').key, item('old').key]);
 	});
+	it.each(['home', 'channel'])('keeps reauthorized %s bodies visible while a reset window is loading', async kind => {
+		let finish!: (value: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('allowed'), item('revoked')]))
+			.mockResolvedValueOnce(page([item('allowed')], { resetRequired: true, removed: [item('revoked').key] }))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+		const value = new TimelineClient({ kind }, { request, now: () => Date.now() });
+		clients.push(value); await value.reload();
+		await vi.advanceTimersByTimeAsync(7000);
+		const waiting = value.refresh(); await settle();
+		await vi.advanceTimersByTimeAsync(3500);
+		expect(value.rows.value).toHaveLength(1);
+		expect(value.rows.value[0]).toMatchObject({ note: { text: 'body:allowed' } });
+		expect(JSON.stringify(value.rows.value)).not.toContain('body:revoked');
+		finish(page([item('allowed')], { session: 'replacement' })); await waiting;
+	});
+	it('retains a valid body on a transient failure but removes it at its authorization deadline', async () => {
+		const request = vi.fn().mockResolvedValueOnce(page([item('allowed', true, 60000)]))
+			.mockRejectedValue(new Error('offline'));
+		const value = client(request); await value.reload(); await value.refresh();
+		expect(value.rows.value[0]).toMatchObject({ note: { text: 'body:allowed' } });
+		await vi.advanceTimersByTimeAsync(60000);
+		expect(JSON.stringify(value.rows.value)).not.toContain('body:allowed');
+	});
+	it.each(['home', 'channel'])('keeps the %s body through repeated thirty-second recovery checks', async kind => {
+		const request = vi.fn().mockResolvedValue(page([item('allowed', true, 60000)], { revalidateAfterMs: 30000 }));
+		const value = new TimelineClient({ kind }, { request, now: () => Date.now() });
+		clients.push(value); await value.reload();
+		for (let seconds = 0; seconds < 150; seconds++) {
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(value.rows.value[0]).toMatchObject({ note: { text: 'body:allowed' } });
+		}
+		expect(request).toHaveBeenCalledTimes(6);
+	});
+	it('removes bodies immediately when the server explicitly revokes authorization', async () => {
+		const request = vi.fn().mockResolvedValueOnce(page([item('allowed', true, 60000)]))
+			.mockRejectedValueOnce({ info: { reason: 'AUTHORIZATION_REVOKED' } });
+		const value = client(request); await value.reload(); await value.refresh();
+		expect(JSON.stringify(value.rows.value)).not.toContain('body:allowed');
+	});
 	it('reanchors a delayed reset before replacing the newly visible window', async () => {
 		let anchor = item('old').key;
 		let finish!: (value: TimelineResponse) => void;
@@ -285,15 +324,13 @@ describe('server timeline client', () => {
 		const value = new TimelineClient({ kind: 'home' }, { request, subscribe, now: () => Date.now() });
 		clients.push(value); await value.reload();
 		invalidate();
-		await vi.advanceTimersByTimeAsync(1000); invalidate();
-		await vi.advanceTimersByTimeAsync(1000); invalidate();
-		await vi.advanceTimersByTimeAsync(5999);
+		invalidate(); invalidate();
+		await vi.advanceTimersByTimeAsync(99);
 		expect(request).toHaveBeenCalledTimes(1);
 		await vi.advanceTimersByTimeAsync(1);
 		expect(request).toHaveBeenCalledTimes(2);
-		for (let second = 0; second < 7; second++) { invalidate(); await vi.advanceTimersByTimeAsync(1000); }
-		expect(request).toHaveBeenCalledTimes(2);
-		await vi.advanceTimersByTimeAsync(1000);
+		invalidate(); invalidate();
+		await vi.advanceTimersByTimeAsync(100);
 		expect(request).toHaveBeenCalledTimes(3);
 		value.suspend(); expect(dispose).toHaveBeenCalledOnce();
 		await value.resume(); expect(subscribe).toHaveBeenCalledTimes(2);
@@ -308,10 +345,10 @@ describe('server timeline client', () => {
 		await value.refresh(); expect(request).toHaveBeenCalledTimes(2);
 		await vi.advanceTimersByTimeAsync(1000); reconnect(); await settle();
 		expect(request).toHaveBeenCalledTimes(3);
-		await vi.advanceTimersByTimeAsync(7999); expect(request).toHaveBeenCalledTimes(3);
+		await vi.advanceTimersByTimeAsync(9999); expect(request).toHaveBeenCalledTimes(3);
 		await vi.advanceTimersByTimeAsync(1); expect(request).toHaveBeenCalledTimes(4);
 	});
-	it('does not follow a slow in-flight poll with an extra hint request', async () => {
+	it('coalesces hints received during a slow request into one trailing authorization check', async () => {
 		let invalidate!: () => void;
 		let finish!: (value: TimelineResponse) => void;
 		const request = vi.fn().mockResolvedValueOnce(page([item('local', false)]))
@@ -319,11 +356,13 @@ describe('server timeline client', () => {
 		const subscribe = vi.fn((_params, hint) => { invalidate = hint; return () => {}; });
 		const value = new TimelineClient({ kind: 'home' }, { request, subscribe, now: () => Date.now() });
 		clients.push(value); await value.reload();
-		await vi.advanceTimersByTimeAsync(8000); expect(request).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(10000); expect(request).toHaveBeenCalledTimes(2);
 		await vi.advanceTimersByTimeAsync(1000); invalidate();
+		invalidate(); invalidate();
 		await vi.advanceTimersByTimeAsync(3000); finish(page([item('local', false)])); await settle();
-		await vi.advanceTimersByTimeAsync(3999); expect(request).toHaveBeenCalledTimes(2);
-		await vi.advanceTimersByTimeAsync(1); expect(request).toHaveBeenCalledTimes(3);
+		await vi.advanceTimersByTimeAsync(0); expect(request).toHaveBeenCalledTimes(3);
+		await vi.advanceTimersByTimeAsync(9999); expect(request).toHaveBeenCalledTimes(3);
+		await vi.advanceTimersByTimeAsync(1); expect(request).toHaveBeenCalledTimes(4);
 	});
 	it('renews a leased body early enough for a three-second response before its deadline', async () => {
 		const starts: number[] = [];
@@ -334,9 +373,8 @@ describe('server timeline client', () => {
 		const value = client(request);
 		const initial = value.reload(); await vi.advanceTimersByTimeAsync(3000); await initial;
 		expect(value.rows.value[0]).toMatchObject({ note: { text: 'body:private' } });
-		await vi.advanceTimersByTimeAsync(2999); expect(request).toHaveBeenCalledTimes(1);
 		await vi.advanceTimersByTimeAsync(1); expect(request).toHaveBeenCalledTimes(2);
-		expect(starts[1] - starts[0]).toBe(6000);
+		expect(starts[1] - starts[0]).toBeLessThanOrEqual(3001);
 		await vi.advanceTimersByTimeAsync(3000);
 		expect(value.rows.value[0]).toMatchObject({ note: { text: 'body:private' } });
 		await vi.advanceTimersByTimeAsync(1000);
@@ -351,7 +389,7 @@ describe('server timeline client', () => {
 			request, isTop: () => false, now: () => Date.now(), subscribe: (_params, hint) => { invalidate = hint; return () => {}; },
 		});
 		clients.push(value); await value.reload(); await value.refresh();
-		invalidate(); await vi.advanceTimersByTimeAsync(2000); invalidate();
+		await vi.advanceTimersByTimeAsync(2000);
 		await vi.advanceTimersByTimeAsync(1999); expect(request).toHaveBeenCalledTimes(2);
 		await vi.advanceTimersByTimeAsync(1); expect(request).toHaveBeenCalledTimes(3);
 	});

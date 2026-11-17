@@ -20,6 +20,8 @@ export class TimelinePeerService {
 	private readonly peer: GridspacePeerConfig | null;
 	private readonly pending = new Map<string, TimelinePeerHint>();
 	private active = 0;
+	private invalidating = false;
+	private invalidateAgain = false;
 	constructor(@Inject(DI.config) config: Config, private readonly events: GlobalEventService) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 	}
@@ -47,6 +49,28 @@ export class TimelinePeerService {
 
 	public receive(noteId: string): { ok: true } {
 		this.events.publishInternalEvent('gridspaceTimelineNote', { noteId, source: 'peer' });
+		return { ok: true };
+	}
+
+	/** Content-free policy/edit hint. Never echo a received hint to the peer. */
+	public notifyChanges(): void {
+		if (!this.peer) return;
+		this.invalidateAgain = true;
+		if (this.invalidating) return;
+		this.invalidating = true;
+		void (async () => {
+			try {
+				while (this.invalidateAgain) {
+					this.invalidateAgain = false;
+					await requestGridspacePeer(this.peer!, '/gridspace/v1/timeline/invalidate', {}, 4096, Date.now() + 5000)
+						.catch(() => { /* Bounded authorization leases and cursor recovery remain active. */ });
+				}
+			} finally { this.invalidating = false; }
+		})();
+	}
+
+	public receiveChanges(): { ok: true } {
+		this.events.publishInternalEvent('gridspaceTimelineChanged', { sequence: '0' });
 		return { ok: true };
 	}
 }

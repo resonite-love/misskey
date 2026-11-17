@@ -22,7 +22,7 @@ import { TimelineSessionStore } from './TimelineSessionStore.js';
 import { GridspaceTimelineListSourceService } from './GridspaceTimelineListSourceService.js';
 import type { TimelineLocalOptions } from './TimelineLocalSource.js';
 import { emptyTimelineMerge, mergeTimeline, type TimelineMergeState } from './TimelineMergeService.js';
-import { compareTimelinePosition, type TimelineItem, type TimelineOptions, type TimelinePage, type TimelinePosition, type TimelineReference, type TimelineSourceState } from './timeline-protocol.js';
+import { TIMELINE_AUTHORIZATION_TTL_MS, TIMELINE_REVALIDATE_MS, compareTimelinePosition, type TimelineItem, type TimelineOptions, type TimelinePage, type TimelinePosition, type TimelineReference, type TimelineSourceState } from './timeline-protocol.js';
 
 type Checkpoint = {
 	options: TimelineOptions; mode: 'unified' | 'local-fallback'; revision: string; expires: number; session: string;
@@ -108,11 +108,11 @@ export class GridspaceTimelineService {
 			return cursor;
 		} catch { throw new GridspaceLinkError('INVALID_CURSOR'); }
 	}
-	private async hydrate(viewer: MiLocalUser, checkpoint: Checkpoint, selected: TimelineReference[], deadline = Date.now() + 8000): Promise<TimelineItem[]> {
+	private async hydrate(viewer: MiLocalUser, checkpoint: Checkpoint, selected: TimelineReference[], deadline = Date.now() + 8000, authorizedPeer?: Awaited<ReturnType<GridspacePrivateService['timeline']>>): Promise<TimelineItem[]> {
 		const started = Date.now();
 		const local = await this.localSource(checkpoint.options).hydrate(viewer, selected.filter(ref => ref.source === 'local'));
 		const peerRefs = selected.filter(ref => ref.source === 'peer');
-		const remote = peerRefs.length ? await this.delegated.timeline(viewer, { ids: peerRefs.map(ref => ref.noteId), candidates: peerRefs, ...checkpoint.options, deadline }) : null;
+		const remote = peerRefs.length ? authorizedPeer ?? await this.delegated.timeline(viewer, { ids: peerRefs.map(ref => ref.noteId), candidates: peerRefs, ...checkpoint.options, deadline }) : null;
 		const items = new Map<string, TimelineItem>();
 		for (const row of local) {
 			const ref = selected.find(candidate => candidate.source === 'local' && candidate.noteId === row.reference.noteId)!;
@@ -133,7 +133,7 @@ export class GridspaceTimelineService {
 				const note = imported.get(ref.noteId);
 				const row = hydrated.find(candidate => candidate.reference.noteId === note?.id);
 				if (!row || !fresh.references.some(allowed => allowed.noteId === ref.noteId && allowed.public && allowed.canonicalUri === ref.canonicalUri)) continue;
-				items.set(ref.canonicalUri, { key: ref.canonicalUri, sortKey: { sortAt: ref.sortAt, uri: ref.canonicalUri }, ref: this.referenceToken(viewer, checkpoint, ref), representation: 'normal', payload: row.payload, validForMs: Math.max(0, Math.min(row.validForMs ?? 10000, fresh.validForMs) - (Date.now() - started)), nextPolicyCheckAt: row.nextPolicyCheckAt });
+				items.set(ref.canonicalUri, { key: ref.canonicalUri, sortKey: { sortAt: ref.sortAt, uri: ref.canonicalUri }, ref: this.referenceToken(viewer, checkpoint, ref), representation: 'normal', payload: row.payload, validForMs: Math.max(0, Math.min(row.validForMs ?? TIMELINE_AUTHORIZATION_TTL_MS, fresh.validForMs) - (Date.now() - started)), nextPolicyCheckAt: row.nextPolicyCheckAt });
 			}
 		}
 		for (const ref of peerRefs) {
@@ -317,7 +317,7 @@ export class GridspaceTimelineService {
 				if (!(error instanceof GridspaceLinkError)) throw error;
 				states[1] = { source: 'peer', status: ['AUTHORIZATION_REVOKED', 'LINK_REVOKED'].includes(error.code) ? 'unauthorized' : 'unavailable', retryable: true };
 				const refs = (await this.localSource(options).readPage(viewer, { limit })).references;
-				return { version: 1, session: checkpoint.session, revision: checkpoint.revision, items: await this.hydrate(viewer, checkpoint, refs.map(ref => ({ ...ref, source: 'local' }))), nextCursor: this.token(viewer, checkpoint, position.id), updatesCursor: this.updatesToken(viewer, checkpoint), complete: false, mode, sources: states, revalidateAfterMs: 10000 };
+				return { version: 1, session: checkpoint.session, revision: checkpoint.revision, items: await this.hydrate(viewer, checkpoint, refs.map(ref => ({ ...ref, source: 'local' }))), nextCursor: this.token(viewer, checkpoint, position.id), updatesCursor: this.updatesToken(viewer, checkpoint), complete: false, mode, sources: states, revalidateAfterMs: TIMELINE_REVALIDATE_MS };
 			}
 		}
 		await this.assertOwners(viewer, checkpoint, checkpoint.selected!);
@@ -331,7 +331,7 @@ export class GridspaceTimelineService {
 		rebound = rebound.map(ref => reboundOwners.find(owner => owner.canonicalUri === ref.canonicalUri) ?? ref);
 		const retainedItems = await this.hydrate(viewer, checkpoint, rebound, deadline);
 		const order = [...checkpoint.selected!, ...rebound].sort(this.compare(options)).map(ref => ref.canonicalUri).filter((key, index, all) => all.indexOf(key) === index);
-		return { version: 1, session: checkpoint.session, revision: checkpoint.revision, items, retainedItems, order, nextCursor: checkpoint.nextId ? this.token(viewer, checkpoint, checkpoint.nextId) : null, updatesCursor: this.updatesToken(viewer, checkpoint), complete: true, mode, sources: states, revalidateAfterMs: 10000 };
+		return { version: 1, session: checkpoint.session, revision: checkpoint.revision, items, retainedItems, order, nextCursor: checkpoint.nextId ? this.token(viewer, checkpoint, checkpoint.nextId) : null, updatesCursor: this.updatesToken(viewer, checkpoint), complete: true, mode, sources: states, revalidateAfterMs: TIMELINE_REVALIDATE_MS };
 	}
 
 	public async changes(viewer: MiLocalUser, input: { session: string; revision: string; updatesCursor: string; refs: string[]; phase: 'validate' | 'changes' }) {
@@ -348,11 +348,18 @@ export class GridspaceTimelineService {
 		if (!optionsValue) throw new GridspaceLinkError('INVALID_CURSOR');
 		const checkpoint = JSON.parse(optionsValue) as Checkpoint;
 		if (checkpoint.revision !== input.revision) throw new GridspaceLinkError('INVALID_CURSOR');
+		if (checkpoint.viewerId != null && checkpoint.viewerId !== viewer.id) throw new GridspaceLinkError('INVALID_CURSOR');
 		const events = input.phase === 'changes' ? await this.relevantChanges(viewer, checkpoint, update.sequence, selected) : null;
+		const deadline = Date.now() + 8000;
+		let authorizedPeer: Awaited<ReturnType<GridspacePrivateService['timeline']>> | undefined;
+		let peerStartedAt = 0;
 		let peerChanged = false;
 		let peerInserts: TimelineReference[] = [];
 		if (input.phase === 'changes' && update.peerSequence) {
-			const peer = await this.delegated.timeline(viewer, { ids: selected.filter(ref => ref.source === 'peer').map(ref => ref.noteId), sequence: update.peerSequence, ...checkpoint.options });
+			const peerRefs = selected.filter(ref => ref.source === 'peer');
+			peerStartedAt = Date.now();
+			const peer = await this.delegated.timeline(viewer, { ids: peerRefs.map(ref => ref.noteId), candidates: peerRefs, sequence: update.peerSequence, ...checkpoint.options, deadline });
+			authorizedPeer = peer;
 			peerChanged = peer.changed;
 			peerInserts = peer.newReferences;
 			checkpoint.peerSequence = peer.sequence;
@@ -360,7 +367,8 @@ export class GridspaceTimelineService {
 		const owners = await this.localSource(checkpoint.options).ownerReferences(viewer, selected.filter(ref => ref.source === 'peer').map(ref => ref.canonicalUri));
 		const ownershipChanged = owners.length > 0;
 		const compare = this.compare(checkpoint.options);
-		const items = await this.hydrate(viewer, checkpoint, selected.filter(ref => !owners.some(owner => owner.canonicalUri === ref.canonicalUri)).sort(compare));
+		if (authorizedPeer) authorizedPeer = { ...authorizedPeer, validForMs: Math.max(0, authorizedPeer.validForMs - (Date.now() - peerStartedAt)) };
+		const items = await this.hydrate(viewer, checkpoint, selected.filter(ref => !owners.some(owner => owner.canonicalUri === ref.canonicalUri)).sort(compare), deadline, authorizedPeer);
 		if (events) checkpoint.sequence = events.cursor;
 		const locallyOwned = await this.localSource(checkpoint.options).ownerReferences(viewer, peerInserts.map(ref => ref.canonicalUri));
 		const inserts = [...(events?.inserts ?? []), ...peerInserts.filter(ref => !locallyOwned.some(owner => owner.canonicalUri === ref.canonicalUri))].filter(ref => !selected.some(existing => existing.canonicalUri === ref.canonicalUri)).sort(compare);
@@ -371,6 +379,6 @@ export class GridspaceTimelineService {
 		const mergedCheckpoint = JSON.parse(await this.sessions.putSession(checkpoint.session, JSON.stringify(checkpoint), checkpoint.expires)) as Checkpoint;
 		checkpoint.windowHead = mergedCheckpoint.windowHead;
 		const resetRequired = late || ownershipChanged || peerChanged || (events?.resetRequired ?? false) || String((await this.references.status()).generation) !== checkpoint.revision;
-		return { version: 1, session: checkpoint.session, revision: checkpoint.revision, items, newItems, order: [...newItems, ...items].map(item => item.key), removed: selected.filter(ref => !items.some(item => item.key === ref.canonicalUri)).map(ref => ref.canonicalUri), nextCursor: null, updatesCursor: this.updatesToken(viewer, checkpoint), complete: true, mode: checkpoint.mode, sources: [{ source: 'local' as const, status: 'ok' as const, retryable: false }], revalidateAfterMs: 10000, replaceWindow: false, resetRequired };
+		return { version: 1, session: checkpoint.session, revision: checkpoint.revision, items, newItems, order: [...newItems, ...items].map(item => item.key), removed: selected.filter(ref => !items.some(item => item.key === ref.canonicalUri)).map(ref => ref.canonicalUri), nextCursor: null, updatesCursor: this.updatesToken(viewer, checkpoint), complete: true, mode: checkpoint.mode, sources: [{ source: 'local' as const, status: 'ok' as const, retryable: false }], revalidateAfterMs: TIMELINE_REVALIDATE_MS, replaceWindow: false, resetRequired };
 	}
 }

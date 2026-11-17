@@ -49,7 +49,7 @@ import { canonicalGridspaceNoteUri } from './note-protocol.js';
 import { GridspacePeerAuthorizationError, requestGridspacePeer } from './peer-client.js';
 import { PRIVATE_FILE_LIMIT, type PrivateNote, type PrivateWireNote, type PrivateOptions, type PrivatePage, type PrivatePeerRequest } from './private-protocol.js';
 import { TimelineReferenceService } from './timeline/TimelineReferenceService.js';
-import type { TimelineOptions, TimelinePosition, TimelineReference } from './timeline/timeline-protocol.js';
+import { TIMELINE_AUTHORIZATION_TTL_MS, type TimelineOptions, type TimelinePosition, type TimelineReference } from './timeline/timeline-protocol.js';
 import { TimelinePublicListSource, type PublicListRequest } from './timeline/TimelinePublicListSource.js';
 
 @Injectable()
@@ -274,7 +274,7 @@ export class GridspacePrivateService {
 			const finalAllowed = new Set(policies.map(note => note.id));
 			page.notes = page.notes.filter(note => finalAllowed.has(note.id));
 			for (const note of page.notes) if (note.renote && !finalAllowed.has(note.renote.id)) { delete note.renote; note.renoteId = null; }
-			let validForMs = Math.max(0, 10000 - (Date.now() - authorizationStarted));
+			let validForMs = Math.max(0, TIMELINE_AUTHORIZATION_TTL_MS - (Date.now() - authorizationStarted));
 			for (const note of policies) {
 				if (note.userId === link.localUserId) continue;
 				for (const [kind, policy] of [['hidden', note.user?.makeNotesHiddenBefore], ['followers', note.user?.makeNotesFollowersOnlyBefore]] as const) {
@@ -381,7 +381,7 @@ export class GridspacePrivateService {
 			const policyAllowed = new Set(policyNotes.map(note => note.id));
 			packed.notes = packed.notes.filter(note => policyAllowed.has(note.id));
 			for (const note of packed.notes) if (note.renote && !policyAllowed.has(note.renote.id)) { delete note.renote; note.renoteId = null; }
-			let lease = Math.max(0, 10000 - (Date.now() - started));
+			let lease = Math.max(0, TIMELINE_AUTHORIZATION_TTL_MS - (Date.now() - started));
 			for (const note of policyNotes) {
 				if (note.userId === link!.localUserId) continue;
 				for (const [kind, policy] of [['hidden', note.user?.makeNotesHiddenBefore], ['followers', note.user?.makeNotesFollowersOnlyBefore]] as const) {
@@ -508,7 +508,7 @@ export class GridspacePrivateService {
 			}
 		}
 		if (channel) await channel.check(); else if (link) await this.links.checkPrivateUnchanged(link);
-		return { ...page, references: page.references.map(ref => ({ ...ref, source: 'peer' as const })), newReferences: (page.newReferences ?? []).map(ref => ({ ...ref, source: 'peer' as const })), notes, validForMs: Math.max(0, Math.min(10000, page.validForMs ?? 10000) - (Date.now() - startedAt)) };
+		return { ...page, references: page.references.map(ref => ({ ...ref, source: 'peer' as const })), newReferences: (page.newReferences ?? []).map(ref => ({ ...ref, source: 'peer' as const })), notes, validForMs: Math.max(0, Math.min(TIMELINE_AUTHORIZATION_TTL_MS, page.validForMs ?? TIMELINE_AUTHORIZATION_TTL_MS) - (Date.now() - startedAt)) };
 	}
 
 	private collectionId(note: MiNote) { return (note as MiNote & { gridspaceCollection?: { id: string } }).gridspaceCollection?.id; }

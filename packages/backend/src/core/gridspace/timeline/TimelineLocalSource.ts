@@ -19,7 +19,7 @@ import { GridspaceIdentityService } from '../GridspaceIdentityService.js';
 import { GridspaceLinkError } from '../GridspaceLinkService.js';
 import { GridspaceSearchService } from '../GridspaceSearchService.js';
 import { canonicalGridspaceNoteUri, gridspaceNoteUris } from '../note-protocol.js';
-import type { TimelinePosition, TimelineReference } from './timeline-protocol.js';
+import { TIMELINE_AUTHORIZATION_TTL_MS, type TimelinePosition, type TimelineReference } from './timeline-protocol.js';
 
 export type TimelineLocalOptions = {
 	kind: 'home' | 'social';
@@ -242,7 +242,7 @@ export class TimelineLocalSource {
 			visit(payload);
 			const next = deadlines.length ? Math.min(...deadlines) : null;
 			if (next != null && next <= now) continue;
-			result.push({ reference, payload, validForMs: next == null ? restricted ? 10_000 : null : Math.min(10_000, next - now), nextPolicyCheckAt: next == null ? null : new Date(next).toISOString() });
+			result.push({ reference, payload, validForMs: next == null ? restricted ? TIMELINE_AUTHORIZATION_TTL_MS : null : Math.min(TIMELINE_AUTHORIZATION_TTL_MS, next - now), nextPolicyCheckAt: next == null ? null : new Date(next).toISOString() });
 		}
 		return result;
 	}

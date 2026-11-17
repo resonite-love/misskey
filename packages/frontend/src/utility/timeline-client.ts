@@ -76,6 +76,8 @@ export class TimelineClient {
 	private lastRequestStartedAt = -Infinity;
 	private lastCycleDuration = 0;
 	private refreshRequested = false;
+	private refreshDelay = 30000;
+	private invalidationAt = Infinity;
 	private pending: Promise<void> | null = null;
 	private streamVersion = 0;
 	private streamDuringRequest = new Map<string, StreamArrival>();
@@ -179,25 +181,27 @@ export class TimelineClient {
 		if (changed) this.publish();
 		else this.scheduleExpiry();
 	}
-	private scheduleRefresh(_delay: number) {
+	private scheduleRefresh(delay: number) {
 		if (!this.usable()) return;
+		this.refreshDelay = Number.isFinite(delay) ? Math.max(1000, Math.min(30000, delay)) : 30000;
 		this.refreshRequested = true;
 		if (this.pending) return;
 		this.armRefresh();
 	}
 	private armRefresh() {
 		if (!this.usable() || !this.refreshRequested) return;
-		// Hints share the normal eight-second cycle. Authorization deadlines take
-		// precedence, allowing the measured round trip to finish before expiry.
+		// Push invalidations run promptly; the timer only recovers lost events.
+		// Keep enough room for both validation and a replacement-window request.
 		const deadline = Math.min(...[...this.visibleItems, ...this.queuedItems].filter(item => item.payload && item.expiresAt !== null).map(item => item.expiresAt!));
-		const margin = Math.max(2000, this.lastCycleDuration + 1000);
-		const at = Math.max(this.now(), Math.min(this.lastRequestStartedAt + 8000, deadline - margin));
+		const margin = Math.max(2000, this.lastCycleDuration * 2 + 1000);
+		const at = Math.max(this.now(), Math.min(this.invalidationAt, this.lastRequestStartedAt + this.refreshDelay, this.failed.value ? Infinity : deadline - margin));
 		if (this.refreshTimer !== null && this.refreshAt <= at) return;
 		this.clearScheduledRefresh();
 		this.refreshAt = at;
 		this.refreshTimer = window.setTimeout(() => {
 			this.refreshTimer = null; this.refreshAt = Infinity;
 			this.refreshRequested = false;
+			this.invalidationAt = Infinity;
 			void this.refresh();
 		}, Math.max(0, at - this.now()));
 	}
@@ -210,6 +214,7 @@ export class TimelineClient {
 		const startedAt = this.now();
 		this.lastRequestStartedAt = startedAt;
 		this.refreshRequested = false;
+		this.invalidationAt = Infinity;
 		const streamVersion = this.streamVersion;
 		const result = await (this.options.request ?? request)(endpoint, params, AbortSignal.any([this.controller.signal, AbortSignal.timeout(15000)]));
 		if (result.version !== 1 || !Array.isArray(result.items)) throw new Error('Unsupported timeline response');
@@ -227,7 +232,11 @@ export class TimelineClient {
 		if (changedSession) { this.unsubscribe?.(); this.unsubscribe = null; }
 		if (!this.unsubscribe && this.options.subscribe && this.usable()) {
 			this.streamLeaseStartedAt = this.now();
-			this.unsubscribe = this.options.subscribe({ session: result.session, revision: result.revision, updatesCursor: result.updatesCursor }, () => this.scheduleRefresh(0), () => { void this.refresh(); }, this.receive);
+			this.unsubscribe = this.options.subscribe({ session: result.session, revision: result.revision, updatesCursor: result.updatesCursor }, () => {
+				this.invalidationAt = Math.min(this.invalidationAt, this.now() + 100);
+				this.refreshRequested = true;
+				if (!this.pending) this.armRefresh();
+			}, () => { void this.refresh(); }, this.receive);
 		}
 		this.scheduleRefresh(result.revalidateAfterMs);
 	}
@@ -244,7 +253,9 @@ export class TimelineClient {
 			}
 			this.error.value = true;
 			this.failed.value = true;
-			this.expire(true);
+			// A connection failure is not revocation. Retain already-authorized
+			// bodies until their bounded lease expires; actual revocation is immediate.
+			this.expire(reason === 'AUTHORIZATION_REVOKED' || reason === 'LINK_REVOKED');
 			this.scheduleRefresh(8000);
 		}).finally(() => {
 			if (this.pending !== pending) return;
@@ -356,7 +367,7 @@ export class TimelineClient {
 					refs: retained.slice(offset, offset + 100), phase: final ? 'changes' : 'validate',
 				});
 				if (current !== this.generation || !this.usable()) return;
-				if (result.resetRequired || result.session !== this.session || result.revision !== this.revision) {
+				if (result.session !== this.session || result.revision !== this.revision) {
 					await this.readWindow(current, true); return;
 				}
 				const replacements = new Map(result.items.map(item => [item.key, this.retain(item, startedAt)]));
@@ -366,6 +377,12 @@ export class TimelineClient {
 					return removed.has(item.key) ? [] : [replacements.get(item.key) ?? item];
 				});
 				this.visibleItems = update(this.visibleItems); this.queuedItems = update(this.queuedItems);
+				// Reset requests still contain freshly authorized retained rows. Apply
+				// removals and renewed leases before waiting for the replacement window.
+				if (result.resetRequired) {
+					this.publish();
+					await this.readWindow(current, true); return;
+				}
 				if (final) {
 					const known = new Set([...this.visibleItems, ...this.queuedItems].map(item => item.key));
 					const incoming = (result.newItems ?? []).filter(item => !known.has(item.key)).map(item => this.retain(item, startedAt));

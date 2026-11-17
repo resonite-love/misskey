@@ -34,4 +34,19 @@ describe('peer timeline notifications', () => {
 		expect(service.receive('note1')).toEqual({ ok: true });
 		expect(publishInternalEvent).toHaveBeenCalledWith('gridspaceTimelineNote', { noteId: 'note1', source: 'peer' });
 	});
+	test('coalesces outgoing policy hints and never echoes a received invalidation', async () => {
+		vi.mocked(requestGridspacePeer).mockClear();
+		let release!: () => void;
+		vi.mocked(requestGridspacePeer).mockImplementationOnce(() => new Promise(resolve => { release = () => resolve({ ok: true }); }));
+		const publishInternalEvent = vi.fn();
+		const service = new TimelinePeerService(config, { publishInternalEvent } as unknown as GlobalEventService);
+		service.notifyChanges(); service.notifyChanges(); service.notifyChanges();
+		expect(requestGridspacePeer).toHaveBeenCalledOnce();
+		expect(vi.mocked(requestGridspacePeer).mock.calls[0].slice(1, 3)).toEqual(['/gridspace/v1/timeline/invalidate', {}]);
+		release();
+		await vi.waitFor(() => expect(requestGridspacePeer).toHaveBeenCalledTimes(2));
+		service.receiveChanges();
+		expect(publishInternalEvent).toHaveBeenLastCalledWith('gridspaceTimelineChanged', { sequence: '0' });
+		expect(requestGridspacePeer).toHaveBeenCalledTimes(2);
+	});
 });

@@ -44,6 +44,21 @@ afterEach(async () => {
 });
 
 describe('GridSpace channel actions', () => {
+	test('policy invalidations require the paired signature and contain no user data', async () => {
+		const notify = vi.fn(() => ({ ok: true }));
+		const app = Fastify(); servers.push(app);
+		await app.register(fastifyRawBody, { global: false, encoding: null, runFirst: true });
+		await app.register(async child => {
+			const handlers = new Array(24).fill(undefined) as Parameters<typeof registerGridspacePeer> extends [unknown, unknown, unknown, ...infer Rest] ? Rest : never;
+			handlers[23] = notify;
+			registerGridspacePeer(child, r, async () => true, ...handlers);
+		}, { prefix: '/gridspace/v1' });
+		const url = '/gridspace/v1/timeline/invalidate';
+		const payload = Buffer.from('{}');
+		expect((await app.inject({ method: 'POST', url, payload, headers: { 'content-type': 'application/json' } })).statusCode).toBe(403);
+		expect((await app.inject({ method: 'POST', url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) })).json()).toEqual({ ok: true });
+		expect(notify).toHaveBeenCalledWith();
+	});
 	test('native timeline hints require the paired signature and contain only an origin note ID', async () => {
 		const notify = vi.fn(async () => ({ ok: true }));
 		const app = Fastify(); servers.push(app);

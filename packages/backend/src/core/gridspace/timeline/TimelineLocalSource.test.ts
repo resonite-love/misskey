@@ -111,7 +111,7 @@ describe('local timeline body authorization', () => {
 			const privateRow = { ...row('a'), visibility };
 			const { source, queryFactory } = fixture({ before: [privateRow], fresh: [privateRow], packed: [{ ...payload('a'), visibility }] });
 			const result = await source.hydrateQuery(viewer, queryFactory, [reference('a')]);
-			expect(result[0].validForMs).toBe(10_000);
+			expect(result[0].validForMs).toBe(60_000);
 		}
 	});
 
@@ -120,9 +120,9 @@ describe('local timeline body authorization', () => {
 		const quoted = { ...row('b'), visibility: 'followers' as const };
 		const packed = { ...payload('a'), renoteId: 'b', renote: { ...payload('b'), visibility: 'followers' as const } };
 		const quoteFixture = fixture({ before: [outer], fresh: [outer], related: [outer, quoted], packed: [packed] });
-		expect((await quoteFixture.source.hydrateQuery(viewer, quoteFixture.queryFactory, [reference('a')]))[0].validForMs).toBe(10_000);
+		expect((await quoteFixture.source.hydrateQuery(viewer, quoteFixture.queryFactory, [reference('a')]))[0].validForMs).toBe(60_000);
 		const channelFixture = fixture({ packed: [{ ...payload('a'), channelId: 'private-channel' }] });
-		expect((await channelFixture.source.hydrateQuery(viewer, channelFixture.queryFactory, [reference('a')]))[0].validForMs).toBe(10_000);
+		expect((await channelFixture.source.hydrateQuery(viewer, channelFixture.queryFactory, [reference('a')]))[0].validForMs).toBe(60_000);
 	});
 
 	test('keeps the selected reference order, not repository result order', async () => {

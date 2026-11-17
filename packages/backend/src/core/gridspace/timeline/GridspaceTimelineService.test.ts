@@ -101,6 +101,18 @@ function fixture(initialLocal: TimelineReference[], initialPeer: TimelineReferen
 }
 
 describe('unified timeline coordinator with real Redis checkpoints', () => {
+	test('reuses one freshly authorized peer batch when renewing a channel or home window', async () => {
+		const f = fixture([], [ref('peer', 100), ref('peer', 90)]);
+		const first = await f.service.page(viewer, options, 20);
+		f.delegated.timeline.mockClear();
+		const renewed = await f.changes(first, first.items);
+		expect(f.delegated.timeline).toHaveBeenCalledOnce();
+		expect(f.delegated.timeline.mock.calls[0][1]).toMatchObject({ ids: first.items.map(item => item.payload.id), candidates: expect.any(Array) });
+		expect(renewed.items.map(item => item.key)).toEqual(first.items.map(item => item.key));
+		f.rows.peer.pop();
+		const revoked = await f.changes(renewed, first.items);
+		expect(revoked.removed).toEqual([ref('peer', 90).canonicalUri]);
+	});
 	test('native local stream emits a reauthorized envelope without consuming the HTTP update cursor', async () => {
 		const f = fixture([ref('local', 100)]);
 		const first = await f.service.page(viewer, options, 20);

@@ -23,6 +23,7 @@ export class GridspaceTimelineChannel extends Channel {
 	public static requireCredential = true as const;
 	public static kind = null;
 	private lastSent = 0;
+	private invalidateTimer: ReturnType<typeof setTimeout> | undefined;
 	private session = '';
 	private revision = '';
 	private leaseId = '';
@@ -90,11 +91,16 @@ export class GridspaceTimelineChannel extends Channel {
 	@bindThis
 	private onInternal(data: EventTypesToEventPayload<InternalEventTypes>) {
 		if (data.type === 'gridspaceTimelineNote') { this.enqueue({ source: 'peer', noteId: data.body.noteId }); return; }
-		if (data.type !== 'gridspaceTimelineChanged' || Date.now() - this.lastSent < 8000) return;
-		this.lastSent = Date.now();
-		// A hint only. No global position, source identity, body or private ref is sent.
-		this.send('invalidate', {});
+		if (data.type !== 'gridspaceTimelineChanged' || this.invalidateTimer || this.disposed) return;
+		// Coalesce bursts, but preserve the trailing change instead of dropping it.
+		this.invalidateTimer = setTimeout(() => {
+			this.invalidateTimer = undefined;
+			if (this.disposed) return;
+			this.lastSent = Date.now();
+			// No global position, source identity, body or private ref is sent.
+			this.send('invalidate', {});
+		}, Math.max(0, 1000 - (Date.now() - this.lastSent)));
 	}
 	@bindThis
-	public dispose() { this.disposed = true; this.pending.clear(); this.subscriber.off('internal', this.onInternal); this.subscriber.off('notesStream', this.onNote); }
+	public dispose() { this.disposed = true; clearTimeout(this.invalidateTimer); this.pending.clear(); this.subscriber.off('internal', this.onInternal); this.subscriber.off('notesStream', this.onNote); }
 }

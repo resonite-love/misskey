@@ -19,7 +19,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</component>
 		<div v-if="error || loading || (rows.length === 0 && !hasMore)" :class="$style.heading" class="_gaps_s">
 			<p v-if="error" role="alert">{{ params.channelId ? i18n.ts._gridspace.channelNotesUnavailable : i18n.ts._gridspace.privateUnavailable }}</p>
-			<MkLoading v-if="loading"/>
+			<MkLoading v-if="loading && rows.length === 0"/>
 			<p v-else-if="!error && rows.length === 0 && !hasMore">{{ i18n.ts.noNotes }}</p>
 			<MkButton v-if="error" :disabled="loading" @click="refresh">{{ i18n.ts.retry }}</MkButton>
 		</div>

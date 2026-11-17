@@ -6,6 +6,11 @@
 import type { Packed } from '@/misc/json-schema.js';
 import { privateNoteSchema, type PrivateNote } from '../private-protocol.js';
 
+// Push invalidations normally renew authorization first. The bounded lease and
+// periodic recovery still fail closed if either server or the stream is lost.
+export const TIMELINE_AUTHORIZATION_TTL_MS = 60_000;
+export const TIMELINE_REVALIDATE_MS = 30_000;
+
 export type TimelinePosition = { sortAt: string; canonicalUri: string; noteId?: string; sourceId?: string; source?: 'local' | 'peer' };
 export type TimelineReference = TimelinePosition & { noteId: string; normalized: boolean; generation: number; source: 'local' | 'peer'; public?: boolean };
 export type TimelineOptions = {

@@ -5,6 +5,7 @@
 
 import { Inject, Injectable, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import { In, type DataSource } from 'typeorm';
+import pg from 'pg';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { IdService } from '@/core/IdService.js';
@@ -13,6 +14,7 @@ import { MiNote } from '@/models/Note.js';
 import { MiGridspaceTimelineOutbox, MiGridspaceTimelineChange, MiGridspaceTimelineState } from '@/models/GridspaceTimeline.js';
 import { canonicalGridspaceNoteUri } from '../note-protocol.js';
 import { TimelineChangeBroker, type TimelineChangeSnapshot } from './TimelineChangeBroker.js';
+import { TimelinePeerService } from './TimelinePeerService.js';
 
 export type TimelinePosition = { sortAt: string; canonicalUri: string };
 export type TimelineReference = TimelinePosition & { noteId: string; normalized: boolean; generation: number };
@@ -33,6 +35,11 @@ export function validTimelinePosition(position: TimelinePosition): boolean {
 export class TimelineReferenceService implements OnModuleInit, OnApplicationShutdown {
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private maintaining = false;
+	private listener: pg.Client | null = null;
+	private retryTimer: ReturnType<typeof setTimeout> | undefined;
+	private drainTimer: ReturnType<typeof setTimeout> | undefined;
+	private stopping = false;
+	private dirty = false;
 
 	constructor(
 		@Inject(DI.db) private readonly db: DataSource,
@@ -40,24 +47,68 @@ export class TimelineReferenceService implements OnModuleInit, OnApplicationShut
 		private readonly ids: IdService,
 		private readonly events: GlobalEventService,
 		private readonly broker?: TimelineChangeBroker,
+		private readonly peer?: TimelinePeerService,
 	) {}
 
 	public onModuleInit(): void {
 		if (process.env.NODE_ENV === 'test') return;
 		// Maintenance only moves content-free committed events; it does not scan
 		// notes, call the peer or poll any user's timeline.
-		this.timer = setInterval(() => { void this.maintain(); }, 60_000);
+		this.timer = setInterval(() => { void this.maintain(true); }, 60_000);
 		this.timer.unref();
+		if (this.config.gridspace?.enabled) void this.listen();
 	}
 
-	public onApplicationShutdown(): void { clearInterval(this.timer); }
+	public async onApplicationShutdown(): Promise<void> {
+		this.stopping = true;
+		clearInterval(this.timer); clearTimeout(this.retryTimer); clearTimeout(this.drainTimer);
+		const listener = this.listener; this.listener = null;
+		await listener?.end().catch(() => {});
+	}
 
-	private async maintain(): Promise<void> {
+	private async listen(): Promise<void> {
+		if (this.stopping || this.listener) return;
+		const listener = new pg.Client({ host: this.config.db.host, port: this.config.db.port,
+			user: this.config.db.user, password: this.config.db.pass, database: this.config.db.db,
+			...this.config.db.extra, application_name: 'gridspace-timeline-listener', connectionTimeoutMillis: 5000 });
+		this.listener = listener;
+		const disconnected = () => {
+			if (this.listener !== listener) return;
+			this.listener = null;
+			void listener.end().catch(() => {});
+			if (!this.stopping) {
+				this.retryTimer = setTimeout(() => { void this.listen(); }, 5000);
+				this.retryTimer.unref();
+			}
+		};
+		listener.on('error', disconnected); listener.on('end', disconnected);
+		listener.on('notification', message => {
+			if (message.channel !== 'gridspace_timeline_changed' || this.stopping) return;
+			this.dirty = true;
+			if (!this.drainTimer) {
+				this.drainTimer = setTimeout(() => {
+					this.drainTimer = undefined; void this.maintain();
+				}, 100);
+				this.drainTimer.unref();
+			}
+		});
+		try {
+			await listener.connect();
+			await listener.query('LISTEN gridspace_timeline_changed');
+			// Also collect commits made while the listener was disconnected.
+			this.dirty = true; await this.maintain();
+		} catch { disconnected(); }
+	}
+
+	private async maintain(prune = false): Promise<void> {
 		if (this.maintaining) return;
 		this.maintaining = true;
 		try {
-			await this.drainChanges();
-			await this.pruneChanges();
+			do {
+				this.dirty = false;
+				await this.drainChanges();
+			} while (this.dirty && !this.stopping);
+			if (prune) await this.pruneChanges();
 		} catch {
 			// A failed DB transaction preserves the outbox for the next request or tick.
 		} finally { this.maintaining = false; }
@@ -82,12 +133,16 @@ export class TimelineReferenceService implements OnModuleInit, OnApplicationShut
 	public async drainChanges(limit = 1000): Promise<string> {
 		if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('Invalid change batch size');
 		let changed = false;
+		let invalidated = false;
 		const result = await this.db.transaction(async manager => {
 			const state = await manager.getRepository(MiGridspaceTimelineState).findOneOrFail({ where: { key: 'changes' }, lock: { mode: 'pessimistic_write' } });
 			const pending = await manager.getRepository(MiGridspaceTimelineOutbox).createQueryBuilder('event').orderBy('event.createdAt', 'ASC').addOrderBy('event.id', 'ASC').limit(limit).setLock('pessimistic_write').getMany();
 			let sequence = BigInt(state.nextSequence);
 			if (pending.length) {
 				changed = true;
+				// One bulk commit can emit one NOTIFY for more than a full batch.
+				if (pending.length === limit) this.dirty = true;
+				invalidated = pending.some(event => event.kind !== 'insert');
 				const createdAt = new Date();
 				await manager.getRepository(MiGridspaceTimelineChange).insert(pending.map(event => ({
 					sequence: (++sequence).toString(), canonicalUri: event.canonicalUri ?? (event.noteId ? `${this.config.url}/notes/${event.noteId}` : null),
@@ -100,7 +155,11 @@ export class TimelineReferenceService implements OnModuleInit, OnApplicationShut
 		});
 		// Publish after the sequenced rows commit. Redis never receives a private
 		// reference or body, and a lost signal is recovered by the HTTP cursor.
-		if (changed) this.events.publishInternalEvent('gridspaceTimelineChanged', { sequence: result });
+		if (changed) await this.broker?.invalidate();
+		if (changed && invalidated) {
+			this.events.publishInternalEvent('gridspaceTimelineChanged', { sequence: result });
+			this.peer?.notifyChanges();
+		}
 		return result;
 	}
 
