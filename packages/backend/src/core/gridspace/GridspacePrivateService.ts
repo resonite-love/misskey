@@ -4,7 +4,7 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
-import { Brackets, DataSource, In, IsNull, type QueryRunner } from 'typeorm';
+import { Brackets, DataSource, In, IsNull, type QueryRunner, type SelectQueryBuilder } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import { sqlLikeEscape } from '@/misc/sql-like-escape.js';
 import type { Config } from '@/config.js';
@@ -45,7 +45,7 @@ import { decodeHistoryCursor, encodeHistoryCursor } from './history-protocol.js'
 import { gridspaceHash } from './link-crypto.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
 import { searchNoteTimeSql } from './search-visibility.js';
-import { canonicalGridspaceNoteUri } from './note-protocol.js';
+import { canonicalGridspaceNoteUri, gridspaceNoteId } from './note-protocol.js';
 import { GridspacePeerAuthorizationError, requestGridspacePeer } from './peer-client.js';
 import { PRIVATE_FILE_LIMIT, type PrivateNote, type PrivateWireNote, type PrivateOptions, type PrivatePage, type PrivatePeerRequest } from './private-protocol.js';
 import { TimelineReferenceService } from './timeline/TimelineReferenceService.js';
@@ -249,6 +249,16 @@ export class GridspacePrivateService {
 		return (await this.search.read(query))[0] ?? null;
 	}
 
+	private async readTimelineAnchor(query: SelectQueryBuilder<MiNote>, anchor: string): Promise<MiNote[]> {
+		const prefix = `${this.peer!.origin}/notes/`;
+		const id = anchor.startsWith(prefix) ? anchor.slice(prefix.length) : null;
+		// A canonical local URL already contains its primary key. Concatenating
+		// every row's URL prevents the database from using that index.
+		return this.search.read(query.clone().andWhere(id && gridspaceNoteId(id)
+			? 'note.id = :timelineAnchorId'
+			: 'note.uri = :timelineAnchorUri', { timelineAnchorId: id, timelineAnchorUri: anchor }).limit(1));
+	}
+
 	/** Pair-authenticated reference paging; source authorization is rechecked before body reads. */
 	public async peerTimeline(input: PrivatePeerRequest) {
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
@@ -293,7 +303,7 @@ export class GridspacePrivateService {
 		const sequence = await this.timelineReferences.currentPosition();
 		const query = this.query(link.localUserId, sourceInput);
 		if (input.timelineAnchor) {
-			const anchor = await this.search.read(query.clone().andWhere('(note.uri = :timelineAnchor OR :timelineAnchor = :timelineOrigin || \'/notes/\' || note.id)', { timelineAnchor: input.timelineAnchor, timelineOrigin: this.peer!.origin }).limit(1));
+			const anchor = await this.readTimelineAnchor(query, input.timelineAnchor);
 			await this.authorizeRead(input);
 			return { references: anchor.map(note => ({ noteId: note.id, canonicalUri: note.uri ?? `${this.peer!.origin}/notes/${note.id}`, sortAt: (BigInt(this.ids.parse(note.id).date.getTime()) * 1000n).toString(), normalized: true, generation: 1 })), next: null, upper: null, sequence, generation: status.generation, changed: false };
 		}
@@ -435,7 +445,7 @@ export class GridspacePrivateService {
 		if (input.timelineAnchor) {
 			const sequence = initialSequence;
 			const query = publicQuery ?? privateQuery!;
-			const rows = await this.search.read(query.clone().andWhere('(note.uri = :listAnchor OR :listAnchor = :listOrigin || \'/notes/\' || note.id)', { listAnchor: input.timelineAnchor, listOrigin: this.peer!.origin }).limit(1));
+			const rows = await this.readTimelineAnchor(query, input.timelineAnchor);
 			if (link) await this.authorizeRead(input);
 			return { references: rows.map(note => reference(note, !!publicQuery)), next: null, upper: null, sequence, generation: status.generation, changed: false };
 		}

@@ -29,6 +29,31 @@ function fixture(candidates: string[], visible: string[]) {
 }
 
 describe('bounded delegated home pages', () => {
+	test('looks up a local anchor by primary key while retaining the caller visibility query', async () => {
+		const { service, query } = fixture([], [id(20)]);
+		Object.assign(service, { peer: { origin: 'https://source.example' } });
+		query.clone.mockReturnValue(query); query.limit.mockReturnValue(query);
+		const rows = await service['readTimelineAnchor'](query, `https://source.example/notes/${id(20)}`);
+		expect(query.clone).toHaveBeenCalledOnce();
+		expect(query.andWhere).toHaveBeenCalledWith('note.id = :timelineAnchorId', expect.objectContaining({ timelineAnchorId: id(20) }));
+		expect(query.limit).toHaveBeenCalledWith(1);
+		expect(service['search'].read).toHaveBeenCalledWith(query);
+		expect(rows.map(row => row.id)).toEqual([id(20)]);
+	});
+	test('matches foreign anchors by URI and does not treat a foreign ID as a local primary key', async () => {
+		const { service, query } = fixture([], []);
+		Object.assign(service, { peer: { origin: 'https://source.example' } });
+		query.clone.mockReturnValue(query); query.limit.mockReturnValue(query);
+		const anchor = `https://other.example/notes/${id(20)}`;
+		expect(await service['readTimelineAnchor'](query, anchor)).toEqual([]);
+		expect(query.andWhere).toHaveBeenCalledWith('note.uri = :timelineAnchorUri', expect.objectContaining({ timelineAnchorUri: anchor }));
+	});
+	test('a primary-key anchor remains hidden when the visibility query returns no row', async () => {
+		const { service, query } = fixture([], []);
+		Object.assign(service, { peer: { origin: 'https://source.example' } });
+		query.clone.mockReturnValue(query); query.limit.mockReturnValue(query);
+		expect(await service['readTimelineAnchor'](query, `https://source.example/notes/${id(20)}`)).toEqual([]);
+	});
 	test('advances across a full window without readable notes instead of scanning the whole history', async () => {
 		const candidates = Array.from({ length: 513 }, (_, n) => id(1000 - n));
 		const { service, scan, query } = fixture(candidates, []);
