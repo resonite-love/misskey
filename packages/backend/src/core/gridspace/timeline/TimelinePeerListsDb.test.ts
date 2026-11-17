@@ -32,6 +32,7 @@ beforeAll(async () => {
 	await db.initialize(); await db.query(`CREATE SCHEMA "${schema}"`);
 	await db.query('CREATE TABLE note (id varchar(32) PRIMARY KEY, uri text, "userId" varchar(32), visibility text, "channelId" varchar(32), mentions varchar(32)[] NOT NULL DEFAULT \'{}\', "visibleUserIds" varchar(32)[] NOT NULL DEFAULT \'{}\')');
 	await db.query('CREATE INDEX note_channel_id ON note ("channelId", id) WHERE "channelId" IS NOT NULL');
+	await db.query('ALTER TABLE note ADD COLUMN text text, ADD COLUMN cw text');
 	await db.query('CREATE INDEX note_mentions ON note USING gin (mentions)');
 	await db.query('CREATE INDEX note_recipients ON note USING gin ("visibleUserIds")');
 	await db.query('CREATE TABLE note_favorite (id varchar(32) PRIMARY KEY, "userId" varchar(32), "noteId" varchar(32))');
@@ -130,4 +131,23 @@ test('real local recipient pages reach older mentions and direct notes without e
 		expect(page.next).toBeNull();
 		expect((await localService.read(viewer, { kind }, { limit: 50 })).map(ref => ref.noteId)).toEqual(expected);
 	}
+});
+
+test('search reaches sparse older matches in one bounded window and rechecks visibility on every page', async () => {
+	await db.query('UPDATE note SET text = \'sparse match\' WHERE id = $1', [id(1)]);
+	await db.query('UPDATE note SET cw = \'sparse match\' WHERE id = $1', [id(2)]);
+	const makeQuery = () => db.getRepository(MiNote).createQueryBuilder('note').select(['note.id', 'note.uri'])
+		.where("(note.text ILIKE '%sparse%' OR note.cw ILIKE '%sparse%') AND note.visibility = 'public'");
+	const searchSource = Object.assign(Object.create(GridspaceTimelineListSourceService.prototype), {
+		db, ids, peer: null, origin: 'https://source.test', buildQuery: makeQuery,
+		search: Object.assign(Object.create(GridspaceSearchService.prototype), { db }),
+	}) as GridspaceTimelineListSourceService;
+	const read = () => searchSource.readPage({ id: 'viewer' } as MiLocalUser, { kind: 'search', query: 'sparse' }, { limit: 50 });
+	const first = await read();
+	expect(first.references.map(ref => ref.noteId)).toEqual([id(1)]);
+	expect(first.ended).toBe(true);
+	await db.query('UPDATE note SET visibility = \'followers\' WHERE id = $1', [id(1)]);
+	expect((await read()).references).toEqual([]);
+	await db.query('UPDATE note SET visibility = \'public\', text = NULL WHERE id = $1', [id(1)]);
+	await db.query('UPDATE note SET cw = NULL WHERE id = $1', [id(2)]);
 });

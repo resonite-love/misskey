@@ -101,13 +101,13 @@ export class GridspacePrivateService {
 		return { localUserId: (await this.channelAuth.source(input.channelActorId)).id, initiator: false };
 	}
 
-	private query(viewerId: string, input: Partial<PrivatePeerRequest> = {}, authors?: Pick<MiUser, 'id' | 'makeNotesFollowersOnlyBefore'>[], includeSensitiveChannels = false) {
+	private query(viewerId: string, input: Partial<PrivatePeerRequest> = {}, authors?: Pick<MiUser, 'id' | 'makeNotesFollowersOnlyBefore'>[], includeSensitiveChannels = false, boundedSearch = false) {
 		const mode = input.mode === 'validate' ? input.contextMode : input.mode;
 		if ((mode === 'channel' && !input.channelId) || (input.channelId && mode !== 'channel' && mode !== 'show' && mode !== 'context')) throw new GridspaceLinkError('INVALID_REQUEST');
 		if (input.order === 'oldest' && mode !== 'clip' && mode !== 'context') throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((mode === 'clip' && !input.clipId) || (input.clipId && mode !== 'clip')) throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((mode === 'antenna' && !input.antennaId) || (input.antennaId && mode !== 'antenna')) throw new GridspaceLinkError('INVALID_REQUEST');
-		const query = this.search.noteQuery({ id: viewerId }, { query: mode === 'clip' ? '' : input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, !!input.targetUris?.length, includeSensitiveChannels || mode === 'home' || mode === 'mentions' || mode === 'direct' || mode === 'favorites' || mode === 'clip' || mode === 'antenna');
+		const query = this.search.noteQuery({ id: viewerId }, { query: mode === 'clip' ? '' : input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, boundedSearch || !!input.targetUris?.length || !!input.ids?.length || !!input.noteId, includeSensitiveChannels || mode === 'home' || mode === 'mentions' || mode === 'direct' || mode === 'favorites' || mode === 'clip' || mode === 'antenna');
 		const followedChannel = 'EXISTS (SELECT 1 FROM channel_following cf WHERE cf."followerId" = :homeChannelViewer AND cf."followeeId" = note."channelId")';
 		if (mode === 'home') query.setParameter('homeChannelViewer', viewerId);
 		if (mode === 'favorites') {
@@ -324,8 +324,8 @@ export class GridspacePrivateService {
 		return { references: references.slice(0, 50), next: references.length > 50 ? references[49] : candidates.length > 512 ? boundary : null, upper: input.timelineUpper ?? (candidates[0] ? { noteId: candidates[0].id, canonicalUri: candidates[0].uri ?? `${this.peer!.origin}/notes/${candidates[0].id}`, sortAt: (BigInt(this.ids.parse(candidates[0].id).date.getTime()) * 1000n).toString() } : null), sequence, generation: status.generation, changed: false };
 	}
 
-	private async listQuery(viewerId: string, input: PrivatePeerRequest) {
-		const query = this.query(viewerId, input);
+	private async listQuery(viewerId: string, input: PrivatePeerRequest, boundedSearch = false) {
+		const query = this.query(viewerId, input, undefined, false, boundedSearch && !!input.query);
 		if ((input.contextMode ?? input.mode) === 'antenna') {
 			if (!this.fanout || !input.antennaId) throw new GridspaceLinkError('INVALID_REQUEST');
 			const antenna = await this.db.getRepository(MiAntenna).findOneBy({ id: input.antennaId, userId: viewerId });
@@ -368,8 +368,8 @@ export class GridspacePrivateService {
 		const changedIds = [...new Set(changes?.events.flatMap(event => event.noteId ? [event.noteId] : []) ?? [])];
 		const readIds = async (ids: string[]) => {
 			if (!ids.length) return { rows: [] as MiNote[], publicIds: new Set<string>() };
-			const publicRows = publicQuery ? await this.search.read((await this.publicLists!.buildQuery(publicInput)).andWhere('note.id IN (:...listPublicIds)', { listPublicIds: ids }).limit(513)) : [];
-			const privateRows = privateQuery ? await this.search.read((await this.listQuery(link!.localUserId, sourceInput)).andWhere('note.id IN (:...listPrivateIds)', { listPrivateIds: ids }).limit(513)) : [];
+			const publicRows = publicQuery ? await this.search.read((await this.publicLists!.buildQuery(publicInput, true)).andWhere('note.id IN (:...listPublicIds)', { listPublicIds: ids }).limit(513)) : [];
+			const privateRows = privateQuery ? await this.search.read((await this.listQuery(link!.localUserId, sourceInput, true)).andWhere('note.id IN (:...listPrivateIds)', { listPrivateIds: ids }).limit(513)) : [];
 			return { rows: [...new Map([...privateRows, ...publicRows].map(note => [note.id, note])).values()], publicIds: new Set(publicRows.map(note => note.id)) };
 		};
 		if (input.timelineValidate) {
@@ -450,14 +450,15 @@ export class GridspacePrivateService {
 			return { references: rows.map(note => reference(note, !!publicQuery)), next: null, upper: null, sequence, generation: status.generation, changed: false };
 		}
 		const sequence = initialSequence;
-		const candidates = authorIds ? (await Promise.all(authorIds.map(author => this.search.read(scan.clone().andWhere('candidate.userId = :listScanAuthor', { listScanAuthor: author }).orderBy('candidate.id', 'DESC').limit(513)))))
-			.flat().sort((a, b) => a.id < b.id ? 1 : a.id > b.id ? -1 : 0).slice(0, 513)
-			: await this.search.read(scan.orderBy(orderColumn, ascending ? 'ASC' : 'DESC').limit(513));
-		const window = candidates.slice(0, 512);
+		const windowSize = mode === 'search' && !authorIds ? 4096 : 512;
+		const candidates = authorIds ? (await Promise.all(authorIds.map(author => this.search.read(scan.clone().andWhere('candidate.userId = :listScanAuthor', { listScanAuthor: author }).orderBy('candidate.id', 'DESC').limit(windowSize + 1)))))
+			.flat().sort((a, b) => a.id < b.id ? 1 : a.id > b.id ? -1 : 0).slice(0, windowSize + 1)
+			: await this.search.read(scan.orderBy(orderColumn, ascending ? 'ASC' : 'DESC').limit(windowSize + 1));
+		const window = candidates.slice(0, windowSize);
 		const eligible = await readIds(window.map(note => note.id));
 		const byId = new Map(eligible.rows.map(note => [note.id, note]));
 		const refs = window.flatMap(note => byId.has(note.id) ? [reference(byId.get(note.id)!, eligible.publicIds.has(note.id))] : []);
-		const more = refs.length > 50 || candidates.length > 512;
+		const more = refs.length > 50 || candidates.length > windowSize;
 		const bound = refs.length > 50 ? refs[49] : window.at(-1) ? reference(window.at(-1)!) : null;
 		const highest = ascending ? (await this.search.read(scan.clone().orderBy(column, 'DESC').limit(1)))[0] : window[0];
 		if (link) await this.authorizeRead(input);
@@ -510,11 +511,12 @@ export class GridspacePrivateService {
 			(page.next && !validReference(page.next)) || (page.upper && !validReference(page.upper)) ||
 			!/^\d+$/.test(page.sequence) || !Number.isInteger(page.generation)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		const notes: PrivateNote[] = [];
+		const actorAllows = await this.localActorChecker(viewer, this.actorsForNotes(page.notes ?? []));
 		for (const note of page.notes ?? []) {
 			if (note.origin !== this.peer!.peerOrigin) throw new GridspaceLinkError('PEER_UNAVAILABLE');
-			if (await this.localAllows(viewer, note, mode === 'home', channel?.peerUserId ?? link!.peerUserId)) {
+			if (await this.localAllows(viewer, note, mode === 'home', channel?.peerUserId ?? link!.peerUserId, actorAllows)) {
 				const { filterActors: _actors, ...display } = note;
-				notes.push(await this.filterChannelRenote(viewer, display, channel?.peerUserId ?? link!.peerUserId));
+				notes.push(await this.filterChannelRenote(viewer, display, channel?.peerUserId ?? link!.peerUserId, actorAllows));
 			}
 		}
 		if (channel) await channel.check(); else if (link) await this.links.checkPrivateUnchanged(link);
@@ -621,6 +623,36 @@ export class GridspacePrivateService {
 		return !local || !!(await this.search.userQuery(viewer).andWhere('user.id = :author', { author: local.id }).getOne());
 	}
 
+	/** One current ACL query for a page, never retained across requests. */
+	public async localActorChecker(viewer: MiLocalUser, actors: PrivateWireNote['filterActors']) {
+		const unique = [...new Map(actors.map(actor => [JSON.stringify([actor.uri, actor.host]), actor])).values()];
+		const results = new Map<string, boolean>();
+		if (!unique.length) return async () => false;
+		const profile = await this.db.getRepository(MiUserProfile).findOneBy({ userId: viewer.id });
+		const permittedHosts = unique.filter(actor => !this.utility.isBlockedHost(this.meta.blockedHosts, actor.host) && !profile?.mutedInstances.includes(actor.host));
+		const prefix = `${this.peer!.origin}/users/`;
+		const uris = permittedHosts.filter(actor => !actor.uri.startsWith(prefix)).map(actor => actor.uri);
+		const ids = permittedHosts.filter(actor => actor.uri.startsWith(prefix)).map(actor => actor.uri.slice(prefix.length));
+		const users = uris.length || ids.length ? await this.db.getRepository(MiUser).find({ select: { id: true, uri: true, host: true }, where: [
+			...(uris.length ? [{ uri: In(uris) }] : []), ...(ids.length ? [{ id: In(ids), host: IsNull() }] : []),
+		] }) : [];
+		const byUri = new Map(users.flatMap(user => [
+			...(user.uri ? [[user.uri, user.id] as const] : []),
+			...(user.host == null ? [[`${prefix}${user.id}`, user.id] as const] : []),
+		]));
+		const allowed = new Set(users.length ? (await this.search.userQuery(viewer).andWhere('user.id IN (:...actorIds)', { actorIds: users.map(user => user.id) }).select('user.id').getMany()).map(user => user.id) : []);
+		for (const actor of permittedHosts) {
+			const localId = byUri.get(actor.uri);
+			results.set(JSON.stringify([actor.uri, actor.host]), localId == null || allowed.has(localId));
+		}
+		return async (actor: PrivateWireNote['filterActors'][number]) => results.get(JSON.stringify([actor.uri, actor.host])) ?? false;
+	}
+
+	public actorsForNotes(notes: PrivateWireNote[]): PrivateWireNote['filterActors'] {
+		if (notes.some(note => !Array.isArray(note.filterActors) || (note.renote && !Array.isArray(note.renote.filterActors)))) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		return notes.flatMap(note => [...note.filterActors, ...(note.renote?.filterActors ?? [])]);
+	}
+
 	public async localAllows(viewer: MiLocalUser, note: PrivateWireNote, home: boolean, peerUserId: string,
 		actorAllows: (actor: PrivateWireNote['filterActors'][number]) => Promise<boolean> = actor => this.localActorAllows(viewer, actor)) {
 		for (const actor of note.filterActors) if (!await actorAllows(actor)) return false;
@@ -640,12 +672,13 @@ export class GridspacePrivateService {
 	}
 
 	/** Shared by timeline reads and the updated note returned after an action. */
-	public async filterChannelRenote(viewer: MiLocalUser, note: PrivateNote, peerUserId: string): Promise<PrivateNote> {
+	public async filterChannelRenote(viewer: MiLocalUser, note: PrivateNote, peerUserId: string,
+		actorAllows?: (actor: PrivateWireNote['filterActors'][number]) => Promise<boolean>): Promise<PrivateNote> {
 		const { renote: preview, ...body } = note;
 		if (!preview) return body;
 		const wire = preview as PrivateWireNote;
 		if (!Array.isArray(wire.filterActors)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
-		if (!await this.localAllows(viewer, wire, false, peerUserId)) return body;
+		if (!await this.localAllows(viewer, wire, false, peerUserId, actorAllows)) return body;
 		const { filterActors: _actors, renote: _nested, ...flat } = wire;
 		return { ...body, renote: flat };
 	}
@@ -682,9 +715,10 @@ export class GridspacePrivateService {
 		if (!Array.isArray(page.notes) || page.notes.length > (input.mode === 'validate' ? 100 : limit) || page.notes.some(note => note.origin !== this.peer!.peerOrigin)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		if (!Number.isFinite(Date.parse(page.observedAt)) || (page.next && !Number.isFinite(Date.parse(page.scannedThrough ?? '')))) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		const notes: PrivateNote[] = [];
-		for (const note of page.notes) if (await this.localAllows(viewer, note, (input.contextMode ?? input.mode) === 'home', channel?.peerUserId ?? link!.peerUserId)) {
+		const actorAllows = await this.localActorChecker(viewer, this.actorsForNotes(page.notes));
+		for (const note of page.notes) if (await this.localAllows(viewer, note, (input.contextMode ?? input.mode) === 'home', channel?.peerUserId ?? link!.peerUserId, actorAllows)) {
 			const { filterActors: _filterActors, ...display } = note;
-			notes.push(await this.filterChannelRenote(viewer, display, channel?.peerUserId ?? link!.peerUserId));
+			notes.push(await this.filterChannelRenote(viewer, display, channel?.peerUserId ?? link!.peerUserId, actorAllows));
 		}
 		if (channel) await channel.check(); else await this.links.checkPrivateUnchanged(link!);
 		const next = page.next ? encodeHistoryCursor(this.peer!, { ...state, remote: page.next, remoteHead: page.head }, context) : null;

@@ -235,10 +235,11 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 
 	async function resume() {
 		if (!usable()) return;
-		await load(cursor ? 'validate' : 'refresh');
+		// Refresh performs the same current authorization checks as validate,
+		// and includes new arrivals in one response.
+		await load('refresh');
 		if (!usable()) return;
 		if (isAtTop()) releaseQueue();
-		await load('refresh');
 	}
 
 	function visibility() { if (!window.document.hidden && active) void resume(); else suspend(); }

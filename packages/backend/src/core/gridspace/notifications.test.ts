@@ -38,6 +38,15 @@ function fixture() {
 	links.authorizePrivate.mockResolvedValue(link);
 	links.privateCredential.mockReturnValue({ accessToken: 'pair-token', linkId: 'real-link', localUserId: 'viewer', generation: 2 });
 	notes.localActorAllows.mockResolvedValue(true); notes.localAllows.mockResolvedValue(true);
+	notes.localActorChecker.mockImplementation(async (user, actors) => {
+		const decisions = new Map<string, boolean>();
+		for (const actor of actors) {
+			const key = JSON.stringify([actor.uri, actor.host]);
+			if (!decisions.has(key)) decisions.set(key, await notes.localActorAllows(user, actor));
+		}
+		return async actor => decisions.get(JSON.stringify([actor.uri, actor.host])) ?? false;
+	});
+	notes.actorsForNotes.mockImplementation(items => items.flatMap(note => [...note.filterActors, ...(note.renote?.filterActors ?? [])]));
 	const db = mockDeep<DataSource>();
 	db.transaction.mockImplementation((async (run: (manager: EntityManager) => Promise<unknown>) => run(db.manager)) as DataSource['transaction']);
 	const moduleRef = mockDeep<ModuleRef>();

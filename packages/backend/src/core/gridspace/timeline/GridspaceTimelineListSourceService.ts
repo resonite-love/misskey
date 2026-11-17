@@ -48,11 +48,11 @@ export class GridspaceTimelineListSourceService {
 		this.origin = config.url;
 	}
 
-	public async buildQuery(viewer: MiLocalUser, options: TimelineListOptions, includePeerPublic = false): Promise<SelectQueryBuilder<MiNote>> {
+	public async buildQuery(viewer: MiLocalUser, options: TimelineListOptions, includePeerPublic = false, boundedSearch = false): Promise<SelectQueryBuilder<MiNote>> {
 		if (viewer.isDeleted || viewer.isSuspended) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		let query: SelectQueryBuilder<MiNote>;
 		if (options.kind === 'profile') query = await this.profileQuery(viewer, options, includePeerPublic);
-		else if (options.kind === 'search') query = await this.searchQuery(viewer, options, includePeerPublic);
+		else if (options.kind === 'search') query = await this.searchQuery(viewer, options, includePeerPublic, boundedSearch);
 		else if (options.kind === 'mentions' || options.kind === 'direct') {
 			query = this.search.noteQuery(viewer, { query: '' }, false, true, undefined, false, true)
 				.andWhere('(:listViewer::varchar[] <@ note.mentions OR :listViewer::varchar[] <@ note.visibleUserIds)', { listViewer: [viewer.id] });
@@ -102,10 +102,12 @@ export class GridspaceTimelineListSourceService {
 		return query;
 	}
 
-	private async searchQuery(viewer: MiLocalUser, options: Extract<TimelineListOptions, { kind: 'search' }>, includePeerPublic: boolean): Promise<SelectQueryBuilder<MiNote>> {
+	private async searchQuery(viewer: MiLocalUser, options: Extract<TimelineListOptions, { kind: 'search' }>, includePeerPublic: boolean, boundedSearch: boolean): Promise<SelectQueryBuilder<MiNote>> {
 		if (!options.query.trim() || options.query.length > 200) throw new GridspaceLinkError('INVALID_REQUEST');
 		if (!(await this.roles.getUserPolicies(viewer.id)).canSearchNotes) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-		const query = this.search.noteQuery(viewer, { ...options, query: options.query.trim() }, false);
+		// Match within the bounded ID set, rather than materializing the full-text
+		// index's matches across the entire server for every small page.
+		const query = this.search.noteQuery(viewer, { ...options, query: options.query.trim() }, false, true, undefined, boundedSearch || options.userId != null);
 		// Preserve Gridspace search's local/peer scope; unrelated federated hosts
 		// are not an extra search source introduced by this adapter.
 		if (this.peer) {
@@ -143,6 +145,7 @@ export class GridspaceTimelineListSourceService {
 	/** Bounded candidate scans advance through empty permission-filtered pages. */
 	public async readPage(viewer: MiLocalUser, options: TimelineListOptions, position: { before?: TimelinePosition; upper?: TimelinePosition; untilAt?: number; limit: number }) {
 		if (!Number.isInteger(position.limit) || position.limit < 1 || position.limit > 50) throw new GridspaceLinkError('INVALID_REQUEST');
+		const windowSize = options.kind === 'search' && !options.userId ? 4096 : 512;
 		const scan = this.db.getRepository(MiNote).createQueryBuilder('candidate').select(['candidate.id', 'candidate.uri']);
 		const recipientList = options.kind === 'mentions' || options.kind === 'direct';
 		if (recipientList) {
@@ -167,17 +170,17 @@ export class GridspaceTimelineListSourceService {
 			if (!Number.isSafeInteger(position.untilAt) || position.untilAt < 0 || position.untilAt >= 4102444800000) throw new GridspaceLinkError('INVALID_REQUEST');
 			scan.andWhere('candidate.id < :listScanUntil', { listScanUntil: this.ids.gen(position.untilAt + 1) });
 		}
-		const rows = authorIds ? (await Promise.all(authorIds.map(author => this.search.read(scan.clone().andWhere('candidate.userId = :listScanAuthor', { listScanAuthor: author }).orderBy('candidate.id', 'DESC').limit(513)))))
-			.flat().sort((a, b) => a.id < b.id ? 1 : a.id > b.id ? -1 : 0).slice(0, 513)
-			: await this.search.read(scan.orderBy(orderColumn, 'DESC').limit(513));
+		const rows = authorIds ? (await Promise.all(authorIds.map(author => this.search.read(scan.clone().andWhere('candidate.userId = :listScanAuthor', { listScanAuthor: author }).orderBy('candidate.id', 'DESC').limit(windowSize + 1)))))
+			.flat().sort((a, b) => a.id < b.id ? 1 : a.id > b.id ? -1 : 0).slice(0, windowSize + 1)
+			: await this.search.read(scan.orderBy(orderColumn, 'DESC').limit(windowSize + 1));
 		const candidates = rows.map(note => ({ noteId: note.id, uri: note.uri }));
-		const window = candidates.slice(0, 512);
+		const window = candidates.slice(0, windowSize);
 		const upper = position.upper ?? (window[0] ? this.reference(window[0]) : null);
 		if (!window.length) return { references: [], next: null, upper, ended: true };
-		const query = (await this.buildQuery(viewer, options)).andWhere('note.id IN (:...listWindow)', { listWindow: window.map(note => note.noteId) });
+		const query = (await this.buildQuery(viewer, options, false, true)).andWhere('note.id IN (:...listWindow)', { listWindow: window.map(note => note.noteId) });
 		const eligible = await this.search.read(query.orderBy('note.id', 'DESC').limit(position.limit + 1));
 		const references = eligible.slice(0, position.limit).map(note => this.reference({ noteId: note.id, uri: note.uri }));
-		const hasMore = eligible.length > position.limit || candidates.length > 512;
+		const hasMore = eligible.length > position.limit || candidates.length > windowSize;
 		return { references, next: hasMore ? eligible.length > position.limit ? references.at(-1)! : this.reference(window.at(-1)!) : null, upper, ended: !hasMore };
 	}
 
@@ -198,7 +201,7 @@ export class GridspaceTimelineListSourceService {
 		const prefix = `${this.origin}/notes/`;
 		const ids = uris.filter(uri => uri.startsWith(prefix)).map(uri => uri.slice(prefix.length)).filter(id => /^[a-zA-Z0-9]{1,32}$/.test(id));
 		const aliases = [...new Set(uris.flatMap(uri => gridspaceNoteUris(uri, this.peer?.peerOrigin)))];
-		const query = await this.buildQuery(viewer, options);
+		const query = await this.buildQuery(viewer, options, false, true);
 		query.andWhere(`(note.uri IN (:...listOwnerUris)${ids.length ? ' OR note.id IN (:...listOwnerIds)' : ''})`, { listOwnerUris: aliases, listOwnerIds: ids });
 		if (upper) {
 			if (!upper.noteId || !/^[a-zA-Z0-9]{1,32}$/.test(upper.noteId)) throw new GridspaceLinkError('INVALID_CURSOR');
@@ -215,10 +218,10 @@ export class GridspaceTimelineListSourceService {
 	}
 
 	public async hydrate(viewer: MiLocalUser, options: TimelineListOptions, references: TimelineReference[]) {
-		return this.localSource.hydrateQuery(viewer, () => this.buildQuery(viewer, options), references);
+		return this.localSource.hydrateQuery(viewer, () => this.buildQuery(viewer, options, false, true), references);
 	}
 
 	public async hydrateImported(viewer: MiLocalUser, options: TimelineListOptions, references: TimelineReference[]) {
-		return this.localSource.hydrateQuery(viewer, () => this.buildQuery(viewer, options, true), references);
+		return this.localSource.hydrateQuery(viewer, () => this.buildQuery(viewer, options, true, true), references);
 	}
 }

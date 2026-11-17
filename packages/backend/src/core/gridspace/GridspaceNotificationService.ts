@@ -28,6 +28,7 @@ import { GridspaceSearchService } from './GridspaceSearchService.js';
 import { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
 import { notificationReferenceLimit, type NotificationReferences } from './notification-protocol.js';
 import type { NotificationOptions, NotificationPeerRequest, NotificationPage, WireNotification, LocalNotification, PeerNotification } from './notification-protocol.js';
+import type { PrivateWireNote } from './private-protocol.js';
 
 @Injectable()
 export class GridspaceNotificationService {
@@ -248,23 +249,18 @@ export class GridspaceNotificationService {
 		const options: NotificationOptions = { before: input.before, since: input.since, ids: input.ids, excludeTypes: input.excludeTypes, limit: input.limit, countOnly: input.countOnly, expectedRecipientId: input.expectedRecipientId };
 		const page = await this.links.json<NotificationPage<WireNotification>>(`/gridspace/v1/notifications/${action}`, { ...options, ...(identity ? identity.credential : this.links.privateCredential(link!)) });
 		if (page.origin !== (identity?.peerOrigin ?? link!.peerOrigin) || (!identity && page.recipientId !== link!.peerUserId) || !Array.isArray(page.items) || page.items.length > 100) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		if (identity && page.items.some(item => item.type !== 'reaction' || !item.note?.channelId || item.note.author.uri !== `${this.config.url}/users/${user.id}`)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		const items: PeerNotification[] = [];
-		// Request-scoped only: repeated reactions often share their notifier and
-		// target author. Every subsequent request checks current blocks/mutes again.
-		const actorChecks = new Map<string, Promise<boolean>>();
-		const actorAllows = (actor: NonNullable<WireNotification['user']>) => {
-			const key = JSON.stringify([actor.uri, actor.host]);
-			let result = actorChecks.get(key);
-			if (!result) { result = this.notes.localActorAllows(user, actor); actorChecks.set(key, result); }
-			return result;
-		};
+		const actorAllows = await this.notes.localActorChecker(user, [
+			...page.items.flatMap(item => item.user ? [item.user] : []),
+			...this.notes.actorsForNotes(page.items.flatMap(item => [item.note, item.renote].filter((note): note is PrivateWireNote => note != null))),
+		]);
 		for (const item of page.items) {
-			if (identity && (item.type !== 'reaction' || !item.note?.channelId || item.note.author.uri !== `${this.config.url}/users/${user.id}`)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 			if (item.user && !await actorAllows(item.user)) continue;
 			const peerUserId = identity ? page.recipientId : link!.peerUserId;
 			if (item.note && !await this.notes.localAllows(user, item.note, false, peerUserId, actorAllows)) continue;
-			const note = item.note ? await this.notes.filterChannelRenote(user, (({ filterActors: _, ...display }) => display)(item.note), peerUserId) : null;
-			const renote = item.renote && await this.notes.localAllows(user, item.renote, false, peerUserId, actorAllows) ? await this.notes.filterChannelRenote(user, (({ filterActors: _, ...display }) => display)(item.renote), peerUserId) : null;
+			const note = item.note ? await this.notes.filterChannelRenote(user, (({ filterActors: _, ...display }) => display)(item.note), peerUserId, actorAllows) : null;
+			const renote = item.renote && await this.notes.localAllows(user, item.renote, false, peerUserId, actorAllows) ? await this.notes.filterChannelRenote(user, (({ filterActors: _, ...display }) => display)(item.renote), peerUserId, actorAllows) : null;
 			items.push({ ...item, note, renote });
 		}
 		if (identity) await identity.check(); else await this.links.checkPrivateUnchanged(link!);

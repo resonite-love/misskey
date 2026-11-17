@@ -111,9 +111,10 @@ describe('server-ordered notification timeline', () => {
   const list = mount(); await settle(); const keys = list.rows.value.map(row => row.key);
   hidden = true; document.dispatchEvent(new Event('visibilitychange')); await settle();
   expect(list.rows.value.map(row => row.key)).toEqual(keys); expect(JSON.stringify(list.rows.value)).not.toContain('protected');
+  const callsBeforeResume = api.mock.calls.length;
   hidden = false; document.dispatchEvent(new Event('visibilitychange')); await settle();
   expect(JSON.stringify(list.rows.value)).toContain('protected');
-  expect(api.mock.calls.some(([, p]) => (p as { mode?: string }).mode === 'validate')).toBe(true);
+  expect(api.mock.calls.slice(callsBeforeResume).map(([, p]) => (p as { mode?: string }).mode)).toEqual(['refresh']);
  });
  it('queues server-ordered arrivals while reading older rows and removes deleted queue entries', async () => {
   let arrived = false; let deleted = false;

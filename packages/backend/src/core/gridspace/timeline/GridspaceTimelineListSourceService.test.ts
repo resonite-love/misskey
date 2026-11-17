@@ -91,7 +91,7 @@ describe('other-list source authorization and keysets', () => {
 		Object.assign(service, { peer: { origin: 'https://local.test', peerOrigin: 'https://peer.test' } });
 		history.findLink.mockResolvedValue({ id: 'link', localUserId: 'author', peerUserId: 'peer' } as never);
 		await service.buildQuery(viewer, { kind: 'search', query: '  match  ', userId: 'author', rangeStartAt: 1000, rangeEndAt: 2000 });
-		expect(search.noteQuery).toHaveBeenCalledWith(viewer, expect.objectContaining({ query: 'match', userId: 'author', rangeStartAt: 1000, rangeEndAt: 2000 }), false);
+		expect(search.noteQuery).toHaveBeenCalledWith(viewer, expect.objectContaining({ query: 'match', userId: 'author', rangeStartAt: 1000, rangeEndAt: 2000 }), false, true, undefined, true);
 		expect(builder.andWhere).toHaveBeenCalledWith('(note.userHost IS NULL OR note.userHost = :listPeerHost)', { listPeerHost: 'peer.test' });
 		expect(builder.andWhere).toHaveBeenCalledWith('note.userId IN (:...listAuthors)', { listAuthors: ['author', 'counterpart'] });
 	});
