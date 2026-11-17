@@ -2551,6 +2551,15 @@ export type paths = {
          */
         post: operations['gridspace___member'];
     };
+    '/gridspace/note-clips': {
+        /**
+         * gridspace/note-clips
+         * @description No description provided.
+         *
+         *     **Credential required**: *No*
+         */
+        post: operations['gridspace___note-clips'];
+    };
     '/gridspace/note-link': {
         /**
          * gridspace/note-link
@@ -26827,6 +26836,91 @@ export interface operations {
                         linked: boolean;
                         available: boolean;
                         accounts: components['schemas']['UserLite'][];
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'gridspace___note-clips': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** Format: misskey:id */
+                    noteId: string;
+                    /**
+                     * @default local
+                     * @enum {string}
+                     */
+                    source?: 'local' | 'peer';
+                    /** Format: misskey:id */
+                    channelId?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        clips: components['schemas']['Clip'][];
+                        partial: boolean;
                     };
                 };
             };

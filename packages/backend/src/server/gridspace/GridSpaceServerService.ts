@@ -26,6 +26,7 @@ import { GridspaceChannelService } from '@/core/gridspace/GridspaceChannelServic
 import { GridspaceSharedDriveService } from '@/core/gridspace/GridspaceSharedDriveService.js';
 import { GridspaceManagedResourceService } from '@/core/gridspace/GridspaceManagedResourceService.js';
 import { GridspaceContentService } from '@/core/gridspace/GridspaceContentService.js';
+import { GridspaceNoteClipsService } from '@/core/gridspace/GridspaceNoteClipsService.js';
 import { GridspaceDriveService } from '@/core/gridspace/GridspaceDriveService.js';
 import { RoleService } from '@/core/RoleService.js';
 import { RateLimiterService } from '@/server/api/RateLimiterService.js';
@@ -62,6 +63,7 @@ export class GridSpaceServerService {
 		private content: GridspaceContentService,
 		private sharedDrive: GridspaceSharedDriveService,
 		private managed: GridspaceManagedResourceService,
+		private noteClips: GridspaceNoteClipsService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 	}
@@ -86,7 +88,7 @@ export class GridSpaceServerService {
 		input => this.reactions.peerRead(input), input => this.reactionDelivery.receive(input), noteIds => this.notes.readMany(noteIds), input => this.channels.peerList(input), input => this.channels.peerDelete(input), input => this.drive.peer(input), input => this.content.peer(input), input => this.sharedDrive.peer(input), input => this.managed.peer(input), input => this.channels.peerUpdate(input), input => this.noteMenus.peer(input, userId => this.limitAction(userId, 'gridspace/note-menu', 60)), input => this.publicNotes.local(input), input => this.reactionNotifications.receive(input), async input => {
 			if (input.shared) await this.notes.sync(input.noteId);
 			return this.timelinePeer.receive(input.noteId);
-		}, () => this.timelinePeer.receiveChanges());
+		}, () => this.timelinePeer.receiveChanges(), input => this.noteClips.peer(input));
 		done();
 	}
 }

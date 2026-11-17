@@ -15,6 +15,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<div class="_margin">
 		<MkGridspacePrivateNotes :key="`${noteId}:${channelId ?? ''}`" :params="{ mode: 'show', noteId, channelId }" plain alwaysShow @snapshot="updateNote"/>
 	</div>
+	<MkNoteClips v-if="appearNote" :key="appearNote.id" :noteId="appearNote.id" source="peer" :channelId="appearNote.channelId ?? channelId"/>
 	<div v-if="note && !showPrev" class="_buttons" :class="$style.navigation">
 		<MkButton v-if="note.channelId" rounded :aria-label="i18n.ts._gridspace.olderChannelNotes" @click="showPrev = 'channel'"><i class="ti ti-chevron-down"></i> <i class="ti ti-device-tv"></i></MkButton>
 		<MkButton rounded :aria-label="i18n.ts._gridspace.olderUserNotes" @click="showPrev = 'user'"><i class="ti ti-chevron-down"></i> <i class="ti ti-user"></i></MkButton>
@@ -26,9 +27,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { entities } from 'misskey-js';
 import MkButton from '@/components/MkButton.vue';
+import MkNoteClips from '@/components/MkNoteClips.vue';
 import MkGridspacePrivateNotes from '@/components/MkGridspacePrivateNotes.vue';
 import { i18n } from '@/i18n.js';
 
@@ -36,6 +38,10 @@ type Note = entities.GridspacePrivateNotesResponse['notes'][number];
 const props = defineProps<{ noteId: string; channelId?: string }>();
 const emit = defineEmits<{ (event: 'snapshot', note: Note | null): void }>();
 const note = ref<Note | null>(null);
+const appearNote = computed(() => {
+	const value = note.value;
+	return value?.renote && value.renoteId && value.text == null && value.cw == null && !value.replyId && !value.files.length && !value.poll ? value.renote : value;
+});
 const showNext = ref<'channel' | 'user' | false>(false);
 const showPrev = ref<'channel' | 'user' | false>(false);
 

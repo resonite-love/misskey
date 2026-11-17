@@ -21,12 +21,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<MkRemoteCaution v-if="note.user.host != null" :href="note.url ?? note.uri"/>
 						<MkNoteDetailed :key="note.id" v-model:note="note" :initialTab="initialTab" :class="$style.note"/>
 					</div>
-					<div v-if="clips && clips.length > 0" class="_margin">
-						<div style="font-weight: bold; padding: 12px;">{{ i18n.ts.clip }}</div>
-						<div class="_gaps">
-							<MkClipPreview v-for="item in clips" :key="item.id" :clip="item"/>
-						</div>
-					</div>
+					<MkNoteClips :key="note.id" :noteId="(getAppearNote(note) ?? note).id"/>
 					<div v-if="!showPrev" class="_buttons" :class="$style.loadPrev">
 						<MkButton v-if="note.channelId" rounded :class="$style.loadButton" @click="showPrev = 'channel'"><i class="ti ti-chevron-down"></i> <i class="ti ti-device-tv"></i></MkButton>
 						<MkButton rounded :class="$style.loadButton" @click="showPrev = 'user'"><i class="ti ti-chevron-down"></i> <i class="ti ti-user"></i></MkButton>
@@ -56,7 +51,7 @@ import { misskeyApi } from '@/utility/misskey-api.js';
 import { definePage } from '@/page.js';
 import { i18n } from '@/i18n.js';
 import { dateString } from '@/filters/date.js';
-import MkClipPreview from '@/components/MkClipPreview.vue';
+import MkNoteClips from '@/components/MkNoteClips.vue';
 import { prefer } from '@/preferences.js';
 import { pleaseLogin } from '@/utility/please-login.js';
 import { getAppearNote } from '@/utility/get-appear-note.js';
@@ -73,7 +68,6 @@ const props = defineProps<{
 }>();
 
 const note = ref<null | Misskey.entities.Note>(CTX_NOTE);
-const clips = ref<Misskey.entities.Clip[]>();
 const showPrev = ref<'user' | 'channel' | false>(false);
 const showNext = ref<'user' | 'channel' | false>(false);
 const initialTab = computed<'reactions' | 'replies' | 'renotes' | undefined>(() => {
@@ -132,15 +126,6 @@ function fetchNote() {
 		noteId: props.noteId,
 	}).then(res => {
 		note.value = res;
-		const appearNote = getAppearNote(res) ?? res;
-		// 古いノートは被クリップ数をカウントしていないので、2023-10-01以前のものは強制的にnotes/clipsを叩く
-		if ((appearNote.clippedCount ?? 0) > 0 || new Date(appearNote.createdAt).getTime() < new Date('2023-10-01').getTime()) {
-			misskeyApi('notes/clips', {
-				noteId: appearNote.id,
-			}).then((_clips) => {
-				clips.value = _clips;
-			});
-		}
 	}).catch(err => {
 		if (['fbcc002d-37d9-4944-a6b0-d9e29f2d33ab', '145f88d2-b03d-4087-8143-a78928883c4b'].includes(err.id)) {
 			pleaseLogin({

@@ -3113,6 +3113,17 @@ declare module '../api.js' {
     ): Promise<SwitchCaseResponseType<E, P>>;
 
     /**
+     * No description provided.
+     *
+     * **Credential required**: *No*
+     */
+    request<E extends 'gridspace/note-clips', P extends Endpoints[E]['req']>(
+      endpoint: E,
+      params: P,
+      credential?: string | null,
+    ): Promise<SwitchCaseResponseType<E, P>>;
+
+    /**
      * Resolve a paired-server note link with the current viewer permissions.
      * 
      * **Credential required**: *No*
