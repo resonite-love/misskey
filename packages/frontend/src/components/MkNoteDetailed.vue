@@ -41,7 +41,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<i v-else-if="note.visibility === 'specified'" ref="specified" class="ti ti-mail"></i>
 			</span>
 			<span v-if="note.localOnly" style="margin-left: 0.5em;" :title="i18n.ts._visibility['disableFederation']"><i class="ti ti-rocket-off"></i></span>
-			<span v-else-if="note.noRelay" :class="$style.noRelay">{{ i18n.ts._visibility.noRelay }}</span>
+			<span v-else-if="note.noRelay" :class="$style.noRelay" :title="i18n.ts._visibility.noRelay" role="img" :aria-label="i18n.ts._visibility.noRelay"><i class="ti ti-route-off" aria-hidden="true"></i></span>
 		</div>
 	</div>
 	<div v-if="isRenote && note.renote == null" :class="$style.deleted">
@@ -434,7 +434,6 @@ const keymap = {
 
 .noRelay {
 	margin-inline-start: .5em;
-	white-space: nowrap;
 }
 
 .renoteInfo {
