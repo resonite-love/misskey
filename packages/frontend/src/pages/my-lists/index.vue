@@ -11,7 +11,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				{{ i18n.ts._userLists.tip }}
 			</MkTip>
 
-			<MkGridspaceListImport/>
+			<MkGridspaceListImport summaryOnly/>
 			<MkResult v-if="items.length === 0" type="empty"/>
 
 			<MkButton primary rounded style="margin: 0 auto;" @click="create"><i class="ti ti-plus"></i> {{ i18n.ts.createList }}</MkButton>

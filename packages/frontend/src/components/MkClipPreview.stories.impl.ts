@@ -42,3 +42,5 @@ export const Default = {
 		}),
 	],
 } satisfies StoryObj<typeof MkClipPreview>;
+
+export const LinkedClip = { ...Default, args: { ...Default.args, peerOrigin: 'https://misskey.resonite.love' } } satisfies StoryObj<typeof MkClipPreview>;

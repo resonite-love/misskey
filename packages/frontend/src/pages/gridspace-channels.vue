@@ -6,7 +6,6 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <PageWithHeader v-model:tab="tab" :tabs="headerTabs" :swipable="true">
 	<div class="_spacer _gaps" style="--MI_SPACER-w: 700px;" data-gridspace-channels>
-		<MkA to="/channels">{{ i18n.ts.channel }}</MkA>
 		<template v-if="!channelId">
 			<MkInput v-model="query" type="search" @enter="load(false)"><template #label>{{ i18n.ts.search }}</template></MkInput>
 			<MkSwitch v-model="followed" @update:modelValue="load(false)">{{ i18n.ts._gridspace.channelsFollowed }}</MkSwitch>

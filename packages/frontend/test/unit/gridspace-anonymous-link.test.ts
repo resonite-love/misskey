@@ -21,7 +21,7 @@ vi.mock('@/components/MkGridspaceNoteDetail.vue', () => ({ default: { template: 
 vi.mock('@/components/MkGridspacePrivateNotes.vue', () => ({ default: { template: '<div>PRIVATE LIST</div>' } }));
 vi.mock('@/components/MkNoteHeader.vue', () => ({ default: { template: '<div>Author</div>' } }));
 vi.mock('@/components/MkNoteCw.vue', () => ({ default: { template: '<div>Content warning</div>' } }));
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { invisibleNote: 'Not visible', retry: 'Retry', login: 'Sign in', details: 'Details' } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { invisibleNote: 'Not visible', retry: 'Retry', login: 'Sign in', details: 'Details', search: 'Search', _gridspace: { privateListMoved: 'Use the ordinary home and search.', openHome: 'Home' } } } }));
 const global = { stubs: { PageWithHeader: { template: '<main><slot/></main>' }, MkButton: { template: '<button><slot/></button>' }, MkA: { props: ['to'], template: '<a :href="to"><slot/></a>' }, MkLoading: true, MkEllipsis: true, Mfm: { props: ['text'], template: '<span>{{ text }}</span>' } } };
 
 beforeEach(() => {
@@ -30,6 +30,15 @@ beforeEach(() => {
 	vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+test('the old list entry links to ordinary screens without requesting private notes', async () => {
+	const view = render(Page, { global });
+	await nextTick();
+	expect(view.getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/');
+	expect(view.getByRole('link', { name: 'Search' }).getAttribute('href')).toBe('/search');
+	expect(view.queryByText('PRIVATE LIST')).toBeNull();
+	expect(api).not.toHaveBeenCalled();
+});
 
 test('anonymous note links open the verified normal source page automatically', async () => {
 	const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {});

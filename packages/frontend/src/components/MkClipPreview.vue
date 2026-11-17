@@ -6,8 +6,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <MkA :to="`/clips/${clip.id}${peerOrigin ? '/linked' : ''}`" :class="$style.link">
 	<div :class="$style.root" class="_panel _gaps_s">
-		<b>{{ clip.name }}</b>
-		<div v-if="peerOrigin">{{ i18n.tsx._gridspace.collectionSource({ host: peerHost }) }}</div>
+		<div :class="$style.title">
+			<b>{{ clip.name }}</b>
+			<small v-if="peerOrigin" :class="$style.origin" :title="i18n.tsx._gridspace.collectionSource({ host: peerHost })">{{ peerHost }}</small>
+		</div>
 		<div :class="$style.description">
 			<div v-if="clip.description"><Mfm :text="clip.description" :plain="true" :nowrap="true"/></div>
 			<div v-if="clip.lastClippedAt">{{ i18n.ts.updatedAt }}: <MkTime :time="clip.lastClippedAt" mode="detail"/></div>
@@ -65,6 +67,18 @@ const remaining = computed(() => {
 
 .root {
 	padding: 16px;
+}
+
+.title {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 8px;
+}
+
+.origin {
+	color: var(--MI_THEME-fgTransparentWeak);
+	overflow-wrap: anywhere;
 }
 
 .divider {

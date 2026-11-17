@@ -106,7 +106,7 @@ const sourcePath = computed(() => {
 	if (type.value === 'exportCompleted' && presentation.value?.fileId) return `/my/drive/file/${encodeURIComponent(presentation.value.fileId)}`;
 	if (type.value === 'createToken') return '/settings/apps';
 	if (type.value === 'chatRoomInvitationReceived') return '/chat';
-	if (type.value === 'receiveFollowRequest') return '/my/follow-requests';
+	if (type.value === 'receiveFollowRequest' && !(presentation.value?.canManageFollowRequest && presentation.value.followRequestId)) return '/my/follow-requests';
 	return null;
 });
 const sourceLabel = computed(() => {

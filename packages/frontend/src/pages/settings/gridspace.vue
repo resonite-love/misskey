@@ -19,7 +19,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<div v-if="status.peerUsername">{{ i18n.ts._gridspace.account }}: @{{ status.peerUsername }}</div>
 				<div role="status">{{ stateLabel(status.state) }}</div>
 			</div>
-			<p>{{ i18n.ts._gridspace.permissions }}</p>
+			<p v-if="status.state !== 'active'">{{ i18n.ts._gridspace.permissions }}</p>
 			<div class="_buttons">
 				<MkButton v-if="status.state === 'unlinked' || status.state === 'revoked'" primary :disabled="busy" @click="start">{{ i18n.ts._gridspace.start }}</MkButton>
 				<MkButton v-else-if="status.initiator" :disabled="busy" @click="start">{{ i18n.ts._gridspace.reauthorize }}</MkButton>
@@ -37,17 +37,24 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<section v-if="status.state === 'active'" class="_gaps_s">
 				<h2>{{ i18n.ts._gridspace.linkPermissions }}</h2>
 				<MkInfo v-if="readGrant && !readGrant.available" warn>{{ i18n.ts._gridspace.connectionError }}</MkInfo>
-				<MkInfo v-else-if="readGrant?.granted && readGrant.canReply && readGrant.canInteract && readGrant.canReadNotifications && readGrant.canWriteChannels && readGrant.canManageFollowRequests && (!status.channelsEnabled || (collectionsGrant?.favorites && collectionsGrant.clipFavorites && (status.driveShared || driveGrant?.granted)))">{{ i18n.ts._gridspace.allGranted }}</MkInfo>
+				<MkInfo v-else-if="readGrant?.granted && readGrant.canReply && readGrant.canInteract && readGrant.canReadNotifications && readGrant.canWriteChannels && readGrant.canManageFollowRequests && (!status.channelsEnabled || (collectionsGrant?.favorites && collectionsGrant.clipFavorites && (status.driveShared || driveGrant?.granted)))">{{ i18n.ts._gridspace.permissionsReady }}</MkInfo>
 				<MkInfo v-else>{{ i18n.ts._gridspace.upgradePermissions }}</MkInfo>
 				<MkButton v-if="!status.initiator" :disabled="busy" @click="startPrivate">{{ i18n.ts._gridspace.authorizeAll }}</MkButton>
+				<details :class="$style.details">
+					<summary>{{ i18n.ts.details }}</summary>
+					<div class="_gaps_s">
+						<p>{{ i18n.ts._gridspace.permissions }}</p>
+						<p>{{ i18n.ts._gridspace.scope }}</p>
+					</div>
+				</details>
 			</section>
 			<template v-if="status.state === 'active' && status.initiator && status.channelsEnabled">
 				<section class="_gaps_s">
 					<h2>{{ i18n.ts._gridspace.profileTitle }}</h2>
-					<p>{{ i18n.ts._gridspace.profileCopyDescription }}</p>
+					<details :class="$style.details"><summary>{{ i18n.ts.details }}</summary><p>{{ i18n.ts._gridspace.profileCopyDescription }}</p></details>
 					<MkInfo v-if="profileResult?.complete" role="status">{{ i18n.tsx._gridspace.profileCopied({ copied: profileResult.copied.length, skipped: profileResult.skipped.length }) }}</MkInfo>
 					<MkInfo v-if="profileError" warn role="alert">{{ i18n.ts._gridspace.profileCopyFailed }}</MkInfo>
-					<MkButton :disabled="busy || profileResult?.complete" @click="retryProfile">{{ profileError ? i18n.ts.retry : i18n.ts._gridspace.profileCopy }}</MkButton>
+					<MkButton v-if="!profileResult?.complete" :disabled="busy" @click="retryProfile">{{ profileError ? i18n.ts.retry : i18n.ts._gridspace.profileCopy }}</MkButton>
 				</section>
 			</template>
 			<div v-if="status.state === 'active' && (paletteCopied || paletteError)" class="_gaps_s">
@@ -57,7 +64,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</div>
 			<section v-if="status.state === 'active' && status.initiator" class="_gaps_s">
 				<h2>{{ i18n.ts._gridspace.recentEmojiTitle }}</h2>
-				<p>{{ i18n.ts._gridspace.recentEmojiDescription }}</p>
+				<details :class="$style.details"><summary>{{ i18n.ts.details }}</summary><p>{{ i18n.ts._gridspace.recentEmojiDescription }}</p></details>
 				<MkInfo v-if="recentEmojiCopied" role="status">{{ i18n.ts._gridspace.recentEmojiCopied }}</MkInfo>
 				<MkInfo v-if="recentEmojiUnavailable" warn role="alert">{{ i18n.ts._gridspace.recentEmojiUnavailable }}</MkInfo>
 				<MkButton :disabled="busy" @click="startRecentEmojis">{{ i18n.ts._gridspace.recentEmojiCopy }}</MkButton>
@@ -65,14 +72,20 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<template v-if="status.state === 'active' && status.initiator && status.channelsEnabled">
 				<section class="_gaps_s">
 					<h2>{{ i18n.ts._gridspace.listsTitle }}</h2>
-					<p>{{ i18n.ts._gridspace.listsDescription }}</p>
+					<p>{{ status.driveShared ? i18n.ts._gridspace.listsSharedDescription : i18n.ts._gridspace.listsDescription }}</p>
 					<MkGridspaceListImport :autoStart="listsAutoStart"/>
 				</section>
 				<section class="_gaps_s">
 					<h2>{{ i18n.ts._gridspace.settingsTitle }}</h2>
-					<p>{{ i18n.ts._gridspace.settingsCopyDescription }}</p>
-					<p>{{ i18n.ts._gridspace.settingsCopyExclusions }}</p>
-					<p>{{ i18n.ts._gridspace.settingsCopyDevice }}</p>
+					<p>{{ i18n.ts._gridspace.settingsCopyEffect }}</p>
+					<details :class="$style.details">
+						<summary>{{ i18n.ts.details }}</summary>
+						<div class="_gaps_s">
+							<p>{{ i18n.ts._gridspace.settingsCopyDescription }}</p>
+							<p>{{ i18n.ts._gridspace.settingsCopyExclusions }}</p>
+							<p>{{ i18n.ts._gridspace.settingsCopyDevice }}</p>
+						</div>
+					</details>
 					<MkInfo v-if="settingsResult" role="status">{{ i18n.tsx._gridspace.settingsProgress({ done: settingsResult.done, total: settingsResult.total, failed: settingsResult.failed }) }}</MkInfo>
 					<MkInfo v-if="settingsComplete" role="status">{{ i18n.ts._gridspace.settingsCopied }}</MkInfo>
 					<MkInfo v-if="settingsError" warn role="alert">{{ i18n.ts._gridspace.settingsCopyFailed }}</MkInfo>
@@ -83,18 +96,18 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</section>
 				<section class="_gaps_s">
 					<h2>{{ i18n.ts._gridspace.playImportTitle }}</h2>
-					<p>{{ i18n.ts._gridspace.playImportDescription }}</p>
+					<details :class="$style.details"><summary>{{ i18n.ts.details }}</summary><p>{{ i18n.ts._gridspace.playImportDescription }}</p></details>
 					<div v-if="playImportResult?.started" role="status">{{ i18n.tsx._gridspace.playImportProgress({ done: playImportResult.done, total: playImportResult.total, failed: playImportResult.failed }) }}</div>
 					<MkInfo v-if="playImportError" warn role="alert">{{ i18n.ts._gridspace.playImportFailed }}</MkInfo>
 					<div class="_buttons">
-						<MkButton :disabled="busy || playImportBusy || playImportResult?.complete" @click="runPlayImport(true, playImportError)">{{ playImportError ? i18n.ts.retry : i18n.ts._gridspace.playImportStart }}</MkButton>
+						<MkButton v-if="!playImportResult?.complete" :disabled="busy || playImportBusy" @click="runPlayImport(true, playImportError)">{{ playImportError ? i18n.ts.retry : i18n.ts._gridspace.playImportStart }}</MkButton>
 						<MkButton v-if="playImportError" :disabled="busy || playImportBusy" @click="start">{{ i18n.ts._gridspace.reauthorize }}</MkButton>
 						<MkA to="/play?tab=my">{{ i18n.ts._gridspace.openMyPlay }}</MkA>
 					</div>
 				</section>
 				<section class="_gaps_s">
 					<h2>{{ i18n.ts._gridspace.collectionsTitle }}</h2>
-					<p>{{ i18n.ts._gridspace.collectionsDescription }}</p>
+					<p>{{ status.driveShared ? i18n.ts._gridspace.collectionsDescription : i18n.ts._gridspace.collectionsReadOnlyDescription }}</p>
 					<div class="_buttons">
 						<MkA to="/my/favorites">{{ i18n.ts.favorites }}</MkA>
 						<MkA to="/my/clips">{{ i18n.ts.clip }}</MkA>
@@ -109,21 +122,25 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</template>
 			<section class="_gaps_s">
 				<h2>{{ i18n.ts._gridspace.followsTitle }}</h2>
-				<p>{{ status.channelsEnabled ? i18n.ts._gridspace.description : i18n.ts._gridspace.sourceFollowDescription }}</p>
-				<p>{{ i18n.ts._gridspace.followCopyConditions }}</p>
+				<details :class="$style.details">
+					<summary>{{ i18n.ts.details }}</summary>
+					<div class="_gaps_s">
+						<p>{{ status.channelsEnabled ? i18n.ts._gridspace.description : i18n.ts._gridspace.sourceFollowDescription }}</p>
+						<p>{{ i18n.ts._gridspace.followCopyConditions }}</p>
+					</div>
+				</details>
 				<MkButton v-if="status.failed && status.state === 'active'" :disabled="busy" @click="retry">{{ i18n.ts._gridspace.retry }}</MkButton>
 				<template v-if="status.total">
 					<div aria-live="polite">{{ i18n.tsx._gridspace.progress({ total: status.total, done: status.done, pending: status.pending, requested: status.requested, failed: status.failed, skipped: status.skipped }) }}</div>
-					<div v-for="item in status.items" :key="item.uri" :class="$style.item">
-						<a :href="item.uri" target="_blank" rel="noopener noreferrer">{{ item.uri }}</a>
-						<span>{{ stateLabel(item.state) }}</span>
-					</div>
-					<div v-if="status.total > status.items.length">{{ i18n.ts._gridspace.firstHundred }}</div>
+					<details :class="$style.details">
+						<summary>{{ i18n.ts._gridspace.followCopyResults }}</summary>
+						<div v-for="item in status.items" :key="item.uri" :class="$style.item">
+							<a :href="item.uri" target="_blank" rel="noopener noreferrer">{{ item.uri }}</a>
+							<span>{{ stateLabel(item.state) }}</span>
+						</div>
+						<div v-if="status.total > status.items.length">{{ i18n.ts._gridspace.firstHundred }}</div>
+					</details>
 				</template>
-			</section>
-			<section class="_gaps_s">
-				<h2>{{ i18n.ts._gridspace.notesTitle }}</h2>
-				<p>{{ i18n.ts._gridspace.scope }}</p>
 			</section>
 			<MkA v-if="status.state === 'active'" to="/">{{ i18n.ts._gridspace.openHome }}</MkA>
 		</template>
@@ -509,5 +526,16 @@ definePage(() => ({ title: i18n.ts._gridspace.title, icon: 'ti ti-link' }));
 	overflow-wrap: anywhere;
 	padding-block: 8px;
 	border-bottom: 1px solid var(--MI_THEME-divider);
+}
+
+.details {
+	summary {
+		cursor: pointer;
+		color: var(--MI_THEME-accent);
+	}
+
+	&[open] > summary {
+		margin-bottom: 8px;
+	}
 }
 </style>

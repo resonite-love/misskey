@@ -13891,6 +13891,26 @@ export interface Locale extends ILocale {
          */
         "listsTitle": string;
         /**
+         * リストとメンバーは一度だけコピーします。コピー後の編集は同期しません。アンテナはコピーせず、れぞらぶのものをそのまま使い、編集・削除も反映されます。
+         */
+        "listsSharedDescription": string;
+        /**
+         * れぞらぶのリストを引き継ぐ
+         */
+        "listsCopyOnly": string;
+        /**
+         * リスト・メンバー全{total}件：完了 {done}件、スキップ {skipped}件、失敗 {failed}件
+         */
+        "listsProgressOnly": ParameterizedString<"total" | "done" | "skipped" | "failed">;
+        /**
+         * 引き継ぎ状況をアカウント連携で確認する
+         */
+        "manageImport": string;
+        /**
+         * フォローの引き継ぎ結果
+         */
+        "followCopyResults": string;
+        /**
          * れぞらぶのリストとアンテナを一度だけコピーします。リストの公開設定・メンバー・返信の表示設定、アンテナのキーワード・除外条件・対象ユーザー・参照リストも引き継ぎます。同名のものがぐりすぺにあっても新しく追加し、コピー後の編集は同期しません。
          */
         "listsDescription": string;
@@ -13923,9 +13943,13 @@ export interface Locale extends ILocale {
          */
         "collectionsTitle": string;
         /**
-         * れぞらぶのお気に入り・クリップを、ぐりすぺの通常の一覧にまとめて表示します。内容はコピーせず、れぞらぶのアカウントの権限で読み込みます。れぞらぶのクリップ自体を編集・削除するときは、元のサーバーで操作してください。
+         * れぞらぶのお気に入り・クリップは、ぐりすぺの通常の一覧から使えます。自分のクリップはぐりすぺから編集・削除でき、変更はれぞらぶにも反映されます。
          */
         "collectionsDescription": string;
+        /**
+         * れぞらぶのお気に入り・クリップは、ぐりすぺの通常の一覧から読めます。ドライブ共有前の連携では、クリップの編集・削除はれぞらぶで操作してください。
+         */
+        "collectionsReadOnlyDescription": string;
         /**
          * れぞらぶのリスト・アンテナを引き継ぐ
          */
@@ -14031,6 +14055,10 @@ export interface Locale extends ILocale {
          */
         "allGranted": string;
         /**
+         * 連携機能はすべて許可されています。
+         */
+        "permissionsReady": string;
+        /**
          * まだ許可されていない連携機能があります。認可のボタンから、連携先で許可してください。
          */
         "upgradePermissions": string;
@@ -14066,6 +14094,10 @@ export interface Locale extends ILocale {
          * れぞらぶの設定に揃える
          */
         "settingsCopy": string;
+        /**
+         * 実行すると、ぐりすぺの画面・投稿設定をれぞらぶの設定に上書きします。
+         */
+        "settingsCopyEffect": string;
         /**
          * 画面表示・サイドメニュー・ステータスバー・リストのピン留め・デッキ・ウィジェット・アップロード先・テーマ・通知音・画像設定・投稿の公開範囲などを、れぞらぶの設定に上書きします。ミュート・ブロックは追加しますが、ぐりすぺで設定した対象は解除しません。
          */
@@ -14282,6 +14314,10 @@ export interface Locale extends ILocale {
          * 連携先の権限で読む投稿
          */
         "privateTitle": string;
+        /**
+         * 連携先の投稿は、ホームや検索から読めます。
+         */
+        "privateListMoved": string;
         /**
          * 一部の投稿を取得できませんでした。
          */

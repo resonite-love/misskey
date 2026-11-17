@@ -18,7 +18,7 @@ test('shows completed-with-skips without an error or a retry button', async () =
  await vi.waitFor(() => expect(view.getByText('1/2, skipped 1, failed 0')).toBeTruthy());
  expect(view.getByText('Gone account skipped')).toBeTruthy();
  expect(view.queryByText('Failed')).toBeNull(); expect(view.queryByText('Retry')).toBeNull();
- expect((view.getByText('Copy') as HTMLButtonElement).disabled).toBe(true);
+ expect(view.queryByText('Copy')).toBeNull();
 });
 test('accepts an older response without a skipped count', async () => {
  api.mockImplementation(async (path: string) => path === 'gridspace/link' ? { channelsEnabled: true, initiator: true, state: 'active' } : { ...state, done: 2, skipped: undefined });

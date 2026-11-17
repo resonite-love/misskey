@@ -17,3 +17,6 @@ export const Complete = {
 export const Failed = { ...Complete, parameters: { msw: { handlers: [link, http.post('/api/gridspace/list-import', () => HttpResponse.error())] } } } satisfies StoryObj<typeof MkGridspaceListImport>;
 
 export const Skipped = { ...Complete, parameters: { msw: { handlers: [link, http.post('/api/gridspace/list-import', () => HttpResponse.json({ started: true, complete: true, total: 2, done: 1, skipped: 1, pending: 0, failed: 0 })), http.post('/api/users/lists/list', () => HttpResponse.json([])), http.post('/api/antennas/list', () => HttpResponse.json([]))] } } } satisfies StoryObj<typeof MkGridspaceListImport>;
+
+export const CompletedSummary = { ...Complete, args: { summaryOnly: true } } satisfies StoryObj<typeof MkGridspaceListImport>;
+export const FailedSummary = { ...Failed, args: { summaryOnly: true } } satisfies StoryObj<typeof MkGridspaceListImport>;

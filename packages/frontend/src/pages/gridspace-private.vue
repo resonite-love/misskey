@@ -6,7 +6,15 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <PageWithHeader>
 	<div class="_spacer _gaps" style="--MI_SPACER-w: 800px;">
-		<template v-if="!$i">
+		<template v-if="!noteId">
+			<p>{{ i18n.ts._gridspace.privateListMoved }}</p>
+			<div class="_buttons">
+				<MkA to="/">{{ i18n.ts._gridspace.openHome }}</MkA>
+				<MkA to="/search">{{ i18n.ts.search }}</MkA>
+				<MkA v-if="channelId" :to="`/gridspace/channels/${channelId}`">{{ i18n.ts.channel }}</MkA>
+			</div>
+		</template>
+		<template v-else-if="!$i">
 			<MkLoading v-if="visitorLoading"/>
 			<template v-else>
 				<p role="alert">{{ i18n.ts.invisibleNote }}</p>
@@ -16,16 +24,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</div>
 			</template>
 		</template>
-		<MkGridspaceNoteDetail v-else-if="noteId" :noteId="noteId" :channelId="channelId" @snapshot="createdAt = $event?.createdAt ?? null"/>
-		<template v-else>
-			<MkA to="/settings/gridspace">{{ i18n.ts._gridspace.title }}</MkA>
-			<MkInput v-model="query" type="search" @enter="search = query.trim()">
-				<template #label>{{ i18n.ts.search }}</template>
-			</MkInput>
-			<MkButton @click="search = query.trim()">{{ i18n.ts.search }}</MkButton>
-			<MkA v-if="channelId" :to="`/gridspace/channels/${channelId}`">{{ i18n.ts.channel }}</MkA>
-			<MkGridspacePrivateNotes :params="search ? { mode: 'search', query: search } : { mode: 'home' }" :plain="!!channelId" :alwaysShow="true"/>
-		</template>
+		<MkGridspaceNoteDetail v-else :noteId="noteId" :channelId="channelId" @snapshot="createdAt = $event?.createdAt ?? null"/>
 	</div>
 </PageWithHeader>
 </template>
@@ -33,8 +32,6 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script setup lang="ts">
 import { onActivated, onBeforeUnmount, onDeactivated, ref, watch } from 'vue';
 import MkGridspaceNoteDetail from '@/components/MkGridspaceNoteDetail.vue';
-import MkGridspacePrivateNotes from '@/components/MkGridspacePrivateNotes.vue';
-import MkInput from '@/components/MkInput.vue';
 import MkButton from '@/components/MkButton.vue';
 import { i18n } from '@/i18n.js';
 import { definePage } from '@/page.js';
@@ -45,8 +42,6 @@ import { pleaseLogin } from '@/utility/please-login.js';
 import { url } from '@@/js/config.js';
 
 const props = defineProps<{ noteId?: string; channelId?: string }>();
-const query = ref('');
-const search = ref('');
 const createdAt = ref<string | null>(null);
 const visitorLoading = ref(false);
 let visitorGeneration = 0;
@@ -75,5 +70,5 @@ function stopVisitorRead() { visitorActive = false; visitorGeneration++; visitor
 onDeactivated(stopVisitorRead);
 onActivated(() => { const resume = !visitorActive; visitorActive = true; if (resume && !$i) void openPublicNote(); });
 onBeforeUnmount(stopVisitorRead);
-definePage(() => ({ title: props.noteId ? i18n.ts.note : props.channelId ? i18n.ts.channel : i18n.ts._gridspace.privateTitle, subtitle: props.noteId && createdAt.value ? dateString(createdAt.value) : undefined, icon: 'ti ti-note' }));
+definePage(() => ({ title: props.noteId ? i18n.ts.note : i18n.ts.notes, subtitle: props.noteId && createdAt.value ? dateString(createdAt.value) : undefined, icon: 'ti ti-note' }));
 </script>
