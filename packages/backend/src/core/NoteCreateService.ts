@@ -182,6 +182,7 @@ type Option = {
 	files?: MiDriveFile[] | null;
 	poll?: IPoll | null;
 	localOnly?: boolean | null;
+	noRelay?: boolean;
 	gridspaceShared?: boolean;
 	gridspaceHistorical?: boolean;
 	gridspaceReply?: { requestId: string; requestHash: string; beforeInsert: (manager: EntityManager) => Promise<void> };
@@ -304,6 +305,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 		visibleUserIds: MiUser['id'][];
 		channelId: MiChannel['id'] | null;
 		localOnly: boolean;
+		noRelay?: boolean;
 		reactionAcceptance: MiNote['reactionAcceptance'];
 		poll: IPoll | null;
 		apMentions?: MinimumUser[] | null;
@@ -442,6 +444,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			renote,
 			cw: data.cw,
 			localOnly: data.localOnly,
+			noRelay: data.noRelay,
 			reactionAcceptance: data.reactionAcceptance,
 			visibility: data.visibility,
 			visibleUsers,
@@ -706,6 +709,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			emojis,
 			userId: user.id,
 			localOnly: data.localOnly!,
+			noRelay: !data.localOnly && data.noRelay === true,
 			gridspaceShared: data.gridspaceShared === true || (user.host == null && this.config.gridspace?.enabled === true && canShareGridspaceNote({ visibility: data.visibility!, channelId: data.channel?.id ?? null })),
 			reactionAcceptance: data.reactionAcceptance ?? null,
 			visibility: data.visibility as any,
@@ -986,7 +990,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 						dm.addFollowersRecipe();
 					}
 
-					if (['public'].includes(note.visibility)) {
+					if (note.visibility === 'public' && !note.noRelay) {
 						this.relayService.deliverToRelays(user, noteActivity);
 					}
 

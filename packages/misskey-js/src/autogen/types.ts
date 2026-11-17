@@ -5004,6 +5004,7 @@ export type components = {
             } | null;
             gridspaceReactions?: boolean;
             gridspaceShared?: boolean;
+            noRelay?: boolean;
             localOnly?: boolean;
             /** @enum {string|null} */
             reactionAcceptance: 'likeOnly' | 'likeOnlyForRemote' | 'nonSensitiveOnly' | 'nonSensitiveOnlyForLocalLikeOnlyForRemote' | null;
@@ -36425,6 +36426,11 @@ export interface operations {
                     cw?: string | null;
                     /** @default false */
                     localOnly?: boolean;
+                    /**
+                     * @description Skip direct relay delivery while keeping the selected visibility and normal federation.
+                     * @default false
+                     */
+                    noRelay?: boolean;
                     /**
                      * @default null
                      * @enum {string|null}

@@ -442,6 +442,7 @@ export class NoteEntityService implements OnModuleInit {
 			cw: note.cw,
 			visibility: note.visibility,
 			localOnly: note.localOnly,
+			noRelay: note.noRelay,
 			gridspaceShared: note.gridspaceShared,
 			gridspaceReactions: supportsGridspaceReactions(note, this.gridspacePeer) || supportsGridspaceChannelReactions(note, this.gridspacePeer),
 			reactionAcceptance: note.reactionAcceptance,

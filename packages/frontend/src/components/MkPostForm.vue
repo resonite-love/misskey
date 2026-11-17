@@ -30,9 +30,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<span :class="$style.headerRightButtonText">{{ targetChannel.name }}</span>
 			</button>
 		</template>
-		<button v-if="visibility !== 'specified'" v-tooltip="i18n.ts._visibility.disableFederation" class="_button" :class="[$style.headerRightItem, { [$style.danger]: localOnly }]" :disabled="targetChannel != null" @click="toggleLocalOnly">
-			<span v-if="!localOnly"><i class="ti ti-rocket"></i></span>
-			<span v-else><i class="ti ti-rocket-off"></i></span>
+		<button v-if="visibility !== 'specified'" ref="deliveryButton" v-tooltip="deliveryLabel" class="_button" :class="[$style.headerRightItem, { [$style.danger]: delivery === 'local' }]" :disabled="localDeliveryRequired" :aria-label="deliveryLabel" aria-haspopup="menu" :aria-expanded="deliveryMenuOpen" data-testid="post-form-delivery" @click="openDeliveryMenu">
+			<i :class="deliveryOption.icon" aria-hidden="true"></i>
 		</button>
 		<button ref="otherSettingsButton" v-tooltip="i18n.ts.other" class="_button" :class="$style.headerRightItem" @click="showOtherSettings"><i class="ti ti-dots"></i></button>
 		<button ref="submitButtonEl" v-click-anime class="_button" :class="$style.submit" :disabled="!canPost" data-testid="post-form-submit" @click="post">
@@ -139,6 +138,8 @@ import { closeTip } from '@/tips.js';
 import type { LinkedQuoteAttachment } from '@/utility/gridspace-note-link.js';
 import { isGridspaceNoteLink, isConfiguredGridspaceNoteLink } from '@/utility/gridspace-note-link.js';
 import { gridspacePost } from '@/utility/gridspace-post.js';
+import { getDefaultNoteDelivery, getNoteDelivery, getNoteDeliveryFlags, getNoteDeliveryOptions } from '@/utility/note-delivery.js';
+import type { NoteDelivery } from '@/utility/note-delivery.js';
 
 const $i = ensureSignin();
 
@@ -169,6 +170,7 @@ const textareaEl = useTemplateRef('textareaEl');
 const cwInputEl = useTemplateRef('cwInputEl');
 const hashtagsInputEl = useTemplateRef('hashtagsInputEl');
 const visibilityButton = useTemplateRef('visibilityButton');
+const deliveryButton = useTemplateRef('deliveryButton');
 const otherSettingsButton = useTemplateRef('otherSettingsButton');
 const accountMenuEl = useTemplateRef('accountMenuEl');
 const footerEl = useTemplateRef('footerEl');
@@ -192,7 +194,9 @@ watch(showPreview, () => store.set('showPreview', showPreview.value));
 const showAddMfmFunction = ref(prefer.s.enableQuickAddMfmFunction);
 watch(showAddMfmFunction, () => prefer.commit('enableQuickAddMfmFunction', showAddMfmFunction.value));
 const cw = ref<string | null>(props.initialCw ?? null);
-const localOnly = ref(props.initialLocalOnly ?? (prefer.s.rememberNoteVisibility ? store.s.localOnly : prefer.s.defaultNoteLocalOnly));
+const initialDelivery = prefer.s.rememberNoteVisibility ? store.s : getNoteDeliveryFlags(getDefaultNoteDelivery(prefer.s.defaultNoteLocalOnly));
+const localOnly = ref(props.initialLocalOnly ?? initialDelivery.localOnly);
+const noRelay = ref(props.initialLocalOnly == null && initialDelivery.noRelay);
 const visibility = ref(props.initialVisibility ?? (prefer.s.rememberNoteVisibility ? store.s.visibility : prefer.s.defaultNoteVisibility));
 const visibleUsers = ref<Misskey.entities.UserLite[]>([]);
 if (props.initialVisibleUsers) {
@@ -211,6 +215,12 @@ const justEndedComposition = ref(false);
 const renoteTargetNote: ShallowRef<PostFormProps['renote'] | null> = shallowRef(props.renote);
 const replyTargetNote: ShallowRef<PostFormProps['reply'] | null> = shallowRef(props.reply);
 const targetChannel = shallowRef(props.channel);
+const localDeliveryRequired = computed(() => targetChannel.value != null || replyTargetNote.value?.localOnly === true || renoteTargetNote.value?.localOnly === true);
+const delivery = computed(() => getNoteDelivery({ localOnly: localDeliveryRequired.value || localOnly.value, noRelay: noRelay.value }));
+const deliveryOption = computed(() => getNoteDeliveryOptions()[delivery.value]);
+const deliveryLabel = computed(() => `${i18n.ts._visibility.delivery}：${deliveryOption.value.label}`);
+const deliveryMenuOpen = ref(false);
+const relayDeliveryDisabled = computed(() => delivery.value === 'noRelay' && visibility.value !== 'specified');
 
 const serverDraftId = ref<string | null>(null);
 const postFormActions = getPluginHandlers('post_form_action');
@@ -421,6 +431,7 @@ function watchForDraft() {
 	watch(files, () => saveDraft(), { deep: true });
 	watch(visibility, () => saveDraft());
 	watch(localOnly, () => saveDraft());
+	watch(noRelay, () => saveDraft());
 	watch(quoteId, () => saveDraft());
 	watch(reactionAcceptance, () => saveDraft());
 	watch(scheduledAt, () => saveDraft());
@@ -532,16 +543,26 @@ function setVisibility() {
 	});
 }
 
-async function toggleLocalOnly() {
-	if (targetChannel.value) {
-		visibility.value = 'public';
-		localOnly.value = true; // TODO: チャンネルが連合するようになった折には消す
-		return;
-	}
+function openDeliveryMenu() {
+	if (localDeliveryRequired.value || deliveryMenuOpen.value) return;
+	deliveryMenuOpen.value = true;
+	os.popupMenu([
+		{ type: 'label', text: i18n.ts._visibility.delivery },
+		...Object.values(getNoteDeliveryOptions()).map(option => ({
+			text: option.label,
+			caption: option.description,
+			icon: delivery.value === option.value ? 'ti ti-check' : option.icon,
+			active: delivery.value === option.value,
+			action: () => { void setDelivery(option.value); },
+		})),
+	], deliveryButton.value, { onClosed: () => { deliveryMenuOpen.value = false; } });
+}
 
+async function setDelivery(mode: NoteDelivery) {
+	if (localDeliveryRequired.value || visibility.value === 'specified' || mode === delivery.value) return;
 	const neverShowInfo = miLocalStorage.getItem('neverShowLocalOnlyInfo');
 
-	if (!localOnly.value && neverShowInfo !== 'true') {
+	if (mode === 'local' && neverShowInfo !== 'true') {
 		const confirm = await os.actions({
 			type: 'question',
 			title: i18n.ts.disableFederationConfirm,
@@ -571,9 +592,12 @@ async function toggleLocalOnly() {
 		}
 	}
 
-	localOnly.value = !localOnly.value;
+	const flags = getNoteDeliveryFlags(mode);
+	localOnly.value = flags.localOnly;
+	noRelay.value = flags.noRelay;
 	if (prefer.s.rememberNoteVisibility) {
-		store.set('localOnly', localOnly.value);
+		store.set('localOnly', flags.localOnly);
+		store.set('noRelay', flags.noRelay);
 	}
 }
 
@@ -762,7 +786,7 @@ async function onPaste(ev: ClipboardEvent) {
 		resolvingLinkedQuote.value = true;
 		textAreaReadOnly.value = true;
 		const current = ++linkedQuoteGeneration;
-		const draftState = () => JSON.stringify([text.value, cw.value, useCw.value, withHashtags.value, hashtags.value, poll.value, postAccount.value?.id, scheduledAt.value, targetChannel.value?.id, visibility.value, localOnly.value, visibleUsers.value.map(u => u.id), files.value.map(f => [f.id, f.name, f.isSensitive, f.comment]), uploader.items.value.map(f => [f.id, f.name, f.caption, f.isSensitive])]);
+		const draftState = () => JSON.stringify([text.value, cw.value, useCw.value, withHashtags.value, hashtags.value, poll.value, postAccount.value?.id, scheduledAt.value, targetChannel.value?.id, visibility.value, localOnly.value, noRelay.value, visibleUsers.value.map(u => u.id), files.value.map(f => [f.id, f.name, f.isSensitive, f.comment]), uploader.items.value.map(f => [f.id, f.name, f.caption, f.isSensitive])]);
 		const initialState = draftState();
 		const unchanged = () => current === linkedQuoteGeneration && !window.document.hidden && !!textareaEl.value?.isConnected && draftState() === initialState;
 		try {
@@ -927,6 +951,7 @@ type StoredDrafts = {
 			cw: string | null;
 			visibility: 'public' | 'home' | 'followers' | 'specified';
 			localOnly: boolean;
+			noRelay?: boolean;
 			files: Misskey.entities.DriveFile[];
 			poll: PollEditorModelValue | null;
 			visibleUserIds?: string[];
@@ -950,6 +975,7 @@ function saveDraft() {
 			cw: cw.value,
 			visibility: visibility.value,
 			localOnly: localOnly.value,
+			noRelay: noRelay.value,
 			files: files.value,
 			poll: poll.value,
 			...( visibleUsers.value.length > 0 ? { visibleUserIds: visibleUsers.value.map(x => x.id) } : {}),
@@ -970,9 +996,16 @@ function deleteDraft() {
 	miLocalStorage.setItem('drafts', JSON.stringify(draftsData));
 }
 
+function allowServerDraft() {
+	if (!relayDeliveryDisabled.value) return true;
+	void os.alert({ type: 'info', text: i18n.ts._postForm.noRelayServerDraft });
+	return false;
+}
+
 async function saveServerDraft(options: {
 	isActuallyScheduled?: boolean;
 } = {}) {
+	if (!allowServerDraft()) return;
 	return await os.apiWithDialog(serverDraftId.value == null ? 'notes/drafts/create' : 'notes/drafts/update', {
 		...(serverDraftId.value == null ? {} : { draftId: serverDraftId.value }),
 		text: text.value,
@@ -1024,6 +1057,7 @@ async function post(ev?: PointerEvent) {
 	}
 
 	if (scheduledAt.value != null) {
+		if (!allowServerDraft()) return;
 		if (uploader.items.value.some(x => x.uploaded == null)) {
 			await uploadFiles();
 
@@ -1033,8 +1067,7 @@ async function post(ev?: PointerEvent) {
 			}
 		}
 
-		await postAsScheduled();
-		clear();
+		if (await postAsScheduled()) clear();
 		return;
 	}
 
@@ -1076,6 +1109,7 @@ async function post(ev?: PointerEvent) {
 		}
 	}
 
+	const skipRelays = relayDeliveryDisabled.value;
 	let postData = {
 		text: text.value === '' ? null : text.value,
 		fileIds: files.value.length > 0 ? files.value.map(f => f.id) : undefined,
@@ -1085,6 +1119,7 @@ async function post(ev?: PointerEvent) {
 		poll: poll.value,
 		cw: useCw.value ? cw.value ?? '' : null,
 		localOnly: visibility.value === 'specified' ? false : localOnly.value,
+		noRelay: skipRelays,
 		visibility: visibility.value,
 		visibleUserIds: visibility.value === 'specified' ? visibleUsers.value.map(u => u.id) : undefined,
 		reactionAcceptance: reactionAcceptance.value,
@@ -1116,6 +1151,8 @@ async function post(ev?: PointerEvent) {
 			}
 		}
 	}
+
+	if (skipRelays) postData = { ...postData, noRelay: true };
 
 	let token: string | undefined = undefined;
 
@@ -1212,7 +1249,7 @@ async function post(ev?: PointerEvent) {
 async function postAsScheduled() {
 	if (props.mock) return;
 
-	await saveServerDraft({
+	return await saveServerDraft({
 		isActuallyScheduled: true,
 	});
 }
@@ -1321,6 +1358,7 @@ async function openAccountMenu(ev: PointerEvent) {
 				cw.value = draft.cw ?? null;
 				visibility.value = draft.visibility;
 				localOnly.value = draft.localOnly ?? false;
+				noRelay.value = false;
 				files.value = draft.files ?? [];
 				hashtags.value = draft.hashtag ?? '';
 				if (draft.hashtag) withHashtags.value = true;
@@ -1401,6 +1439,7 @@ function showPerUploadItemMenuViaContextmenu(item: UploaderItem, ev: PointerEven
 }
 
 async function schedule() {
+	if (!allowServerDraft()) return;
 	const { canceled, result } = await os.inputDatetime({
 		title: i18n.ts.schedulePost,
 	});
@@ -1476,6 +1515,7 @@ onMounted(() => {
 				cw.value = draft.data.cw;
 				visibility.value = draft.data.visibility;
 				localOnly.value = draft.data.localOnly;
+				noRelay.value = draft.data.noRelay ?? false;
 				files.value = (draft.data.files || []).filter(draftFile => draftFile);
 				if (draft.data.poll) {
 					poll.value = draft.data.poll;
@@ -1499,6 +1539,7 @@ onMounted(() => {
 			cw.value = init.cw ?? null;
 			visibility.value = init.visibility;
 			localOnly.value = init.localOnly ?? false;
+			noRelay.value = init.noRelay ?? false;
 			files.value = init.files ?? [];
 			if (init.poll) {
 				poll.value = {

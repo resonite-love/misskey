@@ -144,7 +144,7 @@ export class PollService {
 		if (this.userEntityService.isLocalUser(user)) {
 			const content = this.apRendererService.addContext(this.apRendererService.renderUpdate(await this.apRendererService.renderNote(note, false), user));
 			this.apDeliverManagerService.deliverToFollowers(user, content);
-			this.relayService.deliverToRelays(user, content);
+			if (!note.noRelay) this.relayService.deliverToRelays(user, content);
 		}
 	}
 }

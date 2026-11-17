@@ -97,6 +97,9 @@ export class MiNote {
 	public localOnly: boolean;
 
 	@Column('boolean', { default: false })
+	public noRelay: boolean;
+
+	@Column('boolean', { default: false })
 	public gridspaceShared: boolean;
 
 	@Column('varchar', {

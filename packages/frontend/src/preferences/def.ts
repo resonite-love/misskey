@@ -195,7 +195,7 @@ export const PREF_DEF = definePreferences({
 		default: 'public' as (typeof Misskey.noteVisibilities)[number],
 	},
 	defaultNoteLocalOnly: {
-		default: false,
+		default: false as boolean | 'noRelay',
 	},
 	keepCw: {
 		default: true,

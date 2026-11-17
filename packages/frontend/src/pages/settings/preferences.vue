@@ -385,7 +385,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 										</MkPreferenceContainer>
 
 										<MkPreferenceContainer k="defaultNoteLocalOnly">
-											<MkSwitch v-model="defaultNoteLocalOnly">{{ i18n.ts._visibility.disableFederation }}</MkSwitch>
+											<MkSelect v-model="defaultNoteDelivery" :items="defaultNoteDeliveryItems">
+												<template #label>{{ i18n.ts._visibility.delivery }}</template>
+												<template #caption>{{ noteDeliveryOptions[defaultNoteDelivery].description }}</template>
+											</MkSelect>
 										</MkPreferenceContainer>
 									</div>
 								</MkFolder>
@@ -872,6 +875,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script lang="ts" setup>
 import { computed, ref, watch } from 'vue';
+import { getDefaultNoteDelivery, getNoteDeliveryOptions } from '@/utility/note-delivery.js';
+import type { NoteDelivery } from '@/utility/note-delivery.js';
 import { langs } from '@@/js/config.js';
 import * as Misskey from 'misskey-js';
 import MkSwitch from '@/components/MkSwitch.vue';
@@ -933,6 +938,12 @@ const confirmWhenRevealingSensitiveMedia = prefer.model('confirmWhenRevealingSen
 const confirmOnReact = prefer.model('confirmOnReact');
 const defaultNoteVisibility = prefer.model('defaultNoteVisibility');
 const defaultNoteLocalOnly = prefer.model('defaultNoteLocalOnly');
+const noteDeliveryOptions = computed(getNoteDeliveryOptions);
+const defaultNoteDeliveryItems = computed(() => Object.values(noteDeliveryOptions.value));
+const defaultNoteDelivery = computed<NoteDelivery>({
+	get: () => getDefaultNoteDelivery(defaultNoteLocalOnly.value),
+	set: mode => { defaultNoteLocalOnly.value = mode === 'noRelay' ? mode : mode === 'local'; },
+});
 const rememberNoteVisibility = prefer.model('rememberNoteVisibility');
 const notificationPosition = prefer.model('notificationPosition');
 const notificationStackAxis = prefer.model('notificationStackAxis');

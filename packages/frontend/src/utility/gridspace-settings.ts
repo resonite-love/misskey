@@ -126,6 +126,11 @@ export async function snapshotClientSettings(profile: PreferencesProfile, server
 		if (key === 'dataSaver' && value && typeof value === 'object' && !Array.isArray(value)) {
 			value = { media: false, avatar: false, urlPreviewThumbnail: false, disableUrlPreview: false, code: false, ...value };
 		}
+		// The legacy transfer format only supports the boolean modes for this setting.
+		if (key === 'defaultNoteLocalOnly' && value === 'noRelay') {
+			skipped.push(key);
+			continue;
+		}
 		try {
 			parseClientSettings(JSON.stringify({ version: 1, values: { [key]: value } }));
 		} catch {

@@ -4369,7 +4369,7 @@ export interface Locale extends ILocale {
      */
     "disableFederationConfirm": string;
     /**
-     * 連合なしにしても投稿は非公開になりません。ほとんどの場合、連合なしにする必要はありません。
+     * 連合なしにしても投稿は非公開になりません。ぐりすぺ・れぞらぶ間の共有は続きます。
      */
     "disableFederationConfirmWarn": string;
     /**
@@ -10573,8 +10573,36 @@ export interface Locale extends ILocale {
          * 他サーバーへの配信を行いません
          */
         "disableFederationDescription": string;
+        /**
+         * 配信方法
+         */
+        "delivery": string;
+        /**
+         * 公開
+         */
+        "deliveryPublic": string;
+        /**
+         * 公開範囲に従って通常どおり配信します
+         */
+        "deliveryPublicDescription": string;
+        /**
+         * リレーなし
+         */
+        "noRelay": string;
+        /**
+         * 外部フォロワーには届け、登録済みリレーには直接送信しません
+         */
+        "noRelayDescription": string;
+        /**
+         * 通常の連合配信を止めます。ぐりすぺ・れぞらぶ間の共有は続きます
+         */
+        "deliveryLocalDescription": string;
     };
     "_postForm": {
+        /**
+         * リレーなしで投稿する場合は、予約投稿やサーバーへの下書き保存はできません。すぐに投稿するか、配信方法を変更してください。
+         */
+        "noRelayServerDraft": string;
         /**
          * アップロードされていないファイルがありますが、破棄してフォームを閉じますか？
          */
