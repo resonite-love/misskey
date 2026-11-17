@@ -126,7 +126,7 @@ export class ApNoteService {
 	 * Noteを作成します。
 	 */
 	@bindThis
-	public async createNote(value: string | IObject, actor?: MiRemoteUser, resolver?: Resolver, silent = false, gridspace?: { localOnly: boolean; reactionAcceptance: MiNote['reactionAcceptance']; historical?: boolean }): Promise<MiNote | null> {
+	public async createNote(value: string | IObject, actor?: MiRemoteUser, resolver?: Resolver, silent = false, gridspace?: { localOnly: boolean; noRelay?: boolean; reactionAcceptance: MiNote['reactionAcceptance']; historical?: boolean }): Promise<MiNote | null> {
 		// eslint-disable-next-line no-param-reassign
 		if (resolver == null) resolver = await this.apResolverService.createResolver();
 
@@ -322,6 +322,7 @@ export class ApNoteService {
 				cw,
 				text,
 				localOnly: gridspace?.localOnly ?? false,
+				noRelay: gridspace?.noRelay,
 				gridspaceShared: gridspace != null,
 				gridspaceHistorical: gridspace?.historical || resolver.historyBudget != null,
 				reactionAcceptance: gridspace?.reactionAcceptance,

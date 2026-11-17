@@ -10,7 +10,7 @@ export const GRIDSPACE_NOTE_PATH = '/gridspace/v1/notes/';
 export const GRIDSPACE_NOTE_BODY_LIMIT = 2 * 1024 * 1024;
 export const GRIDSPACE_NOTE_BATCH_LIMIT = 20;
 export const GRIDSPACE_NOTE_BATCH_BODY_LIMIT = GRIDSPACE_NOTE_BATCH_LIMIT * GRIDSPACE_NOTE_BODY_LIMIT + 65536;
-export type GridspaceNoteEntry = { object: IPost; localOnly: boolean; reactionAcceptance: MiNote['reactionAcceptance'] };
+export type GridspaceNoteEntry = { object: IPost; localOnly: boolean; noRelay?: boolean; federateAsHome?: boolean; reactionAcceptance: MiNote['reactionAcceptance'] };
 export type GridspaceNoteBundle = { deleted: boolean; unavailable?: boolean; notes: GridspaceNoteEntry[] };
 
 export function canShareGridspaceNote(note: { visibility: string; channelId: string | null }): boolean {
@@ -53,9 +53,14 @@ export function validateGridspaceBundle(value: unknown, origin: string, rootId: 
 	for (const entry of bundle.notes) {
 		const note = entry?.object;
 		if (!note || !['Note', 'Question'].includes(note.type as string) || typeof entry.localOnly !== 'boolean') throw new Error('Invalid note');
+		if (entry.noRelay !== undefined && typeof entry.noRelay !== 'boolean') throw new Error('Invalid relay preference');
+		if (entry.federateAsHome !== undefined && typeof entry.federateAsHome !== 'boolean') throw new Error('Invalid federation visibility');
 		if (typeof note.id !== 'string' || !note.id.startsWith(origin + '/notes/') || !gridspaceNoteId(note.id.slice((origin + '/notes/').length)) || seen.has(note.id)) throw new Error('Invalid note origin');
 		if (typeof note.attributedTo !== 'string' || !note.attributedTo.startsWith(origin + '/users/') || !gridspaceNoteId(note.attributedTo.slice((origin + '/users/').length))) throw new Error('Invalid actor origin');
-		if (![note.to, note.cc].some(audience => Array.isArray(audience) && audience.includes('https://www.w3.org/ns/activitystreams#Public'))) throw new Error('Private note');
+		const publicAudience = 'https://www.w3.org/ns/activitystreams#Public';
+		const isPublic = Array.isArray(note.to) && note.to.includes(publicAudience);
+		if (!isPublic && !(Array.isArray(note.cc) && note.cc.includes(publicAudience))) throw new Error('Private note');
+		if (entry.federateAsHome && (!isPublic || entry.localOnly || entry.noRelay !== true)) throw new Error('Inconsistent federation visibility');
 		if (![null, 'likeOnly', 'likeOnlyForRemote', 'nonSensitiveOnly', 'nonSensitiveOnlyForLocalLikeOnlyForRemote'].includes(entry.reactionAcceptance)) throw new Error('Invalid reaction policy');
 		seen.add(note.id);
 	}

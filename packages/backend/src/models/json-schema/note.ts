@@ -202,6 +202,7 @@ export const packedNoteSchema = {
 			type: 'boolean',
 			optional: true, nullable: false,
 		},
+		noRelay: { type: 'boolean', optional: true, nullable: false },
 		localOnly: {
 			type: 'boolean',
 			optional: true, nullable: false,

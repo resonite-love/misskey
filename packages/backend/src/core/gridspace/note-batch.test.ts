@@ -19,11 +19,14 @@ function fixture() {
 	type Args = ConstructorParameters<typeof GridspaceNoteService>;
 	const db = mockDeep<Args[1]>(); const ap = mockDeep<Args[5]>(); const resolver = mockDeep<Args[6]>();
 	const create = mockDeep<Args[7]>(); const remove = mockDeep<Args[8]>();
-	db.getRepository.mockReturnValue({ existsBy: async () => false } as never);
+	const update = vi.fn();
+	const findOneBy = vi.fn().mockResolvedValue({ id: 'author', host: 'r.example', isSuspended: false, isDeleted: false });
+	const countBy = vi.fn();
+	db.getRepository.mockReturnValue({ existsBy: async () => false, update, findOneBy, countBy } as never);
 	ap.fetchNote.mockImplementation(async uri => ({ id: uri.split('/').at(-1), gridspaceShared: true } as MiNote));
 	const service = new GridspaceNoteService({ url: 'https://g.example', gridspace: { enabled: true, peerUrl: 'https://r.example', communityId: 'test', keyId: 'test', secretEnv: 'NOTE_BATCH_TEST_KEY' } } as Args[0],
 		db, mockDeep<Args[2]>(), mockDeep<Args[3]>(), mockDeep<Args[4]>(), ap, resolver, create, remove, mockDeep<Args[9]>(), mockDeep<Args[10]>());
-	return { service, ap, create, remove, budget: { remaining: 64, deadline: Date.now() + 15000 } };
+	return { service, ap, create, remove, update, countBy, budget: { remaining: 64, deadline: Date.now() + 15000 } };
 }
 
 function bundle(id: string) {
@@ -39,6 +42,52 @@ test('reads a full page once, excludes unavailable posts and does not republish 
 	expect(requestGridspacePeer).toHaveBeenCalledTimes(1);
 	expect(f.create.pushToTl).not.toHaveBeenCalled();
 	expect(f.remove.delete).not.toHaveBeenCalled();
+});
+
+test('refreshes the relay preference on notes that were already shared', async () => {
+	const f = fixture();
+	const value = bundle('a');
+	const entry = { ...value.notes[0], localOnly: false, noRelay: true };
+	vi.mocked(requestGridspacePeer).mockResolvedValue({ ...value, notes: [entry] });
+
+	await f.service.sync('a');
+
+	expect(f.update).toHaveBeenCalledExactlyOnceWith('a', { noRelay: true });
+	expect(f.create.pushToTl).not.toHaveBeenCalled();
+});
+
+test.each([true, false])('reconciles a first-arriving home copy according to the receiver policy (%s)', async canPublish => {
+	const f = fixture();
+	const value = bundle('a');
+	const entry = { ...value.notes[0], localOnly: false, noRelay: true, federateAsHome: true };
+	vi.mocked(requestGridspacePeer).mockResolvedValue({ ...value, notes: [entry] });
+	f.create.canUsePublicVisibility.mockResolvedValue(canPublish);
+	f.ap.fetchNote.mockResolvedValue({ id: 'a', userId: 'author', userHost: 'r.example', localOnly: false, visibility: 'home', gridspaceShared: true } as MiNote);
+
+	await f.service.historyNote('a', f.budget);
+
+	if (canPublish) {
+		expect(f.update).toHaveBeenCalledExactlyOnceWith('a', { gridspaceShared: true, localOnly: false, noRelay: true, visibility: 'public' });
+		expect(f.create.pushToTl).toHaveBeenCalledOnce();
+	} else {
+		expect(f.update).toHaveBeenCalledExactlyOnceWith('a', { noRelay: true });
+		expect(f.create.pushToTl).not.toHaveBeenCalled();
+	}
+});
+
+test('keeps a reply at home when its parent is not public on this server', async () => {
+	const f = fixture();
+	const value = bundle('a');
+	const entry = { ...value.notes[0], localOnly: false, noRelay: true, federateAsHome: true };
+	vi.mocked(requestGridspacePeer).mockResolvedValue({ ...value, notes: [entry] });
+	f.countBy.mockResolvedValue(0);
+	f.ap.fetchNote.mockResolvedValue({ id: 'a', replyId: 'parent', localOnly: false, visibility: 'home', gridspaceShared: true } as MiNote);
+
+	await f.service.historyNote('a', f.budget);
+
+	expect(f.countBy).toHaveBeenCalledOnce();
+	expect(f.update).toHaveBeenCalledExactlyOnceWith('a', { noRelay: true });
+	expect(f.create.pushToTl).not.toHaveBeenCalled();
 });
 
 test('validates the whole response before importing and never retries failures per note', async () => {

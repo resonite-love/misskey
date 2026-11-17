@@ -41,6 +41,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<i v-else-if="note.visibility === 'specified'" ref="specified" class="ti ti-mail"></i>
 			</span>
 			<span v-if="note.localOnly" style="margin-left: 0.5em;" :title="i18n.ts._visibility['disableFederation']"><i class="ti ti-rocket-off"></i></span>
+			<span v-else-if="note.noRelay" :class="$style.noRelay" :title="i18n.ts._visibility.noRelay" role="img" :aria-label="i18n.ts._visibility.noRelay"><i class="ti ti-route-off" aria-hidden="true"></i></span>
 		</div>
 	</div>
 	<div v-if="isRenote && note.renote == null" :class="$style.deleted">
@@ -48,7 +49,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</div>
 	<template v-else>
 		<MkNoteDetailedArticle :compactTop="isRenote" @contextmenu.stop="onContextmenu">
-			<template #header><MkNoteDetailedHeader :user="appearNote.user" :visibility="appearNote.visibility" :localOnly="appearNote.localOnly"><MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/></MkNoteDetailedHeader></template>
+			<template #header><MkNoteDetailedHeader :user="appearNote.user" :visibility="appearNote.visibility" :localOnly="appearNote.localOnly" :noRelay="appearNote.noRelay"><MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/></MkNoteDetailedHeader></template>
 			<div :class="$style.noteContent">
 				<MkNoteCw v-if="appearNote.cw != null" v-model="showContent" :cw="appearNote.cw" :text="appearNote.text" :author="appearNote.user" :emojiUrls="appearNote.emojis" :files="appearNote.files" :poll="appearNote.poll" :renote="appearNote.renote" interactive/>
 				<div v-show="appearNote.cw == null || showContent">
@@ -429,6 +430,10 @@ const keymap = {
 
 .renoteName {
 	font-weight: bold;
+}
+
+.noRelay {
+	margin-inline-start: .5em;
 }
 
 .renoteInfo {

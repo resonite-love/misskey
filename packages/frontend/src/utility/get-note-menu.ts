@@ -23,6 +23,7 @@ import { isSupportShare } from '@/utility/navigator.js';
 import { getAppearNote } from '@/utility/get-appear-note.js';
 import { genEmbedCode } from '@/utility/get-embed-code.js';
 import { prefer } from '@/preferences.js';
+import { getDefaultNoteDelivery, getNoteDeliveryFlags } from '@/utility/note-delivery.js';
 import { getPluginHandlers } from '@/plugin.js';
 import { globalEvents } from '@/events.js';
 import { loadClipMenu } from '@/utility/clip-menu.js';
@@ -673,7 +674,7 @@ export function getRenoteMenu(props: {
 				}
 
 				const configuredVisibility = prefer.s.rememberNoteVisibility ? store.s.visibility : prefer.s.defaultNoteVisibility;
-				const localOnly = prefer.s.rememberNoteVisibility ? store.s.localOnly : prefer.s.defaultNoteLocalOnly;
+				const { localOnly, noRelay } = prefer.s.rememberNoteVisibility ? store.s : getNoteDeliveryFlags(getDefaultNoteDelivery(prefer.s.defaultNoteLocalOnly));
 
 				let visibility = appearNote.visibility;
 				visibility = smallerVisibility(visibility, configuredVisibility);
@@ -684,6 +685,7 @@ export function getRenoteMenu(props: {
 				if (!props.mock) {
 					misskeyApi('notes/create', {
 						localOnly,
+						noRelay: !localOnly && noRelay,
 						visibility,
 						renoteId: appearNote.id,
 					}).then((res) => {

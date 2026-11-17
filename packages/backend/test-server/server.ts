@@ -5,6 +5,7 @@ import { NestFactory } from '@nestjs/core';
 import { MainModule } from '@/MainModule.js';
 import { ServerService } from '@/server/ServerService.js';
 import { loadConfig } from '@/config.js';
+import { initExtraThreadPool } from '@/boot/common.js';
 import { NestLogger } from '@/NestLogger.js';
 import { INestApplicationContext } from '@nestjs/common';
 import type { FastifyInstance } from 'fastify';
@@ -22,6 +23,7 @@ let controller: FastifyInstance | undefined;
  * テスト用のサーバインスタンスを起動する
  */
 export async function setup() {
+	initExtraThreadPool(config);
 	await killTestServer();
 
 	console.log('starting application...');
