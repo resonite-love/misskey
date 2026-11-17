@@ -30,6 +30,11 @@ function fixture() {
 }
 
 describe('saved-at favorite source', () => {
+	test('ownership candidates retain the current save identity without packing', async () => {
+		const { source, hydrateQuery } = fixture();
+		expect(await source.ownerCandidates(viewer, [reference.canonicalUri])).toEqual([reference]);
+		expect(hydrateQuery).not.toHaveBeenCalled();
+	});
 	test('pages by the collection id while keeping note identity independent', async () => {
 		const { source, query } = fixture();
 		const before = { ...reference, sourceId: 'saveBoundary' };

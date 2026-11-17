@@ -27,7 +27,7 @@ const row = (id: string): MiNote => ({ id, uri: null, userId: 'author', user, vi
 const payload = (id: string): Packed<'Note'> => ({ id, userId: 'author', user, createdAt: new Date(now).toISOString(), visibility: 'public', text: id, cw: null, fileIds: [], replyId: null, renoteId: null } as unknown as Packed<'Note'>);
 
 function query(rows: MiNote[]): SelectQueryBuilder<MiNote> {
-	const builder = { andWhere: vi.fn().mockReturnThis(), getMany: vi.fn().mockResolvedValue(rows) };
+	const builder = { andWhere: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(), getMany: vi.fn().mockResolvedValue(rows) };
 	return builder as unknown as SelectQueryBuilder<MiNote>;
 }
 
@@ -46,6 +46,15 @@ function fixture(options: { before?: MiNote[]; fresh?: MiNote[]; related?: MiNot
 }
 
 describe('local timeline body authorization', () => {
+	test('ownership candidates check the root query without packing a body', async () => {
+		const { source, notes } = fixture();
+		const builder = query([row('a')]);
+		vi.spyOn(source, 'buildQuery').mockResolvedValue(builder);
+		source['search'].read = vi.fn(async () => [row('a')]);
+		expect(await source.ownerCandidates(viewer, { kind: 'home' }, [reference('a').canonicalUri])).toEqual([reference('a')]);
+		expect(notes.packMany).not.toHaveBeenCalled();
+		expect(builder.andWhere).toHaveBeenCalledWith(expect.stringContaining('note.id IN'), expect.objectContaining({ timelineOwnerIds: ['a'] }));
+	});
 	test('database-null policies match the omitted fields in the real packed user schema', async () => {
 		const packed = payload('a');
 		delete packed.user.makeNotesFollowersOnlyBefore;

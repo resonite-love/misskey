@@ -68,6 +68,7 @@ function fixture(initialLocal: TimelineReference[], initialPeer: TimelineReferen
 		if (uris.length > 100) throw new GridspaceLinkError('INVALID_REQUEST');
 		return upper === null ? [] : rows.local.filter(row => uris.includes(row.canonicalUri) && (!upper || BigInt(row.sortAt) <= BigInt(upper.sortAt)));
 	});
+	local.ownerCandidates.mockImplementation(async (_user, _opts, uris) => rows.local.filter(row => uris.includes(row.canonicalUri)));
 	local.hydrate.mockImplementation(async (_user, _opts, selected) => {
 		if (selected.length > 100) throw new GridspaceLinkError('INVALID_REQUEST');
 		return selected.filter(row => rows.local.some(current => current.noteId === row.noteId && current.canonicalUri === row.canonicalUri)).map(reference => ({ reference, payload: { id: reference.noteId, uri: reference.canonicalUri, createdAt: new Date(Number(BigInt(reference.sortAt) / 1000n)).toISOString() }, validForMs: null, nextPolicyCheckAt: null })) as never;
@@ -123,6 +124,49 @@ describe('unified timeline coordinator with real Redis checkpoints', () => {
 		expect(JSON.parse((await f.sessions.getSession(first.session))!).sequence).toBe(before);
 		const replay = await f.service.streamNote(viewer, first.session, first.revision, { source: 'local', noteId: ref('local', 110).noteId });
 		expect(replay.item?.key).toBe(event.item?.key);
+	});
+	test('local stream packs once and still checks current ownership after hydration', async () => {
+		const f = fixture([ref('local', 100)]);
+		const first = await f.service.page(viewer, options, 20);
+		const incoming = ref('local', 110); f.add(incoming);
+		f.local.hydrate.mockClear(); f.local.ownerReferences.mockClear(); f.local.ownerCandidates.mockClear();
+		const event = await f.service.streamNote(viewer, first.session, first.revision, { source: 'local', noteId: incoming.noteId });
+		expect(event.item?.key).toBe(incoming.canonicalUri);
+		expect(f.local.hydrate).toHaveBeenCalledOnce();
+		expect(f.local.ownerReferences).not.toHaveBeenCalled();
+		expect(f.local.ownerCandidates).toHaveBeenCalledTimes(2);
+	});
+	test('a root revoked after hydration is not emitted', async () => {
+		const f = fixture([ref('local', 100)]);
+		const first = await f.service.page(viewer, options, 20);
+		const incoming = ref('local', 110); f.add(incoming);
+		f.local.ownerCandidates.mockResolvedValueOnce([incoming]).mockResolvedValueOnce([]);
+		const event = await f.service.streamNote(viewer, first.session, first.revision, { source: 'local', noteId: incoming.noteId });
+		expect(event).toMatchObject({ resetRequired: true });
+		expect(event.item).toBeUndefined();
+	});
+	test('a local import arriving after peer hydration triggers a reset without duplicate output', async () => {
+		const f = fixture([ref('local', 100)]);
+		const first = await f.service.page(viewer, options, 20);
+		const incoming = ref('peer', 110); f.add(incoming);
+		const original = f.delegated.timeline.getMockImplementation()!;
+		f.delegated.timeline.mockImplementation(async (...args) => ({ ...await original(...args), references: [incoming] }));
+		f.local.ownerCandidates.mockResolvedValue([ref('local', 110, incoming.canonicalUri)]);
+		const event = await f.service.streamNote(viewer, first.session, first.revision, { source: 'peer', noteId: incoming.noteId });
+		expect(event).toMatchObject({ resetRequired: true });
+		expect(event.item).toBeUndefined();
+	});
+	test('a peer grant revoked during ownership resolution is checked again before sending', async () => {
+		const f = fixture([ref('local', 100)]);
+		const first = await f.service.page(viewer, options, 20);
+		const incoming = ref('peer', 110); f.add(incoming);
+		const original = f.delegated.timeline.getMockImplementation()!;
+		f.delegated.timeline.mockImplementation(async (...args) => ({ ...await original(...args), references: [incoming] }));
+		f.local.ownerReferences.mockImplementationOnce(async () => {
+			f.delegated.timeline.mockRejectedValue(new GridspaceLinkError('AUTHORIZATION_REVOKED'));
+			return [];
+		});
+		await expect(f.service.streamNote(viewer, first.session, first.revision, { source: 'peer', noteId: incoming.noteId })).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
 	});
 	test('native stream rejects foreign viewers, revoked bodies and late unknown arrivals', async () => {
 		const f = fixture([ref('local', 100)]);

@@ -99,6 +99,11 @@ export class TimelineFavoriteSource {
 	}
 
 	public async ownerReferences(viewer: MiLocalUser, uris: string[], upper?: FavoritePosition | null): Promise<FavoriteReference[]> {
+		return (await this.hydrate(viewer, await this.ownerCandidates(viewer, uris, upper))).map(row => row.reference as FavoriteReference);
+	}
+
+	/** Current root ACL and save identity, without constructing display bodies. */
+	public async ownerCandidates(viewer: MiLocalUser, uris: string[], upper?: FavoritePosition | null): Promise<FavoriteReference[]> {
 		if (uris.length > 100) throw new GridspaceLinkError('INVALID_REQUEST');
 		if (!uris.length || upper === null) return [];
 		const aliases = [...new Set(uris.flatMap(uri => gridspaceNoteUris(uri, this.config.gridspace?.peerUrl)))];
@@ -111,7 +116,6 @@ export class TimelineFavoriteSource {
 		}
 		const rows = await query.select('note.id', 'noteId').addSelect('note.uri', 'uri').addSelect('favorite.id', 'sourceId').limit(100).getRawMany<{ noteId: string; uri: string | null; sourceId: string }>();
 		const wanted = new Set(uris);
-		const refs = rows.map(row => this.reference(row)).filter(ref => wanted.has(ref.canonicalUri));
-		return (await this.hydrate(viewer, refs)).map(row => row.reference as FavoriteReference);
+		return rows.map(row => this.reference(row)).filter(ref => wanted.has(ref.canonicalUri));
 	}
 }

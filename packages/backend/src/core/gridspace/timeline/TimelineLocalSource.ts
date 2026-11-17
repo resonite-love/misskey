@@ -143,6 +143,12 @@ export class TimelineLocalSource {
 
 	/** The local representation wins only if it can actually expose a body now. */
 	public async ownerReferences(viewer: MiLocalUser, options: TimelineLocalOptions, uris: string[], upper?: TimelinePosition | null): Promise<TimelineReference[]> {
+		const refs = await this.ownerCandidates(viewer, options, uris, upper);
+		return (await this.hydrate(viewer, options, refs)).map(item => item.reference);
+	}
+
+	/** Current root ACL only; callers must hydrate before exposing any body. */
+	public async ownerCandidates(viewer: MiLocalUser, options: TimelineLocalOptions, uris: string[], upper?: TimelinePosition | null): Promise<TimelineReference[]> {
 		if (uris.length > 100) throw new GridspaceLinkError('INVALID_REQUEST');
 		if (!uris.length || upper === null) return [];
 		const localPrefix = `${this.config.url}/notes/`;
@@ -161,8 +167,7 @@ export class TimelineLocalSource {
 			const ref = this.reference(note);
 			if (wanted.has(ref.canonicalUri) && !byUri.has(ref.canonicalUri)) byUri.set(ref.canonicalUri, ref);
 		}
-		const refs = [...byUri.values()];
-		return (await this.hydrate(viewer, options, refs)).map(item => item.reference);
+		return [...byUri.values()];
 	}
 
 	public async anchor(viewer: MiLocalUser, options: TimelineLocalOptions, canonicalUri: string): Promise<TimelineReference | null> {

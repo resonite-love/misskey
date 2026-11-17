@@ -41,6 +41,13 @@ function fixture() {
 }
 
 describe('other-list source authorization and keysets', () => {
+	test('ownership candidates keep the list ACL without packing display bodies', async () => {
+		const { service, builder, hydrateQuery } = fixture();
+		const refs = await service.ownerCandidates(viewer, { kind: 'mentions' }, ['https://local.test/notes/a']);
+		expect(refs).toHaveLength(1);
+		expect(builder.andWhere).toHaveBeenCalledWith('(:listViewer::varchar[] <@ note.mentions OR :listViewer::varchar[] <@ note.visibleUserIds)', { listViewer: ['viewer'] });
+		expect(hydrateQuery).not.toHaveBeenCalled();
+	});
 	test.each(['mentions', 'direct'] as const)('%s uses current viewer recipients, visibility and thread filtering', async kind => {
 		const { service, builder, search, queries } = fixture();
 		await service.buildQuery(viewer, { kind });

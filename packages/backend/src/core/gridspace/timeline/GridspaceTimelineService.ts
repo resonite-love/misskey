@@ -66,16 +66,19 @@ export class GridspaceTimelineService {
 			readPage: (viewer: MiLocalUser, position: Parameters<TimelineLocalSource['readPage']>[2]) => this.local.readPage(viewer, options as TimelineLocalOptions, position),
 			hydrate: (viewer: MiLocalUser, refs: TimelineReference[]) => this.local.hydrate(viewer, options as TimelineLocalOptions, refs),
 			ownerReferences: (viewer: MiLocalUser, uris: string[], upper?: Parameters<TimelineLocalSource['ownerReferences']>[3]) => this.local.ownerReferences(viewer, options as TimelineLocalOptions, uris, upper),
+			ownerCandidates: (viewer: MiLocalUser, uris: string[]) => this.local.ownerCandidates(viewer, options as TimelineLocalOptions, uris),
 		};
 		if (options.kind === 'mentions' || options.kind === 'direct' || options.kind === 'profile' || options.kind === 'search') return {
 			readPage: (viewer: MiLocalUser, position: Parameters<TimelineLocalSource['readPage']>[2]) => this.lists!.readPage(viewer, options as TimelineListOptions, position),
 			hydrate: (viewer: MiLocalUser, refs: TimelineReference[]) => this.lists!.hydrate(viewer, options as TimelineListOptions, refs),
 			ownerReferences: (viewer: MiLocalUser, uris: string[], upper?: Parameters<TimelineLocalSource['ownerReferences']>[3]) => this.lists!.ownerReferences(viewer, options as TimelineListOptions, uris, upper),
+			ownerCandidates: (viewer: MiLocalUser, uris: string[]) => this.lists!.ownerCandidates(viewer, options as TimelineListOptions, uris),
 		};
 		if (options.kind === 'favorites') return {
 			readPage: (viewer: MiLocalUser, position: Parameters<TimelineLocalSource['readPage']>[2]) => this.favorites!.readPage(viewer, position),
 			hydrate: (viewer: MiLocalUser, refs: TimelineReference[]) => this.favorites!.hydrate(viewer, refs as FavoriteReference[]),
 			ownerReferences: (viewer: MiLocalUser, uris: string[], upper?: Parameters<TimelineLocalSource['ownerReferences']>[3]) => this.favorites!.ownerReferences(viewer, uris, upper),
+			ownerCandidates: (viewer: MiLocalUser, uris: string[]) => this.favorites!.ownerCandidates(viewer, uris),
 		};
 		// Linked channels are authored on the source server; the destination's
 		// normal note store is not an alternative channel source.
@@ -83,6 +86,7 @@ export class GridspaceTimelineService {
 			readPage: async (_viewer: MiLocalUser, _position: Parameters<TimelineLocalSource['readPage']>[2]) => ({ references: [] as TimelineReference[], next: null, upper: null, ended: true }),
 			hydrate: async (_viewer: MiLocalUser, _refs: TimelineReference[]) => [],
 			ownerReferences: async (_viewer: MiLocalUser, _uris: string[], _upper?: Parameters<TimelineLocalSource['ownerReferences']>[3]) => [],
+			ownerCandidates: async (_viewer: MiLocalUser, _uris: string[]): Promise<TimelineReference[]> => [],
 		};
 	}
 
@@ -179,17 +183,20 @@ export class GridspaceTimelineService {
 		if (checkpoint.revision !== revision || checkpoint.expires <= Date.now() || (checkpoint.viewerId != null && checkpoint.viewerId !== viewer.id)) return { ...result, resetRequired: true };
 		if (event.source === 'peer' && checkpoint.mode === 'local-fallback') return result;
 		const deadline = Date.now() + 8000;
+		const source = this.localSource(checkpoint.options);
 		let candidate: TimelineReference | undefined;
 		if (event.source === 'local') {
 			const refs = await this.references.getMany([event.noteId]);
 			if (!refs[0]) return result;
-			const owners = await this.localSource(checkpoint.options).ownerReferences(viewer, [refs[0].canonicalUri]);
+			const owners = await source.ownerCandidates(viewer, [refs[0].canonicalUri]);
 			candidate = owners[0];
 		} else {
 			const remote = await this.delegated.timeline(viewer, { ...checkpoint.options, ids: [event.noteId], deadline });
 			const ref = remote.references.find(value => value.noteId === event.noteId);
 			if (!ref) return result;
-			const owners = await this.localSource(checkpoint.options).ownerReferences(viewer, [ref.canonicalUri]);
+			// A cached candidate must still produce an authorized body before it
+			// can replace the freshly authorized peer representation.
+			const owners = await source.ownerReferences(viewer, [ref.canonicalUri]);
 			candidate = owners[0] ?? ref;
 		}
 		if (!candidate) return result;
@@ -202,7 +209,9 @@ export class GridspaceTimelineService {
 		if (!item || item.validForMs === 0) return result;
 		// A concurrent import may have changed which representation owns this URI
 		// while packing. Do not send a second representation at the wrong position.
-		const currentOwners = await this.localSource(checkpoint.options).ownerReferences(viewer, [candidate.canonicalUri]);
+		// Hydration already rebuilt the root and nested ACL after packing. Keep
+		// the final live root/ownership check, without packing the body again.
+		const currentOwners = await source.ownerCandidates(viewer, [candidate.canonicalUri]);
 		if ((candidate.source === 'peer' && currentOwners.length > 0) || (candidate.source === 'local' && !currentOwners.some(value => value.noteId === candidate!.noteId))) return { ...result, resetRequired: true };
 		checkpoint.merge.owners[candidate.canonicalUri] = candidate.source;
 		if (!checkpoint.windowHead || compare(candidate, checkpoint.windowHead) < 0) checkpoint.windowHead = candidate;

@@ -183,6 +183,16 @@ export class GridspaceTimelineListSourceService {
 
 	/** Test local ownership with the same scope and fresh body authorization. */
 	public async ownerReferences(viewer: MiLocalUser, options: TimelineListOptions, uris: string[], upper?: TimelinePosition | null): Promise<TimelineReference[]> {
+		const references = await this.ownerCandidates(viewer, options, uris, upper);
+		const allowed: TimelineReference[] = [];
+		for (let offset = 0; offset < references.length; offset += 100) {
+			allowed.push(...(await this.hydrate(viewer, options, references.slice(offset, offset + 100))).map(item => item.reference));
+		}
+		return allowed;
+	}
+
+	/** Current root ACL only; callers must hydrate before exposing any body. */
+	public async ownerCandidates(viewer: MiLocalUser, options: TimelineListOptions, uris: string[], upper?: TimelinePosition | null): Promise<TimelineReference[]> {
 		if (uris.length > 100) throw new GridspaceLinkError('INVALID_REQUEST');
 		if (!uris.length || upper === null) return [];
 		const prefix = `${this.origin}/notes/`;
@@ -197,11 +207,7 @@ export class GridspaceTimelineListSourceService {
 		const notes = await query.select('note.id', 'noteId').addSelect('note.uri', 'uri').limit(200).getRawMany<{ noteId: string; uri: string | null }>();
 		const wanted = new Set(uris);
 		const references = notes.map(note => this.reference(note)).filter(reference => wanted.has(reference.canonicalUri));
-		const allowed: TimelineReference[] = [];
-		for (let offset = 0; offset < references.length; offset += 100) {
-			allowed.push(...(await this.hydrate(viewer, options, references.slice(offset, offset + 100))).map(item => item.reference));
-		}
-		return allowed;
+		return references;
 	}
 
 	private reference(note: { noteId: string; uri: string | null }): TimelineReference {
