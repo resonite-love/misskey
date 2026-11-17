@@ -46,6 +46,23 @@ function fixture(options: { before?: MiNote[]; fresh?: MiNote[]; related?: MiNot
 }
 
 describe('local timeline body authorization', () => {
+	test('database-null policies match the omitted fields in the real packed user schema', async () => {
+		const packed = payload('a');
+		delete packed.user.makeNotesFollowersOnlyBefore;
+		delete packed.user.makeNotesHiddenBefore;
+		const { source, queryFactory } = fixture({ before: [row('a')], fresh: [row('a')], packed: [packed] });
+		const result = await source.hydrateQuery(viewer, queryFactory, [reference('a')]);
+		expect(result.map(item => item.payload.id)).toEqual(['a']);
+		expect(result[0].validForMs).toBeNull();
+	});
+
+	test('a real numeric policy mismatch remains an authorization failure', async () => {
+		const packed = payload('a');
+		packed.user = { ...packed.user, makeNotesHiddenBefore: -60 };
+		const { source, queryFactory } = fixture({ before: [row('a')], fresh: [row('a')], packed: [packed] });
+		expect(await source.hydrateQuery(viewer, queryFactory, [reference('a')])).toEqual([]);
+	});
+
 	test('revocation while packing removes the body without replacement', async () => {
 		const { source, queryFactory } = fixture({ fresh: [] });
 		expect(await source.hydrateQuery(viewer, queryFactory, [reference('a')])).toEqual([]);

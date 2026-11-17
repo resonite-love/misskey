@@ -215,7 +215,7 @@ export class TimelineLocalSource {
 			const expectedVisibility = (row.visibility === 'public' || row.visibility === 'home') && shouldHideNoteByTime(row.user.makeNotesFollowersOnlyBefore, note.createdAt) ? 'followers' : row.visibility;
 			if (expectedText !== note.text || row.cw !== note.cw || JSON.stringify(row.fileIds) !== JSON.stringify(note.fileIds) ||
 				row.replyId !== note.replyId || row.renoteId !== note.renoteId || expectedVisibility !== note.visibility ||
-				row.user.makeNotesFollowersOnlyBefore !== note.user.makeNotesFollowersOnlyBefore || row.user.makeNotesHiddenBefore !== note.user.makeNotesHiddenBefore ||
+				(row.user.makeNotesFollowersOnlyBefore ?? null) !== (note.user.makeNotesFollowersOnlyBefore ?? null) || (row.user.makeNotesHiddenBefore ?? null) !== (note.user.makeNotesHiddenBefore ?? null) ||
 				(row.userId !== viewer.id && shouldHideNoteByTime(row.user.makeNotesHiddenBefore, note.createdAt))) return false;
 			for (const relation of ['reply', 'renote'] as const) {
 				const nested = note[relation];

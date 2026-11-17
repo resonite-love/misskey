@@ -96,6 +96,7 @@ export class TimelineClient {
 	public loading = ref(false);
 	public busy = ref(false);
 	public error = ref(false);
+	public failed = ref(false);
 	public hasMore = ref(false);
 	public pagingKey = ref(0);
 	public sources = shallowRef<TimelineSource[]>([]);
@@ -209,6 +210,7 @@ export class TimelineClient {
 		this.mode = result.mode;
 		this.degraded = !result.complete || result.mode === 'local-fallback';
 		this.error.value = this.degraded;
+		this.failed.value = false;
 		if (changedSession) { this.unsubscribe?.(); this.unsubscribe = null; }
 		if (!this.unsubscribe && this.options.subscribe && this.usable()) {
 			this.unsubscribe = this.options.subscribe({ session: result.session, revision: result.revision, updatesCursor: result.updatesCursor }, () => this.scheduleRefresh(0), () => { void this.refresh(); });
@@ -227,6 +229,7 @@ export class TimelineClient {
 				try { await this.readWindow(current, true); return; } catch { /* Keep the old window and retry below. */ }
 			}
 			this.error.value = true;
+			this.failed.value = true;
 			this.expire(true);
 			this.scheduleRefresh(8000);
 		}).finally(() => {
@@ -293,7 +296,7 @@ export class TimelineClient {
 		this.noteAdvertisements.clear();
 		this.queueOverflow = false; this.queuedRelease = false;
 		this.visibleItems = []; this.queuedItems = []; this.session = null; this.revision = null;
-		this.nextCursor = null; this.updatesCursor = null; this.error.value = false; this.hasMore.value = false;
+		this.nextCursor = null; this.updatesCursor = null; this.error.value = false; this.failed.value = false; this.hasMore.value = false;
 		this.publish(); this.loading.value = true;
 		await this.run(current => this.readWindow(current, false));
 	};
@@ -379,7 +382,7 @@ export class TimelineClient {
 	}
 	public suspend = () => { this.active = false; this.cancel(); this.expire(true); };
 	public resume = async () => { this.active = true; this.expire(); await this.refresh(); };
-	public fail = () => { this.error.value = true; this.expire(true); };
+	public fail = () => { this.error.value = true; this.failed.value = true; this.expire(true); };
 	public dispose = () => {
 		this.suspend(); this.disposed = true;
 		if (this.expireTimer !== null) window.clearTimeout(this.expireTimer);

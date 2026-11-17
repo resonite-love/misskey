@@ -26,7 +26,7 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 	const rows = computed<TimelineDisplayRow[]>(() => integrated.value ? client.value?.rows.value ?? [] : legacy.rows.value.map(row => ({ ...row, leased: row.kind === 'private' })));
 	const busy = computed(() => deciding.value || (integrated.value ? client.value?.busy.value ?? false : legacy.busy.value));
 	const initialLoading = computed(() => deciding.value || (integrated.value ? client.value?.loading.value ?? false : normal.fetching.value));
-	const initialError = computed(() => integrated.value ? (client.value?.error.value ?? false) && rows.value.length === 0 : normal.error.value);
+	const initialError = computed(() => integrated.value ? (client.value?.failed.value ?? false) && rows.value.length === 0 : normal.error.value);
 	const loading = computed(() => integrated.value ? client.value?.busy.value ?? false : legacy.loading.value);
 	const error = computed(() => integrated.value ? client.value?.error.value ?? false : legacy.error.value);
 	const hasMore = computed(() => integrated.value ? client.value?.hasMore.value ?? false : legacy.hasMore.value);

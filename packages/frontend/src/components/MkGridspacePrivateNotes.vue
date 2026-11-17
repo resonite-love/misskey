@@ -12,7 +12,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<h2 :class="$style.title"><i class="ti ti-lock" aria-hidden="true"></i> {{ i18n.ts._gridspace.privateTitle }}</h2>
 			<p>{{ i18n.ts._gridspace.privateScope }}</p>
 		</div>
-		<MkTimelineLoadMore v-if="direction === 'up'" :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" :automatic="false" @load="load"/>
+		<MkTimelineLoadMore v-if="direction === 'up'" :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="failed" :automatic="false" @load="load"/>
 		<MkButton v-if="queuedCount" :class="$style.new" rounded primary @click="releaseQueue(true)">{{ i18n.ts.newNote }}</MkButton>
 		<component :is="prefer.s.animation ? TransitionGroup : 'div'" tag="div" :enterActiveClass="$style.enterActive" :enterFromClass="$style.enterFrom" :moveClass="$style.move" @beforeLeave="clearLeavingPrivateNote">
 			<MkTimelineNoteRow v-for="row in rows" :key="row.key" :row="row" :data-scroll-anchor="row.key" @unavailable="client?.fail()" @replied="refresh"/>
@@ -24,7 +24,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkButton v-if="error" :disabled="loading" @click="refresh">{{ i18n.ts.retry }}</MkButton>
 		</div>
 		<MkA v-if="needsAuthorization" to="/settings/gridspace" :class="$style.heading">{{ i18n.ts._gridspace.privateAuthorize }}</MkA>
-		<MkTimelineLoadMore v-if="direction !== 'up'" :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" @load="load"/>
+		<MkTimelineLoadMore v-if="direction !== 'up'" :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="failed" @load="load"/>
 	</section>
 </component>
 </template>
@@ -60,6 +60,7 @@ let stopScroll: (() => void) | null = null;
 const rows = computed(() => client.value?.rows.value ?? []);
 const loading = computed(() => client.value?.busy.value ?? false);
 const error = computed(() => client.value?.error.value ?? false);
+const failed = computed(() => client.value?.failed.value ?? false);
 const hasMore = computed(() => client.value?.hasMore.value ?? false);
 const queuedCount = computed(() => client.value?.queuedCount.value ?? 0);
 const pagingKey = computed(() => client.value?.pagingKey.value ?? 0);

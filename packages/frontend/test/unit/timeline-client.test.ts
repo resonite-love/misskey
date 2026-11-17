@@ -161,6 +161,19 @@ describe('server timeline client', () => {
 		expect(request.mock.calls[2][1]).toMatchObject({ mode: 'unified' });
 		expect(value.error.value).toBe(false);
 	});
+	it('continues empty local-fallback pages without treating the degraded source as a failed request', async () => {
+		const request = vi.fn().mockResolvedValueOnce(page([], { mode: 'local-fallback', nextCursor: 'empty-1' }))
+			.mockResolvedValueOnce(page([], { mode: 'local-fallback', nextCursor: 'empty-2' }))
+			.mockResolvedValueOnce(page([item('found', false)], { mode: 'local-fallback' }));
+		const value = client(request); await value.reload();
+		expect(value.error.value).toBe(true); expect(value.failed.value).toBe(false);
+		expect(value.hasMore.value).toBe(true);
+		await value.load(); expect(value.hasMore.value).toBe(true);
+		await value.load(); expect(value.rows.value).toMatchObject([{ note: { id: 'found' } }]);
+		expect(value.failed.value).toBe(false); expect(value.hasMore.value).toBe(false);
+		expect(request.mock.calls[1][1]).toMatchObject({ cursor: 'empty-1', mode: 'local-fallback' });
+		expect(request.mock.calls[2][1]).toMatchObject({ cursor: 'empty-2', mode: 'local-fallback' });
+	});
 	it('coalesces invalidation hints and stops its subscription while suspended', async () => {
 		let invalidate!: () => void;
 		const dispose = vi.fn();
