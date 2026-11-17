@@ -26,6 +26,7 @@ export const paramDef = {
 		cursor: { type: 'string', minLength: 1, maxLength: 4096 },
 		mode: { type: 'string', enum: ['unified', 'local-fallback'], default: 'unified' },
 		anchor: { type: 'string', maxLength: 1024 },
+		anchorRef: { type: 'string', minLength: 1, maxLength: 4096 },
 		previousSession: { type: 'string', pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' }, previousRevision: { type: 'string', maxLength: 32 },
 		retainedRefs: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 4096 } },
 	}, required: ['kind'],
@@ -36,8 +37,9 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 	constructor(private timeline: GridspaceTimelineService) {
 		super(meta, paramDef, async (ps, me) => {
 			try {
-				const { limit, cursor, mode, anchor, previousSession, previousRevision, retainedRefs, ...options } = ps;
-				return await this.timeline.page(me, options, limit, cursor, mode, anchor, previousSession && previousRevision ? { previousSession, previousRevision, refs: retainedRefs ?? [] } : undefined);
+				const { limit, cursor, mode, anchor, anchorRef, previousSession, previousRevision, retainedRefs, ...options } = ps;
+				if (anchorRef && (!previousSession || !previousRevision)) throw new GridspaceLinkError('INVALID_CURSOR');
+				return await this.timeline.page(me, options, limit, cursor, mode, anchor, previousSession && previousRevision ? { previousSession, previousRevision, refs: retainedRefs ?? [], anchorRef } : undefined);
 			} catch (error) {
 				if (error instanceof GridspaceLinkError) throw new ApiError(meta.errors.unavailable, { reason: error.code });
 				throw error;

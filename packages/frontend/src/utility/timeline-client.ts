@@ -249,10 +249,13 @@ export class TimelineClient {
 		this.busy.value = true;
 		const pending = action(current).catch(async error => {
 			if (current !== this.generation) return;
-			const reason = (error as { info?: { reason?: string } } | null)?.info?.reason;
+			let reason = (error as { info?: { reason?: string } } | null)?.info?.reason;
 			if (reason === 'INVALID_CURSOR' || reason === 'CURSOR_EXPIRED') {
-				try { await this.readWindow(current, true); return; } catch { /* Keep the old window and retry below. */ }
+				try { await this.readWindow(current, true); return; } catch (recoveryError) {
+					reason = (recoveryError as { info?: { reason?: string } } | null)?.info?.reason;
+				}
 			}
+			if (current !== this.generation) return;
 			this.error.value = true;
 			this.failed.value = true;
 			// A connection failure is not revocation. Retain already-authorized
@@ -279,29 +282,67 @@ export class TimelineClient {
 		}
 		const previous = new Set(this.visibleItems.map(item => item.key));
 		const windowStreamVersion = this.streamVersion;
-		let anchor = this.options.anchor?.() ?? this.visibleItems[0]?.key;
-		const retained = preserve && this.session && this.revision && this.queuedItems.length ? {
+		const restoreHistory = preserve && mode === 'unified' && ['home', 'social'].includes(this.query.kind) && this.visibleItems.length > 1;
+		const historyStart = restoreHistory ? this.visibleItems[0] : undefined;
+		const historyEnd = restoreHistory ? this.visibleItems.at(-1) : undefined;
+		let anchor = historyStart?.key ?? this.options.anchor?.() ?? this.visibleItems[0]?.key;
+		const retained = preserve && this.session && this.revision && (this.queuedItems.length || historyStart) ? {
 			previousSession: this.session, previousRevision: this.revision, retainedRefs: this.queuedItems.slice(0, 100).map(item => item.ref),
+			...(historyStart ? { anchorRef: historyStart.ref } : {}),
 		} : {};
 		let response = await this.fetch('gridspace/timeline', { ...this.query, mode, ...retained, ...(preserve && anchor ? { anchor } : {}), limit: 30 });
+		let reboundStartedAt = response.startedAt;
+		const windowRows = response.result.items.map(item => ({ item, startedAt: response.startedAt }));
+		if (historyEnd) {
+			const initial = response.result;
+			const requireComplete = () => {
+				if (response.result.sources.some(source => source.status === 'unauthorized')) throw Object.assign(new Error('Timeline authorization revoked'), { info: { reason: 'AUTHORIZATION_REVOKED' } });
+				if (!response.result.complete) throw new Error('Incomplete history restoration');
+			};
+			requireComplete();
+			const cursors = new Set<string>();
+			const complete = () => windowRows.some(row => row.item.key === historyEnd.key) ||
+				windowRows.some(row => BigInt(row.item.sortKey.sortAt) < BigInt(historyEnd.sortKey.sortAt));
+			while (response.result.nextCursor && !complete()) {
+				if (current !== this.generation || !this.usable()) return;
+				if (cursors.size >= 64 || cursors.has(response.result.nextCursor)) throw new Error('Incomplete history restoration');
+				cursors.add(response.result.nextCursor);
+				response = await this.fetch('gridspace/timeline', { ...this.query, mode, cursor: response.result.nextCursor, limit: 30 });
+				requireComplete();
+				if (response.result.session !== initial.session || response.result.revision !== initial.revision) throw new Error('History changed during restoration');
+				windowRows.push(...response.result.items.map(item => ({ item, startedAt: response.startedAt })));
+			}
+			// Publish atomically only after the old range has been reauthorized.
+			// Pagination continues after its oldest page, not the viewport's anchor.
+			response = { ...response, result: { ...initial, nextCursor: response.result.nextCursor,
+				order: [...new Set([...(initial.order ?? initial.items.map(item => item.key)), ...windowRows.map(row => row.item.key)])],
+			} };
+		}
 		// Do not replace the window the user scrolled into while the request was
 		// pending. Re-anchor once; continued scrolling keeps the old window intact.
-		if (preserve && current === this.generation && this.usable()) {
+		if (preserve && !restoreHistory && current === this.generation && this.usable()) {
 			const liveAnchor = this.options.anchor?.();
 			if (liveAnchor && liveAnchor !== anchor && !response.result.items.some(item => item.key === liveAnchor)) {
 				anchor = liveAnchor;
 				response = await this.fetch('gridspace/timeline', { ...this.query, mode, ...retained, anchor, limit: 30 });
+				reboundStartedAt = response.startedAt;
+				windowRows.splice(0, windowRows.length, ...response.result.items.map(item => ({ item, startedAt: response.startedAt })));
 				const latestAnchor = this.options.anchor?.();
 				if (latestAnchor && latestAnchor !== anchor && !response.result.items.some(item => item.key === latestAnchor)) {
 					this.scheduleRefresh(1000); return;
 				}
 			}
 		}
-		const { result, startedAt } = response;
+		const { result } = response;
 		if (current !== this.generation || !this.usable()) return;
 		if (preserve) this.options.beforeReplace?.();
-		const items = result.items.map(item => this.retain(item, startedAt));
-		const rebound = (result.retainedItems ?? []).map(item => this.retain(item, startedAt));
+		const seen = new Set<string>();
+		const items = windowRows.flatMap(row => {
+			if (seen.has(row.item.key)) return [];
+			seen.add(row.item.key);
+			return [this.retain(row.item, row.startedAt)];
+		});
+		const rebound = (result.retainedItems ?? []).map(item => this.retain(item, reboundStartedAt));
 		const reboundKeys = new Set(rebound.map(item => item.key));
 		const firstKnown = items.findIndex(item => previous.has(item.key));
 		if (preserve && !(this.options.isTop?.() ?? true) && firstKnown > 0) {
@@ -315,7 +356,7 @@ export class TimelineClient {
 			this.visibleItems = items; this.queuedItems = [];
 			this.queueOverflow = false; this.queuedRelease = false;
 		}
-		if (preserve) {
+		if (preserve && !restoreHistory) {
 			const incoming = items.filter(item => !previous.has(item.key));
 			if (incoming.length) this.options.onNewItems?.(this.displayItems(incoming));
 		}

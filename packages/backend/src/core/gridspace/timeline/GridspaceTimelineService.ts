@@ -244,7 +244,7 @@ export class GridspaceTimelineService {
 			(checkpoint.nextPolicyCheckAt != null && checkpoint.nextPolicyCheckAt <= Date.now()), inserts };
 	}
 
-	public async page(viewer: MiLocalUser, options: TimelineOptions, limit: number, cursor?: string, mode: 'unified' | 'local-fallback' = 'unified', anchor?: string, retained?: { previousSession: string; previousRevision: string; refs: string[] }): Promise<TimelinePage> {
+	public async page(viewer: MiLocalUser, options: TimelineOptions, limit: number, cursor?: string, mode: 'unified' | 'local-fallback' = 'unified', anchor?: string, retained?: { previousSession: string; previousRevision: string; refs: string[]; anchorRef?: string }): Promise<TimelinePage> {
 		const deadline = Date.now() + 8000;
 		if (!this.peer) throw new GridspaceLinkError('UNAVAILABLE');
 		if ((options.kind === 'channel') !== !!options.channelId || (options.kind === 'clip') !== !!options.clipId || (options.kind === 'antenna') !== !!options.antennaId ||
@@ -282,7 +282,16 @@ export class GridspaceTimelineService {
 			position = { session: randomUUID(), id: randomUUID(), expires: Date.now() + 3600_000 };
 			checkpoint = { options, mode, session: position.session, viewerId: viewer.id, expires: position.expires, revision: String(status.generation), merge: emptyTimelineMerge(mode === 'unified'), sequence: await this.references.currentPosition() };
 			checkpoint.nextPolicyCheckAt = await this.local.nextViewerPolicyCheck(viewer.id);
-			if (anchor) {
+			if (retained?.anchorRef) {
+				let ref: TimelineReference;
+				try { ref = JSON.parse(openGridspaceSecret(this.peer, retained.anchorRef, `timeline-ref:${viewer.id}:${retained.previousSession}:${retained.previousRevision}`)); } catch { throw new GridspaceLinkError('INVALID_CURSOR'); }
+				if (!['home', 'social'].includes(options.kind) || ref.canonicalUri !== anchor || !/^\d+$/.test(ref.sortAt)) throw new GridspaceLinkError('INVALID_CURSOR');
+				const untilAt = Number(BigInt(ref.sortAt) / 1000n);
+				if (!Number.isSafeInteger(untilAt) || untilAt < 0 || untilAt >= 4102444800000) throw new GridspaceLinkError('INVALID_CURSOR');
+				// The old signed position survives deletion or revocation of the anchor.
+				// It grants no body access: every page still runs the current ACL checks.
+				checkpoint.untilAt = untilAt;
+			} else if (anchor) {
 				const own = await this.localSource(options).ownerReferences(viewer, [anchor]);
 				const ref = own[0] ?? (mode === 'unified' ? (await this.delegated.timeline(viewer, { anchor, ...options, deadline })).references[0] : undefined);
 				if (ref) {

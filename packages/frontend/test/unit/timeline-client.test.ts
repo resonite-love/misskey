@@ -139,9 +139,9 @@ describe('server timeline client', () => {
 		clients.push(value); await value.reload(); const waiting = value.refresh(); await settle();
 		value.receive({ session: 'session', revision: 'revision', item: item('arrived', false) });
 		anchor = item('lower').key;
-		finish(page([item('old', false)], { session: 'first-replacement' })); await waiting;
+		finish(page([item('old', false)], { session: 'replacement', nextCursor: 'restore-lower' })); await waiting;
 		expect(value.queuedCount.value).toBe(1);
-		expect(request.mock.calls[3][1]).toMatchObject({ anchor: item('lower').key });
+		expect(request.mock.calls[3][1]).toMatchObject({ cursor: 'restore-lower' });
 	});
 	it('refreshes content without remounting for reaction or vote counters', () => {
 		const note = { text: 'body', reactions: { like: 1 }, poll: { choices: [{ text: 'A', votes: 1, isVoted: false }] }, renote: { text: 'quoted', reactionCount: 1 } };
@@ -291,7 +291,7 @@ describe('server timeline client', () => {
 		const value = client(request); await value.reload(); await value.refresh();
 		expect(JSON.stringify(value.rows.value)).not.toContain('body:allowed');
 	});
-	it('reanchors a delayed reset before replacing the newly visible window', async () => {
+	it('restores the full range when scrolling during a delayed reset', async () => {
 		let anchor = item('old').key;
 		let finish!: (value: TimelineResponse) => void;
 		const request = vi.fn().mockResolvedValueOnce(page([item('old', false), item('lower', false)]))
@@ -300,9 +300,9 @@ describe('server timeline client', () => {
 			.mockResolvedValueOnce(page([item('lower', false), item('below', false)]));
 		const value = new TimelineClient({ kind: 'home' }, { request: (endpoint, params, signal) => request(endpoint, params, signal), anchor: () => anchor, now: () => Date.now() });
 		clients.push(value); await value.reload(); const waiting = value.refresh(); await settle();
-		anchor = item('lower').key; finish(page([item('old', false)])); await waiting;
-		expect(request.mock.calls[3][1]).toMatchObject({ anchor: item('lower').key });
-		expect(value.rows.value.map(row => row.key)).toEqual([item('lower').key, item('below').key]);
+		anchor = item('lower').key; finish(page([item('old', false)], { nextCursor: 'restore-lower' })); await waiting;
+		expect(request.mock.calls[3][1]).toMatchObject({ cursor: 'restore-lower' });
+		expect(value.rows.value.map(row => row.key)).toEqual([item('old').key, item('lower').key, item('below').key]);
 	});
 	it.each(['INVALID_CURSOR', 'CURSOR_EXPIRED'])('reopens an expired %s changes session around the current anchor', async reason => {
 		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)]))
@@ -310,6 +310,79 @@ describe('server timeline client', () => {
 		const value = client(request); await value.reload(); await value.refresh();
 		expect(request.mock.calls[2][1]).toMatchObject({ anchor: item('old').key });
 		expect(value.error.value).toBe(false);
+	});
+	it('rebuilds the loaded home range before replacing it, including when a retained note was revoked', async () => {
+		const history = Array.from({ length: 210 }, (_, index) => ({ ...item(`history-${index}`, false), sortKey: { sortAt: String(1000 - index), uri: `https://example.test/notes/history-${index}` } }));
+		const allowed = history.filter((_, index) => index !== 50).map(note => ({ ...note, ref: `renewed:${note.ref}` }));
+		const request = vi.fn().mockResolvedValueOnce(page(history, { nextCursor: 'old-history' }))
+			.mockResolvedValueOnce(page(history.slice(0, 100)))
+			.mockResolvedValueOnce(page(history.slice(100, 200)))
+			.mockResolvedValueOnce(page(history.slice(200), { resetRequired: true }));
+		for (let offset = 0; offset < allowed.length; offset += 30) {
+			request.mockResolvedValueOnce(page(allowed.slice(offset, offset + 30), { session: 'replacement', nextCursor: offset + 30 < allowed.length ? `restore-${offset + 30}` : 'older-history' }));
+		}
+		const value = new TimelineClient({ kind: 'home' }, { request, isTop: () => false, anchor: () => history[180].key, now: () => Date.now() });
+		clients.push(value); await value.reload(); await value.refresh();
+		expect(value.rows.value.map(row => row.key)).toEqual(allowed.map(row => row.key));
+		expect(request.mock.calls[4][1]).toMatchObject({ anchor: history[0].key, anchorRef: history[0].ref, previousSession: 'session', previousRevision: 'revision' });
+		request.mockResolvedValueOnce(page([], { session: 'replacement' })); await value.load();
+		expect(request.mock.calls.at(-1)![1]).toMatchObject({ cursor: 'older-history' });
+	});
+	it('keeps the previous range when a replacement history page fails', async () => {
+		const history = Array.from({ length: 60 }, (_, index) => ({ ...item(`history-${index}`, false), sortKey: { sortAt: String(1000 - index), uri: `https://example.test/notes/history-${index}` } }));
+		const request = vi.fn().mockResolvedValueOnce(page(history))
+			.mockResolvedValueOnce(page(history, { resetRequired: true }))
+			.mockResolvedValueOnce(page(history.slice(0, 30), { session: 'replacement', nextCursor: 'restore-30' }))
+			.mockRejectedValueOnce(new Error('offline'));
+		const value = client(request, () => false); await value.reload(); await value.refresh();
+		expect(value.rows.value.map(row => row.key)).toEqual(history.map(row => row.key));
+		expect(value.error.value).toBe(true);
+	});
+	it('retains newly eligible rows across every replacement page before the first surviving old row', async () => {
+		const old = [item('old-head', false), item('old-middle', false), item('old-tail', false)].map((row, index) => ({ ...row, sortKey: { sortAt: String(1000 - index * 400), uri: row.key } }));
+		const eligible = Array.from({ length: 60 }, (_, index) => ({ ...item(`eligible-${index}`, false), sortKey: { sortAt: String(999 - index), uri: `https://example.test/notes/eligible-${index}` } }));
+		const ordered = [...eligible, ...old.slice(1)];
+		const request = vi.fn().mockResolvedValueOnce(page(old)).mockResolvedValueOnce(page([], { resetRequired: true }));
+		for (let offset = 0; offset < ordered.length; offset += 30) {
+			const rows = ordered.slice(offset, offset + 30);
+			request.mockResolvedValueOnce(page(rows, { session: 'replacement', nextCursor: offset + 30 < ordered.length ? `restore-${offset + 30}` : null, order: rows.map(row => row.key) }));
+		}
+		const value = client(request, () => false); await value.reload(); await value.refresh();
+		expect(value.queuedCount.value).toBe(60);
+		await value.releaseQueue();
+		expect(value.rows.value.map(row => row.key)).toEqual(ordered.map(row => row.key));
+	});
+	it('does not extend the authorization of an earlier restoration page while fetching later pages', async () => {
+		const history = Array.from({ length: 60 }, (_, index) => ({ ...item(`history-${index}`), sortKey: { sortAt: String(1000 - index), uri: `https://example.test/notes/history-${index}` } }));
+		let finish!: (value: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page(history))
+			.mockResolvedValueOnce(page(history, { resetRequired: true }))
+			.mockResolvedValueOnce(page(history.slice(0, 30).map(item => ({ ...item, validForMs: 5000 })), { session: 'replacement', nextCursor: 'restore-30' }))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+		const value = client(request, () => false); await value.reload(); const restoring = value.refresh(); await settle();
+		await vi.advanceTimersByTimeAsync(6000);
+		finish(page(history.slice(30), { session: 'replacement' })); await restoring;
+		expect(value.rows.value[0]).toMatchObject({ note: { suspended: true } });
+		expect(JSON.stringify(value.rows.value[0])).not.toContain('body:history-0');
+		expect(value.rows.value[30]).toMatchObject({ note: { text: 'body:history-30' } });
+	});
+	it('removes protected content immediately when a restoration reports revoked authorization', async () => {
+		const history = [item('first'), item('second')];
+		const request = vi.fn().mockResolvedValueOnce(page(history))
+			.mockResolvedValueOnce(page(history, { resetRequired: true }))
+			.mockResolvedValueOnce(page([], { complete: false, sources: [{ source: 'peer', status: 'unauthorized', retryable: false }] }));
+		const value = client(request, () => false); await value.reload(); await value.refresh();
+		expect(JSON.stringify(value.rows.value)).not.toContain('body:first');
+		expect(value.failed.value).toBe(true);
+	});
+	it('retains a revocation reported while recovering an expired cursor', async () => {
+		const history = [item('first'), item('second')];
+		const request = vi.fn().mockResolvedValueOnce(page(history))
+			.mockRejectedValueOnce({ info: { reason: 'INVALID_CURSOR' } })
+			.mockResolvedValueOnce(page([], { complete: false, sources: [{ source: 'peer', status: 'unauthorized', retryable: false }] }));
+		const value = client(request, () => false); await value.reload(); await value.refresh();
+		expect(JSON.stringify(value.rows.value)).not.toContain('body:first');
+		expect(value.failed.value).toBe(true);
 	});
 	it('reopens an expired history page instead of retrying its invalid cursor', async () => {
 		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)], { nextCursor: 'expired' }))

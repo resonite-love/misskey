@@ -103,6 +103,22 @@ function fixture(initialLocal: TimelineReference[], initialPeer: TimelineReferen
 }
 
 describe('unified timeline coordinator with real Redis checkpoints', () => {
+	test('restores history from an authenticated position even after the anchor becomes unreadable', async () => {
+		const f = fixture([100, 90, 80].map(n => ref('local', n)));
+		const first = await f.service.page(viewer, options, 1);
+		f.rows.local.shift();
+		const restored = await f.service.page(viewer, options, 30, undefined, 'unified', first.items[0].key, {
+			previousSession: first.session, previousRevision: first.revision, refs: [], anchorRef: first.items[0].ref,
+		});
+		expect(restored.items.map(item => item.key)).toEqual([90, 80].map(n => ref('local', n).canonicalUri));
+	});
+	test('rejects a history anchor belonging to another viewer or another canonical URI', async () => {
+		const f = fixture([ref('local', 100)]);
+		const first = await f.service.page(viewer, options, 1);
+		const retained = { previousSession: first.session, previousRevision: first.revision, refs: [], anchorRef: first.items[0].ref };
+		await expect(f.service.page({ id: 'other' } as MiLocalUser, options, 30, undefined, 'unified', first.items[0].key, retained)).rejects.toMatchObject({ code: 'INVALID_CURSOR' });
+		await expect(f.service.page(viewer, options, 30, undefined, 'unified', ref('local', 90).canonicalUri, retained)).rejects.toMatchObject({ code: 'INVALID_CURSOR' });
+	});
 	test('reuses one freshly authorized peer batch when renewing a channel or home window', async () => {
 		const f = fixture([], [ref('peer', 100), ref('peer', 90)]);
 		const first = await f.service.page(viewer, options, 20);
