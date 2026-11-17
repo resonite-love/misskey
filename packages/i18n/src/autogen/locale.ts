@@ -10590,7 +10590,7 @@ export interface Locale extends ILocale {
          */
         "noRelay": string;
         /**
-         * 外部フォロワーには届け、登録済みリレーには直接送信しません
+         * 登録済みリレーに直接送信しません。パブリック投稿は外部にホームとして届けます
          */
         "noRelayDescription": string;
         /**

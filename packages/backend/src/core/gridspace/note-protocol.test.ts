@@ -36,6 +36,21 @@ describe('community note boundary', () => {
 		const invalid = { ...value, notes: [{ ...value.notes[0], noRelay: 'true' }] };
 		expect(() => validateGridspaceBundle(invalid, origin, 'test')).toThrow('Invalid relay preference');
 	});
+	test('accepts home federation only for a public relay opt-out on the signed channel', () => {
+		const value = bundle();
+		const entry = value.notes[0];
+		entry.localOnly = false;
+		entry.noRelay = true;
+		entry.federateAsHome = true;
+		expect(validateGridspaceBundle(value, origin, 'test').notes[0].federateAsHome).toBe(true);
+
+		entry.noRelay = false;
+		expect(() => validateGridspaceBundle(value, origin, 'test')).toThrow('Inconsistent federation visibility');
+		entry.noRelay = true;
+		entry.object.to = [];
+		entry.object.cc = [publicAudience];
+		expect(() => validateGridspaceBundle(value, origin, 'test')).toThrow('Inconsistent federation visibility');
+	});
 	test('rejects private objects even from the authenticated peer', () => {
 		const value = bundle(); value.notes[0].object.to = [origin + '/users/author/followers'];
 		expect(() => validateGridspaceBundle(value, origin, 'test')).toThrow();

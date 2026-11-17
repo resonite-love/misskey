@@ -457,6 +457,19 @@ export class NoteCreateService implements OnApplicationShutdown {
 	}
 
 	@bindThis
+	public async canUsePublicVisibility(user: Pick<MiUser, 'id' | 'host'>, note: { channelId: string | null; cw?: string | null; text?: string | null }): Promise<boolean> {
+		if (note.channelId == null) {
+			const sensitiveWords = this.meta.sensitiveWords;
+			const target = note.cw ?? note.text ?? '';
+			if (sensitiveWords.length > 0 && this.utilityService.isKeyWordIncluded([target, ...extractUrlsForKeyWordCheck(target)].join('\n'), sensitiveWords)) {
+				return false;
+			}
+			if ((await this.roleService.getUserPolicies(user.id)).canPublicNote === false) return false;
+		}
+		return user.host == null || !this.utilityService.isSilencedHost(this.meta.silencedHosts, user.host);
+	}
+
+	@bindThis
 	public async create(user: {
 		id: MiUser['id'];
 		username: MiUser['username'];
@@ -487,14 +500,8 @@ export class NoteCreateService implements OnApplicationShutdown {
 		if (data.channel != null) data.visibleUsers = [];
 		if (data.channel != null) data.localOnly = true;
 
-		if (data.visibility === 'public' && data.channel == null) {
-			const sensitiveWords = this.meta.sensitiveWords;
-			const sensitiveWordsTarget = data.cw ?? data.text ?? '';
-			if (sensitiveWords.length > 0 && this.utilityService.isKeyWordIncluded([sensitiveWordsTarget, ...extractUrlsForKeyWordCheck(sensitiveWordsTarget)].join('\n'), sensitiveWords)) {
-				data.visibility = 'home';
-			} else if ((await this.roleService.getUserPolicies(user.id)).canPublicNote === false) {
-				data.visibility = 'home';
-			}
+		if (data.visibility === 'public' && !await this.canUsePublicVisibility(user, { channelId: data.channel?.id ?? null, cw: data.cw, text: data.text })) {
+			data.visibility = 'home';
 		}
 
 		const hasProhibitedWords = this.checkProhibitedWordsContain({
@@ -505,12 +512,6 @@ export class NoteCreateService implements OnApplicationShutdown {
 
 		if (hasProhibitedWords) {
 			throw new IdentifiableError('689ee33f-f97c-479a-ac49-1b9f8140af99', 'Note contains prohibited words');
-		}
-
-		const inSilencedInstance = this.utilityService.isSilencedHost(this.meta.silencedHosts, user.host);
-
-		if (data.visibility === 'public' && inSilencedInstance && user.host !== null) {
-			data.visibility = 'home';
 		}
 
 		if (data.renote) {
@@ -710,6 +711,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			userId: user.id,
 			localOnly: data.localOnly!,
 			noRelay: !data.localOnly && data.noRelay === true,
+			federateAsHome: user.host == null && !data.localOnly && data.noRelay === true && data.visibility === 'public',
 			gridspaceShared: data.gridspaceShared === true || (user.host == null && this.config.gridspace?.enabled === true && canShareGridspaceNote({ visibility: data.visibility!, channelId: data.channel?.id ?? null })),
 			reactionAcceptance: data.reactionAcceptance ?? null,
 			visibility: data.visibility as any,

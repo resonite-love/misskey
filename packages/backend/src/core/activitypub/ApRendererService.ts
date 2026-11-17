@@ -89,20 +89,25 @@ export class ApRendererService {
 		};
 	}
 
+	private federationVisibility(note: MiNote): MiNote['visibility'] {
+		return note.federateAsHome && note.visibility === 'public' ? 'home' : note.visibility;
+	}
+
 	@bindThis
 	public renderAnnounce(object: string | IObject, note: MiNote): IAnnounce {
 		const attributedTo = this.userEntityService.genLocalUserUri(note.userId);
+		const visibility = this.federationVisibility(note);
 
 		let to: string[] = [];
 		let cc: string[] = [];
 
-		if (note.visibility === 'public') {
+		if (visibility === 'public') {
 			to = ['https://www.w3.org/ns/activitystreams#Public'];
 			cc = [`${attributedTo}/followers`];
-		} else if (note.visibility === 'home') {
+		} else if (visibility === 'home') {
 			to = [`${attributedTo}/followers`];
 			cc = ['https://www.w3.org/ns/activitystreams#Public'];
-		} else if (note.visibility === 'followers') {
+		} else if (visibility === 'followers') {
 			to = [`${attributedTo}/followers`];
 			cc = [];
 		} else {
@@ -355,7 +360,7 @@ export class ApRendererService {
 	}
 
 	@bindThis
-	public async renderNote(note: MiNote, dive = true): Promise<IPost> {
+	public async renderNote(note: MiNote, dive = true, visibility = this.federationVisibility(note)): Promise<IPost> {
 		const getPromisedFiles = async (ids: string[]): Promise<MiDriveFile[]> => {
 			if (ids.length === 0) return [];
 			const items = await this.driveFilesRepository.findBy({ id: In(ids) });
@@ -404,13 +409,13 @@ export class ApRendererService {
 		let to: string[] = [];
 		let cc: string[] = [];
 
-		if (note.visibility === 'public') {
+		if (visibility === 'public') {
 			to = ['https://www.w3.org/ns/activitystreams#Public'];
 			cc = [`${attributedTo}/followers`].concat(mentions);
-		} else if (note.visibility === 'home') {
+		} else if (visibility === 'home') {
 			to = [`${attributedTo}/followers`];
 			cc = ['https://www.w3.org/ns/activitystreams#Public'].concat(mentions);
-		} else if (note.visibility === 'followers') {
+		} else if (visibility === 'followers') {
 			to = [`${attributedTo}/followers`];
 			cc = mentions;
 		} else {
@@ -649,12 +654,15 @@ export class ApRendererService {
 	}
 
 	@bindThis
-	public renderUpdate(object: string | IObject, user: { id: MiUser['id'] }): IUpdate {
+	public renderUpdate(object: string | IObject, user: { id: MiUser['id'] }, useObjectAudience = false): IUpdate {
+		const audience = useObjectAudience && typeof object !== 'string'
+			? { to: object.to, cc: object.cc }
+			: { to: ['https://www.w3.org/ns/activitystreams#Public'] };
 		return {
 			id: `${this.config.url}/users/${user.id}#updates/${new Date().getTime()}`,
 			actor: this.userEntityService.genLocalUserUri(user.id),
 			type: 'Update',
-			to: ['https://www.w3.org/ns/activitystreams#Public'],
+			...audience,
 			object,
 			published: new Date().toISOString(),
 		};

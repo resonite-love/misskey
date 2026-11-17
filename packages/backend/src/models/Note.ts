@@ -100,6 +100,9 @@ export class MiNote {
 	public noRelay: boolean;
 
 	@Column('boolean', { default: false })
+	public federateAsHome: boolean;
+
+	@Column('boolean', { default: false })
 	public gridspaceShared: boolean;
 
 	@Column('varchar', {

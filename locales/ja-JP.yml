@@ -2788,7 +2788,7 @@ _visibility:
   deliveryPublic: "公開"
   deliveryPublicDescription: "公開範囲に従って通常どおり配信します"
   noRelay: "リレーなし"
-  noRelayDescription: "外部フォロワーには届け、登録済みリレーには直接送信しません"
+  noRelayDescription: "登録済みリレーに直接送信しません。パブリック投稿は外部にホームとして届けます"
   deliveryLocalDescription: "通常の連合配信を止めます。ぐりすぺ・れぞらぶ間の共有は続きます"
 
 _postForm:
