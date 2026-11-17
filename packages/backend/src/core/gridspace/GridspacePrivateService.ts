@@ -401,6 +401,14 @@ export class GridspacePrivateService {
 		const ascending = mode === 'clip' && input.order === 'oldest';
 		const column = mode === 'favorites' ? 'collection.id' : 'candidate.id';
 		const scan = this.db.getRepository(MiNote).createQueryBuilder('candidate').select(['candidate.id', 'candidate.uri']);
+		if (mode === 'channel') scan.andWhere('candidate.channelId = :listChannel', { listChannel: input.channelId });
+		if (mode === 'mentions' || mode === 'direct') {
+			scan.andWhere('(:listRecipient::varchar[] <@ candidate.mentions OR :listRecipient::varchar[] <@ candidate.visibleUserIds)', { listRecipient: [link!.localUserId] });
+			if (mode === 'direct') scan.andWhere('candidate.visibility = \'specified\'');
+		}
+		// Match the native mentions query: sort recipient-index results instead of
+		// walking the primary key through unrelated notes to fill a small window.
+		const orderColumn = mode === 'mentions' || mode === 'direct' ? 'CONCAT(candidate.id)' : column;
 		let authorIds: string[] | undefined;
 		if (input.targetUris?.length) {
 			const prefix = `${this.peer!.origin}/users/`;
@@ -432,16 +440,16 @@ export class GridspacePrivateService {
 			return { references: rows.map(note => reference(note, !!publicQuery)), next: null, upper: null, sequence, generation: status.generation, changed: false };
 		}
 		const sequence = initialSequence;
-		const candidates = authorIds ? (await Promise.all(authorIds.map(author => scan.clone().andWhere('candidate.userId = :listScanAuthor', { listScanAuthor: author }).orderBy('candidate.id', 'DESC').limit(513).getMany())))
+		const candidates = authorIds ? (await Promise.all(authorIds.map(author => this.search.read(scan.clone().andWhere('candidate.userId = :listScanAuthor', { listScanAuthor: author }).orderBy('candidate.id', 'DESC').limit(513)))))
 			.flat().sort((a, b) => a.id < b.id ? 1 : a.id > b.id ? -1 : 0).slice(0, 513)
-			: await scan.orderBy(column, ascending ? 'ASC' : 'DESC').limit(513).getMany();
+			: await this.search.read(scan.orderBy(orderColumn, ascending ? 'ASC' : 'DESC').limit(513));
 		const window = candidates.slice(0, 512);
 		const eligible = await readIds(window.map(note => note.id));
 		const byId = new Map(eligible.rows.map(note => [note.id, note]));
 		const refs = window.flatMap(note => byId.has(note.id) ? [reference(byId.get(note.id)!, eligible.publicIds.has(note.id))] : []);
 		const more = refs.length > 50 || candidates.length > 512;
 		const bound = refs.length > 50 ? refs[49] : window.at(-1) ? reference(window.at(-1)!) : null;
-		const highest = ascending ? await scan.clone().orderBy(column, 'DESC').limit(1).getOne() : window[0];
+		const highest = ascending ? (await this.search.read(scan.clone().orderBy(column, 'DESC').limit(1)))[0] : window[0];
 		if (link) await this.authorizeRead(input);
 		return { references: refs.slice(0, 50), next: more ? bound : null, upper: input.timelineUpper ?? (highest ? reference(highest) : null), sequence, generation: status.generation, changed: false };
 	}

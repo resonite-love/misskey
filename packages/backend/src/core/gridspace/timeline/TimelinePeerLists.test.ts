@@ -26,7 +26,7 @@ function fixture(rows: Row[], publicIds: string[] = []) {
 		innerJoin: vi.fn().mockReturnThis(), innerJoinAndMapOne: vi.fn().mockReturnThis(),
 		getMany: vi.fn(async () => rows), getOne: vi.fn(async () => rows[0] ?? null), clone: vi.fn().mockReturnThis() };
 	const authorizeRead = vi.fn(async () => ({ localUserId: 'oldViewer', initiator: false }));
-	const read = vi.fn(async (query: ReturnType<typeof makeQuery>) => rows.filter(note => (!query.ids || query.ids.includes(note.id)) && (query.arm !== 'public' || publicIds.includes(note.id))));
+	const read = vi.fn(async (query: ReturnType<typeof makeQuery> | typeof scan) => query === scan ? scan.getMany() : rows.filter(note => (!('ids' in query) || !query.ids || query.ids.includes(note.id)) && (!('arm' in query) || query.arm !== 'public' || publicIds.includes(note.id))));
 	const publicBuild = vi.fn(async () => makeQuery('public'));
 	const privateBuild = vi.fn(async () => makeQuery('private'));
 	const peerNotes = vi.fn(async (input: PrivatePeerRequest) => ({ notes: rows.filter(note => input.ids?.includes(note.id)).map(note => ({ id: note.id, uri: `https://source.test/notes/${note.id}`, origin: 'https://source.test', text: note.id, files: [] })) }));

@@ -135,14 +135,23 @@ export class GridspaceTimelineListSourceService {
 			if (!position.upper.noteId || !/^[a-zA-Z0-9]{1,32}$/.test(position.upper.noteId)) throw new GridspaceLinkError('INVALID_CURSOR');
 			query.andWhere('note.id <= :listUpper', { listUpper: position.upper.noteId });
 		}
-		const notes = await query.select('note.id', 'noteId').addSelect('note.uri', 'uri').orderBy('note.id', 'DESC').limit(position.limit).getRawMany<{ noteId: string; uri: string | null }>();
-		return notes.map(note => this.reference(note));
+		const orderColumn = options.kind === 'mentions' || options.kind === 'direct' ? 'CONCAT(note.id)' : 'note.id';
+		const notes = await this.search.read(query.select(['note.id', 'note.uri']).orderBy(orderColumn, 'DESC').limit(position.limit));
+		return notes.map(note => this.reference({ noteId: note.id, uri: note.uri }));
 	}
 
 	/** Bounded candidate scans advance through empty permission-filtered pages. */
 	public async readPage(viewer: MiLocalUser, options: TimelineListOptions, position: { before?: TimelinePosition; upper?: TimelinePosition; untilAt?: number; limit: number }) {
 		if (!Number.isInteger(position.limit) || position.limit < 1 || position.limit > 50) throw new GridspaceLinkError('INVALID_REQUEST');
-		const scan = this.db.getRepository(MiNote).createQueryBuilder('candidate').select('candidate.id', 'noteId').addSelect('candidate.uri', 'uri');
+		const scan = this.db.getRepository(MiNote).createQueryBuilder('candidate').select(['candidate.id', 'candidate.uri']);
+		const recipientList = options.kind === 'mentions' || options.kind === 'direct';
+		if (recipientList) {
+			scan.andWhere('(:listScanRecipient::varchar[] <@ candidate.mentions OR :listScanRecipient::varchar[] <@ candidate.visibleUserIds)', { listScanRecipient: [viewer.id] });
+			if (options.kind === 'direct') scan.andWhere("candidate.visibility = 'specified'");
+		}
+		// Match notes/mentions so PostgreSQL uses the recipient indexes before
+		// sorting, instead of scanning the whole timeline's primary key.
+		const orderColumn = recipientList ? 'CONCAT(candidate.id)' : 'candidate.id';
 		let authorIds: string[] | undefined;
 		if ((options.kind === 'profile' || options.kind === 'search') && options.userId) {
 			const link = await this.history.findLink(options.userId);
@@ -158,9 +167,10 @@ export class GridspaceTimelineListSourceService {
 			if (!Number.isSafeInteger(position.untilAt) || position.untilAt < 0 || position.untilAt >= 4102444800000) throw new GridspaceLinkError('INVALID_REQUEST');
 			scan.andWhere('candidate.id < :listScanUntil', { listScanUntil: this.ids.gen(position.untilAt + 1) });
 		}
-		const candidates = authorIds ? (await Promise.all(authorIds.map(author => scan.clone().andWhere('candidate.userId = :listScanAuthor', { listScanAuthor: author }).orderBy('candidate.id', 'DESC').limit(513).getRawMany<{ noteId: string; uri: string | null }>())))
-			.flat().sort((a, b) => a.noteId < b.noteId ? 1 : a.noteId > b.noteId ? -1 : 0).slice(0, 513)
-			: await scan.orderBy('candidate.id', 'DESC').limit(513).getRawMany<{ noteId: string; uri: string | null }>();
+		const rows = authorIds ? (await Promise.all(authorIds.map(author => this.search.read(scan.clone().andWhere('candidate.userId = :listScanAuthor', { listScanAuthor: author }).orderBy('candidate.id', 'DESC').limit(513)))))
+			.flat().sort((a, b) => a.id < b.id ? 1 : a.id > b.id ? -1 : 0).slice(0, 513)
+			: await this.search.read(scan.orderBy(orderColumn, 'DESC').limit(513));
+		const candidates = rows.map(note => ({ noteId: note.id, uri: note.uri }));
 		const window = candidates.slice(0, 512);
 		const upper = position.upper ?? (window[0] ? this.reference(window[0]) : null);
 		if (!window.length) return { references: [], next: null, upper, ended: true };

@@ -24,12 +24,13 @@ function fixture() {
 		where: vi.fn().mockReturnThis(), andWhere: vi.fn().mockReturnThis(), setParameters: vi.fn().mockReturnThis(),
 		select: vi.fn().mockReturnThis(), addSelect: vi.fn().mockReturnThis(), orderBy: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(),
 		getRawMany: vi.fn().mockResolvedValue([{ noteId: 'a', uri: null }]),
+		getMany: vi.fn().mockResolvedValue([{ id: 'a', uri: null }]),
 	};
 	const query = builder as unknown as SelectQueryBuilder<MiNote>;
 	const db = { getRepository: vi.fn(() => ({ createQueryBuilder: () => query, findOneBy: vi.fn().mockResolvedValue({ id: 'counterpart' }) })) };
 	const queries = { generateVisibilityQuery: vi.fn(), generateBaseNoteFilteringQuery: vi.fn(), generateMutedNoteThreadQuery: vi.fn() };
 	const roles = { getUserPolicies: vi.fn().mockResolvedValue({ canSearchNotes: true }) };
-	const search = { noteQuery: vi.fn(() => query) };
+	const search = { noteQuery: vi.fn(() => query), read: vi.fn((query: SelectQueryBuilder<MiNote>) => query.getMany()) };
 	const history = { findLink: vi.fn().mockResolvedValue(null), viewerQuery: vi.fn(() => query) };
 	const hydrateQuery = vi.fn(async (_viewer, factory, refs) => { await factory(); return refs.map((reference: unknown) => ({ reference })); });
 	const service = new GridspaceTimelineListSourceService(db as unknown as DataSource, { id: 'aidx', url: 'https://local.test' } as Config,
@@ -75,7 +76,7 @@ describe('other-list source authorization and keysets', () => {
 		const refs = await service.read(viewer, { kind: 'mentions' }, { before: { noteId: 'before', sortAt: '1', canonicalUri: 'https://x/a' }, upper: { noteId: 'head', sortAt: '2', canonicalUri: 'https://x/b' }, limit: 20 });
 		expect(builder.andWhere).toHaveBeenCalledWith('note.id < :listBefore', { listBefore: 'before' });
 		expect(builder.andWhere).toHaveBeenCalledWith('note.id <= :listUpper', { listUpper: 'head' });
-		expect(builder.orderBy).toHaveBeenCalledWith('note.id', 'DESC');
+		expect(builder.orderBy).toHaveBeenCalledWith('CONCAT(note.id)', 'DESC');
 		expect(refs).toEqual([{ noteId: 'a', canonicalUri: 'https://local.test/notes/a', sortAt: '1234000', source: 'local', normalized: true, generation: 1 }]);
 	});
 	test('linked search expands only the author pair and keeps the query on the local/peer hosts', async () => {
