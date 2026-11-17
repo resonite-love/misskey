@@ -64,6 +64,73 @@ describe('unified timeline reference merge', () => {
 		expect(state.peer.before?.noteId).toBe('4');
 		expect((await mergeTimeline(state, 20, read)).map(item => item.noteId)).toEqual(['target']);
 	});
+	test('returns buffered home posts once an empty peer window has passed their timestamps', async () => {
+		const state = emptyTimelineMerge();
+		const local = [ref('local', 'a', 100), ref('local', 'b', 90), ref('local', 'c', 80)];
+		let peerReads = 0;
+		const result = await mergeTimeline(state, 2, async source => {
+			if (source === 'local') return { references: [...local], next: null, upper: local[0], ended: true };
+			peerReads++;
+			return { references: [], next: ref('peer', 'boundary', 85), upper: ref('peer', 'upper', 110), ended: false };
+		});
+		expect(result).toEqual(local.slice(0, 2));
+		expect(peerReads).toBe(1);
+		expect(state.local.pending).toEqual(local.slice(2));
+	});
+	test('keeps older buffered posts until the missing source reaches them, across page budgets', async () => {
+		const state = emptyTimelineMerge();
+		let peerReads = 0;
+		const read = async (source: 'local' | 'peer') => {
+			if (source === 'local') return { references: [ref('local', 'first', 100), ref('local', 'last', 40)], next: null, upper: null, ended: true };
+			peerReads++;
+			if (peerReads < 5) return { references: [], next: ref('peer', `scan-${peerReads}`, 100 - peerReads * 10), upper: null, ended: false };
+			return { references: [ref('peer', 'middle', 50)], next: null, upper: null, ended: true };
+		};
+		expect((await mergeTimeline(state, 20, read)).map(item => item.noteId)).toEqual(['first']);
+		expect(peerReads).toBe(4);
+		expect((await mergeTimeline(state, 20, read)).map(item => item.noteId)).toEqual(['middle', 'last']);
+	});
+	test('only emits same-time rows which precede the other source in the tie order', async () => {
+		for (const candidateSource of ['local', 'peer'] as const) {
+			const state = emptyTimelineMerge();
+			const candidate = ref(candidateSource, 'candidate', 10);
+			const result = await mergeTimeline(state, 1, async source => source === candidateSource
+				? { references: [candidate], next: null, upper: null, ended: true }
+				: { references: [], next: ref(source, 'boundary', 10), upper: null, ended: false });
+			expect(result).toEqual(candidateSource === 'local' ? [candidate] : []);
+		}
+	});
+	test('respects ascending clip order when using an empty scan boundary', async () => {
+		const state = emptyTimelineMerge();
+		const local = [ref('local', 'old', 10), ref('local', 'new', 30)];
+		const result = await mergeTimeline(state, 1, async source => source === 'local'
+			? { references: [...local], next: null, upper: null, ended: true }
+			: { references: [], next: ref('peer', 'boundary', 20), upper: null, ended: false }, () => true, (a, b) => -compareTimelinePosition(a, b));
+		expect(result).toEqual([local[0]]);
+	});
+	test('sparse filtered windows retain all rows in order across repeated checkpoints', async () => {
+		for (const ascending of [false, true]) {
+			const rows = Array.from({ length: 300 }, (_, index) => ref(index % 2 ? 'peer' : 'local', String(index).padStart(3, '0'), Math.floor(index / 3)));
+			const order = (a: TimelineReference, b: TimelineReference) => {
+				const byTime = Number(b.sortAt) - Number(a.sortAt);
+				const bySource = a.source === b.source ? 0 : a.source === 'local' ? -1 : 1;
+				const byId = b.noteId.localeCompare(a.noteId);
+				return (ascending ? -1 : 1) * (byTime || bySource || byId);
+			};
+			const visible = (row: TimelineReference) => Number(row.noteId) % 11 === 0;
+			const state = emptyTimelineMerge();
+			const actual: TimelineReference[] = [];
+			for (let page = 0; page < 100 && (!state.local.ended || !state.peer.ended || state.local.pending.length || state.peer.pending.length); page++) {
+				actual.push(...await mergeTimeline(state, 7, async (source, cursor) => {
+					const remaining = rows.filter(row => row.source === source && (!cursor.before || order(row, cursor.before as TimelineReference) > 0)).sort(order);
+					const scanned = remaining.slice(0, 4);
+					const ended = remaining.length <= 4;
+					return { references: scanned.filter(visible), next: ended ? null : scanned.at(-1)!, upper: null, ended };
+				}, () => true, ascending ? (a, b) => -compareTimelinePosition(a, b) : compareTimelinePosition));
+			}
+			expect(actual).toEqual(rows.filter(visible).sort(order));
+		}
+	});
 	test('deadline pauses after progress without rolling back the source cursor', async () => {
 		const state = emptyTimelineMerge(); let windows = 0;
 		const read = async (source: 'local' | 'peer') => {

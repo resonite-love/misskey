@@ -17,27 +17,32 @@ export async function mergeTimeline(state: TimelineMergeState, limit: number, re
 	let reads = 0;
 	let peerReads = 0;
 	while (output.length < limit) {
-		for (const source of ['local', 'peer'] as const) {
-			const cursor = state[source];
-			while (!cursor.pending.length && !cursor.ended) {
-				if (!canRead()) return output;
-				if (source === 'peer' && peerReads >= 4) return output;
-				if (++reads > 8) return output;
-				if (source === 'peer') peerReads++;
-				const page = await read(source, cursor);
-				if (!page.ended && !page.next) throw new Error('Timeline source made no progress');
-				cursor.before = page.next;
-				cursor.upper ??= page.upper;
-				cursor.pending = page.references;
-				cursor.ended = page.ended;
-			}
-		}
-		// Never emit a row before both source frontiers are known.
-		if ((!state.local.pending.length && !state.local.ended) || (!state.peer.pending.length && !state.peer.ended)) break;
 		const a = state.local.pending[0];
 		const b = state.peer.pending[0];
-		if (!a && !b) break;
-		const chosen = !b || (a && compare(a, b) <= 0) ? state.local.pending.shift()! : state.peer.pending.shift()!;
+		const candidate = !b || (a && compare(a, b) <= 0) ? a : b;
+		// An empty filtered page still proves that every unread row is beyond
+		// its exclusive scan boundary. Do not wait for a matching row when the
+		// other source already has a candidate ahead of that boundary.
+		const missing = (['local', 'peer'] as const).find(source => {
+			const cursor = state[source];
+			return !cursor.pending.length && !cursor.ended &&
+				(!candidate || !cursor.before || compare(candidate, { ...cursor.before, source }) > 0);
+		});
+		if (missing) {
+			if (!canRead() || reads >= 8 || (missing === 'peer' && peerReads >= 4)) break;
+			reads++;
+			if (missing === 'peer') peerReads++;
+			const cursor = state[missing];
+			const page = await read(missing, cursor);
+			if (!page.ended && !page.next) throw new Error('Timeline source made no progress');
+			cursor.before = page.next;
+			cursor.upper ??= page.upper;
+			cursor.pending = page.references;
+			cursor.ended = page.ended;
+			continue;
+		}
+		if (!candidate) break;
+		const chosen = state[candidate.source].pending.shift()!;
 		state.owners[chosen.canonicalUri] ??= chosen.source;
 		if (seen.has(chosen.canonicalUri)) continue;
 		seen.add(chosen.canonicalUri);
