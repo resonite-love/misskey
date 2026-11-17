@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone, MiGridspaceReplyReceipt } from '@/models/Gridspace.js';
 import { canShareGridspaceNote, canonicalGridspaceNoteUri, gridspaceNoteUris } from '@/core/gridspace/note-protocol.js';
+import { TimelinePeerService } from '@/core/gridspace/timeline/TimelinePeerService.js';
 import { setImmediate } from 'node:timers/promises';
 import * as mfm from 'mfm-js';
 import { In, DataSource, IsNull, LessThan, type EntityManager } from 'typeorm';
@@ -258,6 +259,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 		private noteEntityService: NoteEntityService,
 		private idService: IdService,
 		private globalEventService: GlobalEventService,
+		private timelinePeer: TimelinePeerService,
 		private queueService: QueueService,
 		private fanoutTimelineService: FanoutTimelineService,
 		private notificationService: NotificationService,
@@ -902,6 +904,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			const noteObj = await this.noteEntityService.pack(note, null, { skipHide: true, withReactionAndUserPairCache: true });
 
 			this.globalEventService.publishNotesStream(noteObj);
+			this.timelinePeer.notify(note);
 
 			this.roleService.addNoteToRoleTimeline(noteObj);
 

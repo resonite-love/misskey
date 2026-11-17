@@ -260,7 +260,7 @@ if (props.src === 'antenna') {
 
 const home = useGridspaceHome(paginator, computed(() => (props.src === 'home' || props.src === 'social') && $i ? {
 	mode: 'home' as const, withReplies: props.withReplies, withRenotes: props.withRenotes, withFiles: props.onlyFiles, withChannelNotes: true,
-} : null), isTop, computed(() => props.withSensitive), computed(() => props.src === 'social' ? 'social' : 'home'), { anchor: timelineAnchor, beforeReplace: captureAnchor, afterReplace: restoreAnchor, onNewItems: playIntegratedSound, prepareNote });
+} : null), isTop, computed(() => props.withSensitive), computed(() => props.src === 'social' ? 'social' : 'home'), { anchor: timelineAnchor, beforeReplace: captureAnchor, afterReplace: restoreAnchor, onNewItems: playIntegratedSound, prepareNote, isPaused: () => isPausingUpdate });
 
 onMounted(() => {
 	if (paginator.computedParams) {
@@ -380,10 +380,6 @@ if (!store.s.realtimeMode) {
 		});
 	});
 }
-
-useGlobalEvent('notePosted', () => {
-	if (store.s.realtimeMode && home.integrated.value) void home.refresh();
-});
 
 useGlobalEvent('noteDeleted', (noteId) => {
 	home.removeNormal(noteId);

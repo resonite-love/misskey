@@ -44,6 +44,24 @@ afterEach(async () => {
 });
 
 describe('GridSpace channel actions', () => {
+	test('native timeline hints require the paired signature and contain only an origin note ID', async () => {
+		const notify = vi.fn(async () => ({ ok: true }));
+		const app = Fastify(); servers.push(app);
+		await app.register(fastifyRawBody, { global: false, encoding: null, runFirst: true });
+		await app.register(async child => {
+			const handlers = new Array(23).fill(undefined) as Parameters<typeof registerGridspacePeer> extends [unknown, unknown, unknown, ...infer Rest] ? Rest : never;
+			handlers[22] = notify;
+			registerGridspacePeer(child, r, async () => true, ...handlers);
+		}, { prefix: '/gridspace/v1' });
+		const url = '/gridspace/v1/timeline/notify';
+		const send = (input: object, signed = true) => { const payload = Buffer.from(JSON.stringify(input)); return app.inject({ method: 'POST', url, payload, headers: signed ? createGridspaceHeaders(g, 'POST', url, payload) : { 'content-type': 'application/json' } }); };
+		expect((await send({ noteId: 'note1', shared: false }, false)).statusCode).toBe(403);
+		expect((await send({ noteId: 'note1', shared: false })).json()).toEqual({ ok: true });
+		expect(notify).toHaveBeenLastCalledWith({ noteId: 'note1', shared: false });
+		expect((await send({ noteId: '../invalid', shared: false })).statusCode).toBe(400);
+		expect((await send({ noteId: 'note1', shared: false, text: 'private body' })).statusCode).toBe(200);
+		expect(notify).toHaveBeenLastCalledWith({ noteId: 'note1', shared: false });
+	});
 	test('a public list viewer assertion is accepted only on the HMAC-authenticated timeline route', async () => {
 		const action = vi.fn(async () => ({ references: [] }));
 		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, action);

@@ -40,6 +40,109 @@ function client(request: (...args: [string, Record<string, unknown>, AbortSignal
 }
 
 describe('server timeline client', () => {
+	it('prepends authorized stream notes at the top without another HTTP request or duplicate sound', async () => {
+		const onNewItems = vi.fn();
+		const request = vi.fn().mockResolvedValue(page([item('old', false)]));
+		const value = new TimelineClient({ kind: 'home' }, { request, onNewItems, now: () => Date.now() });
+		clients.push(value); await value.reload();
+		const event = { session: 'session', revision: 'revision', item: item('posted', false), leaseElapsedMs: 0 };
+		value.receive(event); value.receive(event);
+		expect(value.rows.value.map(row => row.key)).toEqual([item('posted').key, item('old').key]);
+		expect(request).toHaveBeenCalledOnce(); expect(onNewItems).toHaveBeenCalledOnce();
+	});
+	it('queues stream notes while reading history or while updates are paused', async () => {
+		let top = false; let paused = false;
+		const value = new TimelineClient({ kind: 'home' }, { request: vi.fn().mockResolvedValue(page()), isTop: () => top, isPaused: () => paused });
+		clients.push(value); await value.reload();
+		value.receive({ session: 'session', revision: 'revision', item: item('history', false) });
+		top = true; paused = true;
+		value.receive({ session: 'session', revision: 'revision', item: item('paused', false) });
+		expect(value.rows.value).toHaveLength(0); expect(value.queuedCount.value).toBe(2);
+		paused = false; await value.releaseQueue();
+		expect(value.rows.value.map(row => row.key)).toEqual([item('paused').key, item('history').key]);
+	});
+	it('keeps a stream note that arrives while an older changes response is in flight', async () => {
+		let finish!: (value: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)]))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+		const value = client(request); await value.reload(); const waiting = value.refresh();
+		value.receive({ session: 'session', revision: 'revision', item: item('posted', false) });
+		finish(page([item('old', false)], { removed: [item('posted').key] })); await waiting;
+		expect(value.rows.value.map(row => row.key)).toEqual([item('posted').key, item('old').key]);
+	});
+	it('does not add old-session stream events to a replacement window', async () => {
+		let finish!: (value: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)]))
+			.mockResolvedValueOnce(page([], { resetRequired: true }))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+		const value = client(request); await value.reload(); const waiting = value.refresh(); await settle();
+		value.receive({ session: 'session', revision: 'revision', item: item('posted', false) });
+		finish(page([item('new-head', false), item('posted', false)], { session: 'new-session' })); await waiting;
+		expect(value.rows.value.map(row => row.key)).toEqual([item('new-head').key, item('posted').key]);
+		value.receive({ session: 'session', revision: 'revision', item: item('stale', false) });
+		expect(value.rows.value).toHaveLength(2);
+	});
+	it('uses the subscription monotonic origin for delayed stream leases and drops hidden events', async () => {
+		const request = vi.fn().mockResolvedValue(page([item('old', false)]));
+		const value = new TimelineClient({ kind: 'home' }, { request, now: () => Date.now(), subscribe: () => () => {} });
+		clients.push(value); await value.reload();
+		vi.setSystemTime(Date.now() + 12000);
+		value.receive({ session: 'session', revision: 'revision', item: item('delayed'), leaseElapsedMs: 1000 });
+		expect(value.rows.value[0]).toMatchObject({ note: { suspended: true } });
+		value.suspend();
+		value.receive({ session: 'session', revision: 'revision', item: item('hidden', false) });
+		expect(value.rows.value.some(row => row.key === item('hidden').key)).toBe(false);
+	});
+	it('uses HTTP recovery for a reset stream event after the active request completes', async () => {
+		let finish!: (value: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)]))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockResolvedValue(page());
+		const value = client(request); await value.reload(); const waiting = value.refresh();
+		value.receive({ session: 'session', revision: 'revision', resetRequired: true });
+		expect(request).toHaveBeenCalledTimes(2);
+		finish(page([item('old', false)])); await waiting; await settle();
+		expect(request).toHaveBeenCalledTimes(3);
+	});
+	it('retains a new-session recovery indicator if a late old-session event misses an anchored snapshot', async () => {
+		let finish!: (value: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)]))
+			.mockResolvedValueOnce(page([], { resetRequired: true }))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+			.mockResolvedValueOnce(page([item('posted', false), item('old', false)], { session: 'head-session' }));
+		const value = client(request, () => false); await value.reload(); const waiting = value.refresh(); await settle();
+		value.receive({ session: 'session', revision: 'revision', item: item('posted', false) });
+		finish(page([item('old', false)], { session: 'anchored-session' })); await waiting;
+		expect(value.queuedCount.value).toBe(1);
+		expect(value.rows.value.map(row => row.key)).toEqual([item('old').key]);
+		await value.releaseQueue();
+		expect(request.mock.calls.at(-1)![1]).not.toHaveProperty('anchor');
+		expect(value.rows.value.map(row => row.key)).toEqual([item('posted').key, item('old').key]);
+	});
+	it('recovers server order when an older HTTP insertion races a newer stream event', async () => {
+		let finish!: (value: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)]))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+			.mockResolvedValueOnce(page([item('newest', false), item('between', false), item('old', false)]));
+		const value = client(request); await value.reload(); const waiting = value.refresh();
+		value.receive({ session: 'session', revision: 'revision', item: item('newest', false) });
+		finish(page([], { newItems: [item('between', false)] })); await waiting;
+		expect(value.rows.value.map(row => row.key)).toEqual([item('newest').key, item('between').key, item('old').key]);
+	});
+	it('does not lose an accepted stream note when scrolling causes a second replacement request', async () => {
+		let anchor = item('old').key;
+		let finish!: (value: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('old', false), item('lower', false)]))
+			.mockResolvedValueOnce(page([], { resetRequired: true }))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+			.mockResolvedValueOnce(page([item('lower', false)], { session: 'replacement' }));
+		const value = new TimelineClient({ kind: 'home' }, { request, anchor: () => anchor, isTop: () => false });
+		clients.push(value); await value.reload(); const waiting = value.refresh(); await settle();
+		value.receive({ session: 'session', revision: 'revision', item: item('arrived', false) });
+		anchor = item('lower').key;
+		finish(page([item('old', false)], { session: 'first-replacement' })); await waiting;
+		expect(value.queuedCount.value).toBe(1);
+		expect(request.mock.calls[3][1]).toMatchObject({ anchor: item('lower').key });
+	});
 	it('refreshes content without remounting for reaction or vote counters', () => {
 		const note = { text: 'body', reactions: { like: 1 }, poll: { choices: [{ text: 'A', votes: 1, isVoted: false }] }, renote: { text: 'quoted', reactionCount: 1 } };
 		expect(timelineNoteContent(note)).toBe(timelineNoteContent({ ...note, reactions: { like: 2 }, poll: { choices: [{ text: 'A', votes: 3, isVoted: true }] }, renote: { text: 'quoted', reactionCount: 2 } }));

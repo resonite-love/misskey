@@ -15,7 +15,7 @@ import { supportsTimelineKind } from '@/utility/timeline-capabilities.js';
 import { subscribeTimeline } from '@/utility/timeline-stream.js';
 
 /** The legacy reader remains isolated until both servers advertise the new contract. */
-export function useGridspaceHome(normal: IPaginator<entities.Note>, params: ComputedRef<entities.GridspacePrivateNotesRequest | null>, isTop: () => boolean, withSensitive: ComputedRef<boolean>, kind: ComputedRef<'home' | 'social'> = computed(() => 'home'), view: { anchor?: () => string | undefined; beforeReplace?: () => void; afterReplace?: () => void; onNewItems?: (items: TimelineDisplayRow[]) => void; prepareNote?: (note: entities.Note) => entities.Note } = {}) {
+export function useGridspaceHome(normal: IPaginator<entities.Note>, params: ComputedRef<entities.GridspacePrivateNotesRequest | null>, isTop: () => boolean, withSensitive: ComputedRef<boolean>, kind: ComputedRef<'home' | 'social'> = computed(() => 'home'), view: { anchor?: () => string | undefined; beforeReplace?: () => void; afterReplace?: () => void; onNewItems?: (items: TimelineDisplayRow[]) => void; prepareNote?: (note: entities.Note) => entities.Note; isPaused?: () => boolean } = {}) {
 	const integrated = ref(false);
 	const deciding = ref(true);
 	const legacyAllowed = ref(false);

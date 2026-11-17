@@ -101,6 +101,38 @@ function fixture(initialLocal: TimelineReference[], initialPeer: TimelineReferen
 }
 
 describe('unified timeline coordinator with real Redis checkpoints', () => {
+	test('native local stream emits a reauthorized envelope without consuming the HTTP update cursor', async () => {
+		const f = fixture([ref('local', 100)]);
+		const first = await f.service.page(viewer, options, 20);
+		f.add(ref('local', 110));
+		const before = f.decodeUpdates(first).sequence;
+		const event = await f.service.streamNote(viewer, first.session, first.revision, { source: 'local', noteId: ref('local', 110).noteId });
+		expect(event).toMatchObject({ session: first.session, revision: first.revision, resetRequired: false, item: { key: ref('local', 110).canonicalUri, representation: 'normal' } });
+		expect(JSON.parse((await f.sessions.getSession(first.session))!).sequence).toBe(before);
+		const replay = await f.service.streamNote(viewer, first.session, first.revision, { source: 'local', noteId: ref('local', 110).noteId });
+		expect(replay.item?.key).toBe(event.item?.key);
+	});
+	test('native stream rejects foreign viewers, revoked bodies and late unknown arrivals', async () => {
+		const f = fixture([ref('local', 100)]);
+		const first = await f.service.page(viewer, options, 20);
+		f.add(ref('local', 90));
+		expect(await f.service.streamNote(viewer, first.session, first.revision, { source: 'local', noteId: ref('local', 90).noteId })).toMatchObject({ resetRequired: true });
+		expect(await f.service.streamNote({ id: 'other' } as MiLocalUser, first.session, first.revision, { source: 'local', noteId: ref('local', 100).noteId })).toMatchObject({ resetRequired: true });
+		f.rows.local.splice(0);
+		expect((await f.service.streamNote(viewer, first.session, first.revision, { source: 'local', noteId: ref('local', 100).noteId })).item).toBeUndefined();
+	});
+	test('a private peer hint emits delegated content only after the peer authorizes it', async () => {
+		const f = fixture([ref('local', 100)]);
+		const first = await f.service.page(viewer, options, 20);
+		const incoming = ref('peer', 110); f.add(incoming);
+		const original = f.delegated.timeline.getMockImplementation()!;
+		f.delegated.timeline.mockImplementation(async (...args) => ({ ...await original(...args), references: args[1].ids ? [incoming] : [] }));
+		const event = await f.service.streamNote(viewer, first.session, first.revision, { source: 'peer', noteId: incoming.noteId });
+		expect(event.item).toMatchObject({ key: incoming.canonicalUri, representation: 'delegated' });
+		expect(event.item!.validForMs).toBeLessThanOrEqual(10000);
+		f.delegated.timeline.mockRejectedValue(new GridspaceLinkError('AUTHORIZATION_REVOKED'));
+		await expect(f.service.streamNote(viewer, first.session, first.revision, { source: 'peer', noteId: incoming.noteId })).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+	});
 	test('page, change, older, change keeps the newest window head and the complete retained order', async () => {
 		const f = fixture([100, 90, 80, 70].map(n => ref('local', n)), [95, 85, 75].map(n => ref('peer', n)));
 		const first = await f.service.page(viewer, options, 2);

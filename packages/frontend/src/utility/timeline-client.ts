@@ -38,6 +38,7 @@ export type TimelineResponse = {
 	order?: string[];
 	retainedItems?: TimelineItem[];
 };
+export type TimelineStreamEvent = { session: string; revision: string; item?: TimelineItem; resetRequired?: boolean; leaseElapsedMs?: number; leaseId?: string; leaseStartedAt?: number };
 type RowBase = { key: string; createdAt: string; leased: boolean };
 export type TimelineDisplayRow = RowBase & (
 	| { kind: 'normal'; note: entities.Note & { _shouldInsertAd_?: boolean } }
@@ -52,6 +53,7 @@ type RetainedItem = Omit<TimelineItem, 'payload'> & {
 	visible: boolean;
 	displayPayload?: TimelineItem['payload'];
 };
+type StreamArrival = { version: number; item: RetainedItem; session: string; revision: string };
 type Request = (endpoint: 'gridspace/timeline' | 'gridspace/timeline/changes', params: Record<string, unknown>, signal: AbortSignal) => Promise<TimelineResponse>;
 
 const request: Request = (endpoint, params, signal) => misskeyApi(endpoint as keyof Endpoints, params as never, undefined, signal) as Promise<TimelineResponse>;
@@ -75,12 +77,16 @@ export class TimelineClient {
 	private lastCycleDuration = 0;
 	private refreshRequested = false;
 	private pending: Promise<void> | null = null;
+	private streamVersion = 0;
+	private streamDuringRequest = new Map<string, StreamArrival>();
+	private streamResetRequested = false;
 	private queuedRelease = false;
 	private queueOverflow = false;
 	private degraded = false;
 	private mode: 'unified' | 'local-fallback' = 'unified';
 	private noteAdvertisements = new Map<string, boolean>();
 	private unsubscribe: (() => void) | null = null;
+	private streamLeaseStartedAt = 0;
 	public rows = shallowRef<TimelineDisplayRow[]>([]);
 	private displayItems(items: RetainedItem[]): TimelineDisplayRow[] {
 		return items.filter(item => item.visible).map(item => {
@@ -104,6 +110,7 @@ export class TimelineClient {
 
 	constructor(private query: TimelineQuery, private options: {
 		isTop?: () => boolean;
+		isPaused?: () => boolean;
 		withSensitive?: () => boolean;
 		request?: Request;
 		now?: () => number;
@@ -112,7 +119,7 @@ export class TimelineClient {
 		anchor?: () => string | undefined;
 		beforeReplace?: () => void;
 		afterReplace?: () => void;
-		subscribe?: (params: { session: string; revision: string; updatesCursor: string }, invalidate: () => void, reconnect: () => void) => () => void;
+		subscribe?: (params: { session: string; revision: string; updatesCursor: string }, invalidate: () => void, reconnect: () => void, note: (event: TimelineStreamEvent) => void) => () => void;
 	} = {}) {}
 
 	private now() { return this.options.now?.() ?? performance.now(); }
@@ -151,7 +158,7 @@ export class TimelineClient {
 	private scheduleExpiry() {
 		if (this.expireTimer !== null) window.clearTimeout(this.expireTimer);
 		this.expireTimer = null;
-		const deadlines = [...this.visibleItems, ...this.queuedItems].filter(item => item.payload && item.expiresAt !== null).map(item => item.expiresAt!);
+		const deadlines = [...this.visibleItems, ...this.queuedItems, ...[...this.streamDuringRequest.values()].map(event => event.item)].filter(item => item.payload && item.expiresAt !== null).map(item => item.expiresAt!);
 		if (!deadlines.length || this.disposed) return;
 		this.expireTimer = window.setTimeout(() => this.expire(), Math.max(0, Math.min(...deadlines) - this.now()));
 	}
@@ -162,6 +169,11 @@ export class TimelineClient {
 				delete item.payload;
 				delete item.displayPayload;
 				changed = true;
+			}
+		}
+		for (const event of this.streamDuringRequest.values()) {
+			if (event.item.expiresAt !== null && (all || event.item.expiresAt <= this.now())) {
+				delete event.item.payload; delete event.item.displayPayload;
 			}
 		}
 		if (changed) this.publish();
@@ -198,9 +210,10 @@ export class TimelineClient {
 		const startedAt = this.now();
 		this.lastRequestStartedAt = startedAt;
 		this.refreshRequested = false;
+		const streamVersion = this.streamVersion;
 		const result = await (this.options.request ?? request)(endpoint, params, AbortSignal.any([this.controller.signal, AbortSignal.timeout(15000)]));
 		if (result.version !== 1 || !Array.isArray(result.items)) throw new Error('Unsupported timeline response');
-		return { result, startedAt };
+		return { result, startedAt, streamVersion };
 	}
 	private acceptHeader(result: TimelineResponse, updateCursor = true) {
 		const changedSession = this.session !== result.session || this.revision !== result.revision;
@@ -213,7 +226,8 @@ export class TimelineClient {
 		this.failed.value = false;
 		if (changedSession) { this.unsubscribe?.(); this.unsubscribe = null; }
 		if (!this.unsubscribe && this.options.subscribe && this.usable()) {
-			this.unsubscribe = this.options.subscribe({ session: result.session, revision: result.revision, updatesCursor: result.updatesCursor }, () => this.scheduleRefresh(0), () => { void this.refresh(); });
+			this.streamLeaseStartedAt = this.now();
+			this.unsubscribe = this.options.subscribe({ session: result.session, revision: result.revision, updatesCursor: result.updatesCursor }, () => this.scheduleRefresh(0), () => { void this.refresh(); }, this.receive);
 		}
 		this.scheduleRefresh(result.revalidateAfterMs);
 	}
@@ -236,6 +250,10 @@ export class TimelineClient {
 			if (this.pending !== pending) return;
 			this.pending = null; this.busy.value = false; this.loading.value = false;
 			this.lastCycleDuration = this.now() - startedAt;
+			this.streamDuringRequest.clear();
+			if (this.streamResetRequested) {
+				this.streamResetRequested = false; void this.refresh();
+			}
 			this.armRefresh();
 			this.pagingKey.value++;
 		});
@@ -247,6 +265,7 @@ export class TimelineClient {
 			await this.readWindow(current, false, mode); return;
 		}
 		const previous = new Set(this.visibleItems.map(item => item.key));
+		const windowStreamVersion = this.streamVersion;
 		let anchor = this.options.anchor?.() ?? this.visibleItems[0]?.key;
 		const retained = preserve && this.session && this.revision && this.queuedItems.length ? {
 			previousSession: this.session, previousRevision: this.revision, retainedRefs: this.queuedItems.slice(0, 100).map(item => item.ref),
@@ -289,6 +308,15 @@ export class TimelineClient {
 		}
 		this.nextCursor = result.nextCursor; this.hasMore.value = this.nextCursor !== null;
 		this.acceptHeader(result); this.publish();
+		for (const event of this.streamDuringRequest.values()) {
+			if (event.version <= windowStreamVersion) continue;
+			if (event.session === result.session && event.revision === result.revision) this.insertStreamItem(event.item);
+			else if (!items.some(item => item.key === event.item.key)) {
+				this.queueOverflow = true;
+				if ((this.options.isTop?.() ?? true) && !this.options.isPaused?.()) { this.queuedRelease = true; this.streamResetRequested = true; }
+			}
+		}
+		this.publish();
 		if (preserve) this.options.afterReplace?.();
 	}
 	public reload = async () => {
@@ -323,7 +351,7 @@ export class TimelineClient {
 			const retained = [...this.visibleItems, ...this.queuedItems].map(item => item.ref);
 			for (let offset = 0; offset < Math.max(1, retained.length); offset += 100) {
 				const final = offset + 100 >= retained.length;
-				const { result, startedAt } = await this.fetch('gridspace/timeline/changes', {
+				const { result, startedAt, streamVersion } = await this.fetch('gridspace/timeline/changes', {
 					session: this.session, revision: this.revision, updatesCursor: this.updatesCursor,
 					refs: retained.slice(offset, offset + 100), phase: final ? 'changes' : 'validate',
 				});
@@ -333,11 +361,19 @@ export class TimelineClient {
 				}
 				const replacements = new Map(result.items.map(item => [item.key, this.retain(item, startedAt)]));
 				const removed = new Set(result.removed ?? []);
-				const update = (items: RetainedItem[]) => items.filter(item => !removed.has(item.key)).map(item => replacements.get(item.key) ?? item);
+				const update = (items: RetainedItem[]) => items.flatMap(item => {
+					if ((this.streamDuringRequest.get(item.key)?.version ?? 0) > streamVersion) return [item];
+					return removed.has(item.key) ? [] : [replacements.get(item.key) ?? item];
+				});
 				this.visibleItems = update(this.visibleItems); this.queuedItems = update(this.queuedItems);
 				if (final) {
 					const known = new Set([...this.visibleItems, ...this.queuedItems].map(item => item.key));
 					const incoming = (result.newItems ?? []).filter(item => !known.has(item.key)).map(item => this.retain(item, startedAt));
+					if (incoming.length && this.streamVersion > streamVersion) {
+						// HTTP rows and later stream rows do not carry a shared insertion
+						// position. Let a fresh server window establish their order.
+						await this.readWindow(current, true); return;
+					}
 					if (incoming.length) this.options.onNewItems?.(this.displayItems(incoming));
 					if (this.options.isTop?.() ?? true) this.visibleItems = [...incoming, ...this.visibleItems];
 					else this.queue([...incoming, ...this.queuedItems]);
@@ -347,6 +383,39 @@ export class TimelineClient {
 			}
 			if (this.queuedRelease) this.releaseQueue();
 		});
+	};
+	private insertStreamItem(item: RetainedItem) {
+		if (item.expiresAt !== null && item.expiresAt <= this.now()) { delete item.payload; delete item.displayPayload; }
+		const visible = this.visibleItems.findIndex(row => row.key === item.key);
+		if (visible >= 0) { this.visibleItems[visible] = item; return; }
+		const queued = this.queuedItems.findIndex(row => row.key === item.key);
+		if (queued >= 0) { this.queuedItems[queued] = item; return; }
+		if ((this.options.isTop?.() ?? true) && !this.options.isPaused?.()) this.visibleItems.unshift(item);
+		else this.queue([item, ...this.queuedItems]);
+	}
+	public receive = (event: TimelineStreamEvent) => {
+		if (!this.usable() || event.session !== this.session || event.revision !== this.revision) return;
+		if (event.resetRequired) {
+			if (this.pending) this.streamResetRequested = true;
+			else void this.refresh();
+			return;
+		}
+		if (!event.item) return;
+		const known = [...this.visibleItems, ...this.queuedItems].some(item => item.key === event.item!.key);
+		const clockBase = event.leaseStartedAt ?? this.streamLeaseStartedAt;
+		const startedAt = Number.isFinite(event.leaseElapsedMs) && event.leaseElapsedMs! >= 0 ? Math.min(this.now(), clockBase + event.leaseElapsedMs!) : -Infinity;
+		const item = this.retain(event.item, startedAt);
+		this.streamVersion++;
+		if (this.pending) {
+			this.streamDuringRequest.set(item.key, { version: this.streamVersion, item, session: event.session, revision: event.revision });
+			if (this.streamDuringRequest.size > 100) {
+				this.streamDuringRequest.delete(this.streamDuringRequest.keys().next().value!);
+				this.queueOverflow = true;
+			}
+		}
+		this.insertStreamItem(item);
+		if (!known) this.options.onNewItems?.(this.displayItems([item]));
+		this.publish();
 	};
 	public retry = () => this.session ? this.refresh() : this.reload();
 	public releaseQueue = async () => {
@@ -378,6 +447,7 @@ export class TimelineClient {
 		this.generation++; this.controller.abort(); this.controller = new AbortController(); this.pending = null;
 		this.busy.value = false; this.loading.value = false;
 		this.refreshRequested = false;
+		this.streamDuringRequest.clear(); this.streamResetRequested = false;
 		this.clearScheduledRefresh();
 	}
 	public suspend = () => { this.active = false; this.cancel(); this.expire(true); };

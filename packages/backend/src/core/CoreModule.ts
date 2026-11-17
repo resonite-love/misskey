@@ -6,6 +6,7 @@
 import { Module } from '@nestjs/common';
 import { TimelineReferenceService } from './gridspace/timeline/TimelineReferenceService.js';
 import { TimelineChangeBroker } from './gridspace/timeline/TimelineChangeBroker.js';
+import { TimelinePeerService } from './gridspace/timeline/TimelinePeerService.js';
 import { TimelineSessionStore } from './gridspace/timeline/TimelineSessionStore.js';
 import { TimelineLocalSource } from './gridspace/timeline/TimelineLocalSource.js';
 import { GridspaceTimelineService } from './gridspace/timeline/GridspaceTimelineService.js';
@@ -353,6 +354,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 	providers: [
 		TimelineReferenceService,
 		TimelineChangeBroker,
+		TimelinePeerService,
 		TimelineSessionStore,
 		TimelineLocalSource,
 		GridspaceTimelineService,
@@ -693,6 +695,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 	exports: [
 		TimelineReferenceService,
 		TimelineChangeBroker,
+		TimelinePeerService,
 		TimelineSessionStore,
 		TimelineLocalSource,
 		GridspaceTimelineService,

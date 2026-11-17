@@ -9,6 +9,7 @@ import { DI } from '@/di-symbols.js';
 import { bindThis } from '@/decorators.js';
 import { resolveGridspaceConfig } from '@/core/gridspace/peer-protocol.js';
 import { GridspaceNoteService } from '@/core/gridspace/GridspaceNoteService.js';
+import { TimelinePeerService } from '@/core/gridspace/timeline/TimelinePeerService.js';
 import { GridspaceLinkError, GridspaceLinkService } from '@/core/gridspace/GridspaceLinkService.js';
 import { GridspaceHistoryService } from '@/core/gridspace/GridspaceHistoryService.js';
 import { GridspaceSearchService } from '@/core/gridspace/GridspaceSearchService.js';
@@ -42,6 +43,7 @@ export class GridSpaceServerService {
 		@Inject(DI.redis) private redis: Redis.Redis,
 		private links: GridspaceLinkService,
 		private notes: GridspaceNoteService,
+		private timelinePeer: TimelinePeerService,
 		private history: GridspaceHistoryService,
 		private search: GridspaceSearchService,
 		private privateNotes: GridspacePrivateService,
@@ -81,7 +83,10 @@ export class GridSpaceServerService {
 		}), (action, input) => action === 'references' ? this.notifications.peerReferences(input) : this.notifications.peer(action, input),
 		input => this.actions.peerAction(input, userId => this.limitAction(userId, 'gridspace/action', 60)),
 		input => this.actions.peerUpload(input, userId => this.limitAction(userId, 'drive/files/create', 20)),
-		input => this.reactions.peerRead(input), input => this.reactionDelivery.receive(input), noteIds => this.notes.readMany(noteIds), input => this.channels.peerList(input), input => this.channels.peerDelete(input), input => this.drive.peer(input), input => this.content.peer(input), input => this.sharedDrive.peer(input), input => this.managed.peer(input), input => this.channels.peerUpdate(input), input => this.noteMenus.peer(input, userId => this.limitAction(userId, 'gridspace/note-menu', 60)), input => this.publicNotes.local(input), input => this.reactionNotifications.receive(input));
+		input => this.reactions.peerRead(input), input => this.reactionDelivery.receive(input), noteIds => this.notes.readMany(noteIds), input => this.channels.peerList(input), input => this.channels.peerDelete(input), input => this.drive.peer(input), input => this.content.peer(input), input => this.sharedDrive.peer(input), input => this.managed.peer(input), input => this.channels.peerUpdate(input), input => this.noteMenus.peer(input, userId => this.limitAction(userId, 'gridspace/note-menu', 60)), input => this.publicNotes.local(input), input => this.reactionNotifications.receive(input), async input => {
+			if (input.shared) await this.notes.sync(input.noteId);
+			return this.timelinePeer.receive(input.noteId);
+		});
 		done();
 	}
 }
