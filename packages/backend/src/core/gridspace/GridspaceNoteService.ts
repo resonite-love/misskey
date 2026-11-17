@@ -96,7 +96,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		});
 		if (note === null) return { deleted: true, notes: [] };
 		if (note === false) return { deleted: false, unavailable: true, notes: [] };
-		const result = { deleted: false, notes: [{ object: await this.renderer.renderNote(note, false), localOnly: note.localOnly, reactionAcceptance: note.reactionAcceptance }] };
+		const result = { deleted: false, notes: [{ object: await this.renderer.renderNote(note, false), localOnly: note.localOnly, noRelay: note.noRelay, reactionAcceptance: note.reactionAcceptance }] };
 		if (Buffer.byteLength(JSON.stringify(result)) > GRIDSPACE_NOTE_BODY_LIMIT) throw new Error('Note too large');
 		return result;
 	}
@@ -194,12 +194,17 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 			if (await this.db.getRepository(MiGridspaceNoteTombstone).existsBy(gridspaceNoteUris(uri, this.peer.peerOrigin).map(uri => ({ uri })))) return false;
 			const existing = await this.apNotes.fetchNote(uri);
 			if (existing) {
+				const localOnly = existing.localOnly || entry.localOnly;
+				const noRelay = !localOnly && (existing.noRelay || entry.noRelay === true);
 				if (!existing.gridspaceShared) {
-					await this.db.getRepository(MiNote).update(existing.id, { gridspaceShared: true, localOnly: existing.localOnly || entry.localOnly });
+					await this.db.getRepository(MiNote).update(existing.id, { gridspaceShared: true, localOnly, noRelay });
 					existing.gridspaceShared = true;
-					existing.localOnly ||= entry.localOnly;
+					existing.localOnly = localOnly;
+					existing.noRelay = noRelay;
 					await this.create.pushToTl(existing, { id: existing.userId, host: existing.userHost });
 					if (live) this.events.publishNotesStream(await this.packer.pack(existing, undefined, { skipHide: true }));
+				} else if (noRelay !== (existing.noRelay ?? false)) {
+					await this.db.getRepository(MiNote).update(existing.id, { noRelay });
 				}
 				return true;
 			}

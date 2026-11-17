@@ -26911,6 +26911,7 @@ export interface operations {
                             cw: string | null;
                             visibility: string;
                             localOnly: boolean;
+                            noRelay?: boolean;
                             channelId?: string | null;
                             channel?: {
                                 id: string;
@@ -26999,6 +27000,7 @@ export interface operations {
                                 cw: string | null;
                                 visibility: string;
                                 localOnly: boolean;
+                                noRelay?: boolean;
                                 channelId?: string | null;
                                 channel?: {
                                     id: string;
@@ -27306,6 +27308,7 @@ export interface operations {
                                 cw: string | null;
                                 visibility: string;
                                 localOnly: boolean;
+                                noRelay?: boolean;
                                 channelId?: string | null;
                                 channel?: {
                                     id: string;
@@ -27394,6 +27397,7 @@ export interface operations {
                                     cw: string | null;
                                     visibility: string;
                                     localOnly: boolean;
+                                    noRelay?: boolean;
                                     channelId?: string | null;
                                     channel?: {
                                         id: string;
@@ -27486,6 +27490,7 @@ export interface operations {
                                 cw: string | null;
                                 visibility: string;
                                 localOnly: boolean;
+                                noRelay?: boolean;
                                 channelId?: string | null;
                                 channel?: {
                                     id: string;
@@ -27574,6 +27579,7 @@ export interface operations {
                                     cw: string | null;
                                     visibility: string;
                                     localOnly: boolean;
+                                    noRelay?: boolean;
                                     channelId?: string | null;
                                     channel?: {
                                         id: string;
@@ -27955,6 +27961,7 @@ export interface operations {
                                     cw: string | null;
                                     visibility: string;
                                     localOnly: boolean;
+                                    noRelay?: boolean;
                                     channelId?: string | null;
                                     channel?: {
                                         id: string;
@@ -28043,6 +28050,7 @@ export interface operations {
                                         cw: string | null;
                                         visibility: string;
                                         localOnly: boolean;
+                                        noRelay?: boolean;
                                         channelId?: string | null;
                                         channel?: {
                                             id: string;
@@ -28135,6 +28143,7 @@ export interface operations {
                                     cw: string | null;
                                     visibility: string;
                                     localOnly: boolean;
+                                    noRelay?: boolean;
                                     channelId?: string | null;
                                     channel?: {
                                         id: string;
@@ -28223,6 +28232,7 @@ export interface operations {
                                         cw: string | null;
                                         visibility: string;
                                         localOnly: boolean;
+                                        noRelay?: boolean;
                                         channelId?: string | null;
                                         channel?: {
                                             id: string;
@@ -28620,6 +28630,7 @@ export interface operations {
                             cw: string | null;
                             visibility: string;
                             localOnly: boolean;
+                            noRelay?: boolean;
                             channelId?: string | null;
                             channel?: {
                                 id: string;
@@ -28708,6 +28719,7 @@ export interface operations {
                                 cw: string | null;
                                 visibility: string;
                                 localOnly: boolean;
+                                noRelay?: boolean;
                                 channelId?: string | null;
                                 channel?: {
                                     id: string;
@@ -29119,6 +29131,7 @@ export interface operations {
                             cw: string | null;
                             visibility: string;
                             localOnly: boolean;
+                            noRelay?: boolean;
                             channelId?: string | null;
                             channel?: {
                                 id: string;
@@ -29207,6 +29220,7 @@ export interface operations {
                                 cw: string | null;
                                 visibility: string;
                                 localOnly: boolean;
+                                noRelay?: boolean;
                                 channelId?: string | null;
                                 channel?: {
                                     id: string;
@@ -30057,6 +30071,7 @@ export interface operations {
                                 cw: string | null;
                                 visibility: string;
                                 localOnly: boolean;
+                                noRelay?: boolean;
                                 channelId?: string | null;
                                 channel?: {
                                     id: string;
@@ -30145,6 +30160,7 @@ export interface operations {
                                     cw: string | null;
                                     visibility: string;
                                     localOnly: boolean;
+                                    noRelay?: boolean;
                                     channelId?: string | null;
                                     channel?: {
                                         id: string;
@@ -30260,6 +30276,7 @@ export interface operations {
                                 cw: string | null;
                                 visibility: string;
                                 localOnly: boolean;
+                                noRelay?: boolean;
                                 channelId?: string | null;
                                 channel?: {
                                     id: string;
@@ -30348,6 +30365,7 @@ export interface operations {
                                     cw: string | null;
                                     visibility: string;
                                     localOnly: boolean;
+                                    noRelay?: boolean;
                                     channelId?: string | null;
                                     channel?: {
                                         id: string;
@@ -30538,6 +30556,7 @@ export interface operations {
                                 cw: string | null;
                                 visibility: string;
                                 localOnly: boolean;
+                                noRelay?: boolean;
                                 channelId?: string | null;
                                 channel?: {
                                     id: string;
@@ -30626,6 +30645,7 @@ export interface operations {
                                     cw: string | null;
                                     visibility: string;
                                     localOnly: boolean;
+                                    noRelay?: boolean;
                                     channelId?: string | null;
                                     channel?: {
                                         id: string;
@@ -30741,6 +30761,7 @@ export interface operations {
                                 cw: string | null;
                                 visibility: string;
                                 localOnly: boolean;
+                                noRelay?: boolean;
                                 channelId?: string | null;
                                 channel?: {
                                     id: string;
@@ -30829,6 +30850,7 @@ export interface operations {
                                     cw: string | null;
                                     visibility: string;
                                     localOnly: boolean;
+                                    noRelay?: boolean;
                                     channelId?: string | null;
                                     channel?: {
                                         id: string;

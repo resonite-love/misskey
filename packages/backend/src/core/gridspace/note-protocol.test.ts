@@ -26,6 +26,16 @@ describe('community note boundary', () => {
 		value.notes[0].object.cc = [publicAudience];
 		expect(validateGridspaceBundle(value, origin, 'test').notes[0].localOnly).toBe(true);
 	});
+	test('accepts the relay preference and keeps older peer messages compatible', () => {
+		const value = bundle();
+		expect(validateGridspaceBundle(value, origin, 'test').notes[0].noRelay).toBeUndefined();
+		value.notes[0].localOnly = false;
+		value.notes[0].noRelay = true;
+		expect(validateGridspaceBundle(value, origin, 'test').notes[0].noRelay).toBe(true);
+
+		const invalid = { ...value, notes: [{ ...value.notes[0], noRelay: 'true' }] };
+		expect(() => validateGridspaceBundle(invalid, origin, 'test')).toThrow('Invalid relay preference');
+	});
 	test('rejects private objects even from the authenticated peer', () => {
 		const value = bundle(); value.notes[0].object.to = [origin + '/users/author/followers'];
 		expect(() => validateGridspaceBundle(value, origin, 'test')).toThrow();

@@ -555,7 +555,7 @@ export class GridspacePrivateService {
 		const actors = await this.db.getRepository(MiUser).findBy({ id: In(actorIds) });
 		return {
 			id: note.id, uri: note.uri ?? `${this.peer!.origin}/notes/${note.id}`, origin: this.peer!.origin, createdAt: this.ids.parse(note.id).date.toISOString(), text: note.text, cw: note.cw,
-			visibility: note.visibility, localOnly: note.localOnly, emojis: emojiUrls,
+			visibility: note.visibility, localOnly: note.localOnly, noRelay: note.noRelay, emojis: emojiUrls,
 			...(this.collectionId(note) ? { collectionId: this.collectionId(note), collectionAt: this.ids.parse(this.collectionId(note)!).date.toISOString() } : {}),
 			channelId: note.channelId, canDelete: !!note.channelId && note.userId === viewerId,
 			canSelfRenote: !this.collectionClient && canSelfRenote(note, viewerId),

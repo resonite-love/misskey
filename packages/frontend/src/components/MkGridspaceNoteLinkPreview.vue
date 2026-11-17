@@ -47,7 +47,7 @@ const header = computed(() => {
 	if (value?.localNote) return value.localNote;
 	if (!value?.note) return null;
 	const n = value.note;
-	return { id: n.id, createdAt: n.createdAt, user: { ...n.author, id: n.author.uri }, localOnly: n.localOnly,
+	return { id: n.id, createdAt: n.createdAt, user: { ...n.author, id: n.author.uri }, localOnly: n.localOnly, noRelay: n.noRelay,
 		visibility: n.visibility as entities.Note['visibility'], channel: n.channel };
 });
 let generation = 0;
