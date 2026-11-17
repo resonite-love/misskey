@@ -43,6 +43,9 @@ describe('production visibility SQL in PostgreSQL', () => {
 						const predicate = noteNewerThanPolicySql(time, field).replaceAll(':nowMs', '$3');
 						const rows = await db.query(`SELECT ${predicate} AS visible FROM (SELECT $1::text AS id) note, (SELECT $2::integer AS "${field}") "user", (SELECT $3::bigint AS clock) fixture`, [id, threshold, now]);
 						expect(rows[0].visible, `${method}/${field}/${threshold}/${date}`).toBe(!shouldHideNoteByTime(threshold, new Date(date)));
+						const single = noteNewerThanPolicySql('$1::bigint', field).replaceAll(':nowMs', '$3');
+						const [direct] = await db.query(`SELECT ${single} AS visible FROM (SELECT $2::integer AS "${field}") "user", (SELECT $3::bigint AS clock) fixture`, [ids.parse(id).date.getTime(), threshold, now]);
+						expect(direct.visible).toBe(rows[0].visible);
 					}
 				}
 			}

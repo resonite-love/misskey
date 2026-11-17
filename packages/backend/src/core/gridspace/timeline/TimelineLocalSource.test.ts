@@ -27,7 +27,7 @@ const row = (id: string): MiNote => ({ id, uri: null, userId: 'author', user, vi
 const payload = (id: string): Packed<'Note'> => ({ id, userId: 'author', user, createdAt: new Date(now).toISOString(), visibility: 'public', text: id, cw: null, fileIds: [], replyId: null, renoteId: null } as unknown as Packed<'Note'>);
 
 function query(rows: MiNote[]): SelectQueryBuilder<MiNote> {
-	const builder = { andWhere: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(), getMany: vi.fn().mockResolvedValue(rows) };
+	const builder = { andWhere: vi.fn().mockReturnThis(), select: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(), getMany: vi.fn().mockResolvedValue(rows) };
 	return builder as unknown as SelectQueryBuilder<MiNote>;
 }
 
@@ -42,10 +42,32 @@ function fixture(options: { before?: MiNote[]; fresh?: MiNote[]; related?: MiNot
 	const ids = { parse: vi.fn(() => ({ date: new Date(now) })) };
 	const source = new TimelineLocalSource(db as unknown as DataSource, { url: 'https://example.test' } as Config, search as unknown as GridspaceSearchService,
 		{} as QueryService, {} as GridspaceIdentityService, {} as RoleService, notes as unknown as NoteEntityService, ids as unknown as IdService);
-	return { source, queryFactory, notes };
+	return { source, queryFactory, notes, search };
 }
 
 describe('local timeline body authorization', () => {
+	test('single-note hydration selects only authorization fields after packing and skips absent nested targets', async () => {
+		const { source, queryFactory, notes, search } = fixture();
+		expect((await source.hydrateQuery(viewer, queryFactory, [reference('a')], true)).map(item => item.payload.id)).toEqual(['a']);
+		expect(notes.packMany).toHaveBeenCalledOnce();
+		expect(search.noteQuery).not.toHaveBeenCalled();
+		expect(queryFactory).toHaveBeenCalledTimes(2);
+	});
+	test.each([
+		{ fresh: [] },
+		{ fresh: [{ ...row('a'), visibleUserIds: ['other'] }] },
+		{ fresh: [{ ...row('a'), fileIds: ['new-file'] }] },
+	])('single-note hydration rejects revocation or changed content after packing: %j', async options => {
+		const { source, queryFactory } = fixture(options);
+		expect(await source.hydrateQuery(viewer, queryFactory, [reference('a')], true)).toEqual([]);
+	});
+	test('single-note hydration still strips a revoked nested quote', async () => {
+		const outer = { ...row('a'), renoteId: 'b' };
+		const { source, queryFactory, search } = fixture({ before: [outer], fresh: [outer], related: [], packed: [{ ...payload('a'), renoteId: 'b', renote: payload('b') }] });
+		const [result] = await source.hydrateQuery(viewer, queryFactory, [reference('a')], true);
+		expect(result.payload.renote).toBeNull();
+		expect(search.noteQuery).toHaveBeenCalledOnce();
+	});
 	test('ownership candidates check the root query without packing a body', async () => {
 		const { source, notes } = fixture();
 		const builder = query([row('a')]);
@@ -54,6 +76,17 @@ describe('local timeline body authorization', () => {
 		expect(await source.ownerCandidates(viewer, { kind: 'home' }, [reference('a').canonicalUri])).toEqual([reference('a')]);
 		expect(notes.packMany).not.toHaveBeenCalled();
 		expect(builder.andWhere).toHaveBeenCalledWith(expect.stringContaining('note.id IN'), expect.objectContaining({ timelineOwnerIds: ['a'] }));
+	});
+	test('compact ownership reads identity only and bypasses the scan transaction', async () => {
+		const { source, notes } = fixture();
+		const builder = query([row('a')]);
+		const build = vi.spyOn(source, 'buildQuery').mockResolvedValue(builder);
+		source['search'].read = vi.fn();
+		expect(await source.ownerCandidates(viewer, { kind: 'home' }, [reference('a').canonicalUri], undefined, true)).toEqual([reference('a')]);
+		expect(build).toHaveBeenCalledWith(viewer, { kind: 'home' }, { id: 'a' });
+		expect(builder.select).toHaveBeenCalledWith(['note.id', 'note.uri']);
+		expect(source['search'].read).not.toHaveBeenCalled();
+		expect(notes.packMany).not.toHaveBeenCalled();
 	});
 	test('database-null policies match the omitted fields in the real packed user schema', async () => {
 		const packed = payload('a');
@@ -218,8 +251,12 @@ describe('local timeline subscription SQL', () => {
 		await runner.query('CREATE TEMP TABLE following ("followerId" text, "followeeId" text, "withReplies" boolean) ON COMMIT DROP');
 		await runner.query('CREATE TEMP TABLE channel_following ("followerId" text, "followeeId" text) ON COMMIT DROP');
 		await runner.query('CREATE TEMP TABLE "user" (id text, "isDeleted" boolean, "isSuspended" boolean) ON COMMIT DROP');
+		await runner.query('ALTER TABLE "user" ADD COLUMN uri text');
+		await runner.query('CREATE TEMP TABLE gridspace_link ("localUserId" text, "peerOrigin" text, "peerUserId" text, state text) ON COMMIT DROP');
 		await runner.query('CREATE TEMP TABLE note (id text, "userId" text, "userHost" text, visibility text, "channelId" text, "gridspaceShared" boolean, "replyId" text, "replyUserId" text, "renoteId" text, "renoteUserId" text, "renoteUserHost" text, text text, cw text, "fileIds" text[], "hasPoll" boolean) ON COMMIT DROP');
-		await runner.query('INSERT INTO "user" VALUES (\'viewer\',false,false), (\'followed\',false,false), (\'reply-enabled\',false,false), (\'outsider\',false,false), (\'linked\',false,false)');
+		await runner.query('INSERT INTO "user" (id,"isDeleted","isSuspended") VALUES (\'viewer\',false,false), (\'followed\',false,false), (\'reply-enabled\',false,false), (\'outsider\',false,false), (\'linked\',false,false)');
+		await runner.query("UPDATE \"user\" SET uri='https://peer.test/users/linked' WHERE id='linked'");
+		await runner.query("INSERT INTO gridspace_link VALUES ('viewer','https://peer.test','linked','active')");
 		await runner.query('INSERT INTO following VALUES (\'viewer\',\'followed\',false), (\'viewer\',\'reply-enabled\',true)');
 		await runner.query('INSERT INTO channel_following VALUES (\'viewer\',\'channel\')');
 		const add = async (id: string, author: string, opts: { host?: string; visibility?: string; shared?: boolean; reply?: string; replyAuthor?: string; channel?: string; renote?: string; renoteAuthor?: string; renoteHost?: string; text?: string | null; files?: string[] } = {}) => {
@@ -255,6 +292,18 @@ describe('local timeline subscription SQL', () => {
 		await db.destroy();
 	});
 	const read = async (options: Parameters<TimelineLocalSource['buildQuery']>[1]) => (await (await source.buildQuery(viewer, options)).getRawMany<{ id: string }>()).map(value => value.id).sort();
+	test('inline link resolution matches generic subscription filters and observes unlinking', async () => {
+		Object.assign(config, { gridspace: { enabled: true } });
+		try {
+			for (const options of [{ kind: 'home' }, { kind: 'social', withReplies: true }, { kind: 'home', withRenotes: false }] as const) {
+				const compact = (await (await source.buildQuery(viewer, options, {})).getRawMany<{ id: string }>()).map(value => value.id).sort();
+				expect(compact).toEqual(await read(options));
+			}
+			await runner.query("UPDATE gridspace_link SET state='revoked'");
+			const ids = (await (await source.buildQuery(viewer, { kind: 'home' }, {})).getRawMany<{ id: string }>()).map(value => value.id);
+			expect(ids).not.toContain('linked');
+		} finally { await runner.query("UPDATE gridspace_link SET state='active'"); }
+	});
 
 	test('home follows current author and channel subscriptions and linked public identity', async () => {
 		expect(await read({ kind: 'home' })).toEqual(['channel', 'followed', 'linked', 'quote', 'renote', 'reply-enabled', 'reply-self', 'reply-viewer', 'self']);

@@ -66,7 +66,7 @@ export class GridspaceTimelineService {
 			readPage: (viewer: MiLocalUser, position: Parameters<TimelineLocalSource['readPage']>[2]) => this.local.readPage(viewer, options as TimelineLocalOptions, position),
 			hydrate: (viewer: MiLocalUser, refs: TimelineReference[]) => this.local.hydrate(viewer, options as TimelineLocalOptions, refs),
 			ownerReferences: (viewer: MiLocalUser, uris: string[], upper?: Parameters<TimelineLocalSource['ownerReferences']>[3]) => this.local.ownerReferences(viewer, options as TimelineLocalOptions, uris, upper),
-			ownerCandidates: (viewer: MiLocalUser, uris: string[]) => this.local.ownerCandidates(viewer, options as TimelineLocalOptions, uris),
+			ownerCandidates: (viewer: MiLocalUser, uris: string[]) => this.local.ownerCandidates(viewer, options as TimelineLocalOptions, uris, undefined, true),
 		};
 		if (options.kind === 'mentions' || options.kind === 'direct' || options.kind === 'profile' || options.kind === 'search') return {
 			readPage: (viewer: MiLocalUser, position: Parameters<TimelineLocalSource['readPage']>[2]) => this.lists!.readPage(viewer, options as TimelineListOptions, position),
@@ -112,9 +112,11 @@ export class GridspaceTimelineService {
 			return cursor;
 		} catch { throw new GridspaceLinkError('INVALID_CURSOR'); }
 	}
-	private async hydrate(viewer: MiLocalUser, checkpoint: Checkpoint, selected: TimelineReference[], deadline = Date.now() + 8000, authorizedPeer?: Awaited<ReturnType<GridspacePrivateService['timeline']>>): Promise<TimelineItem[]> {
+	private async hydrate(viewer: MiLocalUser, checkpoint: Checkpoint, selected: TimelineReference[], deadline = Date.now() + 8000, authorizedPeer?: Awaited<ReturnType<GridspacePrivateService['timeline']>>, singleLocal = false): Promise<TimelineItem[]> {
 		const started = Date.now();
-		const local = await this.localSource(checkpoint.options).hydrate(viewer, selected.filter(ref => ref.source === 'local'));
+		const local = singleLocal
+			? await this.local.hydrateSingle(viewer, checkpoint.options as TimelineLocalOptions, selected[0])
+			: await this.localSource(checkpoint.options).hydrate(viewer, selected.filter(ref => ref.source === 'local'));
 		const peerRefs = selected.filter(ref => ref.source === 'peer');
 		const remote = peerRefs.length ? authorizedPeer ?? await this.delegated.timeline(viewer, { ids: peerRefs.map(ref => ref.noteId), candidates: peerRefs, ...checkpoint.options, deadline }) : null;
 		const items = new Map<string, TimelineItem>();
@@ -185,11 +187,13 @@ export class GridspaceTimelineService {
 		const deadline = Date.now() + 8000;
 		const source = this.localSource(checkpoint.options);
 		let candidate: TimelineReference | undefined;
+		const singleLocal = event.source === 'local' && (checkpoint.options.kind === 'home' || checkpoint.options.kind === 'social');
 		if (event.source === 'local') {
 			const refs = await this.references.getMany([event.noteId]);
 			if (!refs[0]) return result;
-			const owners = await source.ownerCandidates(viewer, [refs[0].canonicalUri]);
-			candidate = owners[0];
+			// hydrateSingle checks the exact note's live ACL before packing. No
+			// separate ownership/body read is necessary before that check.
+			candidate = singleLocal ? { ...refs[0], source: 'local' } : (await source.ownerCandidates(viewer, [refs[0].canonicalUri]))[0];
 		} else {
 			const remote = await this.delegated.timeline(viewer, { ...checkpoint.options, ids: [event.noteId], deadline });
 			const ref = remote.references.find(value => value.noteId === event.noteId);
@@ -204,7 +208,7 @@ export class GridspaceTimelineService {
 		if (owner != null && owner !== candidate.source) return { ...result, resetRequired: true };
 		const compare = this.compare(checkpoint.options);
 		if (owner == null && checkpoint.windowHead && compare(candidate, checkpoint.windowHead) > 0) return { ...result, resetRequired: true };
-		const items = await this.hydrate(viewer, checkpoint, [candidate], deadline);
+		const items = await this.hydrate(viewer, checkpoint, [candidate], deadline, undefined, singleLocal);
 		const item = items[0];
 		if (!item || item.validForMs === 0) return result;
 		// A concurrent import may have changed which representation owns this URI

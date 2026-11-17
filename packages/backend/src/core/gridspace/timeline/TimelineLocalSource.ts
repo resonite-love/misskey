@@ -72,13 +72,18 @@ export class TimelineLocalSource {
 	) {}
 
 	/** Live and historical reads use the same current subscriptions and ACL. */
-	public async buildQuery(viewer: MiLocalUser, options: TimelineLocalOptions): Promise<SelectQueryBuilder<MiNote>> {
+	public async buildQuery(viewer: MiLocalUser, options: TimelineLocalOptions, singleNote?: { id?: string }): Promise<SelectQueryBuilder<MiNote>> {
 		if (viewer.isSuspended || viewer.isDeleted) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if (options.kind === 'social' && !(await this.roles.getUserPolicies(viewer.id)).ltlAvailable) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-		const linkedId = await this.identity.linkedUserId(viewer.id);
-		const query = this.readableQuery(viewer).setParameters({ timelineViewer: viewer.id, timelineLinked: linkedId });
+		const linkedId = singleNote ? null : await this.identity.linkedUserId(viewer.id);
+		const query = this.readableQuery(viewer, singleNote?.id).setParameters({ timelineViewer: viewer.id, timelineLinked: linkedId });
+		// Keep link resolution in the same statement as the current note ACL. This
+		// avoids loading the complete link and remote user before every check.
+		const linked = singleNote && this.config.gridspace?.enabled
+			? `(SELECT linked.id FROM gridspace_link gl INNER JOIN "user" linked ON linked.uri = gl."peerOrigin" || '/users/' || gl."peerUserId" WHERE gl."localUserId" = :timelineViewer AND gl.state = 'active' LIMIT 1)`
+			: ':timelineLinked';
 		const followed = (column: string) => `EXISTS (SELECT 1 FROM following tf WHERE tf."followerId" = :timelineViewer AND tf."followeeId" = ${column})`;
-		const self = `(note."userId" = :timelineViewer OR (note."userId" = :timelineLinked AND note.visibility IN ('public', 'home')))`;
+		const self = `(note."userId" = :timelineViewer OR (note."userId" = ${linked} AND note.visibility IN ('public', 'home')))`;
 		const channels = `EXISTS (SELECT 1 FROM channel_following tcf WHERE tcf."followerId" = :timelineViewer AND tcf."followeeId" = note."channelId")`;
 		const publicLocal = options.kind === 'social' ? ` OR (note.visibility = 'public' AND (note."userHost" IS NULL OR note."gridspaceShared" = true))` : '';
 		query.andWhere(`((note."channelId" IS NULL AND (${self} OR ${followed('note."userId"')}${publicLocal})) OR ${channels})`);
@@ -148,19 +153,20 @@ export class TimelineLocalSource {
 	}
 
 	/** Current root ACL only; callers must hydrate before exposing any body. */
-	public async ownerCandidates(viewer: MiLocalUser, options: TimelineLocalOptions, uris: string[], upper?: TimelinePosition | null): Promise<TimelineReference[]> {
+	public async ownerCandidates(viewer: MiLocalUser, options: TimelineLocalOptions, uris: string[], upper?: TimelinePosition | null, compact = false): Promise<TimelineReference[]> {
 		if (uris.length > 100) throw new GridspaceLinkError('INVALID_REQUEST');
 		if (!uris.length || upper === null) return [];
 		const localPrefix = `${this.config.url}/notes/`;
 		const ids = uris.filter(uri => uri.startsWith(localPrefix)).map(uri => uri.slice(localPrefix.length)).filter(id => /^[a-zA-Z0-9]{1,32}$/.test(id));
 		const aliases = [...new Set(uris.flatMap(uri => gridspaceNoteUris(uri, this.config.gridspace?.peerUrl)))];
-		const query = await this.buildQuery(viewer, options);
+		const query = await this.buildQuery(viewer, options, compact ? { id: uris.length === 1 && ids.length === 1 ? ids[0] : undefined } : undefined);
 		query.andWhere(`(note.uri IN (:...timelineOwnerUris)${ids.length ? ' OR note.id IN (:...timelineOwnerIds)' : ''})`, { timelineOwnerUris: aliases, timelineOwnerIds: ids });
 		if (upper) {
 			if (!upper.noteId || !/^[a-zA-Z0-9]{1,32}$/.test(upper.noteId)) throw new GridspaceLinkError('INVALID_CURSOR');
 			query.andWhere('note.id <= :timelineOwnerUpper', { timelineOwnerUpper: upper.noteId });
 		}
-		const candidates = await this.search.read(query.limit(200));
+		// Ownership needs identity only. The query still applies all current ACLs.
+		const candidates = compact ? await query.select(['note.id', 'note.uri']).limit(200).getMany() : await this.search.read(query.limit(200));
 		const wanted = new Set(uris);
 		const byUri = new Map<string, TimelineReference>();
 		for (const note of candidates) {
@@ -183,8 +189,13 @@ export class TimelineLocalSource {
 		return this.hydrateQuery(viewer, () => this.buildQuery(viewer, options), references);
 	}
 
+	/** Exact-ID stream path, with the same before/after and nested-body checks. */
+	public async hydrateSingle(viewer: MiLocalUser, options: TimelineLocalOptions, reference: TimelineReference): Promise<HydratedTimelineNote[]> {
+		return this.hydrateQuery(viewer, () => this.buildQuery(viewer, options, { id: reference.noteId }), [reference], true);
+	}
+
 	/** Shared packing/revalidation for the other indexed note-list adapters. */
-	public async hydrateQuery(viewer: MiLocalUser, buildQuery: () => Promise<SelectQueryBuilder<MiNote>>, references: TimelineReference[]): Promise<HydratedTimelineNote[]> {
+	public async hydrateQuery(viewer: MiLocalUser, buildQuery: () => Promise<SelectQueryBuilder<MiNote>>, references: TimelineReference[], compact = false): Promise<HydratedTimelineNote[]> {
 		if (references.length === 0) return [];
 		if (references.length > 100) throw new GridspaceLinkError('INVALID_REQUEST');
 		const requested = [...new Set(references.map(reference => reference.noteId))];
@@ -200,11 +211,18 @@ export class TimelineLocalSource {
 			if (note.renote) collect(note.renote);
 		};
 		for (const note of payloads) collect(note);
+		const nestedIds = compact ? [...packedIds].filter(id => !requested.includes(id)) : [...packedIds];
+		const freshQuery = (await buildQuery()).andWhere('note.id IN (:...timelineIds)', { timelineIds: requested });
+		if (compact) freshQuery.select([
+			'note.id', 'note.uri', 'note.userId', 'note.name', 'note.url', 'note.text', 'note.cw', 'note.fileIds',
+			'note.visibility', 'note.visibleUserIds', 'note.replyId', 'note.renoteId', 'note.hasPoll',
+			'user.id', 'user.isDeleted', 'user.isSuspended', 'user.makeNotesFollowersOnlyBefore', 'user.makeNotesHiddenBefore',
+		]);
 		// Rebuild after packing: actor/link/subscription changes must not reuse the
 		// initial authorization. Nested quotes/replies get independent visibility.
 		const [fresh, related, viewerDeadline] = await Promise.all([
-			(await buildQuery()).andWhere('note.id IN (:...timelineIds)', { timelineIds: requested }).getMany(),
-			this.readableQuery(viewer).andWhere('note.id IN (:...timelineRelated)', { timelineRelated: [...packedIds] }).getMany(),
+			freshQuery.getMany(),
+			nestedIds.length ? this.readableQuery(viewer).andWhere('note.id IN (:...timelineRelated)', { timelineRelated: nestedIds }).getMany() : Promise.resolve([]),
 			this.nextViewerPolicyCheck(viewer.id),
 		]);
 		const allowed = new Map(fresh.filter(note => versions.get(note.id) === bodyVersion(note)).map(note => [note.id, note]));
@@ -252,8 +270,8 @@ export class TimelineLocalSource {
 		return result;
 	}
 
-	private readableQuery(viewer: MiLocalUser): SelectQueryBuilder<MiNote> {
-		return this.search.noteQuery(viewer, { query: '' }, false, true, undefined, false, true)
+	private readableQuery(viewer: MiLocalUser, singleNoteId?: string): SelectQueryBuilder<MiNote> {
+		return this.search.noteQuery(viewer, { query: '' }, false, true, undefined, false, true, singleNoteId)
 			.andWhere('"user"."isDeleted" = false')
 			.andWhere('EXISTS (SELECT 1 FROM "user" tv WHERE tv.id = :timelineViewer AND tv."isDeleted" = false AND tv."isSuspended" = false)', { timelineViewer: viewer.id });
 	}

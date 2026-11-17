@@ -89,6 +89,7 @@ export class TimelineClient {
 	private noteAdvertisements = new Map<string, boolean>();
 	private unsubscribe: (() => void) | null = null;
 	private streamLeaseStartedAt = 0;
+	private resumeDisplayUntil = 0;
 	public rows = shallowRef<TimelineDisplayRow[]>([]);
 	private displayItems(items: RetainedItem[]): TimelineDisplayRow[] {
 		return items.filter(item => item.visible).map(item => {
@@ -160,21 +161,22 @@ export class TimelineClient {
 	private scheduleExpiry() {
 		if (this.expireTimer !== null) window.clearTimeout(this.expireTimer);
 		this.expireTimer = null;
-		const deadlines = [...this.visibleItems, ...this.queuedItems, ...[...this.streamDuringRequest.values()].map(event => event.item)].filter(item => item.payload && item.expiresAt !== null).map(item => item.expiresAt!);
-		if (!deadlines.length || this.disposed) return;
+		const deadlines = [...this.visibleItems, ...this.queuedItems, ...[...this.streamDuringRequest.values()].map(event => event.item)].filter(item => item.payload && item.expiresAt !== null).map(item => Math.max(item.expiresAt!, this.resumeDisplayUntil));
+		if (!deadlines.length || this.disposed || !this.active || window.document.hidden) return;
 		this.expireTimer = window.setTimeout(() => this.expire(), Math.max(0, Math.min(...deadlines) - this.now()));
 	}
 	private expire(all = false) {
+		if (!all && (!this.active || window.document.hidden)) { this.scheduleExpiry(); return; }
 		let changed = false;
 		for (const item of [...this.visibleItems, ...this.queuedItems]) {
-			if (item.payload && item.expiresAt !== null && (all || item.expiresAt <= this.now())) {
+			if (item.payload && item.expiresAt !== null && (all || Math.max(item.expiresAt, this.resumeDisplayUntil) <= this.now())) {
 				delete item.payload;
 				delete item.displayPayload;
 				changed = true;
 			}
 		}
 		for (const event of this.streamDuringRequest.values()) {
-			if (event.item.expiresAt !== null && (all || event.item.expiresAt <= this.now())) {
+			if (event.item.expiresAt !== null && (all || Math.max(event.item.expiresAt, this.resumeDisplayUntil) <= this.now())) {
 				delete event.item.payload; delete event.item.displayPayload;
 			}
 		}
@@ -467,11 +469,18 @@ export class TimelineClient {
 		this.streamDuringRequest.clear(); this.streamResetRequested = false;
 		this.clearScheduledRefresh();
 	}
-	public suspend = () => { this.active = false; this.cancel(); this.expire(true); };
-	public resume = async () => { this.active = true; this.expire(); await this.refresh(); };
+	public suspend = () => { this.active = false; this.cancel(); this.scheduleExpiry(); };
+	public resume = async () => {
+		// Keep the last rendered snapshot while the foreground check runs. This
+		// is display-only: new responses and explicit revocations still apply
+		// immediately, and an unavailable server cannot prolong it past 15s.
+		if (!this.active) this.resumeDisplayUntil = this.now() + 15000;
+		this.active = true; this.expire();
+		try { await this.refresh(); } finally { this.resumeDisplayUntil = 0; this.expire(); }
+	};
 	public fail = () => { this.error.value = true; this.failed.value = true; this.expire(true); };
 	public dispose = () => {
-		this.suspend(); this.disposed = true;
+		this.suspend(); this.expire(true); this.disposed = true;
 		if (this.expireTimer !== null) window.clearTimeout(this.expireTimer);
 		this.visibleItems = []; this.queuedItems = []; this.publish();
 		this.noteAdvertisements.clear();

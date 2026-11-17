@@ -73,6 +73,7 @@ function fixture(initialLocal: TimelineReference[], initialPeer: TimelineReferen
 		if (selected.length > 100) throw new GridspaceLinkError('INVALID_REQUEST');
 		return selected.filter(row => rows.local.some(current => current.noteId === row.noteId && current.canonicalUri === row.canonicalUri)).map(reference => ({ reference, payload: { id: reference.noteId, uri: reference.canonicalUri, createdAt: new Date(Number(BigInt(reference.sortAt) / 1000n)).toISOString() }, validForMs: null, nextPolicyCheckAt: null })) as never;
 	});
+	local.hydrateSingle.mockImplementation(async (user, opts, reference) => local.hydrate(user, opts, [reference]));
 	local.nextViewerPolicyCheck.mockResolvedValue(null);
 	references.status.mockImplementation(async () => ({ generation, currentSequence: String(events.length) }));
 	references.currentPosition.mockImplementation(async () => String(events.length));
@@ -134,13 +135,14 @@ describe('unified timeline coordinator with real Redis checkpoints', () => {
 		expect(event.item?.key).toBe(incoming.canonicalUri);
 		expect(f.local.hydrate).toHaveBeenCalledOnce();
 		expect(f.local.ownerReferences).not.toHaveBeenCalled();
-		expect(f.local.ownerCandidates).toHaveBeenCalledTimes(2);
+		expect(f.local.hydrateSingle).toHaveBeenCalledOnce();
+		expect(f.local.ownerCandidates).toHaveBeenCalledOnce();
 	});
 	test('a root revoked after hydration is not emitted', async () => {
 		const f = fixture([ref('local', 100)]);
 		const first = await f.service.page(viewer, options, 20);
 		const incoming = ref('local', 110); f.add(incoming);
-		f.local.ownerCandidates.mockResolvedValueOnce([incoming]).mockResolvedValueOnce([]);
+		f.local.ownerCandidates.mockResolvedValueOnce([]);
 		const event = await f.service.streamNote(viewer, first.session, first.revision, { source: 'local', noteId: incoming.noteId });
 		expect(event).toMatchObject({ resetRequired: true });
 		expect(event.item).toBeUndefined();

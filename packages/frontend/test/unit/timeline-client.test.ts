@@ -191,12 +191,12 @@ describe('server timeline client', () => {
 		const request = vi.fn().mockResolvedValueOnce(page([item('secret')])).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
 		const value = client(request); await value.reload(); const waiting = value.refresh(); await settle();
 		value.suspend(); finish(page([item('secret')])); await waiting;
-		expect(value.rows.value[0]).toMatchObject({ key: item('secret').key, note: { suspended: true } });
+		expect(value.rows.value[0]).toMatchObject({ key: item('secret').key, note: { text: 'body:secret' } });
 		request.mockResolvedValueOnce(page([item('secret')])); await Promise.all([value.resume(), value.resume()]);
 		expect(request).toHaveBeenCalledTimes(3);
 		expect(value.rows.value[0]).toMatchObject({ note: { text: 'body:secret' } });
 	});
-	it('includes queued rows in validation, strips them while hidden and does not release revoked bodies', async () => {
+	it('includes queued rows in validation and does not release revoked bodies after resuming', async () => {
 		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)]))
 			.mockResolvedValueOnce(page([], { newItems: [item('new')] }));
 		const value = client(request, () => false); await value.reload(); await value.refresh();
@@ -205,6 +205,34 @@ describe('server timeline client', () => {
 		expect(request.mock.calls[2][1]).toMatchObject({ refs: ['opaque:old', 'opaque:new'] });
 		value.releaseQueue(); expect(value.queuedCount.value).toBe(0);
 		expect(value.rows.value.map(row => row.key)).toEqual([item('old').key]);
+	});
+	it('keeps an expired hidden snapshot visible while the resume check is pending, then removes revoked rows', async () => {
+		let finish!: (value: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('secret')]))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+		const value = client(request); await value.reload(); value.suspend();
+		await vi.advanceTimersByTimeAsync(30000);
+		const resumed = value.resume();
+		expect(value.rows.value[0]).toMatchObject({ note: { text: 'body:secret' } });
+		finish(page([], { removed: [item('secret').key] })); await resumed;
+		expect(value.rows.value).toEqual([]);
+	});
+	it('bounds the resumed snapshot when the server never answers', async () => {
+		const request = vi.fn().mockResolvedValueOnce(page([item('secret')])).mockImplementationOnce(() => new Promise(() => {}));
+		const value = client(request); await value.reload(); value.suspend();
+		await vi.advanceTimersByTimeAsync(30000); void value.resume();
+		await vi.advanceTimersByTimeAsync(14999);
+		expect(JSON.stringify(value.rows.value)).toContain('body:secret');
+		await vi.advanceTimersByTimeAsync(1);
+		expect(JSON.stringify(value.rows.value)).not.toContain('body:secret');
+	});
+	it('removes an expired resumed snapshot when authorization fails', async () => {
+		const request = vi.fn().mockResolvedValueOnce(page([item('secret')]))
+			.mockRejectedValueOnce({ info: { reason: 'AUTHORIZATION_REVOKED' } });
+		const value = client(request); await value.reload(); value.suspend();
+		await vi.advanceTimersByTimeAsync(30000); await value.resume();
+		expect(JSON.stringify(value.rows.value)).not.toContain('body:secret');
+		expect(value.failed.value).toBe(true);
 	});
 	it('separates validation batches from a single update cursor consumption', async () => {
 		const all = Array.from({ length: 130 }, (_, index) => item(`${index}`, false));
