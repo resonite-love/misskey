@@ -26,7 +26,7 @@ export const paramDef = {
 		cursor: { type: 'string', minLength: 1, maxLength: 4096 },
 		mode: { type: 'string', enum: ['unified', 'local-fallback'], default: 'unified' },
 		anchor: { type: 'string', maxLength: 1024 },
-		previousSession: { type: 'string', format: 'uuid' }, previousRevision: { type: 'string', maxLength: 32 },
+		previousSession: { type: 'string', pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' }, previousRevision: { type: 'string', maxLength: 32 },
 		retainedRefs: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 4096 } },
 	}, required: ['kind'],
 } as const;

@@ -843,7 +843,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 		const matchedAntennas = this.antennaService.addNoteToAntennas({
 			...note,
 			channel: data.channel ?? null,
-		}, user);
+		}, user).catch(() => []);
 
 		if (data.reply) {
 			this.saveReply(data.reply, note);

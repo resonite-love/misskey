@@ -359,16 +359,18 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			const { userId: _userId, ...readOptions } = privateOptionsSchema;
 			fastify.post<{ Body: PrivatePeerRequest }>(`/private/${name}`, {
 				bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
-				schema: { body: { type: 'object', additionalProperties: false, allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId'] }] }], properties: {
+				schema: { body: { type: 'object', additionalProperties: false, allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId'] }, ...(name === 'timeline' ? [{ required: ['timelineViewerId'] }] : [])] }], properties: {
 					...readOptions,
 					...(name === 'timeline' ? { ids: { type: 'array', minItems: 0, maxItems: 100, uniqueItems: true, items: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } } : {}),
-					timelineBefore: { type: 'object', additionalProperties: false, required: ['sortAt', 'canonicalUri', 'noteId'], properties: { sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 }, noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } },
-					timelineUpper: { type: 'object', additionalProperties: false, required: ['sortAt', 'canonicalUri', 'noteId'], properties: { sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 }, noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } },
+					timelineViewerId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+					timelineBefore: { type: 'object', additionalProperties: false, required: ['sortAt', 'canonicalUri', 'noteId'], properties: { sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 }, noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, sourceId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } },
+					timelineUpper: { type: 'object', additionalProperties: false, required: ['sortAt', 'canonicalUri', 'noteId'], properties: { sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 }, noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, sourceId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } },
 					timelineSequence: { type: 'string', pattern: '^[0-9]{1,19}$' }, timelineValidate: { type: 'boolean' },
 					timelineAnchor: { type: 'string', maxLength: 1024 },
 					timelineUntilAt: { type: 'integer', minimum: 0, maximum: 4102444800000 },
+					timelineFromAt: { type: 'integer', minimum: 0, maximum: 4102444800000 },
 					timelineIncludeMyRenotes: { type: 'boolean' }, timelineIncludeRenotedMyNotes: { type: 'boolean' }, timelineIncludeLocalRenotes: { type: 'boolean' },
-					timelineCandidates: { type: 'array', maxItems: 512, items: { type: 'object', additionalProperties: false, required: ['noteId', 'sortAt', 'canonicalUri'], properties: { noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 } } } },
+					timelineCandidates: { type: 'array', maxItems: 512, items: { type: 'object', additionalProperties: false, required: ['noteId', 'sortAt', 'canonicalUri'], properties: { noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, sourceId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 } } } },
 					collectionKind: { type: 'string', enum: ['status', 'clips', 'clip-favorites'] },
 					channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' },
 					pairId: { type: 'string', format: 'uuid' }, expectedRevision: { type: 'integer', minimum: 0, maximum: 2147483647 },

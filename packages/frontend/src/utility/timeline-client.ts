@@ -70,6 +70,10 @@ export class TimelineClient {
 	private disposed = false;
 	private expireTimer: number | null = null;
 	private refreshTimer: number | null = null;
+	private refreshAt = Infinity;
+	private lastRequestStartedAt = -Infinity;
+	private lastCycleDuration = 0;
+	private refreshRequested = false;
 	private pending: Promise<void> | null = null;
 	private queuedRelease = false;
 	private queueOverflow = false;
@@ -77,7 +81,6 @@ export class TimelineClient {
 	private mode: 'unified' | 'local-fallback' = 'unified';
 	private noteAdvertisements = new Map<string, boolean>();
 	private unsubscribe: (() => void) | null = null;
-	private invalidateTimer: number | null = null;
 	public rows = shallowRef<TimelineDisplayRow[]>([]);
 	private displayItems(items: RetainedItem[]): TimelineDisplayRow[] {
 		return items.filter(item => item.visible).map(item => {
@@ -108,7 +111,7 @@ export class TimelineClient {
 		anchor?: () => string | undefined;
 		beforeReplace?: () => void;
 		afterReplace?: () => void;
-		subscribe?: (params: { session: string; revision: string; updatesCursor: string }, invalidate: () => void) => () => void;
+		subscribe?: (params: { session: string; revision: string; updatesCursor: string }, invalidate: () => void, reconnect: () => void) => () => void;
 	} = {}) {}
 
 	private now() { return this.options.now?.() ?? performance.now(); }
@@ -163,14 +166,37 @@ export class TimelineClient {
 		if (changed) this.publish();
 		else this.scheduleExpiry();
 	}
-	private scheduleRefresh(delay: number) {
-		if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
-		this.refreshTimer = null;
+	private scheduleRefresh(_delay: number) {
 		if (!this.usable()) return;
-		this.refreshTimer = window.setTimeout(() => void this.refresh(), Math.max(1000, Math.min(8000, delay)));
+		this.refreshRequested = true;
+		if (this.pending) return;
+		this.armRefresh();
+	}
+	private armRefresh() {
+		if (!this.usable() || !this.refreshRequested) return;
+		// Hints share the normal eight-second cycle. Authorization deadlines take
+		// precedence, allowing the measured round trip to finish before expiry.
+		const deadline = Math.min(...[...this.visibleItems, ...this.queuedItems].filter(item => item.payload && item.expiresAt !== null).map(item => item.expiresAt!));
+		const margin = Math.max(2000, this.lastCycleDuration + 1000);
+		const at = Math.max(this.now(), Math.min(this.lastRequestStartedAt + 8000, deadline - margin));
+		if (this.refreshTimer !== null && this.refreshAt <= at) return;
+		this.clearScheduledRefresh();
+		this.refreshAt = at;
+		this.refreshTimer = window.setTimeout(() => {
+			this.refreshTimer = null; this.refreshAt = Infinity;
+			this.refreshRequested = false;
+			void this.refresh();
+		}, Math.max(0, at - this.now()));
+	}
+	private clearScheduledRefresh() {
+		if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
+		this.refreshTimer = null; this.refreshAt = Infinity;
 	}
 	private async fetch(endpoint: Parameters<Request>[0], params: Record<string, unknown>) {
+		this.clearScheduledRefresh();
 		const startedAt = this.now();
+		this.lastRequestStartedAt = startedAt;
+		this.refreshRequested = false;
 		const result = await (this.options.request ?? request)(endpoint, params, AbortSignal.any([this.controller.signal, AbortSignal.timeout(15000)]));
 		if (result.version !== 1 || !Array.isArray(result.items)) throw new Error('Unsupported timeline response');
 		return { result, startedAt };
@@ -185,16 +211,14 @@ export class TimelineClient {
 		this.error.value = this.degraded;
 		if (changedSession) { this.unsubscribe?.(); this.unsubscribe = null; }
 		if (!this.unsubscribe && this.options.subscribe && this.usable()) {
-			this.unsubscribe = this.options.subscribe({ session: result.session, revision: result.revision, updatesCursor: result.updatesCursor }, () => {
-				if (this.invalidateTimer !== null) return;
-				this.invalidateTimer = window.setTimeout(() => { this.invalidateTimer = null; void this.refresh(); }, 1000);
-			});
+			this.unsubscribe = this.options.subscribe({ session: result.session, revision: result.revision, updatesCursor: result.updatesCursor }, () => this.scheduleRefresh(0), () => { void this.refresh(); });
 		}
 		this.scheduleRefresh(result.revalidateAfterMs);
 	}
 	private async run(action: (generation: number) => Promise<void>) {
 		if (this.pending || !this.usable()) return this.pending ?? Promise.resolve();
 		const current = this.generation;
+		const startedAt = this.now();
 		this.busy.value = true;
 		const pending = action(current).catch(async error => {
 			if (current !== this.generation) return;
@@ -208,6 +232,8 @@ export class TimelineClient {
 		}).finally(() => {
 			if (this.pending !== pending) return;
 			this.pending = null; this.busy.value = false; this.loading.value = false;
+			this.lastCycleDuration = this.now() - startedAt;
+			this.armRefresh();
 			this.pagingKey.value++;
 		});
 		this.pending = pending;
@@ -346,12 +372,10 @@ export class TimelineClient {
 	}
 	private cancel() {
 		this.unsubscribe?.(); this.unsubscribe = null;
-		if (this.invalidateTimer !== null) window.clearTimeout(this.invalidateTimer);
-		this.invalidateTimer = null;
 		this.generation++; this.controller.abort(); this.controller = new AbortController(); this.pending = null;
 		this.busy.value = false; this.loading.value = false;
-		if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
-		this.refreshTimer = null;
+		this.refreshRequested = false;
+		this.clearScheduledRefresh();
 	}
 	public suspend = () => { this.active = false; this.cancel(); this.expire(true); };
 	public resume = async () => { this.active = true; this.expire(); await this.refresh(); };

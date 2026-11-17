@@ -44,6 +44,17 @@ afterEach(async () => {
 });
 
 describe('GridSpace channel actions', () => {
+	test('a public list viewer assertion is accepted only on the HMAC-authenticated timeline route', async () => {
+		const action = vi.fn(async () => ({ references: [] }));
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, action);
+		const url = '/gridspace/v1/private/timeline';
+		const input = { mode: 'profile', timelineViewerId: 'viewer', targetUris: ['https://r.example/users/author'] };
+		const payload = Buffer.from(JSON.stringify(input));
+		expect((await app.inject({ method: 'POST', url, payload, headers: { 'content-type': 'application/json' } })).statusCode).toBe(403);
+		expect((await app.inject({ method: 'POST', url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) })).statusCode).toBe(200);
+		const invalidUrl = '/gridspace/v1/private/notes';
+		expect((await app.inject({ method: 'POST', url: invalidUrl, payload, headers: createGridspaceHeaders(g, 'POST', invalidUrl, payload) })).statusCode).toBe(400);
+	});
 	test('signed timeline keysets preserve the source ID through consecutive pages', async () => {
 		const action = vi.fn(async (_name: string, input: { timelineBefore?: { noteId?: string } }) => ({ ids: input.timelineBefore?.noteId === 'n2' ? ['n1'] : ['n3', 'n2'] }));
 		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, action);

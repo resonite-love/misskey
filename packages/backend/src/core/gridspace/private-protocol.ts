@@ -20,12 +20,14 @@ export type PrivateOptions = {
 };
 export type PrivatePeerRequest = GridspacePeerLinkRequest & Omit<PrivateOptions, 'userId'> & {
 	targetUris?: string[]; before?: string; head?: string; limit?: number; fileId?: string; collectionKind?: 'clips' | 'clip-favorites' | 'status';
-	timelineBefore?: { sortAt: string; canonicalUri: string; noteId?: string }; timelineUpper?: { sortAt: string; canonicalUri: string; noteId?: string };
+	timelineBefore?: { sortAt: string; canonicalUri: string; noteId?: string; sourceId?: string }; timelineUpper?: { sortAt: string; canonicalUri: string; noteId?: string; sourceId?: string };
+	timelineViewerId?: string;
 	timelineSequence?: string; timelineValidate?: boolean;
 	timelineAnchor?: string;
 	timelineUntilAt?: number;
+	timelineFromAt?: number;
 	timelineIncludeMyRenotes?: boolean; timelineIncludeRenotedMyNotes?: boolean; timelineIncludeLocalRenotes?: boolean;
-	timelineCandidates?: { noteId: string; canonicalUri: string; sortAt: string }[];
+	timelineCandidates?: { noteId: string; canonicalUri: string; sortAt: string; sourceId?: string }[];
 };
 export type PrivateActor = { name: string | null; username: string; host: string; uri: string };
 export type PrivateNote = {

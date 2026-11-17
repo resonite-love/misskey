@@ -10,6 +10,7 @@ import { createGridspaceHeaders, type GridspacePeerConfig } from './peer-protoco
 
 export class GridspaceProtocolMismatch extends Error {}
 export class GridspaceEndpointUnavailable extends Error {}
+export class GridspacePeerAuthorizationError extends Error {}
 
 const agents = new WeakMap<GridspacePeerConfig, Agent>();
 
@@ -39,6 +40,11 @@ export async function requestGridspacePeer(peer: GridspacePeerConfig, path: stri
 		headers: { ...createGridspaceHeaders(peer, 'POST', path, bytes), host: transport.host },
 	});
 	if (!response.ok) {
+		if (path === '/gridspace/v1/private/timeline' && response.status === 403) {
+			let body: unknown;
+			try { body = await response.json(); } catch { /* An unreadable error remains unavailable. */ }
+			if (body && typeof body === 'object' && 'error' in body && ['AUTHORIZATION_REVOKED', 'LINK_REVOKED'].includes(String(body.error))) throw new GridspacePeerAuthorizationError('Timeline authorization revoked');
+		}
 		// Only recognize this fixed handshake error; never expose an arbitrary peer body.
 		if (path === '/gridspace/v1/handshake' && response.status === 409) {
 			let body: unknown;

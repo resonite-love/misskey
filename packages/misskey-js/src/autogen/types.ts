@@ -29985,9 +29985,19 @@ export interface operations {
             content: {
                 'application/json': {
                     /** @enum {string} */
-                    kind: 'home' | 'social' | 'mentions' | 'direct' | 'channel';
+                    kind: 'home' | 'social' | 'profile' | 'search' | 'mentions' | 'direct' | 'channel' | 'favorites' | 'antenna' | 'clip';
                     channelId?: string;
+                    clipId?: string;
+                    antennaId?: string;
+                    /** Format: misskey:id */
+                    userId?: string;
                     query?: string;
+                    /** @default true */
+                    withChannelNotes?: boolean;
+                    /** @enum {string} */
+                    order?: 'newest' | 'oldest';
+                    rangeStartAt?: number;
+                    rangeEndAt?: number;
                     /** @default false */
                     withReplies?: boolean;
                     /** @default true */
@@ -30009,7 +30019,6 @@ export interface operations {
                      */
                     mode?: 'unified' | 'local-fallback';
                     anchor?: string;
-                    /** Format: uuid */
                     previousSession?: string;
                     previousRevision?: string;
                     retainedRefs?: string[];
@@ -30484,7 +30493,6 @@ export interface operations {
         requestBody: {
             content: {
                 'application/json': {
-                    /** Format: uuid */
                     session: string;
                     revision: string;
                     updatesCursor: string;

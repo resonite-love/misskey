@@ -16,6 +16,7 @@ import type { TimelineSessionStore } from '@/core/gridspace/timeline/TimelineSes
 import type { TimelineLocalSource } from '@/core/gridspace/timeline/TimelineLocalSource.js';
 import type { TimelineReferenceService } from '@/core/gridspace/timeline/TimelineReferenceService.js';
 import type { TimelineReference, TimelinePosition } from '@/core/gridspace/timeline/timeline-protocol.js';
+import type { GridspaceTimelineListSourceService } from '@/core/gridspace/timeline/GridspaceTimelineListSourceService.js';
 
 const viewer = { id: 'viewer' } as MiLocalUser;
 const options = { kind: 'home' } as const;
@@ -71,7 +72,7 @@ function fixture(localRows: TimelineReference[] = [], remoteRows: TimelineRefere
 		const selected = input.ids ? data.remoteRows.filter(row => input.ids.includes(row.noteId)) : rows;
 		return { references: selected, notes: selected.map(reference => ({ ...body(reference), origin: 'https://peer.test' })), next: null, upper: input.upper ?? rows[0] ?? null, sequence: '0', changed: false, newReferences: [], validForMs: data.privateLease };
 	}) };
-	const service = new GridspaceTimelineService(config, sessions as unknown as TimelineSessionStore, local as unknown as TimelineLocalSource, references as unknown as TimelineReferenceService, delegated as unknown as GridspacePrivateService);
+	const service = new GridspaceTimelineService(config, sessions as unknown as TimelineSessionStore, local as unknown as TimelineLocalSource, references as unknown as TimelineReferenceService, delegated as unknown as GridspacePrivateService, local as unknown as GridspaceTimelineListSourceService);
 	const cursor = (value: string | null) => value == null ? null : JSON.parse(openGridspaceSecret(resolveGridspaceConfig(config.gridspace, config.url, process.env)!, value, `timeline-v1:${viewer.id}:unified:${JSON.stringify(options)}`));
 	const change = (sequence: string, row: TimelineReference, kind = 'insert') => {
 		data.sequence = sequence;
@@ -83,6 +84,28 @@ function fixture(localRows: TimelineReference[] = [], remoteRows: TimelineRefere
 afterEach(() => { vi.restoreAllMocks(); delete process.env.GRIDSPACE_TIMELINE_TEST_SECRET; });
 
 describe('unified timeline coordinator', () => {
+	test.each(['mentions', 'direct'] as const)('%s uses the immutable coordinator with local and delegated representations', async kind => {
+		const { service, delegated, local } = fixture([ref('local', '003')], [ref('peer', '002')]);
+		const page = await service.page(viewer, { kind }, 20);
+		expect(page.items.map(item => item.representation)).toEqual(['normal', 'delegated']);
+		expect(delegated.timeline).toHaveBeenCalledWith(viewer, expect.objectContaining({ kind }));
+		expect(local.readPage).toHaveBeenCalledWith(viewer, { kind }, expect.anything());
+	});
+	test('channel lists contain only delegated channel rows, even if normal cache contains the same ID', async () => {
+		const { service, local, delegated } = fixture([ref('local', '003')], [ref('peer', '002')]);
+		const page = await service.page(viewer, { kind: 'channel', channelId: 'channel' }, 20);
+		expect(page.items.map(item => item.representation)).toEqual(['delegated']);
+		expect(local.readPage).not.toHaveBeenCalled();
+		expect(delegated.timeline).toHaveBeenCalledWith(viewer, expect.objectContaining({ kind: 'channel', channelId: 'channel' }));
+	});
+	test('unauthorized linked source is a completed local page with a consent status, not a stalled cursor', async () => {
+		const { service, delegated } = fixture([ref('local', '003')]);
+		delegated.timeline.mockRejectedValue(new GridspaceLinkError('AUTHORIZATION_REVOKED'));
+		const page = await service.page(viewer, { kind: 'direct' }, 20);
+		expect(page.complete).toBe(true); expect(page.nextCursor).toBeNull();
+		expect(page.items).toHaveLength(1);
+		expect(page.sources).toContainEqual({ source: 'peer', status: 'unauthorized', retryable: false });
+	});
 	test('retries and concurrent requests keep the same selected page and next cursor', async () => {
 		const { service, data, cursor } = fixture([ref('local', '003'), ref('local', '002'), ref('local', '001')]);
 		const first = await service.page(viewer, options, 1);

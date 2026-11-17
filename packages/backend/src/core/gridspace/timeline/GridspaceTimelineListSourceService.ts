@@ -48,11 +48,11 @@ export class GridspaceTimelineListSourceService {
 		this.origin = config.url;
 	}
 
-	public async buildQuery(viewer: MiLocalUser, options: TimelineListOptions): Promise<SelectQueryBuilder<MiNote>> {
+	public async buildQuery(viewer: MiLocalUser, options: TimelineListOptions, includePeerPublic = false): Promise<SelectQueryBuilder<MiNote>> {
 		if (viewer.isDeleted || viewer.isSuspended) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		let query: SelectQueryBuilder<MiNote>;
-		if (options.kind === 'profile') query = await this.profileQuery(viewer, options);
-		else if (options.kind === 'search') query = await this.searchQuery(viewer, options);
+		if (options.kind === 'profile') query = await this.profileQuery(viewer, options, includePeerPublic);
+		else if (options.kind === 'search') query = await this.searchQuery(viewer, options, includePeerPublic);
 		else if (options.kind === 'mentions' || options.kind === 'direct') {
 			query = this.search.noteQuery(viewer, { query: '' }, false, true, undefined, false, true)
 				.andWhere('(:listViewer::varchar[] <@ note.mentions OR :listViewer::varchar[] <@ note.visibleUserIds)', { listViewer: [viewer.id] });
@@ -62,7 +62,7 @@ export class GridspaceTimelineListSourceService {
 		return query.andWhere('EXISTS (SELECT 1 FROM "user" list_viewer WHERE list_viewer.id = :listActiveViewer AND list_viewer."isDeleted" = false AND list_viewer."isSuspended" = false)', { listActiveViewer: viewer.id });
 	}
 
-	private async profileQuery(viewer: MiLocalUser, options: Extract<TimelineListOptions, { kind: 'profile' }>): Promise<SelectQueryBuilder<MiNote>> {
+	private async profileQuery(viewer: MiLocalUser, options: Extract<TimelineListOptions, { kind: 'profile' }>, includePeerPublic: boolean): Promise<SelectQueryBuilder<MiNote>> {
 		if (!options.userId || (options.withReplies && options.withFiles)) throw new GridspaceLinkError('INVALID_REQUEST');
 		const link = await this.history.findLink(options.userId);
 		if (link) {
@@ -73,7 +73,7 @@ export class GridspaceTimelineListSourceService {
 				withRenotes: options.withRenotes ?? true,
 				withFiles: options.withFiles ?? false,
 				withChannelNotes: options.withChannelNotes ?? false,
-			}, true);
+			}, includePeerPublic);
 		}
 		// Ordinary profiles intentionally show the author's posts despite an author
 		// mute, like users/notes. Reply/renote authors and channel mutes still apply.
@@ -90,6 +90,7 @@ export class GridspaceTimelineListSourceService {
 		this.queries.generateBaseNoteFilteringQuery(query, viewer, { excludeAuthor: true, excludeUserFromMute: options.userId });
 		filterNoteVisibility(query, this.noteTime, viewer, false);
 		query.andWhere("(note.visibility != 'specified' OR note.userId = :privacyViewer OR :privacyViewer = ANY(note.visibleUserIds))");
+		if (this.peer && !includePeerPublic) query.andWhere("(note.userHost IS NULL OR note.userHost != :profilePeerHost OR note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL)", { profilePeerHost: new URL(this.peer.peerOrigin).host });
 		if (!options.withReplies) query.andWhere('note.replyId IS NULL');
 		if (options.withFiles) query.andWhere('cardinality(note.fileIds) > 0');
 		if (options.withRenotes === false) query.andWhere('(note.renoteId IS NULL OR note.text IS NOT NULL OR cardinality(note.fileIds) > 0 OR note.hasPoll = true)');
@@ -101,13 +102,16 @@ export class GridspaceTimelineListSourceService {
 		return query;
 	}
 
-	private async searchQuery(viewer: MiLocalUser, options: Extract<TimelineListOptions, { kind: 'search' }>): Promise<SelectQueryBuilder<MiNote>> {
+	private async searchQuery(viewer: MiLocalUser, options: Extract<TimelineListOptions, { kind: 'search' }>, includePeerPublic: boolean): Promise<SelectQueryBuilder<MiNote>> {
 		if (!options.query.trim() || options.query.length > 200) throw new GridspaceLinkError('INVALID_REQUEST');
 		if (!(await this.roles.getUserPolicies(viewer.id)).canSearchNotes) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const query = this.search.noteQuery(viewer, { ...options, query: options.query.trim() }, false);
 		// Preserve Gridspace search's local/peer scope; unrelated federated hosts
 		// are not an extra search source introduced by this adapter.
-		if (this.peer) query.andWhere('(note.userHost IS NULL OR note.userHost = :listPeerHost)', { listPeerHost: new URL(this.peer.peerOrigin).host });
+		if (this.peer) {
+			query.andWhere('(note.userHost IS NULL OR note.userHost = :listPeerHost)', { listPeerHost: new URL(this.peer.peerOrigin).host });
+			if (!includePeerPublic) query.andWhere("(note.userHost IS NULL OR note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL)");
+		}
 		if (options.userId) {
 			const link = await this.history.findLink(options.userId);
 			const counterpart = link && this.peer ? await this.db.getRepository(MiUser).findOneBy({ uri: `${this.peer.peerOrigin}/users/${link.peerUserId}` }) : null;
@@ -139,6 +143,12 @@ export class GridspaceTimelineListSourceService {
 	public async readPage(viewer: MiLocalUser, options: TimelineListOptions, position: { before?: TimelinePosition; upper?: TimelinePosition; untilAt?: number; limit: number }) {
 		if (!Number.isInteger(position.limit) || position.limit < 1 || position.limit > 50) throw new GridspaceLinkError('INVALID_REQUEST');
 		const scan = this.db.getRepository(MiNote).createQueryBuilder('candidate').select('candidate.id', 'noteId').addSelect('candidate.uri', 'uri');
+		let authorIds: string[] | undefined;
+		if ((options.kind === 'profile' || options.kind === 'search') && options.userId) {
+			const link = await this.history.findLink(options.userId);
+			const counterpart = link && this.peer ? await this.db.getRepository(MiUser).findOneBy({ uri: `${this.peer.peerOrigin}/users/${link.peerUserId}` }) : null;
+			authorIds = link ? [link.localUserId, ...(counterpart ? [counterpart.id] : [])] : [options.userId];
+		}
 		for (const [name, boundary, operator] of [['Before', position.before, '<'], ['Upper', position.upper, '<=']] as const) {
 			if (!boundary) continue;
 			if (!boundary.noteId || !/^[a-zA-Z0-9]{1,32}$/.test(boundary.noteId)) throw new GridspaceLinkError('INVALID_CURSOR');
@@ -148,7 +158,9 @@ export class GridspaceTimelineListSourceService {
 			if (!Number.isSafeInteger(position.untilAt) || position.untilAt < 0 || position.untilAt >= 4102444800000) throw new GridspaceLinkError('INVALID_REQUEST');
 			scan.andWhere('candidate.id < :listScanUntil', { listScanUntil: this.ids.gen(position.untilAt + 1) });
 		}
-		const candidates = await scan.orderBy('candidate.id', 'DESC').limit(513).getRawMany<{ noteId: string; uri: string | null }>();
+		const candidates = authorIds ? (await Promise.all(authorIds.map(author => scan.clone().andWhere('candidate.userId = :listScanAuthor', { listScanAuthor: author }).orderBy('candidate.id', 'DESC').limit(513).getRawMany<{ noteId: string; uri: string | null }>())))
+			.flat().sort((a, b) => a.noteId < b.noteId ? 1 : a.noteId > b.noteId ? -1 : 0).slice(0, 513)
+			: await scan.orderBy('candidate.id', 'DESC').limit(513).getRawMany<{ noteId: string; uri: string | null }>();
 		const window = candidates.slice(0, 512);
 		const upper = position.upper ?? (window[0] ? this.reference(window[0]) : null);
 		if (!window.length) return { references: [], next: null, upper, ended: true };
@@ -188,5 +200,9 @@ export class GridspaceTimelineListSourceService {
 
 	public async hydrate(viewer: MiLocalUser, options: TimelineListOptions, references: TimelineReference[]) {
 		return this.localSource.hydrateQuery(viewer, () => this.buildQuery(viewer, options), references);
+	}
+
+	public async hydrateImported(viewer: MiLocalUser, options: TimelineListOptions, references: TimelineReference[]) {
+		return this.localSource.hydrateQuery(viewer, () => this.buildQuery(viewer, options, true), references);
 	}
 }

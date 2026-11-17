@@ -66,7 +66,7 @@ describe('other-list source authorization and keysets', () => {
 		const { service, history, hydrateQuery } = fixture();
 		history.findLink.mockResolvedValue({ id: 'link', localUserId: 'author', peerUserId: 'peer' } as never);
 		await service.buildQuery(viewer, { kind: 'profile', userId: 'author' });
-		expect(history.viewerQuery).toHaveBeenCalledWith(expect.objectContaining({ id: 'link' }), viewer, { withReplies: false, withRenotes: true, withFiles: false, withChannelNotes: false }, true);
+		expect(history.viewerQuery).toHaveBeenCalledWith(expect.objectContaining({ id: 'link' }), viewer, { withReplies: false, withRenotes: true, withFiles: false, withChannelNotes: false }, false);
 		await service.hydrate(viewer, { kind: 'profile', userId: 'author' }, []);
 		expect(history.findLink).toHaveBeenCalledTimes(2); expect(hydrateQuery).toHaveBeenCalled();
 	});

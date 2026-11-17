@@ -68,9 +68,14 @@ if operation == 'merge' and existing then
  local function newer(a, b)
   if not a or a == cjson.null then return false end
   if not b or b == cjson.null then return true end
-  if a.sortAt ~= b.sortAt then return greater(a.sortAt, b.sortAt) end
+  local ascending = next.options and next.options.kind == 'clip' and next.options.order == 'oldest'
+  if a.sortAt ~= b.sortAt then
+   if ascending then return greater(b.sortAt, a.sortAt) end
+   return greater(a.sortAt, b.sortAt)
+  end
   if a.source ~= b.source then return a.source == 'local' end
-  return (a.noteId or a.canonicalUri) > (b.noteId or b.canonicalUri)
+  if ascending then return (a.sourceId or a.noteId or a.canonicalUri) < (b.sourceId or b.noteId or b.canonicalUri) end
+  return (a.sourceId or a.noteId or a.canonicalUri) > (b.sourceId or b.noteId or b.canonicalUri)
  end
  if old.session ~= next.session or old.mode ~= next.mode or old.revision ~= next.revision or old.expires ~= next.expires then
   return redis.error_reply('TIMELINE_CONTEXT')

@@ -12,6 +12,7 @@ import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { MiNote } from '@/models/Note.js';
 import { MiGridspaceTimelineOutbox, MiGridspaceTimelineChange, MiGridspaceTimelineState } from '@/models/GridspaceTimeline.js';
 import { canonicalGridspaceNoteUri } from '../note-protocol.js';
+import { TimelineChangeBroker, type TimelineChangeSnapshot } from './TimelineChangeBroker.js';
 
 export type TimelinePosition = { sortAt: string; canonicalUri: string };
 export type TimelineReference = TimelinePosition & { noteId: string; normalized: boolean; generation: number };
@@ -38,6 +39,7 @@ export class TimelineReferenceService implements OnModuleInit, OnApplicationShut
 		@Inject(DI.config) private readonly config: Config,
 		private readonly ids: IdService,
 		private readonly events: GlobalEventService,
+		private readonly broker?: TimelineChangeBroker,
 	) {}
 
 	public onModuleInit(): void {
@@ -102,10 +104,24 @@ export class TimelineReferenceService implements OnModuleInit, OnApplicationShut
 		return result;
 	}
 
-	public async currentPosition(): Promise<string> { return this.drainChanges(); }
+	private async changeSnapshot(): Promise<TimelineChangeSnapshot> {
+		const head = await this.drainChanges();
+		const state = await this.db.getRepository(MiGridspaceTimelineState).findOneByOrFail({ key: 'changes' });
+		const events = await this.db.getRepository(MiGridspaceTimelineChange).createQueryBuilder('event')
+			.where('event.sequence <= :head::bigint', { head }).orderBy('event.sequence', 'DESC').limit(1024).getMany();
+		return { head, trimmedThrough: state.trimmedThrough, events: events.reverse() };
+	}
+
+	public async currentPosition(): Promise<string> {
+		return this.broker ? this.broker.head(() => this.changeSnapshot()) : this.drainChanges();
+	}
 
 	public async changes(after: string, limit = 100): Promise<{ events: TimelineChange[]; cursor: string; resetRequired: boolean; hasMore: boolean }> {
 		if (!/^(0|[1-9]\d{0,18})$/.test(after) || !Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('Invalid change cursor');
+		if (this.broker) return this.broker.changes(after, limit, () => this.changeSnapshot(), (before, upper) =>
+			this.db.getRepository(MiGridspaceTimelineChange).createQueryBuilder('event')
+				.where('event.sequence > :before::bigint', { before }).andWhere('event.sequence <= :upper::bigint', { upper })
+				.orderBy('event.sequence', 'ASC').limit(1024).getMany());
 		const head = await this.drainChanges();
 		const state = await this.db.getRepository(MiGridspaceTimelineState).findOneByOrFail({ key: 'changes' });
 		const resetRequired = BigInt(after) > BigInt(head) || BigInt(after) < BigInt(state.trimmedThrough);

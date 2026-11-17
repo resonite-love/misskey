@@ -23,7 +23,7 @@ export const meta = {
 	} },
 } as const;
 export const paramDef = { type: 'object', properties: {
-	session: { type: 'string', format: 'uuid' }, revision: { type: 'string', maxLength: 32 }, updatesCursor: { type: 'string', minLength: 1, maxLength: 4096 },
+	session: { type: 'string', pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' }, revision: { type: 'string', maxLength: 32 }, updatesCursor: { type: 'string', minLength: 1, maxLength: 4096 },
 	refs: { type: 'array', maxItems: 100, uniqueItems: true, default: [], items: { type: 'string', minLength: 1, maxLength: 4096 } },
 	phase: { type: 'string', enum: ['validate', 'changes'], default: 'changes' },
 }, required: ['session', 'revision', 'updatesCursor'] } as const;

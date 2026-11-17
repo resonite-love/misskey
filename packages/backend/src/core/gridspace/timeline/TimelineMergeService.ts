@@ -11,7 +11,7 @@ export type TimelineMergeState = { local: TimelineSourceCursor; peer: TimelineSo
 export type TimelineRead = (source: 'local' | 'peer', cursor: TimelineSourceCursor) => Promise<{ references: TimelineReference[]; next: TimelinePosition | null; upper: TimelinePosition | null; ended: boolean }>;
 
 /** Pure reference merge. The caller checkpoints only the successfully completed state. */
-export async function mergeTimeline(state: TimelineMergeState, limit: number, read: TimelineRead, canRead: () => boolean = () => true): Promise<TimelineReference[]> {
+export async function mergeTimeline(state: TimelineMergeState, limit: number, read: TimelineRead, canRead: () => boolean = () => true, compare = compareTimelinePosition): Promise<TimelineReference[]> {
 	const output: TimelineReference[] = [];
 	const seen = new Set(state.seen);
 	let reads = 0;
@@ -37,7 +37,7 @@ export async function mergeTimeline(state: TimelineMergeState, limit: number, re
 		const a = state.local.pending[0];
 		const b = state.peer.pending[0];
 		if (!a && !b) break;
-		const chosen = !b || (a && compareTimelinePosition(a, b) <= 0) ? state.local.pending.shift()! : state.peer.pending.shift()!;
+		const chosen = !b || (a && compare(a, b) <= 0) ? state.local.pending.shift()! : state.peer.pending.shift()!;
 		state.owners[chosen.canonicalUri] ??= chosen.source;
 		if (seen.has(chosen.canonicalUri)) continue;
 		seen.add(chosen.canonicalUri);

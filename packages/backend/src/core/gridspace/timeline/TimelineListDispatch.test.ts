@@ -31,19 +31,25 @@ describe('list timeline dispatch preserves scope', () => {
 	test.each(['mentions', 'direct'] as const)('a G-only channel credential cannot authorize %s', async kind => {
 		const privateLink = vi.fn(async () => { throw new Error('No old-account grant'); });
 		const destination = vi.fn();
-		const service = Object.assign(Object.create(GridspacePrivateService.prototype), { links: { privateLink }, channelAuth: { isClient: true, destination } }) as GridspacePrivateService;
+		const service = Object.assign(Object.create(GridspacePrivateService.prototype), { db: { getRepository: () => ({ existsBy: async () => true }) }, links: { privateLink }, channelAuth: { isClient: true, destination } }) as GridspacePrivateService;
 		await expect(service.timeline(viewer, { kind })).rejects.toThrow('No old-account grant');
 		expect(destination).not.toHaveBeenCalled();
 	});
 	test('channel and filter combinations are rejected before any credential is selected', async () => {
 		const destination = vi.fn();
-		const service = Object.assign(Object.create(GridspacePrivateService.prototype), { channelAuth: { isClient: true, destination } }) as GridspacePrivateService;
+		const service = Object.assign(Object.create(GridspacePrivateService.prototype), { db: { getRepository: () => ({ existsBy: async () => true }) }, channelAuth: { isClient: true, destination } }) as GridspacePrivateService;
 		await expect(service.timeline(viewer, { kind: 'channel' })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
 		await expect(service.timeline(viewer, { kind: 'direct', channelId: 'channel' })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
 		expect(destination).not.toHaveBeenCalled();
 	});
-		test('the feature capability leaves staged list adapters disabled until acceptance', async () => {
+	test('a suspended or deleted local viewer cannot enter the public-without-grant path', async () => {
+		const privateLink = vi.fn();
+		const service = Object.assign(Object.create(GridspacePrivateService.prototype), { db: { getRepository: () => ({ existsBy: async () => false }) }, links: { privateLink } }) as GridspacePrivateService;
+		await expect(service.timeline(viewer, { kind: 'search', query: 'public' })).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+		expect(privateLink).not.toHaveBeenCalled();
+	});
+	test('the feature capability enumerates the accepted list adapters', async () => {
 		const service = Object.assign(Object.create(GridspaceTimelineService.prototype), { enabled: true, peer: {} }) as GridspaceTimelineService;
-		expect(await service.capability()).toEqual({ enabled: true, version: 1, kinds: ['home', 'social'] });
+		expect(await service.capability()).toEqual({ enabled: true, version: 1, kinds: ['home', 'social', 'profile', 'search', 'mentions', 'direct', 'favorites', 'channel', 'antenna', 'clip'] });
 	});
 });

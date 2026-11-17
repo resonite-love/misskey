@@ -64,13 +64,12 @@ export class FanoutTimelineService {
 			if (Math.random() < 0.1) { // 10%の確率でトリム
 				pipeline.ltrim('list:' + tl, 0, maxlen - 1);
 			}
+			return undefined;
 		} else {
 			// 末尾のIDを取得
-			this.redisForTimelines.lindex('list:' + tl, -1).then(lastId => {
+			return this.redisForTimelines.lindex('list:' + tl, -1).then(async lastId => {
 				if (lastId == null || (this.idService.parse(id).date.getTime() > this.idService.parse(lastId).date.getTime())) {
-					this.redisForTimelines.lpush('list:' + tl, id);
-				} else {
-					Promise.resolve();
+					await this.redisForTimelines.lpush('list:' + tl, id);
 				}
 			});
 		}

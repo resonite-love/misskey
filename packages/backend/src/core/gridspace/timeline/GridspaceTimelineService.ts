@@ -13,18 +13,22 @@ import { GridspaceLinkError } from '../GridspaceLinkService.js';
 import { sealGridspaceSecret, openGridspaceSecret } from '../link-crypto.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from '../peer-protocol.js';
 import { canonicalGridspaceNoteUri } from '../note-protocol.js';
+import { GridspaceNoteService } from '../GridspaceNoteService.js';
+import { TimelineFavoriteSource, type FavoriteReference } from './TimelineFavoriteSource.js';
+import type { TimelineListOptions } from './GridspaceTimelineListSourceService.js';
 import { TimelineReferenceService } from './TimelineReferenceService.js';
 import { TimelineLocalSource } from './TimelineLocalSource.js';
 import { TimelineSessionStore } from './TimelineSessionStore.js';
 import { GridspaceTimelineListSourceService } from './GridspaceTimelineListSourceService.js';
 import type { TimelineLocalOptions } from './TimelineLocalSource.js';
 import { emptyTimelineMerge, mergeTimeline, type TimelineMergeState } from './TimelineMergeService.js';
-import { compareTimelinePosition, type TimelineItem, type TimelineOptions, type TimelinePage, type TimelineReference, type TimelineSourceState } from './timeline-protocol.js';
+import { compareTimelinePosition, type TimelineItem, type TimelineOptions, type TimelinePage, type TimelinePosition, type TimelineReference, type TimelineSourceState } from './timeline-protocol.js';
 
 type Checkpoint = {
 	options: TimelineOptions; mode: 'unified' | 'local-fallback'; revision: string; expires: number; session: string;
 	merge: TimelineMergeState; selected?: TimelineReference[]; nextId?: string | null; sequence: string; peerSequence?: string;
 	untilAt?: number;
+	fromAt?: number;
 	windowHead?: TimelineReference;
 	nextPolicyCheckAt?: number | null;
 	checkedThrough?: string;
@@ -42,6 +46,8 @@ export class GridspaceTimelineService {
 		private references: TimelineReferenceService,
 		private delegated: GridspacePrivateService,
 		private lists?: GridspaceTimelineListSourceService,
+		private favorites?: TimelineFavoriteSource,
+		private sharedNotes?: GridspaceNoteService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 		this.enabled = config.gridspace?.timelineEnabled === true;
@@ -49,7 +55,7 @@ export class GridspaceTimelineService {
 
 	public async capability() {
 		if (!this.peer) return { version: 1, enabled: false, kinds: ['home', 'social'] };
-		return { version: 1, enabled: this.enabled, kinds: ['home', 'social'] };
+		return { version: 1, enabled: this.enabled, kinds: ['home', 'social', 'profile', 'search', 'mentions', 'direct', 'favorites', 'channel', 'antenna', 'clip'] };
 	}
 
 	private localSource(options: TimelineOptions) {
@@ -58,10 +64,15 @@ export class GridspaceTimelineService {
 			hydrate: (viewer: MiLocalUser, refs: TimelineReference[]) => this.local.hydrate(viewer, options as TimelineLocalOptions, refs),
 			ownerReferences: (viewer: MiLocalUser, uris: string[], upper?: Parameters<TimelineLocalSource['ownerReferences']>[3]) => this.local.ownerReferences(viewer, options as TimelineLocalOptions, uris, upper),
 		};
-		if (options.kind === 'mentions' || options.kind === 'direct') return {
-			readPage: (viewer: MiLocalUser, position: Parameters<TimelineLocalSource['readPage']>[2]) => this.lists!.readPage(viewer, { kind: options.kind as 'mentions' | 'direct' }, position),
-			hydrate: (viewer: MiLocalUser, refs: TimelineReference[]) => this.lists!.hydrate(viewer, { kind: options.kind as 'mentions' | 'direct' }, refs),
-			ownerReferences: (viewer: MiLocalUser, uris: string[], upper?: Parameters<TimelineLocalSource['ownerReferences']>[3]) => this.lists!.ownerReferences(viewer, { kind: options.kind as 'mentions' | 'direct' }, uris, upper),
+		if (options.kind === 'mentions' || options.kind === 'direct' || options.kind === 'profile' || options.kind === 'search') return {
+			readPage: (viewer: MiLocalUser, position: Parameters<TimelineLocalSource['readPage']>[2]) => this.lists!.readPage(viewer, options as TimelineListOptions, position),
+			hydrate: (viewer: MiLocalUser, refs: TimelineReference[]) => this.lists!.hydrate(viewer, options as TimelineListOptions, refs),
+			ownerReferences: (viewer: MiLocalUser, uris: string[], upper?: Parameters<TimelineLocalSource['ownerReferences']>[3]) => this.lists!.ownerReferences(viewer, options as TimelineListOptions, uris, upper),
+		};
+		if (options.kind === 'favorites') return {
+			readPage: (viewer: MiLocalUser, position: Parameters<TimelineLocalSource['readPage']>[2]) => this.favorites!.readPage(viewer, position),
+			hydrate: (viewer: MiLocalUser, refs: TimelineReference[]) => this.favorites!.hydrate(viewer, refs as FavoriteReference[]),
+			ownerReferences: (viewer: MiLocalUser, uris: string[], upper?: Parameters<TimelineLocalSource['ownerReferences']>[3]) => this.favorites!.ownerReferences(viewer, uris, upper),
 		};
 		// Linked channels are authored on the source server; the destination's
 		// normal note store is not an alternative channel source.
@@ -70,6 +81,12 @@ export class GridspaceTimelineService {
 			hydrate: async (_viewer: MiLocalUser, _refs: TimelineReference[]) => [],
 			ownerReferences: async (_viewer: MiLocalUser, _uris: string[], _upper?: Parameters<TimelineLocalSource['ownerReferences']>[3]) => [],
 		};
+	}
+
+	private compare(options: TimelineOptions) {
+		return options.kind === 'clip' && options.order === 'oldest'
+			? (a: TimelinePosition, b: TimelinePosition) => -compareTimelinePosition(a, b)
+			: compareTimelinePosition;
 	}
 
 	private context(viewer: MiLocalUser, options: TimelineOptions, mode: string) { return `timeline-v1:${viewer.id}:${mode}:${JSON.stringify(options)}`; }
@@ -92,11 +109,29 @@ export class GridspaceTimelineService {
 		const started = Date.now();
 		const local = await this.localSource(checkpoint.options).hydrate(viewer, selected.filter(ref => ref.source === 'local'));
 		const peerRefs = selected.filter(ref => ref.source === 'peer');
-		const remote = peerRefs.length ? await this.delegated.timeline(viewer, { ids: peerRefs.map(ref => ref.noteId), ...checkpoint.options, deadline }) : null;
+		const remote = peerRefs.length ? await this.delegated.timeline(viewer, { ids: peerRefs.map(ref => ref.noteId), candidates: peerRefs, ...checkpoint.options, deadline }) : null;
 		const items = new Map<string, TimelineItem>();
 		for (const row of local) {
 			const ref = selected.find(candidate => candidate.source === 'local' && candidate.noteId === row.reference.noteId)!;
 			items.set(ref.canonicalUri, { key: ref.canonicalUri, sortKey: { sortAt: ref.sortAt, uri: ref.canonicalUri }, ref: this.referenceToken(viewer, checkpoint, ref), representation: 'normal', payload: row.payload, validForMs: row.validForMs == null ? null : Math.max(0, row.validForMs - (Date.now() - started)), nextPolicyCheckAt: row.nextPolicyCheckAt });
+		}
+		const publicRefs = peerRefs.filter(ref => remote?.references.some(allowed => allowed.noteId === ref.noteId && allowed.canonicalUri === ref.canonicalUri && allowed.public));
+		if (publicRefs.length && (checkpoint.options.kind === 'profile' || checkpoint.options.kind === 'search')) {
+			const imported = new Map<string, Awaited<ReturnType<GridspaceNoteService['historyNote']>>>();
+			const budget = { remaining: 128, deadline };
+			for (let offset = 0; offset < publicRefs.length; offset += 20) {
+				const batch = await this.sharedNotes!.historyNotes(publicRefs.slice(offset, offset + 20).map(ref => ref.noteId), budget);
+				for (const [id, note] of batch) imported.set(id, note);
+			}
+			const mapped = publicRefs.flatMap(ref => { const note = imported.get(ref.noteId); return note ? [{ ...ref, noteId: note.id, source: 'local' as const }] : []; });
+			const hydrated = await this.lists!.hydrateImported(viewer, checkpoint.options as TimelineListOptions, mapped);
+			const fresh = await this.delegated.timeline(viewer, { ids: publicRefs.map(ref => ref.noteId), ...checkpoint.options, deadline });
+			for (const ref of publicRefs) {
+				const note = imported.get(ref.noteId);
+				const row = hydrated.find(candidate => candidate.reference.noteId === note?.id);
+				if (!row || !fresh.references.some(allowed => allowed.noteId === ref.noteId && allowed.public && allowed.canonicalUri === ref.canonicalUri)) continue;
+				items.set(ref.canonicalUri, { key: ref.canonicalUri, sortKey: { sortAt: ref.sortAt, uri: ref.canonicalUri }, ref: this.referenceToken(viewer, checkpoint, ref), representation: 'normal', payload: row.payload, validForMs: Math.max(0, Math.min(row.validForMs ?? 10000, fresh.validForMs) - (Date.now() - started)), nextPolicyCheckAt: row.nextPolicyCheckAt });
+			}
 		}
 		for (const ref of peerRefs) {
 			const body = remote?.notes.find(note => note.id === ref.noteId && canonicalGridspaceNoteUri(note.uri, this.peer!.peerOrigin) === ref.canonicalUri);
@@ -126,7 +161,7 @@ export class GridspaceTimelineService {
 	private async relevantChanges(viewer: MiLocalUser, checkpoint: Checkpoint, sequence: string, retained: TimelineReference[]) {
 		const changes = await this.references.changes(sequence);
 		const ids = [...new Set(changes.events.flatMap(event => event.noteId ? [event.noteId] : []))];
-		const candidates = ids.length ? (await this.references.getMany(ids)).map(ref => ({ ...ref, source: 'local' as const })) : [];
+		const candidates = checkpoint.options.kind !== 'favorites' && ids.length ? (await this.references.getMany(ids)).map(ref => ({ ...ref, source: 'local' as const })) : [];
 		const readable = await this.localSource(checkpoint.options).hydrate(viewer, candidates);
 		const visible = new Set(readable.map(row => row.reference.noteId));
 		const retainedIds = new Set(retained.filter(ref => ref.source === 'local').map(ref => ref.noteId));
@@ -134,13 +169,16 @@ export class GridspaceTimelineService {
 		const updated = changes.events.some(event => event.noteId && (retainedIds.has(event.noteId) || visible.has(event.noteId)) && event.kind !== 'insert');
 		const ownerChanged = changes.events.some(event => event.kind !== 'insert' && event.canonicalUri != null && Object.hasOwn(checkpoint.merge.owners, event.canonicalUri));
 		const inserts = candidates.filter(ref => visible.has(ref.noteId) && changes.events.some(event => event.noteId === ref.noteId && event.kind === 'insert'));
-		return { ...changes, resetRequired: changes.resetRequired || policy || updated || ownerChanged || (checkpoint.nextPolicyCheckAt != null && checkpoint.nextPolicyCheckAt <= Date.now()), inserts };
+		return { ...changes, resetRequired: changes.resetRequired || policy || updated || ownerChanged ||
+			(checkpoint.nextPolicyCheckAt != null && checkpoint.nextPolicyCheckAt <= Date.now()), inserts };
 	}
 
 	public async page(viewer: MiLocalUser, options: TimelineOptions, limit: number, cursor?: string, mode: 'unified' | 'local-fallback' = 'unified', anchor?: string, retained?: { previousSession: string; previousRevision: string; refs: string[] }): Promise<TimelinePage> {
 		const deadline = Date.now() + 8000;
 		if (!this.peer) throw new GridspaceLinkError('UNAVAILABLE');
-		if ((options.kind === 'channel') !== !!options.channelId || (options.query && options.kind !== 'channel')) throw new GridspaceLinkError('INVALID_REQUEST');
+		if ((options.kind === 'channel') !== !!options.channelId || (options.kind === 'clip') !== !!options.clipId || (options.kind === 'antenna') !== !!options.antennaId ||
+			(options.kind === 'profile' && !options.userId) || (options.kind === 'search' && !options.query?.trim()) ||
+			(options.order === 'oldest' && options.kind !== 'clip') || (options.query && !['channel', 'clip', 'search'].includes(options.kind))) throw new GridspaceLinkError('INVALID_REQUEST');
 		const status = await this.references.status();
 		let position: Cursor;
 		let checkpoint: Checkpoint;
@@ -176,7 +214,10 @@ export class GridspaceTimelineService {
 			if (anchor) {
 				const own = await this.localSource(options).ownerReferences(viewer, [anchor]);
 				const ref = own[0] ?? (mode === 'unified' ? (await this.delegated.timeline(viewer, { anchor, ...options, deadline })).references[0] : undefined);
-				if (ref) checkpoint.untilAt = Number(BigInt(ref.sortAt) / 1000n);
+				if (ref) {
+					if (options.kind === 'clip' && options.order === 'oldest') checkpoint.fromAt = Number(BigInt(ref.sortAt) / 1000n);
+					else checkpoint.untilAt = Number(BigInt(ref.sortAt) / 1000n);
+				}
 			}
 			await this.sessions.start(viewer.id, checkpoint.session, JSON.stringify(checkpoint), checkpoint.expires);
 			await this.store(checkpoint, position.id, true);
@@ -189,7 +230,12 @@ export class GridspaceTimelineService {
 					if (source === 'local') {
 						return this.localSource(options).readPage(viewer, { before: state.before ?? undefined, upper: state.upper ?? undefined, untilAt: working.untilAt, limit: 50 });
 					}
-					const page = await this.delegated.timeline(viewer, { before: state.before ?? undefined, upper: state.upper ?? undefined, untilAt: working.untilAt, ...options, deadline });
+					let page: Awaited<ReturnType<GridspacePrivateService['timeline']>>;
+					try { page = await this.delegated.timeline(viewer, { before: state.before ?? undefined, upper: state.upper ?? undefined, untilAt: working.untilAt, fromAt: working.fromAt, ...options, deadline }); } catch (error) {
+						if (!(error instanceof GridspaceLinkError) || !['AUTHORIZATION_REVOKED', 'LINK_REVOKED'].includes(error.code)) throw error;
+						states[1] = { source: 'peer', status: 'unauthorized', retryable: false };
+						return { references: [], next: null, upper: null, ended: true };
+					}
 					working.peerSequence ??= page.sequence;
 					const owned = await this.localSource(options).ownerReferences(viewer, page.references.map(ref => ref.canonicalUri), working.merge.local.upper);
 					for (const ref of owned) working.merge.owners[ref.canonicalUri] ??= 'local';
@@ -198,7 +244,7 @@ export class GridspaceTimelineService {
 						return working.merge.owners[ref.canonicalUri] === 'peer';
 					});
 					return { references, next: page.next ?? null, upper: page.upper ?? null, ended: !page.next };
-				}, () => Date.now() < deadline - 250);
+				}, () => Date.now() < deadline - 250, this.compare(options));
 				working.nextId = working.merge.local.pending.length || working.merge.peer.pending.length || !working.merge.local.ended || !working.merge.peer.ended ? randomUUID() : null;
 				working.windowHead ??= working.selected[0];
 				// NX fixes both selection and next checkpoint for concurrent retries.
@@ -226,7 +272,7 @@ export class GridspaceTimelineService {
 		const reboundOwners = await this.localSource(options).ownerReferences(viewer, rebound.filter(ref => ref.source === 'peer').map(ref => ref.canonicalUri));
 		rebound = rebound.map(ref => reboundOwners.find(owner => owner.canonicalUri === ref.canonicalUri) ?? ref);
 		const retainedItems = await this.hydrate(viewer, checkpoint, rebound, deadline);
-		const order = [...checkpoint.selected!, ...rebound].sort(compareTimelinePosition).map(ref => ref.canonicalUri).filter((key, index, all) => all.indexOf(key) === index);
+		const order = [...checkpoint.selected!, ...rebound].sort(this.compare(options)).map(ref => ref.canonicalUri).filter((key, index, all) => all.indexOf(key) === index);
 		return { version: 1, session: checkpoint.session, revision: checkpoint.revision, items, retainedItems, order, nextCursor: checkpoint.nextId ? this.token(viewer, checkpoint, checkpoint.nextId) : null, updatesCursor: this.updatesToken(viewer, checkpoint), complete: true, mode, sources: states, revalidateAfterMs: 10000 };
 	}
 
@@ -255,14 +301,15 @@ export class GridspaceTimelineService {
 		}
 		const owners = await this.localSource(checkpoint.options).ownerReferences(viewer, selected.filter(ref => ref.source === 'peer').map(ref => ref.canonicalUri));
 		const ownershipChanged = owners.length > 0;
-		const items = await this.hydrate(viewer, checkpoint, selected.filter(ref => !owners.some(owner => owner.canonicalUri === ref.canonicalUri)).sort(compareTimelinePosition));
+		const compare = this.compare(checkpoint.options);
+		const items = await this.hydrate(viewer, checkpoint, selected.filter(ref => !owners.some(owner => owner.canonicalUri === ref.canonicalUri)).sort(compare));
 		if (events) checkpoint.sequence = events.cursor;
 		const locallyOwned = await this.localSource(checkpoint.options).ownerReferences(viewer, peerInserts.map(ref => ref.canonicalUri));
-		const inserts = [...(events?.inserts ?? []), ...peerInserts.filter(ref => !locallyOwned.some(owner => owner.canonicalUri === ref.canonicalUri))].filter(ref => !selected.some(existing => existing.canonicalUri === ref.canonicalUri)).sort(compareTimelinePosition);
+		const inserts = [...(events?.inserts ?? []), ...peerInserts.filter(ref => !locallyOwned.some(owner => owner.canonicalUri === ref.canonicalUri))].filter(ref => !selected.some(existing => existing.canonicalUri === ref.canonicalUri)).sort(compare);
 		const head = checkpoint.windowHead;
-		const late = inserts.some(ref => head && compareTimelinePosition(ref, head) > 0);
+		const late = inserts.some(ref => head && compare(ref, head) > 0);
 		const newItems = late ? [] : await this.hydrate(viewer, checkpoint, inserts);
-		if (!late && inserts[0] && (!checkpoint.windowHead || compareTimelinePosition(inserts[0], checkpoint.windowHead) < 0)) checkpoint.windowHead = inserts[0];
+		if (!late && inserts[0] && (!checkpoint.windowHead || compare(inserts[0], checkpoint.windowHead) < 0)) checkpoint.windowHead = inserts[0];
 		const mergedCheckpoint = JSON.parse(await this.sessions.putSession(checkpoint.session, JSON.stringify(checkpoint), checkpoint.expires)) as Checkpoint;
 		checkpoint.windowHead = mergedCheckpoint.windowHead;
 		const resetRequired = late || ownershipChanged || peerChanged || (events?.resetRequired ?? false) || String((await this.references.status()).generation) !== checkpoint.revision;

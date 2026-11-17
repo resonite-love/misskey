@@ -7,11 +7,12 @@ import type { Packed } from '@/misc/json-schema.js';
 import { privateNoteSchema, type PrivateNote } from '../private-protocol.js';
 
 export type TimelinePosition = { sortAt: string; canonicalUri: string; noteId?: string; sourceId?: string; source?: 'local' | 'peer' };
-export type TimelineReference = TimelinePosition & { noteId: string; normalized: boolean; generation: number; source: 'local' | 'peer' };
+export type TimelineReference = TimelinePosition & { noteId: string; normalized: boolean; generation: number; source: 'local' | 'peer'; public?: boolean };
 export type TimelineOptions = {
-	kind: 'home' | 'social' | 'mentions' | 'direct' | 'channel'; withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean;
+	kind: 'home' | 'social' | 'profile' | 'search' | 'mentions' | 'direct' | 'channel' | 'favorites' | 'antenna' | 'clip'; withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean;
 	includeMyRenotes?: boolean; includeRenotedMyNotes?: boolean; includeLocalRenotes?: boolean;
-	channelId?: string; query?: string;
+	channelId?: string; clipId?: string; antennaId?: string; userId?: string; query?: string;
+	withChannelNotes?: boolean; order?: 'newest' | 'oldest'; rangeStartAt?: number; rangeEndAt?: number;
 };
 export type TimelineItem = {
 	key: string; sortKey: { sortAt: string; uri: string }; ref: string;
@@ -26,9 +27,13 @@ export type TimelinePage = {
 };
 
 export const timelineFilterSchema = {
-	kind: { type: 'string', enum: ['home', 'social', 'mentions', 'direct', 'channel'] },
+	kind: { type: 'string', enum: ['home', 'social', 'profile', 'search', 'mentions', 'direct', 'channel', 'favorites', 'antenna', 'clip'] },
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+	clipId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, antennaId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
+	userId: { type: 'string', format: 'misskey:id', maxLength: 32 },
 	query: { type: 'string', minLength: 1, maxLength: 200 },
+	withChannelNotes: { type: 'boolean', default: true }, order: { type: 'string', enum: ['newest', 'oldest'] },
+	rangeStartAt: { type: 'integer', minimum: 1, maximum: 4102444800000 }, rangeEndAt: { type: 'integer', minimum: 1, maximum: 4102444800000 },
 	withReplies: { type: 'boolean', default: false }, withRenotes: { type: 'boolean', default: true }, withFiles: { type: 'boolean', default: false },
 	includeMyRenotes: { type: 'boolean', default: true }, includeRenotedMyNotes: { type: 'boolean', default: true }, includeLocalRenotes: { type: 'boolean', default: true },
 } as const;

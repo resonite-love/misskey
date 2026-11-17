@@ -76,6 +76,28 @@ export class TimelineFavoriteSource {
 			.map(row => ({ ...row, payload: { ...row.payload, collectionAt: this.ids.parse((row.reference as FavoriteReference).sourceId).date.toISOString() } }));
 	}
 
+	public async readPage(viewer: MiLocalUser, position: { before?: FavoritePosition; upper?: FavoritePosition; untilAt?: number; limit: number }) {
+		if (!Number.isInteger(position.limit) || position.limit < 1 || position.limit > 50) throw new GridspaceLinkError('INVALID_REQUEST');
+		const scan = this.db.getRepository(MiNoteFavorite).createQueryBuilder('candidate').where('candidate.userId = :favoriteViewer', { favoriteViewer: viewer.id });
+		for (const [name, boundary, operator] of [['Before', position.before, '<'], ['Upper', position.upper, '<=']] as const) {
+			if (!boundary) continue;
+			if (!boundary.sourceId || !/^[a-zA-Z0-9]{1,32}$/.test(boundary.sourceId)) throw new GridspaceLinkError('INVALID_CURSOR');
+			scan.andWhere(`candidate.id ${operator} :favorite${name}`, { [`favorite${name}`]: boundary.sourceId });
+		}
+		if (position.untilAt != null) scan.andWhere('candidate.id < :favoriteUntil', { favoriteUntil: this.ids.gen(position.untilAt + 1) });
+		const rows = await scan.orderBy('candidate.id', 'DESC').limit(513).getMany();
+		const window = rows.slice(0, 512);
+		const boundary = (favorite: MiNoteFavorite): FavoriteReference => this.reference({ noteId: favorite.noteId, sourceId: favorite.id, uri: null });
+		const upper = position.upper ?? (window[0] ? boundary(window[0]) : null);
+		if (!window.length) return { references: [], next: null, upper, ended: true };
+		const readable = await this.query(viewer).andWhere('favorite.id IN (:...favoriteWindow)', { favoriteWindow: window.map(row => row.id) })
+			.select('note.id', 'noteId').addSelect('note.uri', 'uri').addSelect('favorite.id', 'sourceId').orderBy('favorite.id', 'DESC').limit(position.limit + 1)
+			.getRawMany<{ noteId: string; uri: string | null; sourceId: string }>();
+		const references = readable.slice(0, position.limit).map(row => this.reference(row));
+		const more = readable.length > position.limit || rows.length > 512;
+		return { references, next: more ? readable.length > position.limit ? references.at(-1)! : boundary(window.at(-1)!) : null, upper, ended: !more };
+	}
+
 	public async ownerReferences(viewer: MiLocalUser, uris: string[], upper?: FavoritePosition | null): Promise<FavoriteReference[]> {
 		if (uris.length > 100) throw new GridspaceLinkError('INVALID_REQUEST');
 		if (!uris.length || upper === null) return [];

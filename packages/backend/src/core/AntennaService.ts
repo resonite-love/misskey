@@ -18,6 +18,8 @@ import type { AntennasRepository, UserListMembershipsRepository } from '@/models
 import type { MiAntenna } from '@/models/Antenna.js';
 import type { MiNote } from '@/models/Note.js';
 import type { MiUser } from '@/models/User.js';
+import type { Config } from '@/config.js';
+import { MiGridspaceTimelineOutbox } from '@/models/GridspaceTimeline.js';
 import { CacheService } from './CacheService.js';
 import type { OnApplicationShutdown } from '@nestjs/common';
 
@@ -43,6 +45,7 @@ export class AntennaService implements OnApplicationShutdown {
 		private utilityService: UtilityService,
 		private globalEventService: GlobalEventService,
 		private fanoutTimelineService: FanoutTimelineService,
+		@Inject(DI.config) private config: Config,
 	) {
 		this.antennasFetched = false;
 		this.antennas = [];
@@ -99,14 +102,29 @@ export class AntennaService implements OnApplicationShutdown {
 		const antennas = await this.getAntennas();
 		const antennasWithMatchResult = await Promise.all(antennas.map(antenna => this.checkHitAntenna(antenna, note, noteUser).then(hit => [antenna, hit] as const)));
 		const matchedAntennas = antennasWithMatchResult.filter(([, hit]) => hit).map(([antenna]) => antenna);
+		if (matchedAntennas.length === 0) return matchedAntennas;
 
 		const redisPipeline = this.redisForTimelines.pipeline();
+		const pending: Promise<void>[] = [];
 
 		for (const antenna of matchedAntennas) {
-			this.fanoutTimelineService.push(`antennaTimeline:${antenna.id}`, note.id, 200, redisPipeline);
+			const write = this.fanoutTimelineService.push(`antennaTimeline:${antenna.id}`, note.id, 200, redisPipeline);
+			if (write) pending.push(write);
 		}
 
-		redisPipeline.exec();
+		const [result] = await Promise.all([redisPipeline.exec(), ...pending]);
+		if (!result) throw new Error('Antenna timeline pipeline was aborted');
+		for (const [error] of result) if (error) throw error;
+		if (this.config.gridspace?.enabled) {
+			// The original note event may already have been consumed before this
+			// asynchronous fanout. Publish a new durable position only after both
+			// pipelined writes and delayed old-note writes have actually completed.
+			await this.antennasRepository.manager.getRepository(MiGridspaceTimelineOutbox).insert(
+				[...new Set(matchedAntennas.map(antenna => antenna.userId))].map(affectedUserId => ({
+					kind: 'antenna', affectedUserId, noteId: null, canonicalUri: null,
+				})),
+			);
+		}
 
 		return matchedAntennas;
 	}

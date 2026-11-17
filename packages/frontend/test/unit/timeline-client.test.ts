@@ -168,11 +168,76 @@ describe('server timeline client', () => {
 		const request = vi.fn().mockResolvedValue(page([item('local', false)]));
 		const value = new TimelineClient({ kind: 'home' }, { request, subscribe, now: () => Date.now() });
 		clients.push(value); await value.reload();
-		invalidate(); invalidate(); invalidate();
-		await vi.advanceTimersByTimeAsync(1000);
+		invalidate();
+		await vi.advanceTimersByTimeAsync(1000); invalidate();
+		await vi.advanceTimersByTimeAsync(1000); invalidate();
+		await vi.advanceTimersByTimeAsync(5999);
+		expect(request).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1);
 		expect(request).toHaveBeenCalledTimes(2);
+		for (let second = 0; second < 7; second++) { invalidate(); await vi.advanceTimersByTimeAsync(1000); }
+		expect(request).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(request).toHaveBeenCalledTimes(3);
 		value.suspend(); expect(dispose).toHaveBeenCalledOnce();
 		await value.resume(); expect(subscribe).toHaveBeenCalledTimes(2);
+	});
+	it('keeps manual refresh and reconnect immediate while moving the passive poll after them', async () => {
+		let invalidate!: () => void; let reconnect!: () => void;
+		const subscribe = vi.fn((_params, hint, connected) => { invalidate = hint; reconnect = connected; return () => {}; });
+		const request = vi.fn().mockResolvedValue(page([item('local', false)]));
+		const value = new TimelineClient({ kind: 'home' }, { request, subscribe, now: () => Date.now() });
+		clients.push(value); await value.reload();
+		await vi.advanceTimersByTimeAsync(1000); invalidate();
+		await value.refresh(); expect(request).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1000); reconnect(); await settle();
+		expect(request).toHaveBeenCalledTimes(3);
+		await vi.advanceTimersByTimeAsync(7999); expect(request).toHaveBeenCalledTimes(3);
+		await vi.advanceTimersByTimeAsync(1); expect(request).toHaveBeenCalledTimes(4);
+	});
+	it('does not follow a slow in-flight poll with an extra hint request', async () => {
+		let invalidate!: () => void;
+		let finish!: (value: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('local', false)]))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockResolvedValue(page([item('local', false)]));
+		const subscribe = vi.fn((_params, hint) => { invalidate = hint; return () => {}; });
+		const value = new TimelineClient({ kind: 'home' }, { request, subscribe, now: () => Date.now() });
+		clients.push(value); await value.reload();
+		await vi.advanceTimersByTimeAsync(8000); expect(request).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1000); invalidate();
+		await vi.advanceTimersByTimeAsync(3000); finish(page([item('local', false)])); await settle();
+		await vi.advanceTimersByTimeAsync(3999); expect(request).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1); expect(request).toHaveBeenCalledTimes(3);
+	});
+	it('renews a leased body early enough for a three-second response before its deadline', async () => {
+		const starts: number[] = [];
+		const request = vi.fn(() => {
+			starts.push(Date.now());
+			return new Promise<TimelineResponse>(resolve => window.setTimeout(() => resolve(page([item('private')])), 3000));
+		});
+		const value = client(request);
+		const initial = value.reload(); await vi.advanceTimersByTimeAsync(3000); await initial;
+		expect(value.rows.value[0]).toMatchObject({ note: { text: 'body:private' } });
+		await vi.advanceTimersByTimeAsync(2999); expect(request).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1); expect(request).toHaveBeenCalledTimes(2);
+		expect(starts[1] - starts[0]).toBe(6000);
+		await vi.advanceTimersByTimeAsync(3000);
+		expect(value.rows.value[0]).toMatchObject({ note: { text: 'body:private' } });
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(value.rows.value[0]).toMatchObject({ note: { text: 'body:private' } });
+	});
+	it('uses the earliest queued lease to advance the shared timer without extra hint calls', async () => {
+		let invalidate!: () => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('visible')]))
+			.mockResolvedValueOnce(page([item('visible')], { newItems: [item('queued', true, 6000)] }))
+			.mockResolvedValue(page([item('visible'), item('queued')]));
+		const value = new TimelineClient({ kind: 'home' }, {
+			request, isTop: () => false, now: () => Date.now(), subscribe: (_params, hint) => { invalidate = hint; return () => {}; },
+		});
+		clients.push(value); await value.reload(); await value.refresh();
+		invalidate(); await vi.advanceTimersByTimeAsync(2000); invalidate();
+		await vi.advanceTimersByTimeAsync(1999); expect(request).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1); expect(request).toHaveBeenCalledTimes(3);
 	});
 	it('rebinds queued rows to a replacement session in server order before allowing release', async () => {
 		const queued = item('queued'); const fresh = { ...item('queued'), ref: 'new:queued' };
