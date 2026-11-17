@@ -10,7 +10,7 @@ import { translationErrors, translationFailure } from '@/server/api/auto-transla
 
 export const meta = {
 	tags: ['notes'], requireCredential: true, kind: 'read:account',
-	limit: { duration: 60_000, max: 120 },
+	limit: { duration: 60_000, max: 12_000 },
 	errors: translationErrors,
 	res: {
 		type: 'object', optional: false, nullable: false,
