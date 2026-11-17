@@ -10,7 +10,7 @@ import { misskeyApi } from '@/utility/misskey-api.js';
 import { $i } from '@/i.js';
 import { linkedNotifications } from '@/utility/gridspace-notification-state.js';
 
-vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: vi.fn() }));
+vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: vi.fn(), isMisskeyApiNetworkError: (error: unknown) => error instanceof TypeError && error.message === 'Failed to fetch' }));
 vi.mock('@/i.js', () => ({ $i: { id: 'viewer', hardMutedWords: [] } }));
 vi.mock('@/accounts.js', () => ({ updateCurrentAccount: vi.fn() }));
 vi.mock('@/composables/use-note.js', () => ({ checkNoteWordMute: () => false }));
@@ -49,6 +49,56 @@ beforeEach(() => { Object.assign(linkedNotifications, { channelEnabled: false, p
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('server-ordered notification timeline', () => {
+ it('removes a retained hidden snapshot immediately on an authorization error after return', async () => {
+  let hidden = false; vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+  let fail = false;
+  respond = async () => { if (fail) throw { info: { reason: 'AUTHORIZATION_REVOKED' } }; return page([notice('peer', 'one', 1)]); };
+  const list = mount(); await settle();
+  hidden = true; document.dispatchEvent(new Event('visibilitychange')); await settle();
+  expect(JSON.stringify(list.rows.value)).toContain('protected');
+  fail = true; hidden = false; document.dispatchEvent(new Event('visibilitychange')); await settle();
+  expect(JSON.stringify(list.rows.value)).not.toContain('protected');
+ });
+ it('renews before expiry even when acknowledging a seen notification is slow', async () => {
+  let requests = 0;
+  let finish!: (result: unknown) => void;
+  respond = async endpoint => {
+   if (endpoint.endsWith('/read')) return new Promise(resolve => { finish = resolve; });
+   requests++; return { ...page([notice('peer', 'one', 1)]), revalidateAfterMs: 9000 };
+  };
+  const list = mount(); await settle(); list.seen(list.rows.value[0]);
+  await vi.advanceTimersByTimeAsync(9100); await settle();
+  expect(requests).toBeGreaterThan(1);
+  expect(list.rows.value[0]).not.toHaveProperty('suspended', true);
+  expect(JSON.stringify(list.rows.value)).toContain('protected');
+  finish({ unreadCount: 0 }); await settle();
+ });
+ it('retains a transport failure only until the previous lease expires', async () => {
+  let fail = false;
+  respond = async () => { if (fail) throw new TypeError('Failed to fetch'); return page([notice('peer', 'one', 1)], 'older'); };
+  const list = mount(); await settle(); fail = true; await list.older();
+  expect(JSON.stringify(list.rows.value)).toContain('protected');
+  await vi.advanceTimersByTimeAsync(10001);
+  expect(JSON.stringify(list.rows.value)).not.toContain('protected');
+ });
+ it('preserves the server order on a verified retryable source failure without renewing its lease', async () => {
+  let fail = false;
+  const first = page([notice('peer', 'first', 1), notice('local', 'second', 9), notice('peer', 'third', 8)]);
+  respond = async () => fail ? { ...page([notice('local', 'second', 9)]), complete: false, sources: [
+   { source: 'local', status: 'ok', unreadCount: 0 }, { source: 'peer', status: 'unavailable', retryable: true, unreadCount: null },
+  ] } : first;
+  const list = mount(); await settle(); fail = true;
+  await vi.advanceTimersByTimeAsync(9000);
+  expect(list.rows.value.map(row => row.id)).toEqual(['first', 'second', 'third']);
+  await vi.advanceTimersByTimeAsync(1001);
+  expect(JSON.stringify(list.rows.value)).not.toContain('protected');
+ });
+ it('removes protected rows on unclassified API or response failures', async () => {
+  let fail = false;
+  respond = async () => { if (fail) throw { code: 'GRIDSPACE_NOTIFICATION_TIMELINE_UNAVAILABLE', info: { reason: 'PEER_UNAVAILABLE' } }; return page([notice('peer', 'one', 1)], 'older'); };
+  const list = mount(); await settle(); fail = true; await list.older();
+  expect(list.rows.value).toEqual([]);
+ });
  it('keeps server order, opaque cursor and identity even when timestamps disagree', async () => {
   respond = async (_, p) => p.cursor === 'older' ? page([notice('peer', 'third', 99)]) : page([notice('peer', 'same', 1), notice('local', 'same', 10)], 'older');
   const list = mount(); await settle();
@@ -105,12 +155,14 @@ describe('server-ordered notification timeline', () => {
   vi.advanceTimersByTime(10000); await settle();
   expect(JSON.stringify(list.rows.value)).not.toContain('protected'); expect(list.rows.value[0].suspended).toBe(true);
  });
- it('strips hidden-tab bodies, ignores delayed responses, and restores only after server validation', async () => {
+ it('keeps hidden-tab bodies only within their lease and revalidates on return', async () => {
   let hidden = false; vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
   respond = async () => page([notice('peer', 'one', 1)], 'older');
   const list = mount(); await settle(); const keys = list.rows.value.map(row => row.key);
   hidden = true; document.dispatchEvent(new Event('visibilitychange')); await settle();
-  expect(list.rows.value.map(row => row.key)).toEqual(keys); expect(JSON.stringify(list.rows.value)).not.toContain('protected');
+  expect(list.rows.value.map(row => row.key)).toEqual(keys); expect(JSON.stringify(list.rows.value)).toContain('protected');
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(JSON.stringify(list.rows.value)).not.toContain('protected');
   const callsBeforeResume = api.mock.calls.length;
   hidden = false; document.dispatchEvent(new Event('visibilitychange')); await settle();
   expect(JSON.stringify(list.rows.value)).toContain('protected');

@@ -282,7 +282,7 @@ export class TimelineClient {
 		}
 		const previous = new Set(this.visibleItems.map(item => item.key));
 		const windowStreamVersion = this.streamVersion;
-		const restoreHistory = preserve && mode === 'unified' && ['home', 'social'].includes(this.query.kind) && this.visibleItems.length > 1;
+		const restoreHistory = preserve && mode === 'unified' && this.visibleItems.length > 1;
 		const historyStart = restoreHistory ? this.visibleItems[0] : undefined;
 		const historyEnd = restoreHistory ? this.visibleItems.at(-1) : undefined;
 		let anchor = historyStart?.key ?? this.options.anchor?.() ?? this.visibleItems[0]?.key;
@@ -301,8 +301,9 @@ export class TimelineClient {
 			};
 			requireComplete();
 			const cursors = new Set<string>();
+			const ascending = this.query.kind === 'clip' && this.query.order === 'oldest';
 			const complete = () => windowRows.some(row => row.item.key === historyEnd.key) ||
-				windowRows.some(row => BigInt(row.item.sortKey.sortAt) < BigInt(historyEnd.sortKey.sortAt));
+				windowRows.some(row => ascending ? BigInt(row.item.sortKey.sortAt) > BigInt(historyEnd.sortKey.sortAt) : BigInt(row.item.sortKey.sortAt) < BigInt(historyEnd.sortKey.sortAt));
 			while (response.result.nextCursor && !complete()) {
 				if (current !== this.generation || !this.usable()) return;
 				if (cursors.size >= 64 || cursors.has(response.result.nextCursor)) throw new Error('Incomplete history restoration');

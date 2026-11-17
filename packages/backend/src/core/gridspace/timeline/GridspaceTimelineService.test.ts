@@ -17,6 +17,8 @@ import { TimelineSessionStore } from './TimelineSessionStore.js';
 import type { GridspacePrivateService } from '../GridspacePrivateService.js';
 import type { TimelineLocalSource } from './TimelineLocalSource.js';
 import type { TimelineReferenceService } from './TimelineReferenceService.js';
+import type { GridspaceTimelineListSourceService } from './GridspaceTimelineListSourceService.js';
+import type { TimelineFavoriteSource } from './TimelineFavoriteSource.js';
 import type { TimelineItem, TimelineOptions, TimelinePosition, TimelineReference } from './timeline-protocol.js';
 
 // Independent oracle: numeric source timestamps and canonical identity, rather
@@ -53,12 +55,18 @@ function fixture(initialLocal: TimelineReference[], initialPeer: TimelineReferen
 	let generation = 1;
 	const config = { url: 'https://local.example', gridspace: { enabled: true, communityId: 'test', peerUrl: 'https://peer.example', keyId: 'test', secretEnv: secret } } as Config;
 	const sessions = new TimelineSessionStore(redis);
-	const service = new GridspaceTimelineService(config, sessions, local, references, delegated);
+	const lists = mockDeep<GridspaceTimelineListSourceService>();
+	lists.readPage.mockResolvedValue({ references: [], next: null, upper: null, ended: true });
+	lists.ownerReferences.mockResolvedValue([]); lists.ownerCandidates.mockResolvedValue([]); lists.hydrate.mockResolvedValue([]);
+	const favorites = mockDeep<TimelineFavoriteSource>();
+	favorites.readPage.mockResolvedValue({ references: [], next: null, upper: null, ended: true });
+	favorites.ownerReferences.mockResolvedValue([]); favorites.ownerCandidates.mockResolvedValue([]); favorites.hydrate.mockResolvedValue([]);
+	const service = new GridspaceTimelineService(config, sessions, local, references, delegated, lists, favorites);
 	const decode = (cursor: string) => JSON.parse(openGridspaceSecret(resolveGridspaceConfig(config.gridspace, config.url, process.env)!, cursor, `timeline-v1:${viewer.id}:unified:${JSON.stringify(options)}`));
 	const decodeUpdates = (page: { session: string; revision: string; updatesCursor: string }) => JSON.parse(openGridspaceSecret(resolveGridspaceConfig(config.gridspace, config.url, process.env)!, page.updatesCursor, `timeline-updates:${viewer.id}:${page.session}:${page.revision}`));
-	const subset = (source: 'local' | 'peer', position: { before?: TimelinePosition; upper?: TimelinePosition; untilAt?: number }, limit: number) => rows[source]
-		.filter(row => (!position.before || BigInt(row.sortAt) < BigInt(position.before.sortAt)) && (!position.upper || BigInt(row.sortAt) <= BigInt(position.upper.sortAt)) && (position.untilAt == null || BigInt(row.sortAt) <= BigInt(position.untilAt) * 1000n))
-		.sort(chronological).slice(0, limit);
+	const subset = (source: 'local' | 'peer', position: { before?: TimelinePosition; upper?: TimelinePosition; untilAt?: number; fromAt?: number }, limit: number, ascending = false) => rows[source]
+		.filter(row => (!position.before || (ascending ? BigInt(row.sortAt) > BigInt(position.before.sortAt) : BigInt(row.sortAt) < BigInt(position.before.sortAt))) && (!position.upper || (ascending ? BigInt(row.sortAt) >= BigInt(position.upper.sortAt) : BigInt(row.sortAt) <= BigInt(position.upper.sortAt))) && (position.untilAt == null || BigInt(row.sortAt) <= BigInt(position.untilAt) * 1000n) && (position.fromAt == null || BigInt(row.sortAt) >= BigInt(position.fromAt) * 1000n))
+		.sort((a, b) => (ascending ? -1 : 1) * chronological(a, b)).slice(0, limit);
 	local.read.mockImplementation(async (_user, _opts, position) => subset('local', position, position.limit));
 	local.readPage.mockImplementation(async (_user, _opts, position) => {
 		const candidates = subset('local', position, position.limit + 1); const batch = candidates.slice(0, position.limit);
@@ -85,7 +93,7 @@ function fixture(initialLocal: TimelineReference[], initialPeer: TimelineReferen
 	delegated.timeline.mockImplementation(async (_user, input) => {
 		// The signed timeline route explicitly permits [] for a sequence-only probe.
 		if (input.ids && input.ids.length > 100) throw new GridspaceLinkError('INVALID_REQUEST');
-		const candidates = subset('peer', input, 51); const batch = candidates.slice(0, 50);
+		const candidates = subset('peer', input, 51, input.kind === 'clip' && input.order === 'oldest'); const batch = candidates.slice(0, 50);
 		const selected = input.ids ? rows.peer.filter(row => input.ids!.includes(row.noteId)) : [];
 		return { references: input.ids ? [] : batch, next: input.ids || candidates.length <= 50 ? null : batch.at(-1), upper: input.upper ?? batch[0] ?? null,
 											sequence: String(peerEvents.length), generation: 1, changed: false, validForMs: 10000,
@@ -103,6 +111,24 @@ function fixture(initialLocal: TimelineReference[], initialPeer: TimelineReferen
 }
 
 describe('unified timeline coordinator with real Redis checkpoints', () => {
+	test.each<TimelineOptions>([
+		{ kind: 'channel', channelId: 'channel' }, { kind: 'antenna', antennaId: 'antenna' },
+		{ kind: 'clip', clipId: 'clip' }, { kind: 'clip', clipId: 'clip', order: 'oldest' },
+		{ kind: 'profile', userId: 'author' }, { kind: 'search', query: 'word' },
+		{ kind: 'mentions' }, { kind: 'direct' }, { kind: 'favorites' },
+	])('restores a signed $kind position after its anchor becomes unreadable ($order)', async query => {
+		const f = fixture([], [100, 90, 80].map(n => ref('peer', n)));
+		const first = await f.service.page(viewer, query, 1);
+		f.rows.peer = f.rows.peer.filter(row => row.noteId !== first.items[0].payload.id);
+		const restored = await f.service.page(viewer, query, 30, undefined, 'unified', first.items[0].key, {
+			previousSession: first.session, previousRevision: first.revision, refs: [], anchorRef: first.items[0].ref,
+		});
+		expect(restored.complete).toBe(true);
+		expect(restored.items.map(item => item.key)).toEqual([...f.rows.peer].sort((a, b) => (query.order === 'oldest' ? -1 : 1) * chronological(a, b)).map(row => row.canonicalUri));
+		await expect(f.service.page(viewer, { ...query, withFiles: true }, 30, undefined, 'unified', first.items[0].key, {
+			previousSession: first.session, previousRevision: first.revision, refs: [], anchorRef: first.items[0].ref,
+		})).rejects.toMatchObject({ code: 'INVALID_CURSOR' });
+	});
 	test('restores history from an authenticated position even after the anchor becomes unreadable', async () => {
 		const f = fixture([100, 90, 80].map(n => ref('local', n)));
 		const first = await f.service.page(viewer, options, 1);

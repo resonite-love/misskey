@@ -311,7 +311,11 @@ describe('server timeline client', () => {
 		expect(request.mock.calls[2][1]).toMatchObject({ anchor: item('old').key });
 		expect(value.error.value).toBe(false);
 	});
-	it('rebuilds the loaded home range before replacing it, including when a retained note was revoked', async () => {
+	it.each([
+		{ kind: 'home' }, { kind: 'social' }, { kind: 'channel', channelId: 'channel' }, { kind: 'antenna', antennaId: 'antenna' },
+		{ kind: 'clip', clipId: 'clip' }, { kind: 'search', query: 'word' }, { kind: 'profile', userId: 'author' },
+		{ kind: 'mentions' }, { kind: 'direct' }, { kind: 'favorites' },
+	])('rebuilds the loaded $kind range before replacing it, including a revoked row', async query => {
 		const history = Array.from({ length: 210 }, (_, index) => ({ ...item(`history-${index}`, false), sortKey: { sortAt: String(1000 - index), uri: `https://example.test/notes/history-${index}` } }));
 		const allowed = history.filter((_, index) => index !== 50).map(note => ({ ...note, ref: `renewed:${note.ref}` }));
 		const request = vi.fn().mockResolvedValueOnce(page(history, { nextCursor: 'old-history' }))
@@ -321,12 +325,22 @@ describe('server timeline client', () => {
 		for (let offset = 0; offset < allowed.length; offset += 30) {
 			request.mockResolvedValueOnce(page(allowed.slice(offset, offset + 30), { session: 'replacement', nextCursor: offset + 30 < allowed.length ? `restore-${offset + 30}` : 'older-history' }));
 		}
-		const value = new TimelineClient({ kind: 'home' }, { request, isTop: () => false, anchor: () => history[180].key, now: () => Date.now() });
+		const value = new TimelineClient(query, { request, isTop: () => false, anchor: () => history[180].key, now: () => Date.now() });
 		clients.push(value); await value.reload(); await value.refresh();
 		expect(value.rows.value.map(row => row.key)).toEqual(allowed.map(row => row.key));
 		expect(request.mock.calls[4][1]).toMatchObject({ anchor: history[0].key, anchorRef: history[0].ref, previousSession: 'session', previousRevision: 'revision' });
 		request.mockResolvedValueOnce(page([], { session: 'replacement' })); await value.load();
 		expect(request.mock.calls.at(-1)![1]).toMatchObject({ cursor: 'older-history' });
+	});
+	it('restores an ascending clip through its old end even if the final retained row was deleted', async () => {
+		const history = Array.from({ length: 90 }, (_, index) => ({ ...item(`clip-${index}`, false), sortKey: { sortAt: String(index + 1), uri: `https://example.test/notes/clip-${index}` } }));
+		const fresh = [...history.slice(0, -1), { ...item('later', false), sortKey: { sortAt: '91', uri: 'https://example.test/notes/later' } }];
+		const request = vi.fn().mockResolvedValueOnce(page(history)).mockResolvedValueOnce(page(history, { resetRequired: true }));
+		for (let offset = 0; offset < fresh.length; offset += 30) request.mockResolvedValueOnce(page(fresh.slice(offset, offset + 30), { session: 'restored', nextCursor: offset + 30 < fresh.length ? `restore-${offset}` : 'more' }));
+		const value = new TimelineClient({ kind: 'clip', clipId: 'clip', order: 'oldest' }, { request, now: () => Date.now() });
+		clients.push(value); await value.reload(); await value.refresh();
+		expect(value.rows.value.map(row => row.key)).toEqual(fresh.map(row => row.key));
+		expect(value.hasMore.value).toBe(true);
 	});
 	it('keeps the previous range when a replacement history page fails', async () => {
 		const history = Array.from({ length: 60 }, (_, index) => ({ ...item(`history-${index}`, false), sortKey: { sortAt: String(1000 - index), uri: `https://example.test/notes/history-${index}` } }));

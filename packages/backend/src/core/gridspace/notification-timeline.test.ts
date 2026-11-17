@@ -39,6 +39,23 @@ function fixture() {
 }
 
 describe('notification timeline snapshots', () => {
+	test('allows bounded client retention only for a transport failure with the same binding', async () => {
+		const f = fixture(); const first = await f.service.read(f.user, { limit: 4 });
+		f.notifications.remoteReferences.mockRejectedValue(new GridspaceLinkError('PEER_UNAVAILABLE', true));
+		const failed = await f.service.read(f.user, { mode: 'refresh', cursor: first.cursor, count: 4 });
+		expect(failed.sources.find(source => source.source === 'peer')).toMatchObject({ status: 'unavailable', retryable: true });
+		expect(failed.items.every(item => item.source === 'local')).toBe(true);
+		f.links.privateLink.mockResolvedValue({ id: 'rotated', generation: 2, privateTokenCipher: 'new' } as never);
+		const rotated = await f.service.read(f.user, { mode: 'validate', cursor: failed.cursor, count: 4 });
+		expect(rotated.sources.find(source => source.source === 'peer')?.retryable).toBe(false);
+	});
+	test('does not classify malformed responses as retryable or return partially read bodies', async () => {
+		const f = fixture(); const first = await f.service.read(f.user, { limit: 4 });
+		f.notifications.remote.mockRejectedValue(new GridspaceLinkError('PEER_UNAVAILABLE'));
+		const invalid = await f.service.read(f.user, { mode: 'validate', cursor: first.cursor, count: 4 });
+		expect(invalid.sources.find(source => source.source === 'peer')).toMatchObject({ status: 'unavailable', retryable: false });
+		expect(invalid.items.every(item => item.source === 'local')).toBe(true);
+	});
 	test('orders all sources on server, keeps equal IDs distinct and stores references only', async () => {
 		const f = fixture();
 		const first = await f.service.read(f.user, { limit: 2 });
