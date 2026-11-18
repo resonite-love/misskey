@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import AdminEmojiSyncEndpoint from '@/server/api/endpoints/admin/gridspace/emojis.js';
 import { decideEmoji, emojiContent, emojiDigest, sameEmoji, type SyncEmoji } from './emoji-sync-protocol.js';
 
 function emoji(changes: Partial<SyncEmoji> = {}): SyncEmoji {
@@ -12,6 +13,14 @@ function emoji(changes: Partial<SyncEmoji> = {}): SyncEmoji {
 }
 
 const a = emoji(), b = emoji({ id: 'emojiB', originalUrl: 'https://b.test/copied.png' });
+
+test('the admin endpoint initializes with Misskey JSON validation and rejects malformed IDs', async () => {
+	const admin = vi.fn(async () => ({}));
+	const endpoint = new AdminEmojiSyncEndpoint({ admin } as never);
+	await endpoint.exec({ action: 'status' }, {} as never, null);
+	expect(admin).toHaveBeenCalledOnce();
+	await expect(endpoint.exec({ action: 'ignore', id: 'invalid', expectedA: null, expectedB: null }, {} as never, null)).rejects.toMatchObject({ code: 'INVALID_PARAM' });
+});
 
 test('the same image and metadata may have different local IDs and storage URLs', () => {
 	expect(a.hash).not.toBe(b.hash);

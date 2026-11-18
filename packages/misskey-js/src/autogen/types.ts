@@ -10135,9 +10135,7 @@ export interface operations {
                      * @enum {string}
                      */
                     action?: 'status' | 'retry' | 'preferA' | 'preferB' | 'ignore' | 'resume';
-                    /** Format: uuid */
                     id?: string;
-                    /** Format: uuid */
                     after?: string;
                     expectedA?: string | null;
                     expectedB?: string | null;

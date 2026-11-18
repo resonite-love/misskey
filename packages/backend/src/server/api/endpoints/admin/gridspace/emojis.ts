@@ -28,7 +28,9 @@ export const meta = {
 } as const;
 export const paramDef = { type: 'object', properties: {
 	action: { type: 'string', enum: ['status', 'retry', 'preferA', 'preferB', 'ignore', 'resume'], default: 'status' },
-	id: { type: 'string', format: 'uuid' }, after: { type: 'string', format: 'uuid' }, expectedA: { type: 'string', nullable: true, pattern: '^[a-f0-9]{64}$' }, expectedB: { type: 'string', nullable: true, pattern: '^[a-f0-9]{64}$' },
+	id: { type: 'string', pattern: '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$' },
+	after: { type: 'string', pattern: '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$' },
+	expectedA: { type: 'string', nullable: true, pattern: '^[a-f0-9]{64}$' }, expectedB: { type: 'string', nullable: true, pattern: '^[a-f0-9]{64}$' },
 }, required: [] } as const;
 
 @Injectable()
