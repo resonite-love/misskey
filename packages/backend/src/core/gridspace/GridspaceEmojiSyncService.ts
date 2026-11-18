@@ -164,6 +164,12 @@ export class GridspaceEmojiSyncService implements OnModuleInit, OnApplicationShu
 		return result;
 	}
 
+	private rowVersion(row: MiGridspaceEmojiSync): string {
+		// JSONB may reorder object keys. Only persisted, meaningful changes require a write.
+		return JSON.stringify([row.aId, row.bId, row.hashA, row.hashB, row.a?.hash, row.b?.hash,
+																									row.state, row.reason, row.attempts, row.retryAt.toISOString(), row.pending?.id]);
+	}
+
 	public async run(): Promise<void> {
 		if (!this.leader || this.working) return;
 		this.working = true;
@@ -174,6 +180,7 @@ export class GridspaceEmojiSyncService implements OnModuleInit, OnApplicationShu
 					const mapA = new Map(allA.map(emoji => [emoji.id, emoji])), mapB = new Map(allB.map(emoji => [emoji.id, emoji]));
 					const repo = this.db.getRepository(MiGridspaceEmojiSync);
 					const rows = await repo.findBy({ peerOrigin: this.peerOrigin! });
+					const existingIds = new Set(rows.map(row => row.id));
 					const usedA = new Set(rows.map(row => row.aId)), usedB = new Set(rows.map(row => row.bId));
 					const namesA = new Map(allA.map(emoji => [emoji.name, emoji])), namesB = new Map(allB.map(emoji => [emoji.name, emoji]));
 					// Recover an add whose response or tracking write was lost before discovering new pairs.
@@ -196,7 +203,7 @@ export class GridspaceEmojiSyncService implements OnModuleInit, OnApplicationShu
 					const changed: MiGridspaceEmojiSync[] = [];
 					for (const row of rows) {
 						const a = row.aId ? mapA.get(row.aId) : undefined, b = row.bId ? mapB.get(row.bId) : undefined;
-						const previous = JSON.stringify(row);
+						const previous = this.rowVersion(row);
 						const sourceChanged = (row.a?.hash ?? null) !== (a?.hash ?? null) || (row.b?.hash ?? null) !== (b?.hash ?? null);
 						row.a = a ?? null; row.b = b ?? null;
 						if (row.state !== 'ignored') {
@@ -210,7 +217,7 @@ export class GridspaceEmojiSyncService implements OnModuleInit, OnApplicationShu
 								}
 							}
 						}
-						if (JSON.stringify(row) !== previous || !row.hashA && !row.hashB) { row.updatedAt = new Date(); changed.push(row); }
+						if (this.rowVersion(row) !== previous || !existingIds.has(row.id)) { row.updatedAt = new Date(); changed.push(row); }
 					}
 					if (changed.length) await repo.save(changed, { chunk: 100 });
 					await this.db.getRepository(MiGridspaceEmojiReceipt).delete({ createdAt: LessThan(new Date(Date.now() - 7 * 86400_000)) });

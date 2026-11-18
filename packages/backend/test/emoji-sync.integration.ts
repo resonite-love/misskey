@@ -85,7 +85,11 @@ try {
 	await peerA.run();
 	assert.equal((await get(dbB, 'from_a')).name, 'from_a'); assert.equal((await get(dbA, 'from_b')).name, 'from_b'); check();
 	assert.equal((await peerA.admin({ action: 'status' })).counts.synced, 3); check();
-	const noEcho = transfers; await peerA.run(); assert.equal(transfers, noEcho); check();
+	const noEcho = transfers;
+	const beforeRows = await dbA.getRepository(MiGridspaceEmojiSync).find({ order: { id: 'ASC' } });
+	await peerA.run(); assert.equal(transfers, noEcho);
+	const afterRows = await dbA.getRepository(MiGridspaceEmojiSync).find({ order: { id: 'ASC' } });
+	assert.deepEqual(afterRows.map(row => row.updatedAt), beforeRows.map(row => row.updatedAt), 'unchanged JSONB rows must not be rewritten'); check();
 	for (const isSensitive of [true, false, true]) { await update(dbA, 'common', { isSensitive }); await peerA.run(); assert.equal((await get(dbB, 'common')).isSensitive, isSensitive); } check();
 	await update(dbB, 'common', { category: 'reverse' }); await peerA.run(); assert.equal((await get(dbA, 'common')).category, 'reverse'); check();
 	await update(dbA, 'common', { aliases: ['a'] }); await update(dbB, 'common', { aliases: ['b'] }); await peerA.run();
