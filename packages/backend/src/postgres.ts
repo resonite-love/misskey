@@ -5,6 +5,7 @@
 
 // https://github.com/typeorm/typeorm/issues/2400
 import pg from 'pg';
+import { MiGridspaceEmojiSync, MiGridspaceEmojiReceipt, MiGridspaceEmojiState } from '@/models/GridspaceEmojiSync.js';
 import { MiGridspaceDriveEntry } from '@/models/GridspaceDriveEntry.js';
 import { MiGridspaceTimelineOutbox, MiGridspaceTimelineChange, MiGridspaceTimelineState } from '@/models/GridspaceTimeline.js';
 import { MiGridspaceAuthSession, MiGridspaceFollowExpansion, MiGridspaceFollowOverride, MiGridspaceImportItem, MiGridspaceLink, MiGridspaceNoteDelivery, MiGridspaceNoteTombstone, MiGridspaceReplyReceipt, MiGridspaceReactionDelivery, MiGridspaceReactionNotification, MiGridspaceFollowDecision } from '@/models/Gridspace.js';
@@ -183,6 +184,9 @@ class MyCustomLogger implements Logger {
 }
 
 export const entities = [
+	MiGridspaceEmojiSync,
+	MiGridspaceEmojiReceipt,
+	MiGridspaceEmojiState,
 	MiGridspaceTimelineOutbox, MiGridspaceTimelineChange, MiGridspaceTimelineState,
 	MiGridspaceDriveEntry,
 	MiGridspaceAuthSession, MiGridspaceFollowExpansion, MiGridspaceFollowOverride, MiGridspaceImportItem, MiGridspaceLink, MiGridspaceNoteDelivery, MiGridspaceNoteTombstone, MiGridspaceReplyReceipt,

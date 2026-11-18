@@ -8,6 +8,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<div class="_spacer" style="--MI_SPACER-w: 1000px;">
 		<div class="_gaps">
 			<MkInfo>{{ t.description }}</MkInfo>
+			<MkGridspaceEmojiSync/>
 			<MkInfo v-if="error" warn role="alert">{{ t.loadFailed }}</MkInfo>
 			<div class="_buttons">
 				<MkButton :disabled="loading" @click="refresh">{{ i18n.ts.reload }}</MkButton>
@@ -107,6 +108,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import type { Endpoints } from 'misskey-js';
 import MkButton from '@/components/MkButton.vue';
+import MkGridspaceEmojiSync from '@/components/MkGridspaceEmojiSync.vue';
 import MkFolder from '@/components/MkFolder.vue';
 import MkInfo from '@/components/MkInfo.vue';
 import MkInput from '@/components/MkInput.vue';

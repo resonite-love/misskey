@@ -74,6 +74,8 @@ import type {
 	AdminGetUserIpsResponse,
 	AdminGridspaceDriveRequest,
 	AdminGridspaceDriveResponse,
+	AdminGridspaceEmojisRequest,
+	AdminGridspaceEmojisResponse,
 	AdminGridspaceJobsRequest,
 	AdminGridspaceJobsResponse,
 	AdminGridspaceLinksRequest,
@@ -818,6 +820,7 @@ export type Endpoints = {
 	'admin/get-table-stats': { req: EmptyRequest; res: AdminGetTableStatsResponse };
 	'admin/get-user-ips': { req: AdminGetUserIpsRequest; res: AdminGetUserIpsResponse };
 	'admin/gridspace/drive': { req: AdminGridspaceDriveRequest; res: AdminGridspaceDriveResponse };
+	'admin/gridspace/emojis': { req: AdminGridspaceEmojisRequest; res: AdminGridspaceEmojisResponse };
 	'admin/gridspace/jobs': { req: AdminGridspaceJobsRequest; res: AdminGridspaceJobsResponse };
 	'admin/gridspace/links': { req: AdminGridspaceLinksRequest; res: AdminGridspaceLinksResponse };
 	'admin/gridspace/retry': { req: AdminGridspaceRetryRequest; res: AdminGridspaceRetryResponse };

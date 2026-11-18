@@ -8,6 +8,7 @@ import { id } from './util/id.js';
 
 @Entity('emoji')
 @Index(['name', 'host'], { unique: true })
+@Index('IDX_EMOJI_LOCAL_NAME', ['name'], { unique: true, where: '"host" IS NULL' })
 @Index('IDX_EMOJI_ROLE_IDS', { synchronize: false }) // GIN for roleIdsThatCanBeUsedThisEmojiAsReaction in production
 export class MiEmoji {
 	@PrimaryColumn(id())

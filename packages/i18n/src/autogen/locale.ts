@@ -15161,4 +15161,106 @@ export interface Locale extends ILocale {
          */
         "saveImage": string;
     };
+    "_gridspaceEmojiSync": {
+        /**
+         * 連携先との絵文字同期
+         */
+        "title": string;
+        /**
+         * 絵文字の追加・変更を両サーバーに反映します。削除や内容の食い違いは自動反映せず、ここで確認できます。
+         */
+        "description": string;
+        /**
+         * 同期済み {synced}件・処理待ち {pending}件・確認待ち {conflict}件・失敗 {failed}件・除外 {ignored}件
+         */
+        "counts": ParameterizedString<"synced" | "pending" | "conflict" | "failed" | "ignored">;
+        /**
+         * 最終確認
+         */
+        "lastChecked": string;
+        /**
+         * 同期状況を取得できませんでした。表示済みの情報を残しています。時間をおいて再読み込みしてください。
+         */
+        "failedToLoad": string;
+        /**
+         * 失敗した同期を再試行
+         */
+        "retry": string;
+        /**
+         * 通常の絵文字管理を開く
+         */
+        "manage": string;
+        /**
+         * サーバー間連携が無効です。
+         */
+        "disabled": string;
+        /**
+         * 確認が必要な絵文字はありません。
+         */
+        "noIssues": string;
+        /**
+         * 処理待ち
+         */
+        "pending": string;
+        /**
+         * 同期済み
+         */
+        "synced": string;
+        /**
+         * 確認待ち
+         */
+        "conflict": string;
+        /**
+         * 失敗
+         */
+        "failed": string;
+        /**
+         * 同期対象外
+         */
+        "ignored": string;
+        /**
+         * 片側で削除されています。削除は自動反映しません。
+         */
+        "removed": string;
+        /**
+         * ロール制限があります。両サーバーの通常の絵文字管理で確認してください。
+         */
+        "restricted": string;
+        /**
+         * 両サーバーの内容が異なります。
+         */
+        "different": string;
+        /**
+         * 画像を取得できないか、取得中に画像が変わりました。
+         */
+        "imageFailed": string;
+        /**
+         * 連携先との通信または画像の保存に失敗しました。
+         */
+        "connectionFailed": string;
+        /**
+         * 登録されていません
+         */
+        "notPresent": string;
+        /**
+         * {host} の内容を採用
+         */
+        "adopt": ParameterizedString<"host">;
+        /**
+         * この絵文字を同期対象から外す
+         */
+        "ignore": string;
+        /**
+         * 同期対象に戻す
+         */
+        "resume": string;
+        /**
+         * {host} の「{name}」を採用し、もう片方の内容を上書きします。よろしいですか？
+         */
+        "confirm": ParameterizedString<"host" | "name">;
+        /**
+         * 別名
+         */
+        "aliases": string;
+    };
 }

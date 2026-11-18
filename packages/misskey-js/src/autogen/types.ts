@@ -495,6 +495,16 @@ export type paths = {
          */
         post: operations['admin___gridspace___drive'];
     };
+    '/admin/gridspace/emojis': {
+        /**
+         * admin/gridspace/emojis
+         * @description No description provided.
+         *
+         *     **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+         *     **Credential required**: *Yes*
+         */
+        post: operations['admin___gridspace___emojis'];
+    };
     '/admin/gridspace/jobs': {
         /**
          * admin/gridspace/jobs
@@ -10057,6 +10067,135 @@ export interface operations {
                         total: number;
                         pending: number;
                         failed: number;
+                    };
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    admin___gridspace___emojis: {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /**
+                     * @default status
+                     * @enum {string}
+                     */
+                    action?: 'status' | 'retry' | 'preferA' | 'preferB' | 'ignore' | 'resume';
+                    /** Format: uuid */
+                    id?: string;
+                    /** Format: uuid */
+                    after?: string;
+                    expectedA?: string | null;
+                    expectedB?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        enabled: boolean;
+                        originA: string;
+                        originB: string | null;
+                        checkedAt: string | null;
+                        lastError: string | null;
+                        next: string | null;
+                        counts: {
+                            pending: number;
+                            synced: number;
+                            conflict: number;
+                            failed: number;
+                            ignored: number;
+                        };
+                        items: {
+                            id: string;
+                            state: string;
+                            reason: string | null;
+                            a: {
+                                id: string;
+                                name: string;
+                                originalUrl: string;
+                                hash: string;
+                                category: string | null;
+                                license: string | null;
+                                aliases: string[];
+                                isSensitive: boolean;
+                                localOnly: boolean;
+                                restricted: boolean;
+                            } | null;
+                            b: {
+                                id: string;
+                                name: string;
+                                originalUrl: string;
+                                hash: string;
+                                category: string | null;
+                                license: string | null;
+                                aliases: string[];
+                                isSensitive: boolean;
+                                localOnly: boolean;
+                                restricted: boolean;
+                            } | null;
+                            attempts: number;
+                            retryAt: string;
+                        }[];
                     };
                 };
             };
