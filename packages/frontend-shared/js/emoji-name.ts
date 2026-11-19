@@ -46,3 +46,14 @@ export function isLocalCustomEmojiReaction(reaction: string): boolean {
 export function getCustomEmojiImagePath(name: string, host: string | null | undefined): string {
 	return host ? `/emoji/${name}@${host}.webp` : `/emoji/${name}.webp`;
 }
+
+/** Native emoji routes already select a media proxy; wrapping them creates a proxy loop. */
+export function getNativeEmojiImageUrl(value: string, host: string | null | undefined, staticImage = false): string | null {
+	if (!host) return null;
+	try {
+		const url = new URL(value);
+		if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.host !== host || !/^\/emoji\/[a-zA-Z0-9_-]+\.webp$/.test(url.pathname)) return null;
+		if (staticImage) url.searchParams.set('static', '1');
+		return url.href;
+	} catch { return null; }
+}

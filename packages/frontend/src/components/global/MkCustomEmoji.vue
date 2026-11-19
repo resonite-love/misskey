@@ -38,7 +38,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script lang="ts" setup>
 import { computed, defineAsyncComponent, inject, ref, watch } from 'vue';
-import { normalizeCustomEmojiName, isLocalCustomEmojiName, getCustomEmojiImagePath } from '@@/js/emoji-name.js';
+import { normalizeCustomEmojiName, isLocalCustomEmojiName, getCustomEmojiImagePath, getNativeEmojiImageUrl } from '@@/js/emoji-name.js';
 import type { MenuItem } from '@/types/menu.js';
 import { getProxiedImageUrl, getStaticImageUrl } from '@/utility/media-proxy.js';
 import { customEmojisMap } from '@/custom-emojis.js';
@@ -52,6 +52,7 @@ import { prefer } from '@/preferences.js';
 import { DI } from '@/di.js';
 import { makeEmojiMuteKey, mute as muteEmoji, unmute as unmuteEmoji, checkMuted as checkEmojiMuted } from '@/utility/emoji-mute';
 import { addToEmojiPalette } from '@/utility/emoji-palette.js';
+import { isConfiguredGridspaceOrigin } from '@/utility/gridspace-note-link.js';
 
 const props = defineProps<{
 	name: string;
@@ -84,8 +85,20 @@ const rawUrl = computed(() => {
 	return getCustomEmojiImagePath(customEmojiName.value, props.host);
 });
 
+const nativeCandidate = computed(() => rawUrl.value == null ? null : getNativeEmojiImageUrl(rawUrl.value, props.host, prefer.s.disableShowingAnimatedImages));
+const pairedNativeUrl = ref<string | null>(null);
+watch(nativeCandidate, async candidate => {
+	pairedNativeUrl.value = null;
+	// Only the configured pair may bypass the local image proxy. Share its cached
+	// origin lookup with note links; ordinary federation keeps its existing route.
+	if (candidate && await isConfiguredGridspaceOrigin(candidate) && nativeCandidate.value === candidate) {
+		pairedNativeUrl.value = candidate;
+	}
+}, { immediate: true });
+
 const url = computed(() => {
 	if (rawUrl.value == null) return undefined;
+	if (pairedNativeUrl.value === nativeCandidate.value && pairedNativeUrl.value) return pairedNativeUrl.value;
 
 	const proxied =
 		(rawUrl.value.startsWith('/emoji/') || (props.useOriginalSize && isLocal.value))

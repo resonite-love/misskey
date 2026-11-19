@@ -18,8 +18,12 @@ export function isGridspaceNoteLink(value: string): boolean {
 export type LinkedQuoteAttachment = { file: File; isSensitive?: boolean; caption?: string | null };
 
 let origins: Promise<string[]> | undefined;
-export async function isConfiguredGridspaceNoteLink(value: string): Promise<boolean | null> {
-	if (!isGridspaceNoteLink(value)) return false;
+export async function isConfiguredGridspaceOrigin(value: string): Promise<boolean | null> {
 	origins ??= misskeyApi('gridspace/search-info', {}).then(info => info.enabled ? info.origins : []).catch(() => { origins = undefined; throw new Error('Configuration unavailable'); });
 	try { return (await origins).includes(new URL(value).origin); } catch { return null; }
+}
+
+export async function isConfiguredGridspaceNoteLink(value: string): Promise<boolean | null> {
+	if (!isGridspaceNoteLink(value)) return false;
+	return isConfiguredGridspaceOrigin(value);
 }
