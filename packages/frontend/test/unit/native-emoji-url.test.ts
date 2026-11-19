@@ -56,8 +56,16 @@ test('renders the configured peer emoji directly after checking its origin', asy
 test.each([false, null])('keeps other servers and unavailable pair configuration behind the image proxy (%s)', async permitted => {
 	originCheck.mockResolvedValue(permitted);
 	const view = render(CustomEmoji, { props: { name: 'bloborange', host: 'other.example', url: 'https://other.example/emoji/bloborange.webp' } });
-	await vi.waitFor(() => expect(originCheck).toHaveBeenCalledOnce());
-	expect(view.getByAltText(':bloborange:').getAttribute('src')).toBe('/proxy?url=https%3A%2F%2Fother.example%2Femoji%2Fbloborange.webp');
+	await vi.waitFor(() => expect(view.getByAltText(':bloborange:').getAttribute('src')).toBe('/proxy?url=https%3A%2F%2Fother.example%2Femoji%2Fbloborange.webp'));
+});
+
+test('does not start an old proxy request while pair configuration is loading', async () => {
+	let finish!: (value: boolean) => void;
+	originCheck.mockReturnValue(new Promise<boolean>(resolve => { finish = resolve; }));
+	const view = render(CustomEmoji, { props: { name: 'bloborange', host: 'g.example', url: 'https://g.example/emoji/bloborange.webp' } });
+	expect(view.queryByAltText(':bloborange:')).toBeNull();
+	finish(true);
+	await vi.waitFor(() => expect(view.getByAltText(':bloborange:').getAttribute('src')).toBe('https://g.example/emoji/bloborange.webp'));
 });
 
 test('preserves static image preference for the configured peer', async () => {

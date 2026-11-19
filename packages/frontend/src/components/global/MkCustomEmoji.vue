@@ -87,17 +87,25 @@ const rawUrl = computed(() => {
 
 const nativeCandidate = computed(() => rawUrl.value == null ? null : getNativeEmojiImageUrl(rawUrl.value, props.host, prefer.s.disableShowingAnimatedImages));
 const pairedNativeUrl = ref<string | null>(null);
+const checkedNativeUrl = ref<string | null>(null);
 watch(nativeCandidate, async candidate => {
 	pairedNativeUrl.value = null;
+	checkedNativeUrl.value = null;
 	// Only the configured pair may bypass the local image proxy. Share its cached
 	// origin lookup with note links; ordinary federation keeps its existing route.
-	if (candidate && await isConfiguredGridspaceOrigin(candidate) && nativeCandidate.value === candidate) {
-		pairedNativeUrl.value = candidate;
+	if (candidate) {
+		const permitted = await isConfiguredGridspaceOrigin(candidate);
+		if (nativeCandidate.value !== candidate) return;
+		pairedNativeUrl.value = permitted ? candidate : null;
+		checkedNativeUrl.value = candidate;
 	}
 }, { immediate: true });
 
 const url = computed(() => {
 	if (rawUrl.value == null) return undefined;
+	// Do not issue a recursive proxy request while the pair lookup is pending:
+	// a cached error for that old URL can arrive after src switches and hide it.
+	if (nativeCandidate.value && checkedNativeUrl.value !== nativeCandidate.value) return undefined;
 	if (pairedNativeUrl.value === nativeCandidate.value && pairedNativeUrl.value) return pairedNativeUrl.value;
 
 	const proxied =
