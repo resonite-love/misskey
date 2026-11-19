@@ -4,8 +4,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div v-if="!deleted && !hideByPlugin" ref="article" :class="[$style.note, { [$style.detailed]: detailed, [$style.renoteWrapper]: isPureRenote && note.renote, [$style.nested]: nested }]" data-gridspace-private-note>
-	<template v-if="isPureRenote && note.renote">
+<div v-if="!deleted && !hideByPlugin" ref="article" :class="[$style.note, { [$style.detailed]: detailed, [$style.renoteWrapper]: !quotePreview && isPureRenote && note.renote, [$style.nested]: nested }]" data-gridspace-private-note>
+	<template v-if="!quotePreview && isPureRenote && note.renote">
 		<div :class="$style.renoteHeader">
 			<MkNoteChannel v-if="channel" :channel="channel" display="bar" compact/>
 			<MkAvatar :user="displayAuthor" :class="$style.renoteAvatar" link/>
@@ -15,16 +15,48 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</div>
 		<MkGridspacePrivateNote :note="note.renote" :detailed="detailed" compactTop nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 	</template>
+	<MkNoteSimple v-else-if="quotePreview" :note="null">
+		<template #avatar="{ avatarClass }"><MkAvatar :class="avatarClass" :user="displayAuthor" link :preview="false"/></template>
+		<template #header="{ headerClass }"><MkNoteHeader :class="headerClass" :note="headerNote" :mini="true" :noteUrl="noteLink(note.id)" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/></template>
+		<p v-if="displayNote.cw != null" :class="$style.quoteCw">
+			<Mfm v-if="displayNote.cw" :text="displayNote.cw" :author="displayAuthor" :emojiUrls="displayNote.emojis ?? {}"/>
+			<MkCwButton v-model="expanded" :text="displayNote.text" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/>
+		</p>
+		<div v-if="displayNote.cw == null || expanded" :class="[$style.quoteContent, { [$style.quoteCollapsed]: quoteLong && quoteCollapsed }]">
+			<div>
+				<MkA v-if="note.replyId" :to="noteLink(note.replyId)" :aria-label="i18n.ts.reply"><i class="ti ti-arrow-back-up"></i></MkA>
+				<span v-if="isUnavailableGridspaceNote(note, true)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span>
+				<MkNoteText v-else :text="displayNote.text ?? ''" :author="displayAuthor" :emojiUrls="displayNote.emojis ?? {}"/>
+				<MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts.quote }}</MkA>
+			</div>
+			<details v-if="note.files.length" :key="`${note.id}:files`" :open="quoteFilesExpanded" @toggle="toggleQuoteFiles">
+				<summary>({{ i18n.tsx.withNFiles({ n: note.files.length }) }})</summary>
+				<MkMediaList v-if="media.length" :mediaList="media" :raw="true" ephemeral/>
+				<MkButton v-for="file in note.files.filter(item => !blobs[item.id])" :key="file.id" small :disabled="loading === file.id" @click="loadFile(file.id)">
+					<i :class="file.isSensitive ? 'ti ti-eye-exclamation' : 'ti ti-photo'"></i> {{ file.isSensitive ? i18n.ts.sensitive : i18n.ts.clickToShow }}: {{ file.name }}
+				</MkButton>
+				<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateFileError }}</p>
+			</details>
+			<details v-if="note.poll" :key="`${note.id}:poll`" :open="quotePollExpanded" @toggle="quotePollExpanded = ($event.target as HTMLDetailsElement).open">
+				<summary>{{ i18n.ts.poll }}</summary>
+				<MkGridspaceNoteActions v-if="quotePollExpanded" :note="note" compact pollOnly @changed="updated = $event" @unavailable="emit('unavailable')"/>
+			</details>
+			<button v-if="quoteLong" class="_button" :class="$style.quoteExpand" @click="quoteCollapsed = !quoteCollapsed">{{ quoteCollapsed ? i18n.ts.showMore : i18n.ts.showLess }}</button>
+		</div>
+	</MkNoteSimple>
 	<component :is="detailed ? MkNoteDetailedArticle : MkNoteArticle" v-else :user="displayAuthor" :channel="channel" :channelTo="channel ? `/gridspace/channels/${channel.id}` : undefined" :showChannelLink="!inChannel" :avatarPreview="false" :stickyAvatar="prefer.s.useStickyIcons" :compactTop="compactTop" :dense="dense" :footerOnHover="prefer.s.showNoteActionsOnlyHover">
 		<template #header>
 			<MkNoteDetailedHeader v-if="detailed" :user="displayAuthor" :visibility="headerNote.visibility" :localOnly="note.localOnly" :noRelay="note.noRelay" :preview="false"><MkInstanceTicker v-if="showTicker" :host="displayAuthor.host" :instance="displayAuthor.instance"/></MkNoteDetailedHeader>
 			<MkNoteHeader v-else :note="headerNote" :noteUrl="noteLink(note.id)" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/>
 			<MkInstanceTicker v-if="showTicker && !detailed" :host="displayAuthor.host" :instance="displayAuthor.instance"/>
 		</template>
-		<div v-if="(note.replyId || note.renoteId)" :class="$style.parentLinks"><MkA v-if="note.replyId" :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA><MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA></div>
+		<div v-if="note.replyId" :class="$style.parentLinks"><MkA :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA></div>
 		<MkNoteCw v-if="displayNote.cw != null" v-model="expanded" :cw="displayNote.cw" :text="displayNote.text" :author="displayNote.author" :emojiUrls="displayNote.emojis ?? {}" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/>
 		<div v-if="displayNote.cw == null || expanded" :class="$style.body"><span v-if="isUnavailableGridspaceNote(note, true)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span><MkNoteText v-else :text="translation?.text ?? displayNote.text ?? ''" :author="displayNote.author" :emojiUrls="displayNote.emojis ?? {}"/></div>
-		<MkGridspacePrivateNote v-if="note.renote && (displayNote.cw == null || expanded)" :note="note.renote" :class="$style.quote" dense nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
+		<div v-if="note.renoteId && (displayNote.cw == null || expanded)" :class="$style.quote">
+			<MkGridspacePrivateNote v-if="note.renote" :note="note.renote" :class="$style.quoteNote" quotePreview nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
+			<MkA v-else :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA>
+		</div>
 		<button v-if="translation" class="_textButton" @click="translation = null">{{ i18n.ts._autoTranslation.showOriginal }}</button>
 		<div v-if="visible && isEnabledUrlPreview && (displayNote.cw == null || expanded)">
 			<MkUrlPreview v-for="link in urls" :key="link" :url="link" :compact="true" :detail="detailed" :class="$style.urlPreview"/>
@@ -55,6 +87,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 import { computed, inject, onBeforeUnmount, onDeactivated, onMounted, ref, useTemplateRef, watch } from 'vue';
 import * as mfm from 'mfm-js';
 import { url } from '@@/js/config.js';
+import { shouldCollapsed } from '@@/js/collapsed.js';
 import type { Ref } from 'vue';
 import type { LinkedClipContext } from '@/utility/gridspace-note-menu.js';
 import { useGlobalEvent } from '@/events.js';
@@ -63,6 +96,8 @@ import MkGridspaceNoteActions from '@/components/MkGridspaceNoteActions.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkMediaList from '@/components/MkMediaList.vue';
 import MkNoteText from '@/components/MkNoteText.vue';
+import MkNoteSimple from '@/components/MkNoteSimple.vue';
+import MkCwButton from '@/components/MkCwButton.vue';
 import MkNoteCw from '@/components/MkNoteCw.vue';
 import MkNoteDetailedArticle from '@/components/MkNoteDetailedArticle.vue';
 import MkNoteDetailedHeader from '@/components/MkNoteDetailedHeader.vue';
@@ -88,7 +123,7 @@ import { prefer } from '@/preferences.js';
 import { $i } from '@/i.js';
 import * as os from '@/os.js';
 
-const props = withDefaults(defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number]; compactTop?: boolean; dense?: boolean; nested?: boolean; detailed?: boolean }>(), { compactTop: false, dense: false, nested: false, detailed: false });
+const props = withDefaults(defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number]; compactTop?: boolean; dense?: boolean; nested?: boolean; detailed?: boolean; quotePreview?: boolean }>(), { compactTop: false, dense: false, nested: false, detailed: false, quotePreview: false });
 const updated = ref<entities.GridspacePrivateNotesResponse['notes'][number] | null>(null);
 const note = computed(() => updated.value ?? props.note);
 const pluginNote = computed(() => applyGridspaceNoteViewPlugins(props.note));
@@ -112,6 +147,10 @@ const isPureRenote = computed(() => !!note.value.renoteId && note.value.text == 
 const canRenote = computed(() => !!$i && (['public', 'home'].includes(note.value.visibility) || (!note.value.channelId && note.value.canSelfRenote)) && (!note.value.channelId || !note.value.renoteId || !!(note.value.text || note.value.cw || note.value.replyId || note.value.files.length || note.value.poll)) && !isUnavailableGridspaceNote(note.value, true));
 const renoteLoading = ref(false);
 const expanded = defineModel<boolean>('expanded', { default: false });
+const quoteLong = computed(() => shouldCollapsed(displayNote.value, []));
+const quoteCollapsed = ref(true);
+const quoteFilesExpanded = ref(false);
+const quotePollExpanded = ref(false);
 const deleted = ref(false);
 const translation = ref<entities.NotesTranslateResponse | null>(null);
 const translating = ref(false);
@@ -222,8 +261,19 @@ function clearFile(id: string) {
 	delete blobs.value[id];
 }
 
+function toggleQuoteFiles(event: Event) {
+	quoteFilesExpanded.value = (event.target as HTMLDetailsElement).open;
+	if (!quoteFilesExpanded.value) {
+		generation++;
+		for (const id of Object.keys(blobs.value)) clearFile(id);
+		loading.value = null;
+	}
+}
+
 function clear() {
 	generation++;
+	quoteFilesExpanded.value = false;
+	quotePollExpanded.value = false;
 	disposeMenu?.(); disposeMenu = null;
 	translation.value = null;
 	updated.value = null;
@@ -250,14 +300,14 @@ async function loadFile(fileId: string) {
 	} finally { if (current === generation) loading.value = null; }
 }
 
-watch(() => props.note.id, clear);
+watch(() => props.note.id, () => { quoteCollapsed.value = true; quoteFilesExpanded.value = false; quotePollExpanded.value = false; clear(); });
 watch(() => props.note.cw, () => { expanded.value = false; clear(); });
 watch(expanded, value => { if (!value) clear(); });
 watch(() => props.note.files, files => {
 	for (const id of Object.keys(blobs.value)) if (!files.some(file => file.id === id)) clearFile(id);
 });
-watch([visible, expanded, () => props.note.id], async () => {
-	if (!visible.value || hideByPlugin.value || prefer.s.dataSaver.media || (displayNote.value.cw != null && !expanded.value)) return;
+watch([visible, expanded, quoteFilesExpanded, () => props.note.id], async () => {
+	if (!visible.value || hideByPlugin.value || prefer.s.dataSaver.media || (props.quotePreview && !quoteFilesExpanded.value) || (displayNote.value.cw != null && !expanded.value)) return;
 	const current = generation;
 	for (const file of note.value.files) {
 		if (current !== generation) return;
@@ -279,7 +329,13 @@ onDeactivated(clear);
 .renoteHeader { position: relative; display: flex; align-items: center; gap: 6px; padding: 16px 32px 0; color: var(--MI_THEME-renote); }
 .renoteAvatar { width: 24px; height: 24px; }
 .renoteMenu { margin-left: auto; font-size: 0.85em; }
-.quote { margin-top: 8px; border: 1px solid var(--MI_THEME-divider); border-radius: var(--MI-radius); }
+.quote { padding: 8px 0; }
+.quoteNote { padding: 16px; border: dashed 1px var(--MI_THEME-renote); border-radius: 8px; overflow: clip; }
+.quoteCw { margin: 0; padding: 0; overflow-wrap: break-word; }
+.quoteContent { overflow-wrap: break-word; }
+.quoteCollapsed { position: relative; max-height: 9em; overflow: clip; padding-bottom: 32px; }
+.quoteExpand { display: block; width: 100%; margin-top: 14px; }
+.quoteCollapsed > .quoteExpand { position: absolute; bottom: 0; margin: 0; background: var(--MI_THEME-panel); }
 .note.detailed { font-size: 1em; }
 .note.nested { font-size: inherit; }
 .header { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: 0.95em; }
@@ -291,4 +347,5 @@ onDeactivated(clear);
 .urlPreview { margin-top: 8px; }
 @container (max-width: 580px) { .note { font-size: 0.95em; } }
 @container (max-width: 500px) { .note { font-size: 0.9em; } }
+@container (max-width: 250px) { .quoteNote { padding: 12px; } }
 </style>

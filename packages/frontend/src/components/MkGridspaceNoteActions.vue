@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <div class="_gaps_s" data-gridspace-note-actions>
-	<MkPoll v-if="compact && note.poll" :noteId="note.id" :choices="note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true }))" :multiple="note.poll.multiple" :expiresAt="note.poll.expiresAt" :emojiUrls="note.emojis ?? {}" :voteHandler="vote"/>
+	<MkPoll v-if="compact && note.poll" :noteId="note.id" :choices="note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true }))" :multiple="note.poll.multiple" :expiresAt="note.poll.expiresAt" :author="{ host: note.author.host, isCat: note.author.isCat ?? false }" :emojiUrls="note.emojis ?? {}" :voteHandler="vote"/>
 	<ul v-else-if="note.poll" :class="$style.choices">
 		<li v-for="(choice, index) in note.poll.choices" :key="index">
 			<Mfm :text="choice.text" :author="note.author" :emojiUrls="note.emojis ?? {}" :plain="true" :enableEmojiMenu="false"/>
@@ -13,7 +13,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkButton v-if="info?.canInteract" small :disabled="busy || !canVote(index)" @click="act({ action: 'vote', choice: index })">{{ i18n.ts._poll.vote }}</MkButton>
 		</li>
 	</ul>
-	<MkReactionsViewer :noteId="note.id" :reactions="note.reactions ?? {}" :reactionEmojis="note.reactionEmojis ?? {}" :myReaction="note.myReaction" :myReactions="note.myReactions" :extendedReactions="note.extendedReactions" :transport="reactionTransport" :reactionVersion="reactionRevision"/>
+	<MkReactionsViewer v-if="!pollOnly" :noteId="note.id" :reactions="note.reactions ?? {}" :reactionEmojis="note.reactionEmojis ?? {}" :myReaction="note.myReaction" :myReactions="note.myReactions" :extendedReactions="note.extendedReactions" :transport="reactionTransport" :reactionVersion="reactionRevision"/>
 	<div v-if="selectedReaction" class="_gaps_s">
 		<div v-for="reactor in reactors" :key="reactor.id"><a :href="reactor.account.uri" target="_blank" rel="noopener noreferrer">{{ reactor.account.name || reactor.account.username }} <span>@{{ reactor.account.username }}@{{ reactor.account.host }}</span></a></div>
 		<MkButton v-if="moreReactors" small :disabled="busy" @click="showReactors(selectedReaction, true)">{{ i18n.ts.more }}</MkButton>
@@ -58,7 +58,7 @@ import { reactionPicker } from '@/utility/reaction-picker.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 
-const props = defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number]; compact?: boolean }>();
+const props = defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number]; compact?: boolean; pollOnly?: boolean }>();
 const emit = defineEmits<{ (event: 'changed', note: entities.GridspacePrivateNotesResponse['notes'][number]): void; (event: 'unavailable'): void }>();
 const info = shallowRef<entities.GridspacePrivateActionResponse | null>(null);
 const opened = ref(false);

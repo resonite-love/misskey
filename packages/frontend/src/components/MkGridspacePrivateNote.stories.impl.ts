@@ -50,3 +50,14 @@ export const OwnFollowers = {
 	...Default,
 	args: { note: { ...Default.args.note, canSelfRenote: true } },
 } satisfies StoryObj<typeof MkGridspacePrivateNote>;
+
+export const ChannelQuote = {
+	...Channel,
+	args: { note: { ...Channel.args.note, id: 'quote', text: 'コメント :example:', emojis: { example: '/static-assets/avatar.png' }, renoteId: 'original', renote: { ...Channel.args.note, id: 'original', text: '引用元 :example:', emojis: { example: '/static-assets/avatar.png' } } } },
+} satisfies StoryObj<typeof MkGridspacePrivateNote>;
+
+export const ChannelQuoteWithAttachment = {
+	...ChannelQuote,
+	args: { note: { ...ChannelQuote.args.note, renote: { ...ChannelQuote.args.note.renote, ...Attachment.args.note, id: 'original' } } },
+	parameters: Attachment.parameters,
+} satisfies StoryObj<typeof MkGridspacePrivateNote>;

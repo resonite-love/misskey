@@ -4,21 +4,25 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div v-if="note" :class="$style.root">
-	<MkAvatar :class="[$style.avatar, prefer.s.useStickyIcons ? $style.useSticky : null]" :user="note.user" link preview/>
+<div v-if="note || $slots.default" :class="$style.root" data-note-simple>
+	<slot name="avatar" :avatarClass="[$style.avatar, prefer.s.useStickyIcons ? $style.useSticky : null]">
+		<MkAvatar v-if="note" :class="[$style.avatar, prefer.s.useStickyIcons ? $style.useSticky : null]" :user="note.user" link preview/>
+	</slot>
 	<div :class="$style.main">
-		<MkNoteHeader :class="$style.header" :note="note" :mini="true"/>
-		<div>
-			<p v-if="note.cw != null" :class="$style.cw">
-				<Mfm v-if="note.cw != ''" style="margin-right: 8px;" :text="note.cw" :author="note.user" :nyaize="'respect'" :emojiUrls="note.emojis"/>
-				<MkCwButton v-model="showContent" :text="note.text" :files="note.files" :poll="note.poll"/>
-			</p>
-			<div v-show="note.cw == null || showContent">
-				<MkAutoTranslatedNote v-slot="{ text }" :note="note" :active="note.cw == null || showContent">
-					<MkSubNoteContent :class="$style.text" :note="{ ...note, text }"/>
-				</MkAutoTranslatedNote>
+		<slot name="header" :headerClass="$style.header"><MkNoteHeader v-if="note" :class="$style.header" :note="note" :mini="true"/></slot>
+		<slot>
+			<div v-if="note">
+				<p v-if="note.cw != null" :class="$style.cw">
+					<Mfm v-if="note.cw != ''" style="margin-right: 8px;" :text="note.cw" :author="note.user" :nyaize="'respect'" :emojiUrls="note.emojis"/>
+					<MkCwButton v-model="showContent" :text="note.text" :files="note.files" :poll="note.poll"/>
+				</p>
+				<div v-show="note.cw == null || showContent">
+					<MkAutoTranslatedNote v-slot="{ text }" :note="note" :active="note.cw == null || showContent">
+						<MkSubNoteContent :class="$style.text" :note="{ ...note, text }"/>
+					</MkAutoTranslatedNote>
+				</div>
 			</div>
-		</div>
+		</slot>
 	</div>
 </div>
 <div v-else :class="$style.deleted">
