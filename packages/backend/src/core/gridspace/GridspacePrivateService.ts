@@ -46,7 +46,7 @@ import { gridspaceHash } from './link-crypto.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
 import { searchNoteTimeSql } from './search-visibility.js';
 import { canonicalGridspaceNoteUri, gridspaceNoteId } from './note-protocol.js';
-import { peerEmojiUrl } from './peer-emoji-url.js';
+import { fillPeerEmojiUrls } from './peer-emoji-url.js';
 import { GridspacePeerAuthorizationError, requestGridspacePeer } from './peer-client.js';
 import { PRIVATE_FILE_LIMIT, type PrivateNote, type PrivateWireNote, type PrivateOptions, type PrivatePage, type PrivatePeerRequest } from './private-protocol.js';
 import { TimelineReferenceService } from './timeline/TimelineReferenceService.js';
@@ -537,15 +537,9 @@ export class GridspacePrivateService {
 			const localName = name.endsWith('@.') ? name.slice(0, -2) : host == null && !name.includes('@') ? name : null;
 			const emoji = localName ? local.get(localName) : null;
 			if (emoji) result[name] = emoji.publicUrl || emoji.originalUrl;
-			// Channel posts use the G author's identity on R, even though they
-			// do not arrive over ActivityPub and may have no remote emoji row.
-			if (!result[name]) {
-				const parts = /^([a-zA-Z0-9_-]+)(?:@([a-zA-Z0-9_.-]+))?$/.exec(name);
-				const url = parts && peerEmojiUrl(this.peer, parts[1], parts[2] ?? host ?? undefined);
-				if (url) result[name] = url;
-			}
 		}
-		return result;
+		// Channel posts may not have passed through the ActivityPub emoji cache.
+		return fillPeerEmojiUrls(this.peer, result, names, host);
 	}
 
 	private async pack(note: MiNote, viewerId: string, readableRelated: Set<string>, reactionState: Awaited<ReturnType<GridspaceReactionService['show']>>[number] | undefined, authors = new Map<string, Promise<Packed<'UserLite'>>>()): Promise<PrivateWireNote> {

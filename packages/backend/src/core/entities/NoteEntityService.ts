@@ -9,6 +9,7 @@ import { ModuleRef } from '@nestjs/core';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
+import { fillPeerEmojiUrls } from '@/core/gridspace/peer-emoji-url.js';
 import { supportsGridspaceReactions, supportsGridspaceChannelReactions } from '@/core/gridspace/reaction-protocol.js';
 import type { Packed } from '@/misc/json-schema.js';
 import { awaitAll } from '@/misc/prelude/await-all.js';
@@ -453,7 +454,7 @@ export class NoteEntityService implements OnModuleInit {
 			reactions: reactions,
 			reactionEmojis: this.customEmojiService.populateEmojis(reactionEmojiNames, host),
 			reactionAndUserPairCache: opts.withReactionAndUserPairCache ? reactionAndUserPairCache : undefined,
-			emojis: host != null ? this.customEmojiService.populateEmojis(note.emojis, host) : undefined,
+			emojis: host != null ? this.customEmojiService.populateEmojis(note.emojis, host).then(urls => fillPeerEmojiUrls(this.gridspacePeer, urls, note.emojis, host)) : undefined,
 			tags: note.tags.length > 0 ? note.tags : undefined,
 			fileIds: note.fileIds,
 			files: packedFiles != null ? this.packAttachedFiles(note.fileIds, packedFiles) : this.driveFileEntityService.packManyByIds(note.fileIds),

@@ -5,8 +5,26 @@
 
 import { describe, expect, test, vi } from 'vitest';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
+import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
+import type { MiNote } from '@/models/Note.js';
 
 describe('delegated note author emoji', () => {
+	test.each(['g.example', 'third.example', null])('normal notes resolve only missing paired emoji (%s)', async host => {
+		const service = Object.assign(Object.create(NoteEntityService.prototype), {
+			gridspacePeer: { origin: 'https://r.example', peerOrigin: 'https://g.example' },
+			meta: { enableReactionsBuffering: false },
+			idService: { parse: () => ({ date: new Date(0) }) },
+			customEmojiService: { populateEmojis: async () => ({}) },
+			userEntityService: { pack: async () => ({ id: 'author', host }) },
+			driveFileEntityService: { packManyByIds: async () => [] },
+			reactionService: { convertLegacyReactions: (reactions: object) => reactions },
+			reactionsBufferingService: { mergeReactions: (reactions: object) => reactions },
+		}) as NoteEntityService;
+		const note = { id: 'note', userId: 'author', userHost: host, text: ':bloborange:', cw: null, visibility: 'public', emojis: ['bloborange'], reactions: {}, reactionAndUserPairCache: [], fileIds: [], tags: [], mentions: [], channelId: null, replyId: null, renoteId: null } as unknown as MiNote;
+		const packed = await service.pack(note, undefined, { detail: false, skipHide: true });
+		expect(packed.emojis).toEqual(host === 'g.example' ? { bloborange: 'https://g.example/emoji/bloborange.webp' } : host ? {} : undefined);
+	});
+
 	test('resolves uncached peer emoji without substituting the same local name', async () => {
 		const service = Object.assign(Object.create(GridspacePrivateService.prototype), {
 			peer: { origin: 'https://r.example', peerOrigin: 'https://g.example' },

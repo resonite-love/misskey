@@ -10,3 +10,14 @@ export function peerEmojiUrl(peer: GridspacePeerConfig | null, name: string, hos
 	if (!peer || host !== new URL(peer.peerOrigin).host || !/^[a-zA-Z0-9_-]+$/.test(name)) return null;
 	return new URL(`/emoji/${name}.webp`, peer.peerOrigin).href;
 }
+
+/** Keep cached URLs and resolve only missing emoji belonging to the configured peer. */
+export function fillPeerEmojiUrls(peer: GridspacePeerConfig | null, urls: Record<string, string>, names: string[], host: string | null): Record<string, string> {
+	for (const name of names) {
+		if (urls[name]) continue;
+		const parts = /^([a-zA-Z0-9_-]+)(?:@([a-zA-Z0-9_.-]+))?$/.exec(name);
+		const url = parts && peerEmojiUrl(peer, parts[1], parts[2] ?? host ?? undefined);
+		if (url) urls[name] = url;
+	}
+	return urls;
+}
