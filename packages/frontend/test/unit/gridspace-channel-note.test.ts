@@ -12,14 +12,14 @@ import Note from '@/components/MkGridspacePrivateNote.vue';
 import SimpleNote from '@/components/MkNoteSimple.vue';
 import { DI } from '@/di.js';
 
-const { api, menu, post, settings } = vi.hoisted(() => ({ api: vi.fn(), menu: vi.fn(), post: vi.fn(), settings: { instanceTicker: 'never', dataSaver: { media: true } } }));
+const { api, menu, post, normalPost, settings } = vi.hoisted(() => ({ api: vi.fn(), menu: vi.fn(), post: vi.fn(), normalPost: vi.fn(), settings: { instanceTicker: 'never', dataSaver: { media: true } } }));
 const { pluginHandlers } = vi.hoisted(() => ({ pluginHandlers: vi.fn(() => [] as { handler: (note: entities.Note) => entities.Note | null }[]) }));
 vi.mock('@/plugin.js', () => ({ getPluginHandlers: pluginHandlers }));
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: api }));
 vi.mock('@/utility/gridspace-post.js', () => ({ gridspacePost: post }));
 vi.mock('@/utility/get-note-menu.js', () => ({ getRenoteMenu: vi.fn() }));
 vi.mock('@/utility/gridspace-note-menu.js', () => ({ getGridspaceNoteMenu: async () => ({ menu: [], cleanup: vi.fn() }) }));
-vi.mock('@/os.js', () => ({ popupMenu: menu, toast: vi.fn(), alert: vi.fn() }));
+vi.mock('@/os.js', () => ({ popupMenu: menu, post: normalPost, toast: vi.fn(), alert: vi.fn() }));
 vi.mock('@/i.js', () => ({ $i: { id: 'current' } }));
 vi.mock('@/preferences.js', () => ({ prefer: { s: settings } }));
 vi.mock('@/utility/url-preview.js', () => ({ isEnabledUrlPreview: false }));
@@ -45,6 +45,23 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 type PrivateNote = entities.GridspacePrivateNotesResponse['notes'][number];
 const original = { id: 'original', channelId: 'channel', uri: 'https://r.example/notes/original', origin: 'https://r.example', createdAt: '2026-11-14T00:00:00Z', author: { name: 'Author', username: 'author', host: 'r.example', uri: 'https://r.example/users/author', avatarUrl: '', emojis: {} }, text: 'Original content', cw: null, visibility: 'public', localOnly: true, files: [], poll: null, renoteId: null, replyId: null } as PrivateNote;
 const globals = { stubs: { Mfm: { props: ['text'], template: '<span>{{ text }}</span>' }, MkA: { props: ['to'], template: '<a :href="to"><slot/></a>' }, MkTime: true, MkUserName: true, I18n: { template: '<span><slot name="user"/></span>' } } };
+
+test('an allowed channel quote opens the normal composer outside the source channel', async () => {
+	const source = { ...original, canQuoteOutside: true, author: { ...original.author, uri: `${url}/users/current`, host: new URL(url).host } };
+	const view = render(Note, { props: { note: source }, global: globals });
+	await fireEvent.click(view.getByRole('button', { name: 'Renote' }));
+	const items = menu.mock.calls[0][0];
+	expect(items).toHaveLength(3);
+	items[2].action();
+	expect(normalPost).toHaveBeenCalledWith({ gridspaceQuote: `${url}/gridspace/private?noteId=original&channelId=channel`, initialLocalOnly: true });
+	expect(post).not.toHaveBeenCalled();
+});
+
+test('a channel that forbids outside quotes keeps only its in-channel actions', async () => {
+	const view = render(Note, { props: { note: { ...original, canQuoteOutside: false } }, global: globals });
+	await fireEvent.click(view.getByRole('button', { name: 'Renote' }));
+	expect(menu.mock.calls[0][0]).toHaveLength(2);
+});
 
 test('linked channel notes run normal view plugins without changing action targets', async () => {
 	pluginHandlers.mockReturnValue([{ handler: note => ({ ...note, id: 'rewritten-id', text: 'Plugin content' }) }]);

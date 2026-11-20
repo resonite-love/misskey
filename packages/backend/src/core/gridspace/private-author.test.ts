@@ -56,5 +56,9 @@ describe('delegated note author emoji', () => {
 		expect(packed.author.id).toBeUndefined();
 		expect(packed.author.instance.softwareVersion).toBeUndefined();
 		expect(packed.channel).toEqual({ id: 'channel', name: 'Channel', color: '#ff8a8a' });
+		for (const allowed of [true, false]) {
+			const exportable = await service.pack({ ...note, visibility: 'public', channel: { ...note.channel, allowRenoteToExternal: allowed } }, 'reader', new Set(), { reactions: {}, myReaction: null, myReactions: [] });
+			expect(exportable.canQuoteOutside).toBe(allowed);
+		}
 	});
 });

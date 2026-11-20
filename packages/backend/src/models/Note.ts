@@ -105,6 +105,10 @@ export class MiNote {
 	@Column('boolean', { default: false })
 	public gridspaceShared: boolean;
 
+	/** A reference to a paired channel quote; the source body remains on its server. */
+	@Column('varchar', { length: 2048, nullable: true })
+	public gridspaceQuote: string | null;
+
 	@Column('varchar', {
 		length: 64, nullable: true,
 	})

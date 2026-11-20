@@ -45,6 +45,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</MkPostFormHeader>
 	<MkNoteSimple v-if="replyTargetNote" :class="$style.targetNote" :note="replyTargetNote"/>
 	<MkNoteSimple v-if="renoteTargetNote" :class="$style.targetNote" :note="renoteTargetNote"/>
+	<MkGridspaceNoteLinkPreview v-if="gridspaceQuote" :class="$style.targetNote" :url="gridspaceQuote" quote/>
+	<div v-if="gridspaceQuote" :class="$style.withQuote"><i class="ti ti-quote"></i> {{ i18n.ts.quoteAttached }}<button class="_button" :aria-label="i18n.ts.remove" @click="gridspaceQuote = null"><i class="ti ti-x"></i></button></div>
 	<div v-if="quoteId" :class="$style.withQuote"><i class="ti ti-quote"></i> {{ i18n.ts.quoteAttached }}<button @click="quoteId = null; renoteTargetNote = null;"><i class="ti ti-x"></i></button></div>
 	<div v-if="visibility === 'specified'" :class="$style.toSpecified">
 		<span style="margin-right: 8px;">{{ i18n.ts.recipient }}</span>
@@ -108,6 +110,7 @@ import XPostFormAttaches from '@/components/MkPostFormAttaches.vue';
 import XTextCounter from '@/components/MkPostForm.TextCounter.vue';
 import MkPollEditor from '@/components/MkPollEditor.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
+import MkGridspaceNoteLinkPreview from '@/components/MkGridspaceNoteLinkPreview.vue';
 import { erase, unique } from '@/utility/array.js';
 import { extractMentions } from '@/utility/extract-mentions.js';
 import { formatTimeString } from '@/utility/format-time-string.js';
@@ -213,9 +216,10 @@ const showingOptions = ref(false);
 const textAreaReadOnly = ref(false);
 const justEndedComposition = ref(false);
 const renoteTargetNote: ShallowRef<PostFormProps['renote'] | null> = shallowRef(props.renote);
+const gridspaceQuote = ref(props.gridspaceQuote ?? null);
 const replyTargetNote: ShallowRef<PostFormProps['reply'] | null> = shallowRef(props.reply);
 const targetChannel = shallowRef(props.channel);
-const localDeliveryRequired = computed(() => targetChannel.value != null || replyTargetNote.value?.localOnly === true || renoteTargetNote.value?.localOnly === true);
+const localDeliveryRequired = computed(() => gridspaceQuote.value != null || targetChannel.value != null || replyTargetNote.value?.localOnly === true || renoteTargetNote.value?.localOnly === true);
 const delivery = computed(() => getNoteDelivery({ localOnly: localDeliveryRequired.value || localOnly.value, noRelay: noRelay.value }));
 const deliveryOption = computed(() => getNoteDeliveryOptions()[delivery.value]);
 const deliveryLabel = computed(() => `${i18n.ts._visibility.delivery}：${deliveryOption.value.label}`);
@@ -245,7 +249,9 @@ uploader.events.on('itemUploaded', ctx => {
 const draftKey = computed((): string => {
 	let key = targetChannel.value ? `channel:${targetChannel.value.id}` : '';
 
-	if (renoteTargetNote.value) {
+	if (gridspaceQuote.value) {
+		key += `gridspaceQuote:${gridspaceQuote.value}`;
+	} else if (renoteTargetNote.value) {
 		key += `renote:${renoteTargetNote.value.id}`;
 	} else if (replyTargetNote.value) {
 		key += `reply:${replyTargetNote.value.id}`;
@@ -257,7 +263,7 @@ const draftKey = computed((): string => {
 });
 
 const placeholder = computed((): string => {
-	if (renoteTargetNote.value) {
+	if (renoteTargetNote.value || gridspaceQuote.value) {
 		return i18n.ts._postForm.quotePlaceholder;
 	} else if (replyTargetNote.value) {
 		return i18n.ts._postForm.replyPlaceholder;
@@ -279,7 +285,7 @@ const placeholder = computed((): string => {
 const submitText = computed((): string => {
 	return scheduledAt.value != null
 		? i18n.ts.schedule
-		: renoteTargetNote.value
+		: renoteTargetNote.value || gridspaceQuote.value
 			? i18n.ts.quote
 			: replyTargetNote.value
 				? i18n.ts.reply
@@ -287,7 +293,7 @@ const submitText = computed((): string => {
 });
 
 const submitIcon = computed((): string => {
-	return posted.value ? 'ti ti-check' : scheduledAt.value != null ? 'ti ti-calendar-time' : replyTargetNote.value ? 'ti ti-arrow-back-up' : renoteTargetNote.value ? 'ti ti-quote' : 'ti ti-send';
+	return posted.value ? 'ti ti-check' : scheduledAt.value != null ? 'ti ti-calendar-time' : replyTargetNote.value ? 'ti ti-arrow-back-up' : renoteTargetNote.value || gridspaceQuote.value ? 'ti ti-quote' : 'ti ti-send';
 });
 
 const textLength = computed((): number => {
@@ -433,6 +439,7 @@ function watchForDraft() {
 	watch(localOnly, () => saveDraft());
 	watch(noRelay, () => saveDraft());
 	watch(quoteId, () => saveDraft());
+	watch(gridspaceQuote, () => saveDraft());
 	watch(reactionAcceptance, () => saveDraft());
 	watch(scheduledAt, () => saveDraft());
 }
@@ -781,7 +788,7 @@ async function onPaste(ev: ClipboardEvent) {
 
 	const paste = ev.clipboardData.getData('text');
 
-	if (!renoteTargetNote.value && !quoteId.value && !replyTargetNote.value && isGridspaceNoteLink(paste.trim())) {
+	if (!gridspaceQuote.value && !renoteTargetNote.value && !quoteId.value && !replyTargetNote.value && isGridspaceNoteLink(paste.trim())) {
 		ev.preventDefault();
 		resolvingLinkedQuote.value = true;
 		textAreaReadOnly.value = true;
@@ -851,7 +858,7 @@ async function onPaste(ev: ClipboardEvent) {
 		return;
 	}
 
-	if (!renoteTargetNote.value && !quoteId.value && paste.startsWith(url + '/notes/')) {
+	if (!gridspaceQuote.value && !renoteTargetNote.value && !quoteId.value && paste.startsWith(url + '/notes/')) {
 		ev.preventDefault();
 
 		const { canceled } = await os.confirm({
@@ -956,6 +963,7 @@ type StoredDrafts = {
 			poll: PollEditorModelValue | null;
 			visibleUserIds?: string[];
 			quoteId: string | null;
+			gridspaceQuote?: string | null;
 			reactionAcceptance: 'likeOnly' | 'likeOnlyForRemote' | 'nonSensitiveOnly' | 'nonSensitiveOnlyForLocalLikeOnlyForRemote' | null;
 			scheduledAt: number | null;
 		};
@@ -980,6 +988,7 @@ function saveDraft() {
 			poll: poll.value,
 			...( visibleUsers.value.length > 0 ? { visibleUserIds: visibleUsers.value.map(x => x.id) } : {}),
 			quoteId: quoteId.value,
+			gridspaceQuote: gridspaceQuote.value,
 			reactionAcceptance: reactionAcceptance.value,
 			scheduledAt: scheduledAt.value,
 		},
@@ -1017,6 +1026,7 @@ async function saveServerDraft(options: {
 		poll: poll.value,
 		visibleUserIds: visibleUsers.value.map(x => x.id),
 		renoteId: renoteTargetNote.value ? renoteTargetNote.value.id : quoteId.value ? quoteId.value : null,
+		gridspaceQuote: gridspaceQuote.value,
 		replyId: replyTargetNote.value ? replyTargetNote.value.id : null,
 		channelId: targetChannel.value ? targetChannel.value.id : null,
 		reactionAcceptance: reactionAcceptance.value,
@@ -1115,6 +1125,7 @@ async function post(ev?: PointerEvent) {
 		fileIds: files.value.length > 0 ? files.value.map(f => f.id) : undefined,
 		replyId: replyTargetNote.value ? replyTargetNote.value.id : undefined,
 		renoteId: renoteTargetNote.value ? renoteTargetNote.value.id : quoteId.value ? quoteId.value : undefined,
+		gridspaceQuote: gridspaceQuote.value,
 		channelId: targetChannel.value ? targetChannel.value.id : undefined,
 		poll: poll.value,
 		cw: useCw.value ? cw.value ?? '' : null,
@@ -1381,6 +1392,7 @@ async function openAccountMenu(ev: PointerEvent) {
 					});
 				}
 				quoteId.value = draft.renoteId ?? null;
+				gridspaceQuote.value = draft.gridspaceQuote ?? null;
 				renoteTargetNote.value = draft.renote;
 				replyTargetNote.value = draft.reply;
 				reactionAcceptance.value = draft.reactionAcceptance;
@@ -1526,6 +1538,7 @@ onMounted(() => {
 					});
 				}
 				quoteId.value = draft.data.quoteId;
+				gridspaceQuote.value = draft.data.gridspaceQuote ?? null;
 				reactionAcceptance.value = draft.data.reactionAcceptance;
 				scheduledAt.value = draft.data.scheduledAt ?? null;
 			}
@@ -1534,6 +1547,7 @@ onMounted(() => {
 		// 削除して編集
 		if (props.initialNote) {
 			const init = props.initialNote;
+			gridspaceQuote.value = init.gridspaceQuote ?? null;
 			text.value = init.text ? init.text : '';
 			useCw.value = init.cw != null;
 			cw.value = init.cw ?? null;

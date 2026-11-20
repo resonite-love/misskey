@@ -561,6 +561,8 @@ export class GridspacePrivateService {
 			...(this.collectionId(note) ? { collectionId: this.collectionId(note), collectionAt: this.ids.parse(this.collectionId(note)!).date.toISOString() } : {}),
 			channelId: note.channelId, canDelete: !!note.channelId && note.userId === viewerId,
 			canSelfRenote: !this.collectionClient && canSelfRenote(note, viewerId),
+			canQuoteOutside: !!note.channel?.allowRenoteToExternal && ['public', 'home'].includes(note.visibility) && !(note.renoteId && !note.text && !note.fileIds.length && !note.hasPoll),
+			gridspaceQuote: note.gridspaceQuote ?? undefined,
 			channel: note.channel ? { id: note.channel.id, name: note.channel.name, color: note.channel.color } : null,
 			reactions, reactionEmojis, myReaction, myReactions, extendedReactions: !!note.channelId || supportsGridspaceReactions(note, this.peer),
 			reactionPreviews: reactionState.reactionPreviews?.filter(row => Object.keys(reactions).some(reaction => reaction.replace('@.:', ':') === row.reaction.replace('@.:', ':'))),

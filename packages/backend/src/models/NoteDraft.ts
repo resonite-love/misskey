@@ -48,6 +48,9 @@ export class MiNoteDraft {
 	@JoinColumn()
 	public renote: MiNote | null;
 
+	@Column('varchar', { length: 2048, nullable: true })
+	public gridspaceQuote: string | null;
+
 	// TODO: varcharにしたい(Note.tsと同じ)
 	@Column('text', {
 		nullable: true,

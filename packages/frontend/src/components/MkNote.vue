@@ -95,6 +95,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<MkUrlPreview v-for="url in urls" :key="url" :url="url" :compact="true" :detail="false" :class="$style.urlPreview"/>
 			</div>
 			<div v-if="appearNote.renoteId" :class="$style.quote"><MkNoteSimple :note="appearNote?.renote ?? null" :class="$style.quoteNote"/></div>
+			<div v-if="appearNote.gridspaceQuote" :class="$style.quote"><div :class="$style.quoteNote"><MkGridspaceNoteLinkPreview :url="appearNote.gridspaceQuote" quote/></div></div>
 			<button v-if="isLong && collapsed" :class="$style.collapsed" class="_button" @click="collapsed = false">
 				<span :class="$style.collapsedLabel">{{ i18n.ts.showMore }}</span>
 			</button>
@@ -212,6 +213,7 @@ import MkNoteChannel from '@/components/MkNoteChannel.vue';
 import MkNoteArticle from '@/components/MkNoteArticle.vue';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
+import MkGridspaceNoteLinkPreview from '@/components/MkGridspaceNoteLinkPreview.vue';
 import MkReactionsViewer from '@/components/MkReactionsViewer.vue';
 import MkNoteText from '@/components/MkNoteText.vue';
 import MkNoteCw from '@/components/MkNoteCw.vue';

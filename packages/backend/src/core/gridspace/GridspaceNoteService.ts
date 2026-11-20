@@ -96,7 +96,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		});
 		if (note === null) return { deleted: true, notes: [] };
 		if (note === false) return { deleted: false, unavailable: true, notes: [] };
-		const result = { deleted: false, notes: [{ object: await this.renderer.renderNote(note, false, note.visibility), localOnly: note.localOnly, noRelay: note.noRelay, federateAsHome: note.federateAsHome, reactionAcceptance: note.reactionAcceptance }] };
+		const result = { deleted: false, notes: [{ object: await this.renderer.renderNote(note, false, note.visibility), localOnly: note.localOnly, noRelay: note.noRelay, federateAsHome: note.federateAsHome, gridspaceQuote: note.gridspaceQuote ?? undefined, reactionAcceptance: note.reactionAcceptance }] };
 		if (Buffer.byteLength(JSON.stringify(result)) > GRIDSPACE_NOTE_BODY_LIMIT) throw new Error('Note too large');
 		return result;
 	}

@@ -5,12 +5,13 @@
 
 import type { MiNote } from '@/models/Note.js';
 import type { IPost } from '@/core/activitypub/type.js';
+import { parseChannelQuote } from './quote-reference.js';
 
 export const GRIDSPACE_NOTE_PATH = '/gridspace/v1/notes/';
 export const GRIDSPACE_NOTE_BODY_LIMIT = 2 * 1024 * 1024;
 export const GRIDSPACE_NOTE_BATCH_LIMIT = 20;
 export const GRIDSPACE_NOTE_BATCH_BODY_LIMIT = GRIDSPACE_NOTE_BATCH_LIMIT * GRIDSPACE_NOTE_BODY_LIMIT + 65536;
-export type GridspaceNoteEntry = { object: IPost; localOnly: boolean; noRelay?: boolean; federateAsHome?: boolean; reactionAcceptance: MiNote['reactionAcceptance'] };
+export type GridspaceNoteEntry = { object: IPost; localOnly: boolean; noRelay?: boolean; federateAsHome?: boolean; gridspaceQuote?: string; reactionAcceptance: MiNote['reactionAcceptance'] };
 export type GridspaceNoteBundle = { deleted: boolean; unavailable?: boolean; notes: GridspaceNoteEntry[] };
 
 export function canShareGridspaceNote(note: { visibility: string; channelId: string | null }): boolean {
@@ -61,6 +62,10 @@ export function validateGridspaceBundle(value: unknown, origin: string, rootId: 
 		const isPublic = Array.isArray(note.to) && note.to.includes(publicAudience);
 		if (!isPublic && !(Array.isArray(note.cc) && note.cc.includes(publicAudience))) throw new Error('Private note');
 		if (entry.federateAsHome && (!isPublic || entry.localOnly || entry.noRelay !== true)) throw new Error('Inconsistent federation visibility');
+		if (entry.gridspaceQuote != null) {
+			if (typeof entry.gridspaceQuote !== 'string' || entry.gridspaceQuote.length > 2048 || !entry.localOnly) throw new Error('Invalid channel quote');
+			parseChannelQuote(entry.gridspaceQuote, origin);
+		}
 		if (![null, 'likeOnly', 'likeOnlyForRemote', 'nonSensitiveOnly', 'nonSensitiveOnlyForLocalLikeOnlyForRemote'].includes(entry.reactionAcceptance)) throw new Error('Invalid reaction policy');
 		seen.add(note.id);
 	}

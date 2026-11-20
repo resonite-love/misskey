@@ -120,6 +120,7 @@ export class NoteDraftEntityService implements OnModuleInit {
 			files: packedFiles != null ? this.packAttachedFiles(noteDraft.fileIds, packedFiles) : this.driveFileEntityService.packManyByIds(noteDraft.fileIds),
 			replyId: noteDraft.replyId,
 			renoteId: noteDraft.renoteId,
+			gridspaceQuote: noteDraft.gridspaceQuote,
 			channelId: noteDraft.channelId,
 			channel: channel ? {
 				id: channel.id,

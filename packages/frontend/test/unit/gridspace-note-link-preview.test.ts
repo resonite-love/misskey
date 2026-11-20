@@ -13,6 +13,8 @@ vi.mock('@/i.js', () => ({ $i: { id: 'viewer', hardMutedWords: [] } }));
 vi.mock('@/i18n.js', () => ({ i18n: { ts: { invisibleNote: 'Not visible', details: 'Details' }, tsx: { withNFiles: ({ n }: { n: number }) => `${n} files` } } }));
 vi.mock('@/components/MkNoteHeader.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkNoteCw.vue', () => ({ default: { template: '<div>Content warning</div>' } }));
+vi.mock('@/components/MkGridspacePrivateNote.vue', () => ({ default: { props: ['note', 'quotePreview'], template: '<div data-quote-preview>{{ note.text }}</div>' } }));
+vi.mock('@/components/MkNoteSimple.vue', () => ({ default: { props: ['note'], template: '<div data-quote-preview>{{ note.text }}</div>' } }));
 const note = { id: 'note', text: 'Protected text', cw: null, files: [], author: { username: 'author', uri: 'https://r.example/users/author' }, visibility: 'public' };
 const globals = { stubs: { MkA: { props: ['to'], template: '<a :href="to"><slot/></a>' }, Mfm: { props: ['text'], template: '<span>{{ text }}</span>' }, MkEllipsis: true } };
 beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal('IntersectionObserver', class { constructor(callback: typeof visibilityCallback) { visibilityCallback = callback; } observe() {} disconnect() {} }); api.mockReset(); api.mockResolvedValue({ note, localNote: null }); Object.defineProperty(document, 'hidden', { configurable: true, value: false }); });
@@ -42,4 +44,14 @@ test('removes an offscreen preview and waits for renewed permission before revea
 	visibilityCallback([{ isIntersecting: true }]);
 	await vi.waitFor(() => expect(view.getByText('Not visible')).toBeTruthy());
 	expect(view.queryByText('Protected text')).toBeNull();
+});
+
+test('outside quotes render a compact card and remove only its source on permission loss', async () => {
+	api.mockResolvedValue({ note: { ...note, canQuoteOutside: true }, localNote: null });
+	const view = render(Preview, { props: { url: 'https://g.example/gridspace/private?noteId=note&channelId=channel', quote: true }, global: globals });
+	await vi.waitFor(() => expect(view.container.querySelector('[data-quote-preview]')?.textContent).toBe('Protected text'));
+	api.mockResolvedValue({ note: { ...note, canQuoteOutside: false }, localNote: null });
+	await vi.advanceTimersByTimeAsync(30000);
+	expect(view.queryByText('Protected text')).toBeNull();
+	expect(view.getByText('Not visible')).toBeTruthy();
 });

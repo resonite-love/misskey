@@ -57,6 +57,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkGridspacePrivateNote v-if="note.renote" :note="note.renote" :class="$style.quoteNote" quotePreview nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 			<MkA v-else :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA>
 		</div>
+		<div v-if="note.gridspaceQuote && (displayNote.cw == null || expanded)" :class="$style.quote"><div :class="$style.quoteNote"><MkGridspaceNoteLinkPreview :url="note.gridspaceQuote" quote/></div></div>
 		<button v-if="translation" class="_textButton" @click="translation = null">{{ i18n.ts._autoTranslation.showOriginal }}</button>
 		<div v-if="visible && isEnabledUrlPreview && (displayNote.cw == null || expanded)">
 			<MkUrlPreview v-for="link in urls" :key="link" :url="link" :compact="true" :detail="detailed" :class="$style.urlPreview"/>
@@ -84,7 +85,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onDeactivated, onMounted, ref, useTemplateRef, watch } from 'vue';
+import { computed, defineAsyncComponent, inject, onBeforeUnmount, onDeactivated, onMounted, ref, useTemplateRef, watch } from 'vue';
 import * as mfm from 'mfm-js';
 import { url } from '@@/js/config.js';
 import { shouldCollapsed } from '@@/js/collapsed.js';
@@ -123,6 +124,7 @@ import { prefer } from '@/preferences.js';
 import { $i } from '@/i.js';
 import * as os from '@/os.js';
 
+const MkGridspaceNoteLinkPreview = defineAsyncComponent(() => import('@/components/MkGridspaceNoteLinkPreview.vue').then(module => module.default));
 const props = withDefaults(defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number]; compactTop?: boolean; dense?: boolean; nested?: boolean; detailed?: boolean; quotePreview?: boolean }>(), { compactTop: false, dense: false, nested: false, detailed: false, quotePreview: false });
 const updated = ref<entities.GridspacePrivateNotesResponse['notes'][number] | null>(null);
 const note = computed(() => updated.value ?? props.note);
@@ -212,7 +214,12 @@ async function renote() {
 				if (current !== generation) return;
 				void gridspacePost({ channelId, channel: channel.value, renote: target }, () => emit('replied'));
 			},
-		}], renoteButton.value);
+		}, ...(target.canQuoteOutside ? [{
+			text: i18n.ts.quote, icon: 'ti ti-quote', action: () => {
+				if (current !== generation) return;
+				void os.post({ gridspaceQuote: `${url}/gridspace/private?noteId=${target.id}&channelId=${channelId}`, initialLocalOnly: true });
+			},
+		}] : [])], renoteButton.value);
 		return;
 	}
 	renoteLoading.value = true;

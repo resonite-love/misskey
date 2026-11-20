@@ -185,6 +185,8 @@ type Option = {
 	noRelay?: boolean;
 	gridspaceShared?: boolean;
 	gridspaceHistorical?: boolean;
+	gridspaceQuote?: string | null;
+	gridspaceQuoteCheck?: () => Promise<void>;
 	gridspaceReply?: { requestId: string; requestHash: string; beforeInsert: (manager: EntityManager) => Promise<void> };
 	reactionAcceptance?: MiNote['reactionAcceptance'];
 	cw?: string | null;
@@ -312,6 +314,8 @@ export class NoteCreateService implements OnApplicationShutdown {
 		apHashtags?: string[] | null;
 		apEmojis?: string[] | null;
 		gridspaceReply?: Option['gridspaceReply'];
+		gridspaceQuote?: string | null;
+		gridspaceQuoteCheck?: () => Promise<void>;
 	}): Promise<MiNote> {
 		const visibleUsers = data.visibleUserIds.length > 0 ? await this.usersRepository.findBy({
 			id: In(data.visibleUserIds),
@@ -453,6 +457,8 @@ export class NoteCreateService implements OnApplicationShutdown {
 			apHashtags: data.apHashtags,
 			apEmojis: data.apEmojis,
 			gridspaceReply: data.gridspaceReply,
+			gridspaceQuote: data.gridspaceQuote,
+			gridspaceQuoteCheck: data.gridspaceQuoteCheck,
 		});
 	}
 
@@ -496,6 +502,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 		if (data.createdAt == null) data.createdAt = new Date();
 		if (data.visibility == null) data.visibility = 'public';
 		if (data.localOnly == null) data.localOnly = false;
+		if (data.gridspaceQuote) data.localOnly = true;
 		if (data.channel != null) data.visibility = 'public';
 		if (data.channel != null) data.visibleUsers = [];
 		if (data.channel != null) data.localOnly = true;
@@ -713,6 +720,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			noRelay: !data.localOnly && data.noRelay === true,
 			federateAsHome: user.host == null && !data.localOnly && data.noRelay === true && data.visibility === 'public',
 			gridspaceShared: data.gridspaceShared === true || (user.host == null && this.config.gridspace?.enabled === true && canShareGridspaceNote({ visibility: data.visibility!, channelId: data.channel?.id ?? null })),
+			gridspaceQuote: data.gridspaceQuote ?? null,
 			reactionAcceptance: data.reactionAcceptance ?? null,
 			visibility: data.visibility as any,
 			visibleUserIds: data.visibility === 'specified'
@@ -753,9 +761,13 @@ export class NoteCreateService implements OnApplicationShutdown {
 
 		// 投稿を作成
 		try {
-			if (insert.hasPoll || insert.gridspaceShared || insert.uri || data.gridspaceReply) {
+			if (insert.hasPoll || insert.gridspaceShared || insert.uri || data.gridspaceReply || insert.gridspaceQuote) {
 				// Persist delivery with the note; tombstones serialize against late/replayed creates.
 				await this.db.transaction(async transactionalEntityManager => {
+					if (insert.gridspaceQuote) {
+						if (user.host == null && !data.gridspaceHistorical && !data.gridspaceQuoteCheck) throw new Error('Missing channel quote authorization');
+						await data.gridspaceQuoteCheck?.();
+					}
 					if (data.gridspaceReply) {
 						await data.gridspaceReply.beforeInsert(transactionalEntityManager);
 						await transactionalEntityManager.insert(MiGridspaceReplyReceipt, { userId: user.id, requestId: data.gridspaceReply.requestId, requestHash: data.gridspaceReply.requestHash, noteId: insert.id });

@@ -37,6 +37,8 @@ export type PrivateNote = {
 	channel?: { id: string; name: string; color: string } | null;
 	canDelete?: boolean;
 	canSelfRenote?: boolean;
+	canQuoteOutside?: boolean;
+	gridspaceQuote?: string;
 	collectionId?: string; collectionAt?: string;
 	emojis?: Record<string, string>; reactions?: Record<string, number>; reactionEmojis?: Record<string, string>; myReaction?: string | null;
 	myReactions?: string[]; extendedReactions?: boolean;
@@ -65,6 +67,8 @@ const privateNoteBaseSchema = {
 		collectionId: { ...text, optional: true }, collectionAt: { ...text, optional: true },
 		canDelete: { ...flag, optional: true },
 		canSelfRenote: { ...flag, optional: true },
+		canQuoteOutside: { ...flag, optional: true },
+		gridspaceQuote: { ...text, optional: true },
 		author: { type: 'object', optional: false, nullable: false, properties: {
 			name: nullableText, username: text, host: text, uri: text, avatarUrl: text, emojis: { type: 'object', optional: true, nullable: false, additionalProperties: text },
 			avatarBlurhash: { ...nullableText, optional: true }, avatarDecorations: { ...packedUserLiteSchema.properties.avatarDecorations, optional: true },

@@ -10,6 +10,8 @@ import { MAX_NOTE_TEXT_LENGTH } from '@/const.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { NoteCreateService } from '@/core/NoteCreateService.js';
+import { GridspaceQuoteService } from '@/core/gridspace/GridspaceQuoteService.js';
+import { GridspaceLinkError } from '@/core/gridspace/GridspaceLinkService.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
 import { ApiError } from '../../error.js';
 
@@ -135,6 +137,7 @@ export const paramDef = {
 		} },
 		cw: { type: 'string', nullable: true, minLength: 1, maxLength: 100 },
 		localOnly: { type: 'boolean', default: false },
+		gridspaceQuote: { type: 'string', minLength: 1, maxLength: 2048, nullable: true },
 		noRelay: { type: 'boolean', default: false, description: 'Skip direct relay delivery while keeping the selected visibility and normal federation.' },
 		reactionAcceptance: { type: 'string', nullable: true, enum: [null, 'likeOnly', 'likeOnlyForRemote', 'nonSensitiveOnly', 'nonSensitiveOnlyForLocalLikeOnlyForRemote'], default: null },
 		noExtractMentions: { type: 'boolean', default: false },
@@ -219,9 +222,12 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 	constructor(
 		private noteEntityService: NoteEntityService,
 		private noteCreateService: NoteCreateService,
+		private gridspaceQuotes: GridspaceQuoteService,
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			try {
+				if (ps.gridspaceQuote && (ps.renoteId || ps.replyId)) throw new GridspaceLinkError('ACTION_REJECTED');
+				const quote = ps.gridspaceQuote ? await this.gridspaceQuotes.prepare(me, ps.gridspaceQuote) : null;
 				const note = await this.noteCreateService.fetchAndCreate(me, {
 					createdAt: new Date(),
 					fileIds: ps.fileIds ?? ps.mediaIds ?? [],
@@ -235,6 +241,8 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					renoteId: ps.renoteId ?? null,
 					cw: ps.cw ?? null,
 					localOnly: ps.localOnly,
+					gridspaceQuote: quote?.url,
+					gridspaceQuoteCheck: quote?.check,
 					noRelay: ps.noRelay,
 					reactionAcceptance: ps.reactionAcceptance,
 					visibility: ps.visibility,
@@ -249,6 +257,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					createdNote: await this.noteEntityService.pack(note, me),
 				};
 			} catch (err) {
+				if (err instanceof GridspaceLinkError) throw new ApiError(meta.errors.cannotRenoteOutsideOfChannel);
 				// TODO: 他のErrorもここでキャッチしてエラーメッセージを当てるようにしたい
 				if (err instanceof IdentifiableError) {
 					if (err.id === '689ee33f-f97c-479a-ac49-1b9f8140af99') {

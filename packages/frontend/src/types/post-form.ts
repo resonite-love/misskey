@@ -8,6 +8,7 @@ import * as Misskey from 'misskey-js';
 export interface PostFormProps {
 	reply?: Misskey.entities.Note | null;
 	renote?: Misskey.entities.Note | null;
+	gridspaceQuote?: string | null;
 	channel?: {
 		id: string;
 		name: string;

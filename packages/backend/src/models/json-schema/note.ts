@@ -198,6 +198,7 @@ export const packedNoteSchema = {
 			},
 		},
 		gridspaceReactions: { type: 'boolean', optional: true, nullable: false },
+		gridspaceQuote: { type: 'string', optional: true, nullable: false },
 		gridspaceShared: {
 			type: 'boolean',
 			optional: true, nullable: false,

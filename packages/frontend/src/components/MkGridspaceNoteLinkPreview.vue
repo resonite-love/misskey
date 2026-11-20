@@ -4,8 +4,12 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div ref="root" :class="$style.root" data-gridspace-link-preview>
-	<template v-if="note">
+<div ref="root" :class="[$style.root, { [$style.quote]: quote }]" data-gridspace-link-preview>
+	<template v-if="quote && note">
+		<MkGridspacePrivateNote v-if="result?.note" :note="result.note" quotePreview/>
+		<MkNoteSimple v-else-if="result?.localNote" :note="result.localNote"/>
+	</template>
+	<template v-else-if="note">
 		<MkNoteHeader :note="header!" :noteUrl="detailUrl" :externalNoteUrl="!!result?.publicUrl" :userPreview="`@${header!.user.username}${header!.user.host ? `@${header!.user.host}` : ''}`"/>
 		<MkNoteCw v-if="note.cw != null" v-model="expanded" :cw="note.cw" :text="note.text" :author="header!.user" :emojiUrls="note.emojis ?? {}" :files="note.files"/>
 		<template v-if="note.cw == null || expanded">
@@ -15,7 +19,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</template>
 	<MkEllipsis v-else-if="loading"/>
 	<span v-else-if="!result?.publicUrl"><i class="ti ti-lock"></i> {{ i18n.ts.invisibleNote }}</span>
-	<div>
+	<div v-if="!quote">
 		<a v-if="result?.publicUrl" class="_link" :href="detailUrl">{{ i18n.ts.details }} <i class="ti ti-chevron-right"></i></a>
 		<MkA v-else class="_link" :to="detailUrl">{{ i18n.ts.details }} <i class="ti ti-chevron-right"></i></MkA>
 	</div>
@@ -23,7 +27,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue';
+import { computed, defineAsyncComponent, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue';
 import type { entities } from 'misskey-js';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import MkNoteCw from '@/components/MkNoteCw.vue';
@@ -33,7 +37,10 @@ import { $i } from '@/i.js';
 import { isVisiblePrivateNote } from '@/utility/gridspace-note-suspension.js';
 import { checkTextWordMute } from '@/utility/check-word-mute.js';
 
-const props = defineProps<{ url: string }>();
+const MkNoteSimple = defineAsyncComponent(() => import('@/components/MkNoteSimple.vue').then(module => module.default));
+const MkGridspacePrivateNote = defineAsyncComponent(() => import('@/components/MkGridspacePrivateNote.vue').then(module => module.default));
+
+const props = defineProps<{ url: string; quote?: boolean }>();
 const result = shallowRef<entities.GridspaceNoteLinkResponse | null>(null);
 const root = useTemplateRef('root');
 let visible = true;
@@ -62,6 +69,10 @@ async function load() {
 	loading.value = true;
 	try {
 		const value = await misskeyApi('gridspace/note-link', { url: props.url }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
+		if (props.quote && (value.note ? value.note.canQuoteOutside !== true : value.localNote?.channel?.allowRenoteToExternal !== true)) {
+			if (current === generation) result.value = null;
+			return;
+		}
 		if (current === generation && active && !window.document.hidden) result.value = value.note ? isVisiblePrivateNote(value.note) ? value : null : value.localNote ? (!$i || !checkTextWordMute(`${value.localNote.cw ?? ''}\n${value.localNote.text ?? ''}`, $i.hardMutedWords)) ? value : null : value.publicUrl ? value : null;
 	} catch { if (current === generation) result.value = null; } finally { if (current === generation) loading.value = false; }
 }
@@ -79,4 +90,5 @@ onBeforeUnmount(() => { active = false; clear(); window.clearInterval(timer); ob
 
 <style lang="scss" module>
 .root { padding: 16px; border: 1px solid var(--MI_THEME-divider); border-radius: var(--MI-radius); overflow-wrap: anywhere; font-size: 0.9em; }
+.quote { padding: 0; border: 0; border-radius: 0; font-size: inherit; }
 </style>

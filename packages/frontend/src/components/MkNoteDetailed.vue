@@ -94,6 +94,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<MkUrlPreview v-for="url in urls" :key="url" :url="url" :compact="true" :detail="true" style="margin-top: 6px;"/>
 					</div>
 					<div v-if="appearNote.renoteId" :class="$style.quote"><MkNoteSimple :note="appearNote?.renote ?? null" :class="$style.quoteNote"/></div>
+					<div v-if="appearNote.gridspaceQuote" :class="$style.quote"><div :class="$style.quoteNote"><MkGridspaceNoteLinkPreview :url="appearNote.gridspaceQuote" quote/></div></div>
 				</div>
 				<MkNoteChannel v-if="appearNote.channel && !inChannel" :channel="appearNote.channel"/>
 			</div>
@@ -217,6 +218,7 @@ import { DI } from '@/di.js';
 import MkNoteSub from '@/components/MkNoteSub.vue';
 import MkNoteChannel from '@/components/MkNoteChannel.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
+import MkGridspaceNoteLinkPreview from '@/components/MkGridspaceNoteLinkPreview.vue';
 import MkReactionsViewer from '@/components/MkReactionsViewer.vue';
 import MkNoteDetailedArticle from '@/components/MkNoteDetailedArticle.vue';
 import MkNoteDetailedHeader from '@/components/MkNoteDetailedHeader.vue';

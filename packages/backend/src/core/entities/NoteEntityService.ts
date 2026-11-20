@@ -196,6 +196,7 @@ export class NoteEntityService implements OnModuleInit {
 		packedNote.fileIds = [];
 		packedNote.files = [];
 		packedNote.text = null;
+		packedNote.gridspaceQuote = undefined;
 		packedNote.poll = undefined;
 		packedNote.cw = null;
 		packedNote.isHidden = true;
@@ -445,6 +446,7 @@ export class NoteEntityService implements OnModuleInit {
 			localOnly: note.localOnly,
 			noRelay: note.noRelay,
 			gridspaceShared: note.gridspaceShared,
+			gridspaceQuote: note.gridspaceQuote ?? undefined,
 			gridspaceReactions: supportsGridspaceReactions(note, this.gridspacePeer) || supportsGridspaceChannelReactions(note, this.gridspacePeer),
 			reactionAcceptance: note.reactionAcceptance,
 			visibleUserIds: note.visibility === 'specified' ? note.visibleUserIds : undefined,
