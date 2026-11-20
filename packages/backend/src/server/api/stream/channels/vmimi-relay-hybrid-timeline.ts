@@ -10,7 +10,7 @@ import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { bindThis } from '@/decorators.js';
 import { RoleService } from '@/core/RoleService.js';
 import { VmimiRelayTimelineService } from '@/core/VmimiRelayTimelineService.js';
-import { isRenotePacked, isQuotePacked } from '@/misc/is-renote.js';
+import { isRenotePacked, isQuotePacked, isReferenceRenotePacked } from '@/misc/is-renote.js';
 import type { JsonObject } from '@/misc/json-value.js';
 import Channel, { type ChannelRequest } from '../channel.js';
 import { REQUEST } from '@nestjs/core';
@@ -87,6 +87,8 @@ export class VmimiRelayHybridTimelineChannel extends Channel {
 				if (reply.userId !== this.user!.id && !isMe && reply.userId !== note.userId) return;
 			}
 		}
+
+		if (!this.withRenotes && isReferenceRenotePacked(note)) return;
 
 		// 純粋なリノート（引用リノートでないリノート）の場合
 		if (isRenotePacked(note) && !isQuotePacked(note) && note.renote) {

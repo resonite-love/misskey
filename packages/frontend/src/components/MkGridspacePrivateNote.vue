@@ -15,7 +15,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</div>
 		<MkGridspacePrivateNote :note="note.renote" :detailed="detailed" compactTop nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 	</template>
-	<MkGridspaceReferenceRenote v-else-if="!quotePreview && isGridspaceReferenceRenote(note)" :note="{ user: displayAuthor, createdAt: note.createdAt, gridspaceQuote: note.gridspaceQuote }" :detailed="detailed" @menu="showMenu"/>
+	<MkGridspaceReferenceRenote v-else-if="!quotePreview && isGridspaceReferenceRenote(note)" :note="{ user: displayAuthor, createdAt: note.createdAt, gridspaceQuote: note.gridspaceQuote, visibility: headerNote.visibility, localOnly: note.localOnly }" :detailed="detailed" @menu="showMenu"/>
 	<MkNoteSimple v-else-if="quotePreview" :note="null">
 		<template #avatar="{ avatarClass }"><MkAvatar :class="avatarClass" :user="displayAuthor" link :preview="false"/></template>
 		<template #header="{ headerClass }"><MkNoteHeader :class="headerClass" :note="headerNote" :mini="true" :noteUrl="noteLink(note.id)" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/></template>

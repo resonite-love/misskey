@@ -11,6 +11,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<i class="ti ti-repeat"></i>
 		<I18n :src="i18n.ts.renotedBy" tag="span"><template #user><MkUserName :user="note.user"/></template></I18n>
 		<button class="_button" :class="$style.time" :aria-label="i18n.ts.more" @click="emit('menu', $event)"><i class="ti ti-dots"></i> <MkTime :time="note.createdAt"/></button>
+		<span v-if="note.visibility && note.visibility !== 'public'" :title="i18n.ts._visibility[note.visibility]"><i :class="note.visibility === 'home' ? 'ti ti-home' : note.visibility === 'specified' ? 'ti ti-mail' : 'ti ti-lock'"></i></span>
+		<span v-if="note.localOnly" :title="i18n.ts._visibility.disableFederation"><i class="ti ti-rocket-off"></i></span>
 	</div>
 	<MkGridspaceNoteLinkPreview :url="note.gridspaceQuote!" fullNote :detailed="detailed"/>
 </div>
@@ -22,7 +24,7 @@ import MkGridspaceNoteLinkPreview from '@/components/MkGridspaceNoteLinkPreview.
 import MkNoteChannel from '@/components/MkNoteChannel.vue';
 import { i18n } from '@/i18n.js';
 
-defineProps<{ note: Pick<entities.Note, 'user' | 'createdAt' | 'gridspaceQuote' | 'channel'>; detailed?: boolean }>();
+defineProps<{ note: Pick<entities.Note, 'user' | 'createdAt' | 'gridspaceQuote' | 'channel'> & Partial<Pick<entities.Note, 'visibility' | 'localOnly'>>; detailed?: boolean }>();
 const emit = defineEmits<{ menu: [event: MouseEvent] }>();
 </script>
 

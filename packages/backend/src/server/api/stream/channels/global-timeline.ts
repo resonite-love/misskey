@@ -10,7 +10,7 @@ import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { NoteStreamingHidingService } from '../NoteStreamingHidingService.js';
 import { bindThis } from '@/decorators.js';
 import { RoleService } from '@/core/RoleService.js';
-import { isRenotePacked, isQuotePacked } from '@/misc/is-renote.js';
+import { isRenotePacked, isQuotePacked, isReferenceRenotePacked } from '@/misc/is-renote.js';
 import type { JsonObject } from '@/misc/json-value.js';
 import Channel, { type ChannelRequest } from '../channel.js';
 import { REQUEST } from '@nestjs/core';
@@ -58,6 +58,7 @@ export class GlobalTimelineChannel extends Channel {
 		if (note.renote && note.renote.user.requireSigninToViewContents && this.user == null) return;
 		if (note.reply && note.reply.user.requireSigninToViewContents && this.user == null) return;
 
+		if (!this.withRenotes && isReferenceRenotePacked(note)) return;
 		if (isRenotePacked(note) && !isQuotePacked(note) && !this.withRenotes) return;
 
 		if (this.isNoteMutedOrBlocked(note)) return;
