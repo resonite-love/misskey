@@ -15,6 +15,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</div>
 		<MkGridspacePrivateNote :note="note.renote" :detailed="detailed" compactTop nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 	</template>
+	<MkGridspaceReferenceRenote v-else-if="!quotePreview && isGridspaceReferenceRenote(note)" :note="{ user: displayAuthor, createdAt: note.createdAt, gridspaceQuote: note.gridspaceQuote }" :detailed="detailed" @menu="showMenu"/>
 	<MkNoteSimple v-else-if="quotePreview" :note="null">
 		<template #avatar="{ avatarClass }"><MkAvatar :class="avatarClass" :user="displayAuthor" link :preview="false"/></template>
 		<template #header="{ headerClass }"><MkNoteHeader :class="headerClass" :note="headerNote" :mini="true" :noteUrl="noteLink(note.id)" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/></template>
@@ -86,6 +87,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, inject, onBeforeUnmount, onDeactivated, onMounted, ref, useTemplateRef, watch } from 'vue';
+import MkGridspaceReferenceRenote from '@/components/MkGridspaceReferenceRenote.vue';
+import { isGridspaceReferenceRenote } from '@/utility/is-gridspace-reference-renote.js';
 import * as mfm from 'mfm-js';
 import { url } from '@@/js/config.js';
 import { shouldCollapsed } from '@@/js/collapsed.js';
@@ -113,8 +116,9 @@ import { extractUrlFromMfm } from '@/utility/extract-url-from-mfm.js';
 import { isEnabledUrlPreview } from '@/utility/url-preview.js';
 import { DI } from '@/di.js';
 import { gridspacePost } from '@/utility/gridspace-post.js';
-import { GridspaceChannelRenoteError, renoteGridspaceChannel, selfRenoteGridspace } from '@/utility/gridspace-channel-renote.js';
+import { GridspaceChannelRenoteError, selfRenoteGridspace } from '@/utility/gridspace-channel-renote.js';
 import { getRenoteMenu } from '@/utility/get-note-menu.js';
+import { getGridspaceRenoteMenu } from '@/utility/gridspace-renote-menu.js';
 import { getGridspaceNoteMenu } from '@/utility/gridspace-note-menu.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
@@ -196,32 +200,11 @@ async function renote() {
 		}], renoteButton.value);
 		return;
 	}
-	if (target.channelId) {
-		const channelId = target.channelId;
-		await os.popupMenu([{
-			text: i18n.ts.inChannelRenote, icon: 'ti ti-repeat', action: async () => {
-				if (current !== generation || renoteLoading.value || !$i) return;
-				renoteLoading.value = true;
-				try {
-					await renoteGridspaceChannel($i.id, channelId, target.id, AbortSignal.timeout(20000));
-					if (current === generation) { os.toast(i18n.ts.renoted); emit('replied'); }
-				} catch (error) {
-					if (current === generation) await os.alert({ type: 'error', text: error instanceof GridspaceChannelRenoteError && !error.uncertain ? i18n.ts._gridspace.replyUnavailable : i18n.ts._gridspace.replyUncertain });
-				} finally { renoteLoading.value = false; }
-			},
-		}, {
-			text: i18n.ts.inChannelQuote, icon: 'ti ti-quote', action: () => {
-				if (current !== generation) return;
-				void gridspacePost({ channelId, channel: channel.value, renote: target }, () => emit('replied'));
-			},
-		}, ...(target.canQuoteOutside ? [{
-			text: i18n.ts.quote, icon: 'ti ti-quote', action: () => {
-				if (current !== generation) return;
-				void os.post({ gridspaceQuote: `${url}/gridspace/private?noteId=${target.id}&channelId=${channelId}`, initialLocalOnly: true });
-			},
-		}] : [])], renoteButton.value);
+	if (target.channelId && $i) {
+		await os.popupMenu(getGridspaceRenoteMenu(target, $i.id, () => current === generation, () => emit('replied')), renoteButton.value);
 		return;
 	}
+
 	renoteLoading.value = true;
 	try {
 		const target = await misskeyApi('gridspace/renote-target', { noteId: note.value.id }, undefined, AbortSignal.timeout(20000));

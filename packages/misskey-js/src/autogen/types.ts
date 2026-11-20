@@ -25808,6 +25808,7 @@ export interface operations {
                     noteId?: string;
                     renoteId?: string;
                     channelId: string;
+                    sourceChannelId?: string;
                     expectedActorUri?: string;
                     requestId?: string;
                     text?: string;
@@ -27150,6 +27151,7 @@ export interface operations {
                                 id: string;
                                 name: string;
                                 color: string;
+                                isSensitive?: boolean;
                             } | null;
                             collectionId?: string;
                             collectionAt?: string;
@@ -27241,6 +27243,7 @@ export interface operations {
                                     id: string;
                                     name: string;
                                     color: string;
+                                    isSensitive?: boolean;
                                 } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
@@ -27551,6 +27554,7 @@ export interface operations {
                                     id: string;
                                     name: string;
                                     color: string;
+                                    isSensitive?: boolean;
                                 } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
@@ -27642,6 +27646,7 @@ export interface operations {
                                         id: string;
                                         name: string;
                                         color: string;
+                                        isSensitive?: boolean;
                                     } | null;
                                     collectionId?: string;
                                     collectionAt?: string;
@@ -27737,6 +27742,7 @@ export interface operations {
                                     id: string;
                                     name: string;
                                     color: string;
+                                    isSensitive?: boolean;
                                 } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
@@ -27828,6 +27834,7 @@ export interface operations {
                                         id: string;
                                         name: string;
                                         color: string;
+                                        isSensitive?: boolean;
                                     } | null;
                                     collectionId?: string;
                                     collectionAt?: string;
@@ -28212,6 +28219,7 @@ export interface operations {
                                         id: string;
                                         name: string;
                                         color: string;
+                                        isSensitive?: boolean;
                                     } | null;
                                     collectionId?: string;
                                     collectionAt?: string;
@@ -28303,6 +28311,7 @@ export interface operations {
                                             id: string;
                                             name: string;
                                             color: string;
+                                            isSensitive?: boolean;
                                         } | null;
                                         collectionId?: string;
                                         collectionAt?: string;
@@ -28398,6 +28407,7 @@ export interface operations {
                                         id: string;
                                         name: string;
                                         color: string;
+                                        isSensitive?: boolean;
                                     } | null;
                                     collectionId?: string;
                                     collectionAt?: string;
@@ -28489,6 +28499,7 @@ export interface operations {
                                             id: string;
                                             name: string;
                                             color: string;
+                                            isSensitive?: boolean;
                                         } | null;
                                         collectionId?: string;
                                         collectionAt?: string;
@@ -28889,6 +28900,7 @@ export interface operations {
                                 id: string;
                                 name: string;
                                 color: string;
+                                isSensitive?: boolean;
                             } | null;
                             collectionId?: string;
                             collectionAt?: string;
@@ -28980,6 +28992,7 @@ export interface operations {
                                     id: string;
                                     name: string;
                                     color: string;
+                                    isSensitive?: boolean;
                                 } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
@@ -29394,6 +29407,7 @@ export interface operations {
                                 id: string;
                                 name: string;
                                 color: string;
+                                isSensitive?: boolean;
                             } | null;
                             collectionId?: string;
                             collectionAt?: string;
@@ -29485,6 +29499,7 @@ export interface operations {
                                     id: string;
                                     name: string;
                                     color: string;
+                                    isSensitive?: boolean;
                                 } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
@@ -29637,6 +29652,7 @@ export interface operations {
                     noteId?: string;
                     renoteId?: string;
                     channelId?: string;
+                    sourceChannelId?: string;
                     expectedActorUri?: string;
                     requestId?: string;
                     text?: string;
@@ -30338,6 +30354,7 @@ export interface operations {
                                     id: string;
                                     name: string;
                                     color: string;
+                                    isSensitive?: boolean;
                                 } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
@@ -30429,6 +30446,7 @@ export interface operations {
                                         id: string;
                                         name: string;
                                         color: string;
+                                        isSensitive?: boolean;
                                     } | null;
                                     collectionId?: string;
                                     collectionAt?: string;
@@ -30547,6 +30565,7 @@ export interface operations {
                                     id: string;
                                     name: string;
                                     color: string;
+                                    isSensitive?: boolean;
                                 } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
@@ -30638,6 +30657,7 @@ export interface operations {
                                         id: string;
                                         name: string;
                                         color: string;
+                                        isSensitive?: boolean;
                                     } | null;
                                     collectionId?: string;
                                     collectionAt?: string;
@@ -30831,6 +30851,7 @@ export interface operations {
                                     id: string;
                                     name: string;
                                     color: string;
+                                    isSensitive?: boolean;
                                 } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
@@ -30922,6 +30943,7 @@ export interface operations {
                                         id: string;
                                         name: string;
                                         color: string;
+                                        isSensitive?: boolean;
                                     } | null;
                                     collectionId?: string;
                                     collectionAt?: string;
@@ -31040,6 +31062,7 @@ export interface operations {
                                     id: string;
                                     name: string;
                                     color: string;
+                                    isSensitive?: boolean;
                                 } | null;
                                 collectionId?: string;
                                 collectionAt?: string;
@@ -31131,6 +31154,7 @@ export interface operations {
                                         id: string;
                                         name: string;
                                         color: string;
+                                        isSensitive?: boolean;
                                     } | null;
                                     collectionId?: string;
                                     collectionAt?: string;

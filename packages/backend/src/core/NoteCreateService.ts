@@ -876,7 +876,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 				notify: 'normal',
 			}).then(async followings => {
 				if (note.visibility !== 'specified') {
-					const isPureRenote = this.isRenote(data) && !this.isQuote(data) ? true : false;
+					const isPureRenote = (this.isRenote(data) && !this.isQuote(data)) || (!!note.gridspaceQuote && !note.text && note.cw == null && !note.replyId && !note.fileIds.length && !note.hasPoll);
 					for (const following of followings) {
 						// TODO: ワードミュート考慮
 						let isRenoteMuted = false;

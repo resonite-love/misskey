@@ -93,12 +93,12 @@ export class TimelineLocalSource {
 			: `EXISTS (SELECT 1 FROM following trf WHERE trf."followerId" = :timelineViewer AND trf."followeeId" = note."userId" AND trf."withReplies" = true)`;
 		const readableReply = `(reply.visibility IS DISTINCT FROM 'followers' OR reply."userId" = :timelineViewer OR ${followed('reply."userId"')})`;
 		query.andWhere(`(note."replyId" IS NULL OR ((${expandedReplies}) AND ${readableReply}) OR (NOT (${expandedReplies}) AND (${self} OR note."replyUserId" = :timelineViewer OR note."replyUserId" = note."userId")))`);
-		const pureRenote = `(note."renoteId" IS NOT NULL AND note.text IS NULL AND note.cw IS NULL AND note."replyId" IS NULL AND cardinality(note."fileIds") = 0 AND note."hasPoll" = false)`;
+		const pureRenote = `((note."renoteId" IS NOT NULL OR note."gridspaceQuote" IS NOT NULL) AND note.text IS NULL AND note.cw IS NULL AND note."replyId" IS NULL AND cardinality(note."fileIds") = 0 AND note."hasPoll" = false)`;
 		query.andWhere(`(NOT ${pureRenote} OR NOT EXISTS (SELECT 1 FROM note trn INNER JOIN note trr ON trr.id = trn."replyId" WHERE trn.id = note."renoteId" AND trr.visibility = 'followers' AND trr."userId" <> :timelineViewer AND NOT ${followed('trr."userId"')}))`);
 		if (options.withRenotes === false) query.andWhere(`NOT ${pureRenote}`);
 		if (options.includeMyRenotes === false) query.andWhere(`(NOT ${pureRenote} OR note."userId" IS DISTINCT FROM :timelineViewer)`);
 		if (options.includeRenotedMyNotes === false) query.andWhere(`(NOT ${pureRenote} OR note."renoteUserId" IS DISTINCT FROM :timelineViewer)`);
-		if (options.includeLocalRenotes === false) query.andWhere(`NOT (${pureRenote} AND note."renoteUserHost" IS NULL)`);
+		if (options.includeLocalRenotes === false) query.andWhere(`NOT (${pureRenote} AND note."renoteId" IS NOT NULL AND note."renoteUserHost" IS NULL)`);
 		if (options.withFiles) query.andWhere('cardinality(note."fileIds") > 0');
 		this.queries.generateMutedNoteThreadQuery(query, viewer);
 		this.queries.generateMutedUserRenotesQueryForNotes(query, viewer);

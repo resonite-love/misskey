@@ -24,6 +24,8 @@ import Create from '@/server/api/endpoints/notes/create.js';
 import { allSettled } from '@/misc/promise-tracker.js';
 import { IdService } from '@/core/IdService.js';
 import { UserWebhookService } from '@/core/UserWebhookService.js';
+import { QueryService } from '@/core/QueryService.js';
+import { MiChannel } from '@/models/Channel.js';
 
 describe('channel quote persistence', () => {
 	let app: TestingModule, db: DataSource, user: MiLocalUser, endpoint: Create;
@@ -48,6 +50,20 @@ describe('channel quote persistence', () => {
 		const saved = await db.getRepository(MiNote).findOneByOrFail({ id: result.createdNote.id });
 		expect(saved).toMatchObject({ userId: user.id, text: 'channel-quote-saved', gridspaceQuote: reference, localOnly: true, renoteId: null });
 		expect(check).toHaveBeenCalledOnce();
+	});
+
+	test('reference-only renotes pass the actual validator and retain the G author in a G channel', async () => {
+		const channel = await db.getRepository(MiChannel).save({ id: app.get(IdService).gen(), userId: user.id, name: 'Quote test', description: null });
+		const result = await endpoint.exec({ gridspaceQuote: reference, channelId: channel.id, localOnly: false }, user, null);
+		const saved = await db.getRepository(MiNote).findOneByOrFail({ id: result.createdNote.id });
+		expect(saved).toMatchObject({ userId: user.id, text: null, gridspaceQuote: reference, channelId: channel.id, localOnly: true });
+		await expect(endpoint.exec({}, user, null)).rejects.toMatchObject({ code: 'INVALID_PARAM' });
+	});
+
+	test('renote-mute predicates cannot override an earlier note visibility restriction', async () => {
+		const query = db.getRepository(MiNote).createQueryBuilder('note').where('note.id = :absentId', { absentId: 'absent' });
+		app.get(QueryService).generateMutedUserRenotesQueryForNotes(query, { id: user.id });
+		expect(await query.getCount()).toBe(0);
 	});
 
 	test('revocation during preparation prevents the actual note insert', async () => {

@@ -87,6 +87,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			}
 
 			if (ps.withRenotes === false) {
+			query.andWhere('NOT (note.gridspaceQuote IS NOT NULL AND note.text IS NULL AND note.cw IS NULL AND note.replyId IS NULL AND cardinality(note.fileIds) = 0 AND note.hasPoll = false)');
 				query.andWhere(new Brackets(qb => {
 					qb.where('note.renoteId IS NULL');
 					qb.orWhere(new Brackets(qb => {

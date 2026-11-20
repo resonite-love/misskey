@@ -190,6 +190,7 @@ export const paramDef = {
 	// (re)note with text, files and poll are optional
 	if: {
 		properties: {
+			gridspaceQuote: { type: 'null' },
 			renoteId: {
 				type: 'null',
 			},

@@ -13,16 +13,16 @@ export class GridspaceChannelRenoteError extends Error {
 }
 
 /** Retry the same operation after a timeout instead of creating another renote. */
-export async function renoteGridspaceChannel(accountId: string, channelId: string, renoteId: string, signal?: AbortSignal) {
-	return renoteOnPeer(accountId, renoteId, channelId, undefined, signal);
+export async function renoteGridspaceChannel(accountId: string, channelId: string, renoteId: string, signal?: AbortSignal, sourceChannelId?: string) {
+	return renoteOnPeer(accountId, renoteId, channelId, undefined, signal, sourceChannelId);
 }
 
 export async function selfRenoteGridspace(accountId: string, renoteId: string, expectedActorUri: string, signal?: AbortSignal) {
 	return renoteOnPeer(accountId, renoteId, undefined, expectedActorUri, signal);
 }
 
-async function renoteOnPeer(accountId: string, renoteId: string, channelId?: string, expectedActorUri?: string, signal?: AbortSignal) {
-	const target = channelId ? { channelId, renoteId } : { renoteId };
+async function renoteOnPeer(accountId: string, renoteId: string, channelId?: string, expectedActorUri?: string, signal?: AbortSignal, sourceChannelId?: string) {
+	const target = channelId ? { channelId, renoteId, ...(sourceChannelId ? { sourceChannelId } : {}) } : { renoteId };
 	const endpoint = channelId ? 'gridspace/channel-post' : 'gridspace/private-reply';
 	const prepared = await misskeyApi(endpoint, { action: 'prepare', ...target, expectedActorUri }, undefined, signal).catch(error => { throw new GridspaceChannelRenoteError(error, false); });
 	if (!prepared.canReply) throw new GridspaceChannelRenoteError(new Error('Posting is unavailable'), false, !channelId);

@@ -49,7 +49,7 @@ export class TimelinePublicListSource {
 		if (input.targetUris) query.andWhere("(:publicListOrigin || '/users/' || note.userId) IN (:...publicListTargets)", { publicListOrigin: this.config.url, publicListTargets: input.targetUris });
 		if (input.kind === 'profile') {
 			if (!input.withReplies) query.andWhere('note.replyId IS NULL');
-			if (input.withRenotes === false) query.andWhere("(note.renoteId IS NULL OR note.text IS NOT NULL OR note.fileIds != '{}' OR note.hasPoll = true)");
+			if (input.withRenotes === false) query.andWhere("((note.renoteId IS NULL AND note.gridspaceQuote IS NULL) OR note.text IS NOT NULL OR note.fileIds != '{}' OR note.hasPoll = true)");
 			if (input.withFiles) query.andWhere("note.fileIds != '{}'");
 		}
 		return query;

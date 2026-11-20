@@ -20,6 +20,8 @@ vi.mock('@/utility/gridspace-post.js', () => ({ gridspacePost: post }));
 vi.mock('@/utility/get-note-menu.js', () => ({ getRenoteMenu: vi.fn() }));
 vi.mock('@/utility/gridspace-note-menu.js', () => ({ getGridspaceNoteMenu: async () => ({ menu: [], cleanup: vi.fn() }) }));
 vi.mock('@/os.js', () => ({ popupMenu: menu, post: normalPost, toast: vi.fn(), alert: vi.fn() }));
+vi.mock('@/store.js', () => ({ store: { s: { visibility: 'public' } } }));
+vi.mock('@/cache.js', () => ({ favoritedChannelsCache: { fetch: vi.fn(async () => []) } }));
 vi.mock('@/i.js', () => ({ $i: { id: 'current' } }));
 vi.mock('@/preferences.js', () => ({ prefer: { s: settings } }));
 vi.mock('@/utility/url-preview.js', () => ({ isEnabledUrlPreview: false }));
@@ -32,7 +34,7 @@ vi.mock('@/components/MkNoteHeader.vue', () => ({ default: { template: '<div/>' 
 vi.mock('@/components/global/MkAvatar.vue', () => ({ default: { props: ['preview'], template: '<div data-avatar :data-preview="preview"/>' } }));
 vi.mock('@/components/MkInstanceTicker.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkUrlPreview.vue', () => ({ default: { template: '<div/>' } }));
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { reply: 'Reply', renote: 'Renote', cantRenote: 'Unavailable', reaction: 'React', more: 'More', inChannelRenote: 'Channel renote', inChannelQuote: 'Channel quote', renoted: 'Renoted', _gridspace: {}, _visibility: { public: 'Public' } }, tsx: { withNFiles: ({ n }: { n: number }) => `${n} files`, _gridspace: { selfRenoteAs: ({ account }: { account: string }) => `Self-renote as ${account}` } } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { reply: 'Reply', renote: 'Renote', quote: 'Quote', renoteToOtherChannel: 'Other channel', cantRenote: 'Unavailable', reaction: 'React', more: 'More', inChannelRenote: 'Channel renote', inChannelQuote: 'Channel quote', renoted: 'Renoted', _gridspace: {}, _visibility: { public: 'Public' } }, tsx: { withNFiles: ({ n }: { n: number }) => `${n} files`, _gridspace: { selfRenoteAs: ({ account }: { account: string }) => `Self-renote as ${account}` } } } }));
 
 beforeEach(() => {
 	vi.clearAllMocks(); window.sessionStorage.clear();
@@ -51,8 +53,8 @@ test('an allowed channel quote opens the normal composer outside the source chan
 	const view = render(Note, { props: { note: source }, global: globals });
 	await fireEvent.click(view.getByRole('button', { name: 'Renote' }));
 	const items = menu.mock.calls[0][0];
-	expect(items).toHaveLength(3);
-	items[2].action();
+	expect(items).toHaveLength(7);
+	items[1].action();
 	expect(normalPost).toHaveBeenCalledWith({ gridspaceQuote: `${url}/gridspace/private?noteId=original&channelId=channel`, initialLocalOnly: true });
 	expect(post).not.toHaveBeenCalled();
 });

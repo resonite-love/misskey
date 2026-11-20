@@ -22,6 +22,8 @@ import { isInstanceMuted } from '@/misc/is-instance-muted.js';
 import { ChannelMutingService } from '@/core/ChannelMutingService.js';
 import { isChannelRelated } from '@/misc/is-channel-related.js';
 
+const isReferenceRenote = (note: MiNote) => !!note.gridspaceQuote && note.text == null && note.cw == null && !note.replyId && !note.fileIds.length && !note.hasPoll;
+
 type NoteFilter = (note: MiNote) => boolean;
 
 type TimelineOptions = {
@@ -105,7 +107,7 @@ export class FanoutTimelineEndpointService {
 
 			if (ps.excludePureRenotes) {
 				const parentFilter = filter;
-				filter = (note) => (!isRenote(note) || isQuote(note)) && parentFilter(note);
+				filter = (note) => (!isReferenceRenote(note) && (!isRenote(note) || isQuote(note))) && parentFilter(note);
 			}
 
 			if (ps.me) {
@@ -130,7 +132,7 @@ export class FanoutTimelineEndpointService {
 					if (isUserRelated(note, userIdsWhoMeMuting, ps.ignoreAuthorFromMute)) return false;
 					if (isUserRelated(note.renote, userIdsWhoBlockingMe, ps.ignoreAuthorFromBlock)) return false;
 					if (isUserRelated(note.renote, userIdsWhoMeMuting, ps.ignoreAuthorFromMute)) return false;
-					if (!ps.ignoreAuthorFromMute && isRenote(note) && !isQuote(note) && userIdsWhoMeMutingRenotes.has(note.userId)) return false;
+					if (!ps.ignoreAuthorFromMute && ((isRenote(note) && !isQuote(note)) || isReferenceRenote(note)) && userIdsWhoMeMutingRenotes.has(note.userId)) return false;
 					if (isInstanceMuted(note, userMutedInstances)) return false;
 					if (isChannelRelated(note, userMutedChannels, ps.ignoreAuthorChannelFromMute)) return false;
 

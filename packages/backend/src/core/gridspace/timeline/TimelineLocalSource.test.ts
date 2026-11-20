@@ -253,14 +253,14 @@ describe('local timeline subscription SQL', () => {
 		await runner.query('CREATE TEMP TABLE "user" (id text, "isDeleted" boolean, "isSuspended" boolean) ON COMMIT DROP');
 		await runner.query('ALTER TABLE "user" ADD COLUMN uri text');
 		await runner.query('CREATE TEMP TABLE gridspace_link ("localUserId" text, "peerOrigin" text, "peerUserId" text, state text) ON COMMIT DROP');
-		await runner.query('CREATE TEMP TABLE note (id text, "userId" text, "userHost" text, visibility text, "channelId" text, "gridspaceShared" boolean, "replyId" text, "replyUserId" text, "renoteId" text, "renoteUserId" text, "renoteUserHost" text, text text, cw text, "fileIds" text[], "hasPoll" boolean) ON COMMIT DROP');
+		await runner.query('CREATE TEMP TABLE note (id text, "userId" text, "userHost" text, visibility text, "channelId" text, "gridspaceShared" boolean, "replyId" text, "replyUserId" text, "renoteId" text, "renoteUserId" text, "renoteUserHost" text, text text, cw text, "fileIds" text[], "hasPoll" boolean, "gridspaceQuote" text) ON COMMIT DROP');
 		await runner.query('INSERT INTO "user" (id,"isDeleted","isSuspended") VALUES (\'viewer\',false,false), (\'followed\',false,false), (\'reply-enabled\',false,false), (\'outsider\',false,false), (\'linked\',false,false)');
 		await runner.query("UPDATE \"user\" SET uri='https://peer.test/users/linked' WHERE id='linked'");
 		await runner.query("INSERT INTO gridspace_link VALUES ('viewer','https://peer.test','linked','active')");
 		await runner.query('INSERT INTO following VALUES (\'viewer\',\'followed\',false), (\'viewer\',\'reply-enabled\',true)');
 		await runner.query('INSERT INTO channel_following VALUES (\'viewer\',\'channel\')');
 		const add = async (id: string, author: string, opts: { host?: string; visibility?: string; shared?: boolean; reply?: string; replyAuthor?: string; channel?: string; renote?: string; renoteAuthor?: string; renoteHost?: string; text?: string | null; files?: string[] } = {}) => {
-			await runner.query('INSERT INTO note VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,$13,false)', [id, author, opts.host ?? null, opts.visibility ?? 'public', opts.channel ?? null, opts.shared ?? false, opts.reply ?? null, opts.replyAuthor ?? null, opts.renote ?? null, opts.renoteAuthor ?? null, opts.renoteHost ?? null, opts.text === undefined ? id : opts.text, opts.files ?? []]);
+			await runner.query('INSERT INTO note VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,$13,false,NULL)', [id, author, opts.host ?? null, opts.visibility ?? 'public', opts.channel ?? null, opts.shared ?? false, opts.reply ?? null, opts.replyAuthor ?? null, opts.renote ?? null, opts.renoteAuthor ?? null, opts.renoteHost ?? null, opts.text === undefined ? id : opts.text, opts.files ?? []]);
 		};
 		await add('self', 'viewer');
 		await add('followed', 'followed', { host: 'remote.test' });
@@ -317,5 +317,15 @@ describe('local timeline subscription SQL', () => {
 		const values = await read({ kind: 'home', withRenotes: false });
 		expect(values).not.toContain('renote');
 		expect(values).toContain('quote');
+	});
+
+	test('reference-only renotes obey the same home renote filter', async () => {
+		try {
+			await runner.query('UPDATE note SET "renoteId"=NULL, "gridspaceQuote"=$1 WHERE id=$2', ['https://example.test/gridspace/private?noteId=n&channelId=c', 'renote']);
+			expect(await read({ kind: 'home' })).toContain('renote');
+			expect(await read({ kind: 'home', withRenotes: false })).not.toContain('renote');
+		} finally {
+			await runner.query('UPDATE note SET "renoteId"=$1, "gridspaceQuote"=NULL WHERE id=$2', ['followed', 'renote']);
+		}
 	});
 });

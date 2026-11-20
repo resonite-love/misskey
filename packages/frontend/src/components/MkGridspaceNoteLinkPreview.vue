@@ -4,8 +4,12 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div ref="root" :class="[$style.root, { [$style.quote]: quote }]" data-gridspace-link-preview>
-	<template v-if="quote && note">
+<div ref="root" :class="[$style.root, { [$style.quote]: quote || fullNote }]" data-gridspace-link-preview>
+	<template v-if="fullNote && note">
+		<MkGridspacePrivateNote v-if="result?.note" :note="result.note" :detailed="detailed" compactTop/>
+		<MkNote v-else-if="result?.localNote" :note="result.localNote"/>
+	</template>
+	<template v-else-if="quote && note">
 		<MkGridspacePrivateNote v-if="result?.note" :note="result.note" quotePreview/>
 		<MkNoteSimple v-else-if="result?.localNote" :note="result.localNote"/>
 	</template>
@@ -19,7 +23,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</template>
 	<MkEllipsis v-else-if="loading"/>
 	<span v-else-if="!result?.publicUrl"><i class="ti ti-lock"></i> {{ i18n.ts.invisibleNote }}</span>
-	<div v-if="!quote">
+	<div v-if="!quote && !fullNote">
 		<a v-if="result?.publicUrl" class="_link" :href="detailUrl">{{ i18n.ts.details }} <i class="ti ti-chevron-right"></i></a>
 		<MkA v-else class="_link" :to="detailUrl">{{ i18n.ts.details }} <i class="ti ti-chevron-right"></i></MkA>
 	</div>
@@ -38,9 +42,10 @@ import { isVisiblePrivateNote } from '@/utility/gridspace-note-suspension.js';
 import { checkTextWordMute } from '@/utility/check-word-mute.js';
 
 const MkNoteSimple = defineAsyncComponent(() => import('@/components/MkNoteSimple.vue').then(module => module.default));
+const MkNote = defineAsyncComponent(() => import('@/components/MkNote.vue').then(module => module.default));
 const MkGridspacePrivateNote = defineAsyncComponent(() => import('@/components/MkGridspacePrivateNote.vue').then(module => module.default));
 
-const props = defineProps<{ url: string; quote?: boolean }>();
+const props = defineProps<{ url: string; quote?: boolean; fullNote?: boolean; detailed?: boolean }>();
 const result = shallowRef<entities.GridspaceNoteLinkResponse | null>(null);
 const root = useTemplateRef('root');
 let visible = true;
@@ -69,7 +74,7 @@ async function load() {
 	loading.value = true;
 	try {
 		const value = await misskeyApi('gridspace/note-link', { url: props.url }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
-		if (props.quote && (value.note ? value.note.canQuoteOutside !== true : value.localNote?.channel?.allowRenoteToExternal !== true)) {
+		if ((props.quote || props.fullNote) && (value.note ? value.note.canQuoteOutside !== true : value.localNote?.channel?.allowRenoteToExternal !== true)) {
 			if (current === generation) result.value = null;
 			return;
 		}

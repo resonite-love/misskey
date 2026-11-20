@@ -93,7 +93,7 @@ export class GridspaceTimelineListSourceService {
 		if (this.peer && !includePeerPublic) query.andWhere("(note.userHost IS NULL OR note.userHost != :profilePeerHost OR note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL)", { profilePeerHost: new URL(this.peer.peerOrigin).host });
 		if (!options.withReplies) query.andWhere('note.replyId IS NULL');
 		if (options.withFiles) query.andWhere('cardinality(note.fileIds) > 0');
-		if (options.withRenotes === false) query.andWhere('(note.renoteId IS NULL OR note.text IS NOT NULL OR cardinality(note.fileIds) > 0 OR note.hasPoll = true)');
+		if (options.withRenotes === false) query.andWhere('((note.renoteId IS NULL AND note.gridspaceQuote IS NULL) OR note.text IS NOT NULL OR cardinality(note.fileIds) > 0 OR note.hasPoll = true)');
 		if (!options.withChannelNotes) query.andWhere('note.channelId IS NULL');
 		else query.andWhere('(note.channelId IS NULL OR channel.isSensitive = false OR note.userId = :listSelf)', { listSelf: viewer.id });
 		query.andWhere(`NOT EXISTS (SELECT 1 FROM channel_muting cm WHERE cm."userId" = :listSelf

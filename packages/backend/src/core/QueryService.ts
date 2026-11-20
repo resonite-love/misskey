@@ -331,6 +331,7 @@ export class QueryService {
 				.orWhere('note.text IS NOT NULL');
 		}));
 
+		q.andWhere(`(NOT (note.gridspaceQuote IS NOT NULL AND note.text IS NULL AND note.cw IS NULL AND note.replyId IS NULL AND cardinality(note.fileIds) = 0 AND note.hasPoll = false) OR note.userId NOT IN (${mutingQuery.getQuery()}))`);
 		q.setParameters(mutingQuery.getParameters());
 	}
 
