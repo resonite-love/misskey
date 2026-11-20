@@ -5,7 +5,9 @@
 
 import { expect, test, vi } from 'vitest';
 import AdminEmojiSyncEndpoint from '@/server/api/endpoints/admin/gridspace/emojis.js';
-import { decideEmoji, emojiContent, emojiDigest, sameEmoji, type SyncEmoji } from './emoji-sync-protocol.js';
+import { decideEmoji, emojiContent, emojiDigest, emojiReactionPair, sameEmoji, type SyncEmoji } from './emoji-sync-protocol.js';
+import { GridspaceEmojiSyncService } from './GridspaceEmojiSyncService.js';
+import EmojiAliasesEndpoint from '@/server/api/endpoints/gridspace/emoji-aliases.js';
 
 function emoji(changes: Partial<SyncEmoji> = {}): SyncEmoji {
 	const item = { id: 'emojiA', name: 'cat', originalUrl: 'https://a.test/cat.png', imageHash: 'a'.repeat(32), category: null, aliases: ['cat', 'ねこ'], license: null, isSensitive: false, localOnly: false, restricted: false, ...changes };
@@ -51,4 +53,41 @@ test('alias order is immaterial, but local-only, category and license are synchr
 	for (const changes of [{ localOnly: true }, { category: 'cats' }, { license: 'CC0' }]) {
 		expect(decideEmoji(a, emoji(changes), a.hash, b.hash)).toBe('toA');
 	}
+});
+
+test('reaction grouping requires a synchronized pair whose current images and metadata still match', () => {
+	const row = { state: 'synced', aId: a.id, bId: b.id, hashA: a.hash, hashB: b.hash };
+	expect(emojiReactionPair(row, a, b)).toMatchObject({ name: 'cat', aId: a.id, bId: b.id });
+	for (const state of ['pending', 'conflict', 'failed', 'ignored']) expect(emojiReactionPair({ ...row, state }, a, b)).toBeNull();
+	expect(emojiReactionPair(row, a, undefined)).toBeNull();
+	expect(emojiReactionPair(row, a, emoji({ ...b, imageHash: 'f'.repeat(32) }))).toBeNull();
+	expect(emojiReactionPair(row, emoji({ restricted: true }), b)).toBeNull();
+	expect(emojiReactionPair({ ...row, hashA: 'stale' }, a, b)).toBeNull();
+});
+
+test('the follower verifies its local emoji and shares a bounded cache across callers', async () => {
+	const local = emoji({ id: 'local' });
+	const json = vi.fn(async () => ({ originA: 'https://a.test', originB: 'https://b.test', pairs: [{ name: 'cat', aId: a.id, bId: local.id, aHash: a.hash, bHash: local.hash }] }));
+	const service = new GridspaceEmojiSyncService({ url: 'https://b.test', gridspace: { enabled: true, peerUrl: 'https://a.test' } } as never, {} as never, { json } as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+	vi.spyOn(service, 'manifest').mockResolvedValue({ origin: 'https://b.test', revision: '', emojis: [local] });
+	const endpoint = new EmojiAliasesEndpoint(service);
+	expect(await endpoint.exec({}, null, null)).toEqual({ aliases: { ':cat@a.test:': ':cat@.:' } });
+	expect(await service.reactionAliases()).toEqual({ ':cat@a.test:': ':cat@.:' });
+	expect(json).toHaveBeenCalledTimes(1);
+	const now = Date.now();
+	vi.spyOn(Date, 'now').mockReturnValue(now + 31_000);
+	vi.spyOn(service, 'manifest').mockResolvedValue({ origin: 'https://b.test', revision: '', emojis: [emoji({ ...local, name: 'renamed' })] });
+	expect(await service.reactionAliases()).toEqual({});
+	vi.restoreAllMocks();
+});
+
+test('disabled synchronization and unreachable peers keep ordinary reactions usable', async () => {
+	const json = vi.fn(async () => { throw new Error('offline'); });
+	const make = (enabled: boolean) => new GridspaceEmojiSyncService({ url: 'https://b.test', gridspace: { enabled, peerUrl: 'https://a.test' } } as never, {} as never, { json } as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+	expect(await make(false).reactionAliases()).toEqual({});
+	const service = make(true);
+	vi.spyOn(service, 'manifest').mockResolvedValue({ origin: 'https://b.test', revision: '', emojis: [a] });
+	expect(await service.reactionAliases()).toEqual({});
+	for (let n = 0; n < 10; n++) expect(await service.reactionAliases()).toEqual({});
+	expect(json).toHaveBeenCalledTimes(1);
 });

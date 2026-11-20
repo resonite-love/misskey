@@ -428,6 +428,7 @@ import type {
 	GridspaceDriveResponse,
 	GridspaceDriveImportRequest,
 	GridspaceDriveImportResponse,
+	GridspaceEmojiAliasesResponse,
 	GridspaceHistoryRequest,
 	GridspaceHistoryResponse,
 	GridspaceLayoutReferenceRequest,
@@ -1041,6 +1042,7 @@ export type Endpoints = {
 	'gridspace/content': { req: GridspaceContentRequest; res: GridspaceContentResponse };
 	'gridspace/drive': { req: GridspaceDriveRequest; res: GridspaceDriveResponse };
 	'gridspace/drive-import': { req: GridspaceDriveImportRequest; res: GridspaceDriveImportResponse };
+	'gridspace/emoji-aliases': { req: EmptyRequest; res: GridspaceEmojiAliasesResponse };
 	'gridspace/history': { req: GridspaceHistoryRequest; res: GridspaceHistoryResponse };
 	'gridspace/layout-reference': { req: GridspaceLayoutReferenceRequest; res: GridspaceLayoutReferenceResponse };
 	'gridspace/link': { req: GridspaceLinkRequest; res: GridspaceLinkResponse };

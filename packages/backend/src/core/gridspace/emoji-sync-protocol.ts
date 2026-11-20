@@ -14,7 +14,15 @@ export type EmojiManifest = { origin: string; revision: string; emojis?: SyncEmo
 export type EmojiSyncAction = 'status' | 'retry' | 'preferA' | 'preferB' | 'ignore' | 'resume';
 export type EmojiSyncRequest = { action: EmojiSyncAction; id?: string; after?: string; expectedA?: string | null; expectedB?: string | null };
 export type EmojiApply = { action: 'apply'; operationId: string; targetId: string | null; expected: string | null; emoji: SyncEmoji };
-export type EmojiPeerRequest = EmojiApply | EmojiSyncRequest | { action: 'manifest'; revision?: string };
+export type EmojiReactionPair = { name: string; aId: string; bId: string; aHash: string; bHash: string };
+export type EmojiReactionPairs = { originA: string; originB: string | null; pairs: EmojiReactionPair[] };
+export type EmojiPeerRequest = EmojiApply | EmojiSyncRequest | { action: 'manifest'; revision?: string } | { action: 'reaction-aliases' };
+
+/** Never treat a same-name conflict, deleted emoji or restricted emoji as interchangeable. */
+export function emojiReactionPair(row: { state: string; aId: string | null; bId: string | null; hashA: string | null; hashB: string | null }, a?: SyncEmoji, b?: SyncEmoji): EmojiReactionPair | null {
+	if (row.state !== 'synced' || !a || !b || a.restricted || b.restricted || row.aId !== a.id || row.bId !== b.id || row.hashA !== a.hash || row.hashB !== b.hash || !sameEmoji(a, b)) return null;
+	return { name: a.name, aId: a.id, bId: b.id, aHash: a.hash, bHash: b.hash };
+}
 
 export const emojiDigest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function emojiContent(emoji: Omit<SyncEmoji, 'hash'> | SyncEmoji) {
@@ -51,7 +59,7 @@ const emojiSchema = {
 export const emojiPeerSchema = {
 	type: 'object', additionalProperties: false, required: ['action'],
 	properties: {
-		action: { type: 'string', enum: ['manifest', 'apply', 'status', 'retry', 'preferA', 'preferB', 'ignore', 'resume'] },
+		action: { type: 'string', enum: ['manifest', 'apply', 'status', 'retry', 'preferA', 'preferB', 'ignore', 'resume', 'reaction-aliases'] },
 		revision: digestSchema, id: { type: 'string', format: 'uuid' }, after: { type: 'string', format: 'uuid' }, expectedA: { ...digestSchema, nullable: true }, expectedB: { ...digestSchema, nullable: true },
 		operationId: digestSchema, targetId: { type: 'string', nullable: true, pattern: '^[a-zA-Z0-9]{1,32}$' }, expected: { ...digestSchema, nullable: true }, emoji: emojiSchema,
 	},

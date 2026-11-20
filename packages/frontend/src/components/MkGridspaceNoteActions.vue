@@ -13,7 +13,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkButton v-if="info?.canInteract" small :disabled="busy || !canVote(index)" @click="act({ action: 'vote', choice: index })">{{ i18n.ts._poll.vote }}</MkButton>
 		</li>
 	</ul>
-	<MkReactionsViewer v-if="!pollOnly" :noteId="note.id" :reactions="note.reactions ?? {}" :reactionEmojis="note.reactionEmojis ?? {}" :myReaction="note.myReaction" :myReactions="note.myReactions" :extendedReactions="note.extendedReactions" :transport="reactionTransport" :reactionVersion="reactionRevision"/>
+	<MkReactionsViewer v-if="!pollOnly" :noteId="note.id" :reactionHost="reactionHost" :reactions="note.reactions ?? {}" :reactionEmojis="note.reactionEmojis ?? {}" :myReaction="note.myReaction" :myReactions="note.myReactions" :extendedReactions="note.extendedReactions" :transport="reactionTransport" :reactionVersion="reactionRevision"/>
 	<div v-if="selectedReaction" class="_gaps_s">
 		<div v-for="reactor in reactors" :key="reactor.id"><a :href="reactor.account.uri" target="_blank" rel="noopener noreferrer">{{ reactor.account.name || reactor.account.username }} <span>@{{ reactor.account.username }}@{{ reactor.account.host }}</span></a></div>
 		<MkButton v-if="moreReactors" small :disabled="busy" @click="showReactors(selectedReaction, true)">{{ i18n.ts.more }}</MkButton>
@@ -45,13 +45,13 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onDeactivated, ref, shallowRef, watch } from 'vue';
+import { computed, onBeforeUnmount, onDeactivated, ref, shallowRef, watch } from 'vue';
 import type { entities } from 'misskey-js';
+import type { ReactionTransport } from '@/utility/reaction-transport.js';
 import MkButton from '@/components/MkButton.vue';
 import MkReactionIcon from '@/components/MkReactionIcon.vue';
 import MkPoll from '@/components/MkPoll.vue';
 import MkReactionsViewer from '@/components/MkReactionsViewer.vue';
-import type { ReactionTransport } from '@/utility/reaction-transport.js';
 import * as os from '@/os.js';
 import { prefer } from '@/preferences.js';
 import { reactionPicker } from '@/utility/reaction-picker.js';
@@ -67,7 +67,9 @@ watch(() => props.note, () => { reactionRevision.value++; });
 const busy = ref(false);
 const error = ref(false);
 const reaction = ref('');
-const selectedReaction = ref<string | null>(null);
+const selectedReaction = ref<string | string[] | null>(null);
+const reactionHost = computed(() => new URL(props.note.origin).host);
+const reactorCursors = new Map<string, string | null | undefined>();
 const reactors = ref<NonNullable<entities.GridspacePrivateActionResponse['reactors']>>([]);
 const moreReactors = ref(false);
 const now = ref(Date.now());
@@ -89,7 +91,7 @@ async function act(options: Omit<entities.GridspacePrivateActionRequest, 'noteId
 	busy.value = true; error.value = false;
 	try {
 		const result = await misskeyApi('gridspace/private-action', { ...options, noteId: props.note.id, channelId: props.note.channelId ?? undefined,
-			expectedActorUri: options.expectedActorUri ?? (['prepare', 'reaction-list'].includes(options.action ?? 'prepare') ? undefined : info.value?.account.uri) }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
+																																																																expectedActorUri: options.expectedActorUri ?? (['prepare', 'reaction-list'].includes(options.action ?? 'prepare') ? undefined : info.value?.account.uri) }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
 		if (current !== generation) return false;
 		if (options.expectedActorUri && result.account.uri !== options.expectedActorUri) { error.value = true; return false; }
 		info.value = result;
@@ -104,11 +106,15 @@ async function act(options: Omit<entities.GridspacePrivateActionRequest, 'noteId
 		return true;
 	} catch (err) {
 		if (current !== generation) return false;
-		error.value = true;
-		const reason = (err as { info?: { reason?: string } }).info?.reason;
-		if (reason === 'AUTHORIZATION_REVOKED' || reason === 'LINK_REVOKED') { closeActions(); emit('unavailable'); }
+		handleActionError(err);
 		return false;
 	} finally { if (current === generation) busy.value = false; }
+}
+
+function handleActionError(err: unknown) {
+	error.value = true;
+	const reason = (err as { info?: { reason?: string } }).info?.reason;
+	if (reason === 'AUTHORIZATION_REVOKED' || reason === 'LINK_REVOKED') { closeActions(); emit('unavailable'); }
 }
 
 function openActions() { opened.value = true; void act({ action: 'prepare' }); }
@@ -162,11 +168,25 @@ const reactionTransport: ReactionTransport = {
 
 defineExpose({ react });
 
-function showReactors(value: string, more = false) {
+async function showReactors(value: string | string[], more = false) {
 	if (busy.value) return;
-	if (!more) { reactors.value = []; moreReactors.value = false; }
+	if (!more) {
+		reactors.value = []; moreReactors.value = false; reactorCursors.clear();
+		for (const key of typeof value === 'string' ? [value] : value) reactorCursors.set(key, undefined);
+	}
 	selectedReaction.value = value; opened.value = true;
-	void act({ action: 'reaction-list', reaction: value, limit: 10, untilId: more ? reactors.value.at(-1)?.id : undefined });
+	const current = generation;
+	busy.value = true; error.value = false;
+	try {
+		const pages = await Promise.all([...reactorCursors].filter(([, cursor]) => cursor !== null).map(async ([reaction, cursor]) => {
+			const result = await misskeyApi('gridspace/private-action', { action: 'reaction-list', reaction, limit: 10, untilId: cursor ?? undefined, noteId: props.note.id, channelId: props.note.channelId ?? undefined }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
+			return { reaction, rows: result.reactors ?? [] };
+		}));
+		if (current !== generation) return;
+		for (const { reaction, rows } of pages) reactorCursors.set(reaction, rows.length === 10 ? rows.at(-1)!.id : null);
+		reactors.value = [...new Map([...reactors.value, ...pages.flatMap(page => page.rows)].map(row => [row.account.uri, row])).values()];
+		moreReactors.value = [...reactorCursors.values()].some(cursor => cursor !== null);
+	} catch (err) { if (current === generation) handleActionError(err); } finally { if (current === generation) busy.value = false; }
 }
 
 function closeActions() { generation++; controller.abort(); controller = new AbortController(); opened.value = false; info.value = null; busy.value = false; reaction.value = ''; selectedReaction.value = null; reactors.value = []; moreReactors.value = false; error.value = false; }

@@ -19,8 +19,8 @@ import { EmojiEntityService } from '@/core/entities/EmojiEntityService.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { IdService } from '@/core/IdService.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
-import { decideEmoji, emojiContent, emojiDigest, sameEmoji } from './emoji-sync-protocol.js';
-import type { EmojiApply, EmojiManifest, EmojiPeerRequest, EmojiSyncRequest, SyncEmoji } from './emoji-sync-protocol.js';
+import { decideEmoji, emojiContent, emojiDigest, emojiReactionPair, sameEmoji } from './emoji-sync-protocol.js';
+import type { EmojiApply, EmojiManifest, EmojiPeerRequest, EmojiReactionPairs, EmojiSyncRequest, SyncEmoji } from './emoji-sync-protocol.js';
 
 const path = '/gridspace/v1/emojis';
 const maxItems = 20_000;
@@ -31,6 +31,10 @@ export class GridspaceEmojiSyncService implements OnModuleInit, OnApplicationShu
 	private working = false;
 	private cache: { stamp: string; at: number; value: EmojiManifest } | undefined;
 	private remoteCache: EmojiManifest | undefined;
+	private reactionPairsCache: { until: number; value: EmojiReactionPairs } | undefined;
+	private reactionPairsPending: Promise<EmojiReactionPairs> | undefined;
+	private aliasesCache: { until: number; value: Record<string, string> } | undefined;
+	private aliasesPending: Promise<Record<string, string>> | undefined;
 	private readonly origin: string;
 	private readonly peerOrigin: string | null;
 	private readonly leader: boolean;
@@ -234,6 +238,59 @@ export class GridspaceEmojiSyncService implements OnModuleInit, OnApplicationShu
 		return this.db.getRepository(MiGridspaceEmojiSync).create({ id: randomUUID(), peerOrigin: this.peerOrigin!, aId: a?.id ?? null, bId: b?.id ?? null,
 																																																														a: a ?? null, b: b ?? null, hashA: null, hashB: null, pending: null, state: 'pending', reason: null, attempts: 0, retryAt: new Date(), updatedAt: new Date() });
 	}
+
+	/** One shared refresh per server, never a manifest request for each note or viewer. */
+	private async reactionPairs(): Promise<EmojiReactionPairs> {
+		if (this.reactionPairsCache && this.reactionPairsCache.until > Date.now()) return this.reactionPairsCache.value;
+		if (this.reactionPairsPending) return this.reactionPairsPending;
+		this.reactionPairsPending = (async () => {
+			let value: EmojiReactionPairs;
+			if (this.leader) {
+				const [a, b] = await this.manifests();
+				const byA = new Map(a.map(emoji => [emoji.id, emoji]));
+				const byB = new Map(b.map(emoji => [emoji.id, emoji]));
+				const rows = await this.db.getRepository(MiGridspaceEmojiSync).findBy({ peerOrigin: this.peerOrigin!, state: 'synced' });
+				value = { originA: this.origin, originB: this.peerOrigin, pairs: rows.flatMap(row => {
+					const pair = emojiReactionPair(row, byA.get(row.aId!), byB.get(row.bId!));
+					return pair ? [pair] : [];
+				}) };
+			} else {
+				value = await this.links.json<EmojiReactionPairs>(path, { action: 'reaction-aliases' }, true, 8 * 1024 * 1024);
+				if (value.originA !== this.peerOrigin || value.originB !== this.origin || !Array.isArray(value.pairs) || value.pairs.length > maxItems) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+			}
+			this.reactionPairsCache = { until: Date.now() + 30_000, value };
+			return value;
+		})();
+		try { return await this.reactionPairsPending; } catch {
+			const value = { originA: this.leader ? this.origin : this.peerOrigin!, originB: this.leader ? this.peerOrigin : this.origin, pairs: [] };
+			this.reactionPairsCache = { until: Date.now() + 5_000, value };
+			return value;
+		} finally { this.reactionPairsPending = undefined; }
+	}
+
+	public async reactionAliases(): Promise<Record<string, string>> {
+		if (!this.peerOrigin) return {};
+		if (this.aliasesCache && this.aliasesCache.until > Date.now()) return this.aliasesCache.value;
+		if (this.aliasesPending) return this.aliasesPending;
+		this.aliasesPending = (async () => {
+			try {
+				const [result, local] = await Promise.all([this.reactionPairs(), this.manifest()]);
+				const byId = new Map(local.emojis!.map(emoji => [emoji.id, emoji]));
+				const host = new URL(this.peerOrigin!).host;
+				const value = Object.fromEntries(result.pairs.flatMap(pair => {
+					const emoji = byId.get(this.leader ? pair.aId : pair.bId);
+					if (!emoji || emoji.restricted || emoji.name !== pair.name || emoji.hash !== (this.leader ? pair.aHash : pair.bHash)) return [];
+					return [[`:${pair.name}@${host}:`, `:${pair.name}@.:`]];
+				}));
+				this.aliasesCache = { until: Math.min(Date.now() + 30_000, this.reactionPairsCache!.until), value };
+				return value;
+			} catch {
+				this.aliasesCache = { until: Date.now() + 5_000, value: {} };
+				return {}; // A sync outage must not stop notes or ordinary reactions.
+			}
+		})();
+		try { return await this.aliasesPending; } finally { this.aliasesPending = undefined; }
+	}
 	private async syncRow(row: MiGridspaceEmojiSync, a: SyncEmoji | undefined, b: SyncEmoji | undefined, toA: boolean) {
 		const source = toA ? b : a;
 		if (!source) throw new GridspaceLinkError('DELETE_REQUIRES_MANUAL');
@@ -284,6 +341,10 @@ export class GridspaceEmojiSyncService implements OnModuleInit, OnApplicationShu
 	}
 	public async peer(input: EmojiPeerRequest): Promise<object> {
 		if (!this.peerOrigin) throw new GridspaceLinkError('DISABLED');
+		if (input.action === 'reaction-aliases') {
+			if (!this.leader) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			return this.reactionPairs();
+		}
 		if (input.action === 'manifest') {
 			const manifest = await this.manifest();
 			return input.revision === manifest.revision ? { origin: manifest.origin, revision: manifest.revision } : manifest;

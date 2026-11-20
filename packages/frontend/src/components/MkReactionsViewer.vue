@@ -17,6 +17,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 		v-for="[reaction, count] in _reactions"
 		:key="reaction"
 		:reaction="reaction"
+		:actionReaction="groups.get(reaction)?.action"
+		:reactionSources="groups.get(reaction)?.sources"
 		:reactionEmojis="props.reactionEmojis"
 		:count="count"
 		:isInitial="initialReactions.has(reaction)"
@@ -34,7 +36,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script lang="ts" setup>
 import * as Misskey from 'misskey-js';
-import { inject, watch, ref } from 'vue';
+import { computed, inject, watch, ref } from 'vue';
 import { TransitionGroup } from 'vue';
 import { isSupportedEmoji } from '@@/js/emojilist.js';
 import { getEmojiNameFromReaction, isLocalCustomEmojiReaction } from '@@/js/emoji-name.js';
@@ -44,6 +46,9 @@ import { prefer } from '@/preferences.js';
 import { customEmojisMap } from '@/custom-emojis.js';
 import { DI } from '@/di.js';
 import type { ReactionTransport } from '@/utility/reaction-transport.js';
+import { groupReactions } from '@/utility/reaction-groups.js';
+import { useSyncedReactionAliases } from '@/utility/synced-reaction-aliases.js';
+import { host } from '@@/js/config.js';
 
 const props = withDefaults(defineProps<{
 	noteId: Misskey.entities.Note['id'];
@@ -55,11 +60,16 @@ const props = withDefaults(defineProps<{
 	reactionVersion?: number | Record<string, string>;
 	maxNumber?: number;
 	transport?: ReactionTransport;
+	reactionHost?: string;
 }>(), {
 	maxNumber: Infinity,
 });
 
 const mock = inject(DI.mock, false);
+const aliases = mock ? ref({}) : useSyncedReactionAliases();
+const groups = computed(() => new Map(groupReactions(props.reactions, aliases.value, host, props.reactionHost, props.reactionVersion).map(group => [group.reaction, group])));
+const groupedCounts = computed(() => Object.fromEntries([...groups.value].map(([key, group]) => [key, group.count])));
+const ownGroups = computed(() => [...groups.value.values()].filter(group => group.sources.some(source => source.reaction === props.myReaction || props.myReactions?.includes(source.reaction))).map(group => group.reaction));
 
 const emit = defineEmits<{
 	(ev: 'mockUpdateMyReaction', emoji: string, delta: number): void;
@@ -91,7 +101,7 @@ function canReact(reaction: string) {
 		: isSupportedEmoji(reaction);
 }
 
-watch([() => props.reactions, () => props.maxNumber, () => props.myReactions], ([newSource, maxNumber]) => {
+watch([groupedCounts, () => props.maxNumber, ownGroups], ([newSource, maxNumber]) => {
 	let newReactions: [string, number][] = [];
 	hasMoreReactions.value = Object.keys(newSource).length > maxNumber;
 
@@ -128,11 +138,7 @@ watch([() => props.reactions, () => props.maxNumber, () => props.myReactions], (
 
 	newReactions = newReactions.slice(0, props.maxNumber);
 
-	if (props.myReaction && !newReactions.some(([x]) => x === props.myReaction)) {
-		newReactions.push([props.myReaction, newSource[props.myReaction]]);
-	}
-
-	for (const reaction of props.myReactions ?? []) {
+	for (const reaction of ownGroups.value) {
 		if (newSource[reaction] && !newReactions.some(([name]) => name === reaction)) newReactions.push([reaction, newSource[reaction]]);
 	}
 	_reactions.value = newReactions;

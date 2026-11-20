@@ -10,5 +10,5 @@ export type ReactionTransport = {
 	toggle: (reaction: string) => Promise<void>;
 	previews: (reaction: string) => ReactionActor[];
 	users: (reaction: string) => Promise<ReactionActor[]>;
-	showUsers: (reaction: string) => void;
+	showUsers: (reaction: string | string[]) => void;
 };

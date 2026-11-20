@@ -431,6 +431,7 @@ export type GridspaceDriveRequest = operations['gridspace___drive']['requestBody
 export type GridspaceDriveResponse = operations['gridspace___drive']['responses']['200']['content']['application/json'];
 export type GridspaceDriveImportRequest = operations['gridspace___drive-import']['requestBody']['content']['application/json'];
 export type GridspaceDriveImportResponse = operations['gridspace___drive-import']['responses']['200']['content']['application/json'];
+export type GridspaceEmojiAliasesResponse = operations['gridspace___emoji-aliases']['responses']['200']['content']['application/json'];
 export type GridspaceHistoryRequest = operations['gridspace___history']['requestBody']['content']['application/json'];
 export type GridspaceHistoryResponse = operations['gridspace___history']['responses']['200']['content']['application/json'];
 export type GridspaceLayoutReferenceRequest = operations['gridspace___layout-reference']['requestBody']['content']['application/json'];

@@ -2137,6 +2137,7 @@ declare namespace entities {
         GridspaceDriveResponse,
         GridspaceDriveImportRequest,
         GridspaceDriveImportResponse,
+        GridspaceEmojiAliasesResponse,
         GridspaceHistoryRequest,
         GridspaceHistoryResponse,
         GridspaceLayoutReferenceRequest,
@@ -2830,6 +2831,9 @@ type GridspaceDriveRequest = operations['gridspace___drive']['requestBody']['con
 
 // @public (undocumented)
 type GridspaceDriveResponse = operations['gridspace___drive']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceEmojiAliasesResponse = operations['gridspace___emoji-aliases']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type GridspaceHistoryRequest = operations['gridspace___history']['requestBody']['content']['application/json'];

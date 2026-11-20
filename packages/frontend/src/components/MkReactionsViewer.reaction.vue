@@ -8,9 +8,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 	ref="buttonEl"
 	v-ripple="canToggle"
 	:data-reaction="reaction"
-	:aria-pressed="extendedReactions ? (myReactions?.includes(reaction) ?? false) : myReaction === reaction"
+	:aria-pressed="isReacted"
 	class="_button"
-	:class="[$style.root, { [$style.reacted]: extendedReactions ? myReactions?.includes(reaction) : myReaction == reaction, [$style.canToggle]: canToggle, [$style.small]: prefer.s.reactionsDisplaySize === 'small', [$style.large]: prefer.s.reactionsDisplaySize === 'large' }]"
+	:class="[$style.root, { [$style.reacted]: isReacted, [$style.canToggle]: canToggle, [$style.small]: prefer.s.reactionsDisplaySize === 'small', [$style.large]: prefer.s.reactionsDisplaySize === 'large' }]"
 	@click="toggleReaction()"
 	@contextmenu.prevent.stop="menu"
 >
@@ -33,6 +33,8 @@ import { getUnicodeEmojiOrNull } from '@@/js/emojilist.js';
 import { getEmojiNameFromReaction, isLocalCustomEmojiReaction } from '@@/js/emoji-name.js';
 import MkCustomEmojiDetailedDialog from './MkCustomEmojiDetailedDialog.vue';
 import type { MenuItem } from '@/types/menu';
+import type { ReactionActor, ReactionTransport } from '@/utility/reaction-transport.js';
+import type { ReactionSource } from '@/utility/reaction-groups.js';
 import XDetails from '@/components/MkReactionsViewer.details.vue';
 import MkReactionIcon from '@/components/MkReactionIcon.vue';
 import * as os from '@/os.js';
@@ -52,12 +54,13 @@ import { mute as muteEmoji, unmute as unmuteEmoji, checkMuted as isEmojiMuted } 
 import { addToEmojiPalette } from '@/utility/emoji-palette.js';
 import { addExtendedReaction, deleteExtendedReaction, fetchReactionUsers } from '@/utility/extended-reactions.js';
 import { haptic } from '@/utility/haptic.js';
-import type { ReactionActor, ReactionTransport } from '@/utility/reaction-transport.js';
 import { getStaticImageUrl } from '@/utility/media-proxy.js';
 
 const props = defineProps<{
 	noteId: Misskey.entities.Note['id'];
 	reaction: string;
+	actionReaction?: string;
+	reactionSources?: ReactionSource[];
 	reactionEmojis: Misskey.entities.Note['reactionEmojis'];
 	myReaction: Misskey.entities.Note['myReaction'];
 	myReactions?: string[];
@@ -79,6 +82,9 @@ const buttonEl = useTemplateRef('buttonEl');
 const emojiName = computed(() => getEmojiNameFromReaction(props.reaction));
 
 const isLocalCustomEmoji = computed(() => isLocalCustomEmojiReaction(props.reaction));
+const sources = computed(() => props.reactionSources ?? [{ reaction: props.reaction, count: props.count, version: props.reactionVersion }]);
+const ownReactions = computed(() => sources.value.filter(source => props.extendedReactions ? props.myReactions?.includes(source.reaction) : props.myReaction === source.reaction).map(source => source.reaction));
+const isReacted = computed(() => ownReactions.value.length > 0);
 
 const canToggle = computed(() => {
 	if (props.transport) return props.transport.canToggle();
@@ -95,13 +101,18 @@ const actorAvatar = (actor: ReactionActor) => prefer.s.disableShowingAnimatedIma
 
 async function toggleReaction() {
 	if (!canToggle.value) return;
-	if (props.transport) { await props.transport.toggle(props.reaction); return; }
+	if (props.transport) {
+		for (const reaction of ownReactions.value.length ? [...ownReactions.value] : [props.actionReaction ?? props.reaction]) await props.transport.toggle(reaction);
+		return;
+	}
 	if ($i == null) return;
 
 	if (props.extendedReactions && !mock) {
-		if (props.myReactions?.includes(props.reaction)) {
+		if (isReacted.value) {
 			const { canceled } = await os.confirm({ type: 'warning', text: i18n.ts.cancelReactionConfirm });
-			if (!canceled) await deleteExtendedReaction(props.noteId, props.reaction).catch(error => os.alert({ type: 'error', text: error.message }));
+			if (!canceled) {
+				try { for (const reaction of [...ownReactions.value]) await deleteExtendedReaction(props.noteId, reaction); } catch (error) { await os.alert({ type: 'error', text: (error as Error).message }); }
+			}
 		} else {
 			if (prefer.s.confirmOnReact) {
 				const { canceled } = await os.confirm({ type: 'question', text: i18n.tsx.reactAreYouSure({ emoji: props.reaction.replace('@.', '') }) });
@@ -117,11 +128,11 @@ async function toggleReaction() {
 	if (oldReaction) {
 		const confirm = await os.confirm({
 			type: 'warning',
-			text: oldReaction !== props.reaction ? i18n.ts.changeReactionConfirm : i18n.ts.cancelReactionConfirm,
+			text: !isReacted.value ? i18n.ts.changeReactionConfirm : i18n.ts.cancelReactionConfirm,
 		});
 		if (confirm.canceled) return;
 
-		if (oldReaction !== props.reaction) {
+		if (!isReacted.value) {
 			sound.playMisskeySfx('reaction');
 			haptic();
 		}
@@ -131,6 +142,7 @@ async function toggleReaction() {
 			return;
 		}
 
+		const replacing = !isReacted.value;
 		misskeyApi('notes/reactions/delete', {
 			noteId: props.noteId,
 		}).then(() => {
@@ -138,7 +150,7 @@ async function toggleReaction() {
 				userId: me.id,
 				reaction: oldReaction,
 			});
-			if (oldReaction !== props.reaction) {
+			if (replacing) {
 				misskeyApi('notes/reactions/create', {
 					noteId: props.noteId,
 					reaction: props.reaction,
@@ -197,7 +209,7 @@ async function toggleReaction() {
 
 async function menu(ev: PointerEvent) {
 	let menuItems: MenuItem[] = [];
-	if (props.transport) menuItems.push({ text: i18n.ts.more, icon: 'ti ti-users', action: () => props.transport?.showUsers(props.reaction) });
+	if (props.transport) menuItems.push({ text: i18n.ts.more, icon: 'ti ti-users', action: () => props.transport?.showUsers(sources.value.map(source => source.reaction)) });
 
 	if (isLocalCustomEmoji.value) {
 		menuItems.push({
@@ -271,7 +283,7 @@ function anime() {
 
 function fetchUsers() {
 	if (props.transport) return Promise.resolve([]);
-	return fetchReactionUsers(props.noteId, props.reaction, props.extendedReactions ?? false, props.count, props.reactionVersion);
+	return Promise.all(sources.value.map(source => fetchReactionUsers(props.noteId, source.reaction, props.extendedReactions ?? false, source.count, source.version))).then(pages => pages.flat());
 }
 
 let usersRequest = 0;
@@ -283,7 +295,7 @@ async function refreshUsers() {
 	const request = ++usersRequest;
 	try {
 		if (props.transport) {
-			const actors = active && !window.document.hidden ? props.transport.previews(props.reaction) : [];
+			const actors = active && !window.document.hidden ? sources.value.flatMap(source => props.transport!.previews(source.reaction)) : [];
 			remoteUsers.value = [...new Map(actors.map(actor => [actor.uri, actor])).values()].slice(0, 10);
 			return;
 		}
@@ -300,7 +312,7 @@ onDeactivated(() => { active = false; if (props.transport) { usersRequest++; rem
 onActivated(() => { active = true; if (props.transport) void refreshUsers(); });
 watch([() => props.noteId, () => props.transport], () => { usersRequest++; remoteUsers.value = []; void refreshUsers(); });
 
-watch([() => props.count, () => props.reactionVersion], ([newCount], [oldCount]) => {
+watch([() => props.count, () => props.reactionVersion, sources], ([newCount], [oldCount]) => {
 	void refreshUsers();
 	if (oldCount < newCount) anime();
 });
@@ -316,7 +328,8 @@ if (!mock) {
 		if (props.transport) {
 			if (!active || window.document.hidden) return;
 			const current = usersRequest;
-			const actors = await props.transport.users(props.reaction).catch(() => null);
+			const pages = await Promise.all(sources.value.map(source => props.transport!.users(source.reaction))).catch(() => null);
+			const actors = pages ? [...new Map(pages.flat().map(actor => [actor.uri, actor])).values()] : null;
 			if (!actors || !active || current !== usersRequest || window.document.hidden || !showing.value) return;
 			disposeRemoteDetails?.();
 			const { dispose } = os.popup(XDetails, { showing, reaction: props.reaction, emojiUrl: props.reactionEmojis[emojiName.value], users: [], actors, count: props.count, anchorElement: buttonEl.value }, { closed: () => dispose() });
