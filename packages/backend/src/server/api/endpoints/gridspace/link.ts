@@ -23,6 +23,7 @@ export const meta = {
 		properties: {
 			timeline: { type: 'object', optional: false, nullable: false, properties: {
 				version: { type: 'integer', optional: false, nullable: false }, enabled: { type: 'boolean', optional: false, nullable: false },
+				channelPlacements: { type: 'boolean', optional: true, nullable: false },
 				kinds: { type: 'array', optional: false, nullable: false, items: { type: 'string', optional: false, nullable: false } },
 			} },
 			enabled: { type: 'boolean', optional: false, nullable: false },

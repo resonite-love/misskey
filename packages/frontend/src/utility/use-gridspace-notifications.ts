@@ -249,6 +249,7 @@ export function useGridspaceNotifications(exclude: ComputedRef<string[]>, isAtTo
 	const changed = () => { void load('refresh'); };
 	onMounted(() => {
 		void reload(); window.document.addEventListener('visibilitychange', visibility);
+		stream?.on('gridspaceNotificationsChanged', changed);
 		stream?.on('notification', changed); stream?.on('notificationRead', changed); stream?.on('notificationFlushed', reload);
 		let elapsed = 0;
 		timer = window.setInterval(async () => {

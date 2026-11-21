@@ -19,6 +19,7 @@ import { NoteReactionEntityService } from '@/core/entities/NoteReactionEntitySer
 import { CustomEmojiService } from '@/core/CustomEmojiService.js';
 import { NotificationService } from '@/core/NotificationService.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
+import { dedicatedOriginal } from './gridspace/conversation-protocol.js';
 import { bindThis } from '@/decorators.js';
 
 // UNION also hides overlaps created by legacy clients: one user per emoji.
@@ -45,8 +46,9 @@ export class ExtendedReactionService {
 	}
 
 	/** The caller must hold the ordinary reaction lock; peer access is checked by GridspaceReactionService. */
-	public async createUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false, allowChannelActor = false) {
-		if ((user.host !== null && !(allowChannelActor && note.channelId)) || (note.userHost !== null && !allowPeerNote && !(allowChannelActor && note.channelId))) throw new IdentifiableError('extended-local-only');
+	public async createUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false, allowChannelActor: boolean | 'conversation' = false) {
+		const allowGuest = allowChannelActor === 'conversation' ? dedicatedOriginal(note) : allowChannelActor && note.channelId;
+		if ((user.host !== null && !allowGuest) || (note.userHost !== null && !allowPeerNote && !allowGuest)) throw new IdentifiableError('extended-local-only');
 		const reaction = await this.reactionService.resolveReaction(user, note, input);
 		const primary = await this.db.getRepository(MiNoteReaction).findOneBy({ userId: user.id, noteId: note.id });
 		const repository = this.db.getRepository(MiExtendedNoteReaction);
@@ -72,8 +74,9 @@ export class ExtendedReactionService {
 	}
 
 	/** The caller must hold the ordinary reaction lock. */
-	public async deleteUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false, allowChannelActor = false) {
-		if ((user.host !== null && !(allowChannelActor && note.channelId)) || (note.userHost !== null && !allowPeerNote && !(allowChannelActor && note.channelId))) throw new IdentifiableError('extended-local-only');
+	public async deleteUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false, allowChannelActor: boolean | 'conversation' = false) {
+		const allowGuest = allowChannelActor === 'conversation' ? dedicatedOriginal(note) : allowChannelActor && note.channelId;
+		if ((user.host !== null && !allowGuest) || (note.userHost !== null && !allowPeerNote && !allowGuest)) throw new IdentifiableError('extended-local-only');
 		if (!await this.noteEntityService.isVisibleForMe(note, user.id)) {
 			throw new IdentifiableError('68e9d2d1-48bf-42c2-b90a-b20e09fd3d48');
 		}

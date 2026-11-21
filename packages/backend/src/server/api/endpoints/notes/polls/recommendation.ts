@@ -3,10 +3,12 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { noteListingCondition } from '@/misc/note-distribution.js';
 import { Brackets, In } from 'typeorm';
 import { Inject, Injectable } from '@nestjs/common';
 import type { NotesRepository, MutingsRepository, PollsRepository, PollVotesRepository } from '@/models/_.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
+import { QueryService } from '@/core/QueryService.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { DI } from '@/di-symbols.js';
 
@@ -53,9 +55,16 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		private mutingsRepository: MutingsRepository,
 
 		private noteEntityService: NoteEntityService,
+		private queryService: QueryService,
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			const query = this.pollsRepository.createQueryBuilder('poll')
+				.innerJoin('poll.note', 'note')
+				.innerJoin('note.user', 'user')
+				.leftJoin('note.reply', 'reply')
+				.leftJoin('note.renote', 'renote')
+				.leftJoin('reply.user', 'replyUser')
+				.leftJoin('renote.user', 'renoteUser')
 				.where('poll.userHost IS NULL')
 				.andWhere('poll.userId != :meId', { meId: me.id })
 				.andWhere('poll.noteVisibility = \'public\'')
@@ -88,10 +97,11 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			//#endregion
 
 			//#region exclude channels
-			if (ps.excludeChannels) {
-				query.andWhere('poll.channelId IS NULL');
-			}
+			query.andWhere(...noteListingCondition(ps.excludeChannels ? { kind: 'default' } : { kind: 'profile', viewerId: me.id }));
 			//#endregion
+
+			this.queryService.generateVisibilityQuery(query, me);
+			this.queryService.generateBaseNoteFilteringQuery(query, me);
 
 			const polls = await query
 				.orderBy('poll.noteId', 'DESC')

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { channelPlacementCondition } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import type { ChannelsRepository, MiMeta, NotesRepository } from '@/models/_.js';
@@ -99,6 +100,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				allowPartial: ps.allowPartial,
 				me,
 				useDbFallback: true,
+				listing: { kind: 'channel', channelId: channel.id },
 				redisTimelines: [`channelTimeline:${channel.id}`],
 				excludePureRenotes: false,
 				ignoreAuthorChannelFromMute: true,
@@ -117,7 +119,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 	}, me: MiLocalUser | null) {
 		//#region fallback to database
 		const query = this.queryService.makePaginationQuery(this.notesRepository.createQueryBuilder('note'), ps.sinceId, ps.untilId)
-			.andWhere('note.channelId = :channelId', { channelId: ps.channelId })
+			.andWhere(channelPlacementCondition(':channelId'), { channelId: ps.channelId })
 			.innerJoinAndSelect('note.user', 'user')
 			.leftJoinAndSelect('note.reply', 'reply')
 			.leftJoinAndSelect('note.renote', 'renote')
@@ -133,7 +135,6 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				.list({ requestUserId: me.id }, { idOnly: true })
 				.then(x => x.map(x => x.id).filter(x => x !== ps.channelId));
 			if (mutingChannelIds.length > 0) {
-				query.andWhere('note.channelId NOT IN (:...mutingChannelIds)', { mutingChannelIds });
 				query.andWhere(new Brackets(qb => {
 					qb.orWhere('note.renoteChannelId IS NULL');
 					qb.orWhere('note.renoteChannelId NOT IN (:...mutingChannelIds)', { mutingChannelIds });

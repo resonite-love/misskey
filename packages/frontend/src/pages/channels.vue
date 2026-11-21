@@ -25,21 +25,21 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 			<MkFoldableSection v-if="channelPaginator">
 				<template #header>{{ i18n.ts.searchResult }}</template>
-				<MkCombinedChannelList :key="key" :paginator="channelPaginator" :peerEnabled="peerChannels" :peerParams="searchParams" :grid="false"/>
+				<MkCombinedChannelList :key="key" :paginator="channelPaginator" :peerEnabled="peerChannels" :placementAccount="placementAccount" :peerParams="searchParams" :grid="false"/>
 			</MkFoldableSection>
 		</div>
 		<div v-if="tab === 'featured'">
-			<MkCombinedChannelList :paginator="featuredPaginator" :peerEnabled="peerChannels" :peerParams="{ list: 'featured' }"/>
+			<MkCombinedChannelList :paginator="featuredPaginator" :peerEnabled="peerChannels" :placementAccount="placementAccount" :peerParams="{ list: 'featured' }"/>
 		</div>
 		<div v-else-if="tab === 'favorites'">
-			<MkCombinedChannelList :paginator="favoritesPaginator" :peerEnabled="peerChannels" :peerParams="{ list: 'favorites' }"/>
+			<MkCombinedChannelList :paginator="favoritesPaginator" :peerEnabled="peerChannels" :placementAccount="placementAccount" :peerParams="{ list: 'favorites' }"/>
 		</div>
 		<div v-else-if="tab === 'following'">
-			<MkCombinedChannelList :paginator="followingPaginator" :peerEnabled="peerChannels" :peerParams="{ list: 'following' }"/>
+			<MkCombinedChannelList :paginator="followingPaginator" :peerEnabled="peerChannels" :placementAccount="placementAccount" :peerParams="{ list: 'following' }"/>
 		</div>
 		<div v-else-if="tab === 'owned'" class="_gaps">
 			<MkButton v-if="$i?.policies.canCreateChannel" type="routerLink" primary rounded to="/channels/new"><i class="ti ti-plus"></i> {{ i18n.ts.createNew }}</MkButton>
-			<MkCombinedChannelList :paginator="ownedPaginator" :peerEnabled="peerChannels" :peerParams="{ list: 'owned' }"/>
+			<MkCombinedChannelList :paginator="ownedPaginator" :peerEnabled="peerChannels" :placementAccount="placementAccount" :peerParams="{ list: 'owned' }"/>
 		</div>
 	</div>
 </PageWithHeader>
@@ -58,15 +58,18 @@ import { i18n } from '@/i18n.js';
 import { useRouter } from '@/router.js';
 import { Paginator } from '@/utility/paginator.js';
 import { $i } from '@/i.js';
+import { instance } from '@/instance.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 
 const router = useRouter();
 const peerChannels = ref(false);
+const placementAccount = ref(false);
 onMounted(async () => {
 	if (!$i) return;
 	try {
 		const status = await misskeyApi('gridspace/link', {}, undefined, AbortSignal.timeout(10000));
-		peerChannels.value = status.channelsEnabled;
+		placementAccount.value = !status.channelsEnabled && instance.features?.multiNotePeer === true;
+		peerChannels.value = status.channelsEnabled || placementAccount.value;
 	} catch { /* The local channel list remains usable during a peer outage. */ }
 });
 

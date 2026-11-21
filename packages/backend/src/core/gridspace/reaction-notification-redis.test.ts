@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import Redis, { ReplyError } from 'ioredis';
+import { Redis, ReplyError } from 'ioredis';
 import { afterAll, expect, test } from 'vitest';
 import { mockDeep } from 'vitest-mock-extended';
 import { loadConfig } from '@/config.js';
@@ -35,6 +35,14 @@ test('concurrent retries insert exactly one timeline entry and retain the receip
 	expect(await redis.exists('timeline')).toBe(0);
 });
 
+test('note dispatch receipt survives indefinitely and a retry keeps the original stream ID', async () => {
+	const send = (id: string) => redis.eval(reactionNotificationOnceScript, 2, 'dispatch-timeline', 'dispatch-receipt', '500', id, '{}', 'persistent');
+	expect(await send('200-1')).toBe(1);
+	expect(await redis.ttl('dispatch-receipt')).toBe(-1);
+	expect(await send('201-1')).toBe(0);
+	expect((await redis.xrange('dispatch-timeline', '-', '+')).map(([id]) => id)).toEqual(['200-1']);
+});
+
 test('failed XADD never commits a receipt and a retry can succeed', async () => {
 	await redis.set('broken-timeline', 'wrong type');
 	await expect(redis.eval(reactionNotificationOnceScript, 2, 'broken-timeline', 'retry-receipt', '500', '1-1', '{}')).rejects.toThrow();
@@ -51,7 +59,7 @@ function fixture() {
 	ids.gen.mockReturnValue('notice'); ids.parseFull.mockReturnValue({ date: 200, additional: 1n } as never);
 	packer.pack.mockResolvedValue({ id: 'notice', type: 'reaction' } as never);
 	const client = mockDeep<Redis>(); client.eval.mockResolvedValue(1);
-	const service = new NotificationService(config, client, mockDeep(), mockDeep(), packer, ids, events, mockDeep(), cache, mockDeep());
+	const service = new NotificationService(config, client, mockDeep(), mockDeep(), packer, ids, events, mockDeep(), cache, mockDeep(), mockDeep());
 	return { service, cache, client, events };
 }
 
@@ -62,6 +70,19 @@ test.each(['self', 'muted', 'disabled'])('preserves %s notification suppression'
 	try {
 		await f.service.createReactionNotificationOnce({ userHost: null, userId: reason === 'self' ? 'actor' : 'author', id: 'note' } as MiNote, '👍', 'actor', 'receipt');
 		expect(f.client.eval).not.toHaveBeenCalled();
+	} finally { f.service.onApplicationShutdown(); }
+});
+
+test('note dispatch uses a permanent receipt for each notification type and exact recipient', async () => {
+	const f = fixture();
+	try {
+		f.client.eval.mockResolvedValue(0);
+		for (const type of ['reply', 'mention', 'note'] as const) {
+			await f.service.createNoteNotificationOnce('guest', type, 'noteId', 'writer');
+			expect(f.client.eval).toHaveBeenLastCalledWith(reactionNotificationOnceScript, 2, 'notificationTimeline:guest',
+				`gridspace:note-create:noteId:${type}:guest`, expect.any(String), expect.any(String), expect.any(String), 'persistent');
+		}
+		expect(f.events.publishMainStream).not.toHaveBeenCalled();
 	} finally { f.service.onApplicationShutdown(); }
 });
 

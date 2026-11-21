@@ -11,6 +11,8 @@ import { IdService } from '@/core/IdService.js';
 import type { GlobalEventService } from '@/core/GlobalEventService.js';
 import { TimelineReferenceService } from '@/core/gridspace/timeline/TimelineReferenceService.js';
 import { MiGridspaceTimelineChange, MiGridspaceTimelineOutbox, MiGridspaceTimelineState } from '@/models/GridspaceTimeline.js';
+import { recordPlacementChange } from '@/core/gridspace/timeline/placement-change.js';
+import { MultiNotePlacement1795200720406 } from '../../migration/1795200720406-multi-note-placement.js';
 import { GridspaceTimelineIndex1794875013623 } from '../../migration/1794875013623-gridspace-timeline-index.js';
 
 describe('TimelineReferenceService committed changes', () => {
@@ -34,6 +36,8 @@ describe('TimelineReferenceService committed changes', () => {
 		await db.query(`CREATE TABLE meta ("blockedHosts" text[])`);
 		await db.query(`CREATE TABLE channel ("isSensitive" boolean)`);
 		await new GridspaceTimelineIndex1794875013623().up({ query: db.query.bind(db) });
+		await new MultiNotePlacement1795200720406().up({ query: (sql: string) =>
+			sql.includes('gridspace_timeline_') ? db.query(sql) : Promise.resolve() });
 		service = new TimelineReferenceService(db, config, new IdService(config), { publishInternalEvent: () => {} } as unknown as GlobalEventService);
 	});
 
@@ -51,6 +55,18 @@ describe('TimelineReferenceService committed changes', () => {
 		await db.destroy();
 	});
 
+	test('replayed placement events keep their canonical origin, channel and revisions without skipping a sequence', async () => {
+		const event = { kind: 'place-remove' as const, channelOrigin: config.url, channelId: 'target', canonicalUri: 'https://other.example/notes/42',
+			sourceRevision: 1, targetRevision: 2, eventId: randomUUID() };
+		for (let i = 0; i < 2; i++) {
+			await db.transaction(manager => recordPlacementChange(manager, event));
+			await service.drainChanges();
+		}
+		const page = await service.changes('0');
+		expect(page.events).toHaveLength(1);
+		expect(page.events[0]).toMatchObject({ ...event, sourceRevision: '1', targetRevision: '2', noteId: null, sequence: '1' });
+		expect(page.resetRequired).toBe(false);
+	});
 	test('migration matches TypeORM entities', async () => {
 		const pending = await db.driver.createSchemaBuilder().log();
 		expect(pending.upQueries.map(query => query.query)).toEqual([]);

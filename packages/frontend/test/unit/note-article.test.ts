@@ -11,29 +11,49 @@ import { cleanup, fireEvent, render } from '@testing-library/vue';
 import type { entities } from 'misskey-js';
 import NoteText from '@/components/MkNoteText.vue';
 import NoteArticle from '@/components/MkNoteArticle.vue';
+import NoteDetailedArticle from '@/components/MkNoteDetailedArticle.vue';
+import NotePlacements from '@/components/MkNotePlacements.vue';
 import nativeSource from '@/components/MkNote.vue?raw';
+import detailSource from '@/components/MkNoteDetailed.vue?raw';
 
 vi.mock('@/components/global/MkAvatar.vue', () => ({ default: { props: ['user', 'preview'], template: '<div data-avatar :data-preview="preview">{{ user.username }}</div>' } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { _multiNote: { placements: 'Destinations', defaultDestination: 'Regular timeline' } } } }));
 afterEach(cleanup);
 const user = { id: 'user', username: 'user', host: null } as entities.UserLite;
 const channel = { id: 'channel', name: 'Channel name', color: '#ff8a8a' };
 const global = { stubs: { MkA: { props: ['to'], template: '<a :href="to"><slot/></a>' } } };
 
-test('the native note template renders through the same article and keeps footer events', async () => {
-	const compiled = compileTemplate({ source: parse(nativeSource).descriptor.template!.content, filename: 'MkNote.vue', id: 'native-article-test', compilerOptions: { mode: 'function', prefixIdentifiers: true } });
+test.each([
+	['MkNote.vue', nativeSource],
+	['MkNoteDetailed.vue', detailSource],
+])('%s shows verified placements on a public peer mirror without channel context and keeps footer actions', async (filename, source) => {
+	const compiled = compileTemplate({ source: parse(source).descriptor.template!.content, filename, id: 'native-article-test', compilerOptions: { mode: 'function', prefixIdentifiers: true } });
 	expect(compiled.errors).toEqual([]);
 	const reply = vi.fn();
-	const note = { id: 'note', createdAt: '2026-11-14T00:00:00Z', user, channel, text: 'Native body', cw: null, files: [], visibility: 'public' };
+	const origin = 'https://source.example';
+	const canonicalUri = origin + '/notes/original';
+	const note = {
+		id: 'local-mirror', uri: canonicalUri + '/activity', createdAt: '2026-11-14T00:00:00Z',
+		user: { ...user, host: 'source.example' }, channelId: null, channel: null, text: 'Native body', cw: null, files: [], visibility: 'public',
+		multiNoteKind: 'root', includeDefault: true,
+		channelPlacements: ['General', 'Music'].map(name => ({ origin, canonicalUri, channelId: name.toLowerCase(), name, color: '#ffaabb', state: 'active' })),
+	} satisfies Partial<entities.Note>;
 	const Native = Vue.defineComponent({ render: new Function('Vue', compiled.code)(Vue), setup: () => ({
 		hardMuted: false, hideByPlugin: false, muted: false, prefer: { s: {} }, keymap: {}, isRenote: false, renoteCollapsed: false,
-		note, appearNote: note, mock: true, showContent: true, canRenote: true, reply, isUnavailableGridspaceNote: () => false, i18n: { ts: {} },
+		note, appearNote: note, inChannel: null, notePage: () => '/notes/local-mirror', mock: true, showContent: true, canRenote: true, reply, isUnavailableGridspaceNote: () => false, i18n: { ts: {} },
 	}) });
 	const view = render(Native, { global: {
-		...global, mocks: { $style: {}, $appearNote: {} }, directives: { hotkey: {} }, components: { MkNoteArticle: NoteArticle, MkNoteText: NoteText },
-		stubs: { ...global.stubs, MkNoteSub: true, MkNoteHeader: true, MkNoteChannel: true, MkReactionsViewer: true,
+		...global, mocks: { $style: {}, $appearNote: {} }, directives: { hotkey: {} }, components: { MkNoteArticle: NoteArticle, MkNoteDetailedArticle: NoteDetailedArticle, MkNotePlacements: NotePlacements, MkNoteText: NoteText },
+		stubs: { ...global.stubs, MkNoteSub: true, MkNoteHeader: true, MkNoteDetailedHeader: true, MkNoteInfo: true, MkNoteChannel: true, MkReactionsViewer: true,
 			MkAutoTranslatedNote: { props: ['note'], template: '<slot :text="note.text" :translated="false"/>' }, Mfm: { props: ['text'], template: '<span>{{ text }}</span>' } },
 	} });
-	expect(view.container.querySelector('[data-note-article]')).not.toBeNull();
+	const article = view.getByRole('article');
+	expect(article.contains(view.getByText('Regular timeline'))).toBe(true);
+	for (const name of ['General', 'Music']) {
+		const link = view.getByRole('link', { name: name + ' @source.example' });
+		expect(article.contains(link)).toBe(true);
+		expect(link.getAttribute('href')).toBe('/gridspace/channels/' + name.toLowerCase() + '?placement=1');
+	}
 	expect(view.getByText('Native body')).toBeTruthy();
 	await fireEvent.click(view.container.querySelector('footer button')!);
 	expect(reply).toHaveBeenCalledOnce();

@@ -3,6 +3,12 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { randomUUID } from 'node:crypto';
+import { ModuleRef } from '@nestjs/core';
+import type { Config } from '@/config.js';
+import { MiGridspaceNoteDelivery } from '@/models/Gridspace.js';
+import { GridspaceLinkError } from './gridspace/GridspaceLinkService.js';
+import { originNoteId } from './gridspace/conversation-protocol.js';
 import { DataSource, type EntityManager } from 'typeorm';
 import { MiPoll } from '@/models/Poll.js';
 import { MiPollVote } from '@/models/PollVote.js';
@@ -51,16 +57,42 @@ export class PollService {
 		private userBlockingService: UserBlockingService,
 		private apRendererService: ApRendererService,
 		private apDeliverManagerService: ApDeliverManagerService,
+		@Inject(DI.config) private config?: Config,
+		private modules?: ModuleRef,
 	) {
 	}
 
 	/** Local votes share one transactional path, including delegated old-account votes. */
 	@bindThis
-	public async castVote(user: MiLocalUser | MiRemoteUser, note: MiNote, choice: number, beforeInsert?: (manager: EntityManager) => Promise<void>) {
-		if (user.host !== null && !note.channelId) throw new PollVoteError('noSuchNote');
+	public async castVote(user: MiLocalUser | MiRemoteUser, note: MiNote, choice: number, beforeInsert?: (manager: EntityManager) => Promise<void>, placementVote = false) {
+		if (user.host !== null && !note.channelId && !(placementVote && beforeInsert && note.localOnly && note.uri === null)) throw new PollVoteError('noSuchNote');
 		if (!await this.noteEntityService.isVisibleForMe(note, user.id)) throw new PollVoteError('noSuchNote');
 		if (!note.hasPoll) throw new PollVoteError('noPoll');
 		if (note.userId !== user.id && await this.userBlockingService.checkBlocked(note.userId, user.id)) throw new PollVoteError('youHaveBeenBlocked');
+		if (note.localOnly && note.uri && note.gridspaceShared && user.host === null && this.config?.gridspace?.enabled) {
+			const peerOrigin = new URL(this.config.gridspace.peerUrl).origin;
+			const id = originNoteId(note.uri, peerOrigin);
+			if (!id || note.userHost !== new URL(peerOrigin).host) throw new PollVoteError('noSuchNote');
+			const { GridspaceActionService } = await import('./gridspace/GridspaceActionService.js');
+			const actions = this.modules!.get(GridspaceActionService, { strict: false });
+			const conversationUri = note.uri;
+			await this.db.transaction(async manager => {
+				await beforeInsert?.(manager);
+				const response = await actions.action(user, { action: 'vote', noteId: id, conversationUri, choice }).catch(error => {
+					if (error instanceof GridspaceLinkError) throw new PollVoteError('noSuchNote');
+					throw error;
+				});
+				const current = response.note.poll;
+				if (!current || !current.choices[choice]?.isVoted) throw new PollVoteError('noPoll');
+				const poll = await manager.findOne(MiPoll, { where: { noteId: note.id }, lock: { mode: 'pessimistic_write' } });
+				if (!poll || poll.choices.length !== current.choices.length ||
+					!current.choices.every((item, i) => item.text === poll.choices[i] && Number.isSafeInteger(item.votes) && item.votes >= 0)) throw new PollVoteError('noPoll');
+				await manager.update(MiPoll, { noteId: note.id }, { votes: current.choices.map((item, i) => Math.max(item.votes, poll.votes[i])) });
+				const mine = current.choices.flatMap((item, index) => item.isVoted ? [{ id: this.idService.gen(), noteId: note.id, userId: user.id, choice: index }] : []);
+				await manager.createQueryBuilder().insert().into(MiPollVote).values(mine).orIgnore().execute();
+			});
+			return;
+		}
 		const result = await this.db.transaction(async manager => {
 			await beforeInsert?.(manager);
 			const poll = await manager.getRepository(MiPoll).findOne({ where: { noteId: note.id }, lock: { mode: 'pessimistic_write' } });
@@ -73,10 +105,13 @@ export class PollService {
 			const vote = votes.create({ id: this.idService.gen(), noteId: note.id, userId: user.id, choice });
 			await votes.insert(vote);
 			await manager.query('UPDATE poll SET votes[$1] = votes[$1] + 1 WHERE "noteId" = $2', [choice + 1, note.id]);
+			if (note.localOnly && note.uri == null && note.userHost == null && note.gridspaceShared && this.config?.gridspace?.enabled) {
+				await manager.upsert(MiGridspaceNoteDelivery, { noteId: note.id, version: randomUUID(), peerOrigin: new URL(this.config.gridspace.peerUrl).origin, retryAt: new Date(), attempts: 0 }, ['noteId']);
+			}
 			return { vote, poll };
 		});
 		this.globalEventService.publishNoteStream(note, 'pollVoted', { choice, userId: user.id });
-		if (note.userHost != null && !note.channelId && user.host === null) {
+		if (note.userHost != null && !note.channelId && !note.localOnly && user.host === null) {
 			const owner = await this.usersRepository.findOneByOrFail({ id: note.userId }) as MiRemoteUser;
 			this.queueService.deliver(user, this.apRendererService.addContext(await this.apRendererService.renderVote(user, result.vote, note, result.poll, owner)), owner.inbox, false);
 		}

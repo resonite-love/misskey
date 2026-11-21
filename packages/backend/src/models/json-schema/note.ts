@@ -66,6 +66,26 @@ export const packedNoteSchema = {
 			type: 'boolean',
 			optional: true, nullable: false,
 		},
+		includeDefault: { type: 'boolean', optional: true, nullable: false },
+		multiNoteKind: { type: 'string', enum: ['root', 'conversation-reply'], optional: true, nullable: false },
+		channelPlacementsUnavailable: { type: 'boolean', optional: true, nullable: false },
+		channelPlacements: {
+			type: 'array', optional: true, nullable: false,
+			items: {
+				type: 'object', optional: false, nullable: false,
+				properties: {
+					origin: { type: 'string', optional: false, nullable: false },
+					channelId: { type: 'string', optional: false, nullable: false },
+					canonicalUri: { type: 'string', optional: false, nullable: false },
+					name: { type: 'string', optional: false, nullable: false },
+					color: { type: 'string', optional: false, nullable: false },
+					placementId: { type: 'string', optional: true, nullable: false },
+					canRemove: { type: 'boolean', optional: true, nullable: false },
+					canRetry: { type: 'boolean', optional: true, nullable: false },
+					state: { type: 'string', enum: ['active', 'pending', 'failed', 'removed'], optional: false, nullable: false },
+				},
+			},
+		},
 		visibility: {
 			type: 'string',
 			optional: false, nullable: false,

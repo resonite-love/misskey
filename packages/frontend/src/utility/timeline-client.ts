@@ -15,6 +15,7 @@ export type TimelineItem = {
 	sortKey: { sortAt: string; uri: string };
 	ref: string;
 	representation: 'normal' | 'delegated';
+	readOnly?: boolean;
 	payload: entities.Note | GridspacePrivateNote;
 	validForMs: number | null;
 	nextPolicyCheckAt?: string | null;
@@ -42,7 +43,7 @@ export type TimelineStreamEvent = { session: string; revision: string; item?: Ti
 type RowBase = { key: string; createdAt: string; leased: boolean };
 export type TimelineDisplayRow = RowBase & (
 	| { kind: 'normal'; note: entities.Note & { _shouldInsertAd_?: boolean } }
-	| { kind: 'private'; note: GridspaceNoteEntry }
+	| { kind: 'private'; note: GridspaceNoteEntry; readOnly?: boolean }
 	| { kind: 'placeholder' }
 );
 type RetainedItem = Omit<TimelineItem, 'payload'> & {
@@ -98,7 +99,7 @@ export class TimelineClient {
 			const note: GridspaceNoteEntry = (item.displayPayload ?? item.payload) as GridspacePrivateNote | undefined ?? {
 				id: item.id, uri: item.key, createdAt: item.createdAt, suspended: true, visible: item.visible,
 			};
-			return { ...base, kind: 'private', note };
+			return { ...base, kind: 'private', note, ...(item.readOnly ? { readOnly: true } : {}) };
 		});
 	}
 	public queuedCount = ref(0);

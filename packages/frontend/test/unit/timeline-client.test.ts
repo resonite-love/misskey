@@ -40,6 +40,15 @@ function client(request: (...args: [string, Record<string, unknown>, AbortSignal
 }
 
 describe('server timeline client', () => {
+	it('upgrades a read-only origin body to one actionable mirror under the same canonical key', async () => {
+		const request = vi.fn().mockResolvedValueOnce(page([{ ...item('one'), readOnly: true }]))
+			.mockResolvedValueOnce(page([item('one', false)]));
+		const value = client(request);
+		await value.reload();
+		expect(value.rows.value).toMatchObject([{ kind: 'private', readOnly: true, key: item('one').key }]);
+		await value.reload();
+		expect(value.rows.value).toMatchObject([{ kind: 'normal', key: item('one').key }]);
+	});
 	it('prepends authorized stream notes at the top without another HTTP request or duplicate sound', async () => {
 		const onNewItems = vi.fn();
 		const request = vi.fn().mockResolvedValue(page([item('old', false)]));

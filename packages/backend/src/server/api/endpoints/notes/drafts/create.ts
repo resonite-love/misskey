@@ -157,6 +157,10 @@ export const meta = {
 
 export const paramDef = {
 	type: 'object',
+	// Server drafts retain a single channel. Reject placement inputs before saving or scheduling them.
+	not: { anyOf: [
+		{ required: ['channelIds'] }, { required: ['channelTargets'] }, { required: ['includeDefault'] }, { required: ['clientRequestId'] },
+	] },
 	properties: {
 		visibility: { type: 'string', enum: ['public', 'home', 'followers', 'specified'], default: 'public' },
 		visibleUserIds: { type: 'array', uniqueItems: true, items: {

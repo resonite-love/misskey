@@ -4,13 +4,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<section :class="$style.root" data-gridspace-post-form @dragover.prevent @drop.prevent="dropFiles">
+<MkPostForm v-if="newDestination" ref="nativeForm" :initialChannelDestination="newDestination" :initialText="initialText" :initialCw="initialCw" :autofocus="autofocus" :fixed="embedded" @posted="emit('sent')" @cancel="emit('close')" @esc="close"/>
+<section v-else :class="$style.root" data-gridspace-post-form @dragover.prevent @drop.prevent="dropFiles">
 	<MkPostFormHeader :fixed="embedded" @cancel="close">
 		<template #account>
 			<img v-if="info" :class="$style.avatar" :src="info.account.avatarUrl" alt="" style="border-radius: 100%;">
 			<span v-if="info" :class="$style.peerIdentity" :title="identity">{{ identity }}</span>
 		</template>
-		<span :class="[$style.headerRightItem, $style.visibility]" :title="audience"><i :class="channelId ? 'ti ti-device-tv' : info?.visibility === 'specified' ? 'ti ti-mail' : 'ti ti-lock'"></i><span :class="$style.headerRightButtonText">{{ audience }}</span></span>
+		<span v-if="audience" :class="[$style.headerRightItem, $style.visibility]" :title="audience.label"><i :class="audience.icon"></i><span :class="$style.headerRightButtonText">{{ audience.label }}</span></span>
 		<span v-if="info?.localOnly && !channelId" :title="i18n.ts._visibility.disableFederation"><i class="ti ti-rocket-off"></i></span>
 		<button class="_button" :class="$style.submit" :disabled="!canSend" data-testid="post-form-submit" @click="send"><div :class="$style.submitInner"><MkEllipsis v-if="sending"/><template v-else>{{ pending ? i18n.ts.retry : reply ? i18n.ts.reply : (renote || pastedQuote) ? i18n.ts.quote : i18n.ts.note }}</template><i style="margin-left: 6px;" :class="reply ? 'ti ti-arrow-back-up' : (renote || pastedQuote) ? 'ti ti-quote' : 'ti ti-send'"></i></div></button>
 	</MkPostFormHeader>
@@ -38,7 +39,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef, useTemplateRef, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef, useTemplateRef, watch, watchEffect } from 'vue';
+import { instance } from '@/instance.js';
 import { apiUrl, host } from '@@/js/config.js';
 import type { entities } from 'misskey-js';
 import type { PollEditorModelValue } from '@/components/MkPollEditor.vue';
@@ -61,8 +63,18 @@ import { isGridspaceNoteLink, isConfiguredGridspaceNoteLink } from '@/utility/gr
 import { pendingReplyRequest, rememberReplyRequest, forgetReplyRequest } from '@/utility/gridspace-reply-request.js';
 import * as os from '@/os.js';
 
-const props = defineProps<{ channelId?: string; channel?: { name: string; color: string }; reply?: entities.GridspacePrivateNotesResponse['notes'][number]; renote?: entities.GridspacePrivateNotesResponse['notes'][number]; embedded?: boolean; autofocus?: boolean; initialText?: string; initialCw?: string; initialFiles?: import('@/utility/gridspace-note-link.js').LinkedQuoteAttachment[]; initialPoll?: PollEditorModelValue | null }>();
+const props = defineProps<{ channelId?: string; channelOrigin?: string; channel?: { name: string; color: string; isSensitive?: boolean; allowRenoteToExternal?: boolean }; reply?: entities.GridspacePrivateNotesResponse['notes'][number]; renote?: entities.GridspacePrivateNotesResponse['notes'][number]; embedded?: boolean; autofocus?: boolean; initialText?: string; initialCw?: string; initialFiles?: import('@/utility/gridspace-note-link.js').LinkedQuoteAttachment[]; initialPoll?: PollEditorModelValue | null }>();
 const emit = defineEmits<{ (event: 'close'): void; (event: 'sent'): void }>();
+const MkPostForm = defineAsyncComponent(() => import('@/components/MkPostForm.vue'));
+const nativeForm = useTemplateRef('nativeForm');
+const rootChannelKey = computed(() => props.channelId && props.channelOrigin && !props.reply && !props.renote ? JSON.stringify([props.channelOrigin, props.channelId]) : null);
+const placementChannelKey = ref<string | null>(null);
+watchEffect(() => {
+	if (instance.features?.multiNote && instance.features.multiNotePeer) placementChannelKey.value = rootChannelKey.value;
+	else if (placementChannelKey.value !== rootChannelKey.value) placementChannelKey.value = null;
+});
+const newDestination = computed(() => rootChannelKey.value && rootChannelKey.value === placementChannelKey.value && props.channelId && props.channelOrigin && props.channel
+	? { origin: props.channelOrigin, channelId: props.channelId, name: props.channel.name, color: props.channel.color, isSensitive: props.channel.isSensitive, allowRenoteToExternal: props.channel.allowRenoteToExternal } : null);
 const accountId = $i?.id ?? 'storybook';
 const info = shallowRef<entities.GridspacePrivateReplyResponse | null>(null);
 const loading = ref(false);
@@ -84,7 +96,15 @@ const resolvingQuote = ref(false);
 const transferFailed = ref(false);
 const locked = computed(() => sending.value || resolvingQuote.value || !!pending.value);
 const identity = computed(() => info.value ? `@${info.value.account.username}@${info.value.account.host}` : '');
-const audience = computed(() => props.channelId ? props.channel?.name ?? i18n.ts.channel : info.value?.visibility === 'specified' ? i18n.ts._visibility.specified : i18n.ts._visibility.followers);
+const audience = computed(() => {
+	if (props.channelId) return { label: props.channel?.name ?? i18n.ts.channel, icon: 'ti ti-device-tv' };
+	const scope = info.value?.visibility;
+	if (!scope) return null;
+	return {
+		label: i18n.ts._visibility[scope],
+		icon: { public: 'ti ti-world', followers: 'ti ti-lock', specified: 'ti ti-mail' }[scope],
+	};
+});
 const remaining = computed(() => (info.value?.maxTextLength ?? 0) - Array.from(text.value).length);
 const pastedQuoteId = ref<string | null>(null);
 const pastedQuote = shallowRef<entities.GridspacePrivateNotesResponse['notes'][number] | null>(null);
@@ -92,7 +112,7 @@ const targetNote = computed(() => props.reply ?? props.renote ?? pastedQuote.val
 const validPoll = computed(() => !poll.value || (poll.value.choices.length >= 2 && poll.value.choices.length <= 10 && new Set(poll.value.choices).size === poll.value.choices.length && poll.value.choices.every(choice => choice.trim() && Array.from(choice).length <= 50)));
 const canSend = computed(() => !!info.value?.canReply && !transferFailed.value && !sending.value && !loading.value && !resolvingQuote.value && (!!pending.value || (remaining.value >= 0 && validPoll.value && !!(text.value.trim() || uploader.items.value.length || poll.value || props.renote || pastedQuoteId.value) && !uploader.items.value.some(item => item.preprocessing))));
 const target = () => ({ noteId: props.reply?.id, renoteId: props.renote?.id ?? pastedQuoteId.value ?? undefined, channelId: props.channelId });
-const operationKey = () => props.channelId ? `channel:${props.channelId}:${(props.renote?.id ?? pastedQuoteId.value) ? `quote:${props.renote?.id ?? pastedQuoteId.value}` : props.reply?.id ?? 'new'}` : props.reply!.id;
+const operationKey = () => props.reply?.multiNoteKind ? props.reply.uri : props.channelId ? `channel:${props.channelId}:${(props.renote?.id ?? pastedQuoteId.value) ? `quote:${props.renote?.id ?? pastedQuoteId.value}` : props.reply?.id ?? 'new'}` : props.reply!.id;
 let generation = 0;
 let active = true;
 let rechecking = false;
@@ -101,6 +121,9 @@ let controller = new AbortController();
 const signal = () => AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
 
 function request(input: PostRequest) {
+	if (props.reply?.multiNoteKind && props.reply.includeDefault === false) {
+		return misskeyApi('gridspace/private-reply', { ...input, channelId: undefined, noteId: props.reply.id, conversationUri: props.reply.uri }, undefined, signal());
+	}
 	if (props.channelId) return misskeyApi('gridspace/channel-post', { ...input, channelId: props.channelId }, undefined, signal());
 	if (!props.reply) throw new Error('Missing reply target');
 	return misskeyApi('gridspace/private-reply', { ...input, noteId: props.reply.id }, undefined, signal());
@@ -114,6 +137,7 @@ function clear() {
 }
 
 async function load() {
+	if (newDestination.value) return;
 	clear(); transferFailed.value = false; error.value = ''; loading.value = true;
 	const current = generation;
 	try {
@@ -138,6 +162,7 @@ async function load() {
 }
 
 async function reauthorize() {
+	if (newDestination.value) return;
 	if (transferFailed.value || !active || window.document.hidden || rechecking || sending.value || loading.value) return;
 	rechecking = true;
 	const current = generation;
@@ -156,6 +181,7 @@ async function reauthorize() {
 }
 
 function visibility() {
+	if (newDestination.value) return;
 	if (window.document.hidden && !props.channelId) { clear(); emit('close'); return; }
 	if (window.document.hidden) { generation++; controller.abort(); controller = new AbortController(); info.value = null; sending.value = false; loading.value = false; resolvingQuote.value = false; pastedQuote.value = null; } else void reauthorize();
 }
@@ -173,7 +199,8 @@ async function send() {
 				if (!cached || cached.blob !== blob || cached.metadata !== metadata) {
 					const form = new FormData();
 					form.set('i', $i!.token); form.set('name', getUploadName(item));
-					if (props.channelId) form.set('channelId', props.channelId);
+					if (props.reply?.multiNoteKind && props.reply.includeDefault === false) form.set('conversationUri', props.reply.uri);
+					else if (props.channelId) form.set('channelId', props.channelId);
 					if (targetNote.value) form.set('noteId', targetNote.value.id);
 					form.set('expectedActorUri', info.value.account.uri);
 					form.set('comment', item.caption ?? ''); form.set('isSensitive', String(item.isSensitive ?? false)); form.set('file', blob, getUploadName(item));
@@ -261,6 +288,7 @@ function insertEmoji(event: MouseEvent) { emojiPicker.show(event.currentTarget a
 function insertMfm(event: MouseEvent) { mfmFunctionPicker(event.currentTarget ?? event.target, tag => insertText(`$[${tag} ]`)); }
 
 async function canClose() {
+	if (newDestination.value) return await nativeForm.value?.canClose() ?? true;
 	if (sending.value) return false;
 	if (text.value || cw.value || uploader.items.value.length || poll.value) return !(await os.confirm({ type: 'warning', text: i18n.ts._gridspace.discardPost })).canceled;
 	return true;
@@ -276,7 +304,7 @@ async function discard() {
 
 watch(textarea, (element, _, onCleanup) => { if (!element) return; const autocomplete = new Autocomplete(element, text, undefined, { localUserHost: host }); onCleanup(() => autocomplete.detach()); });
 watch(cwInput, (element, _, onCleanup) => { if (!element) return; const autocomplete = new Autocomplete(element, cw, undefined, { localUserHost: host }); onCleanup(() => autocomplete.detach()); });
-watch(() => [props.reply?.id, props.renote?.id, props.channelId], load, { immediate: true });
+watch(() => [props.reply?.id, props.renote?.id, props.channelId, newDestination.value], load, { immediate: true });
 const timer = window.setInterval(reauthorize, 15000);
 window.document.addEventListener('visibilitychange', visibility);
 onDeactivated(() => { active = false; clear(); });

@@ -15133,4 +15133,162 @@ export interface Locale extends ILocale {
          */
         "saveImage": string;
     };
+    "_multiNote": {
+        /**
+         * れぞらぶ
+         */
+        "localSiteName": string;
+        /**
+         * ぐりすぺ
+         */
+        "peerSiteName": string;
+        /**
+         * 投稿先
+         */
+        "destinations": string;
+        /**
+         * チャンネルのサーバー
+         */
+        "channelServer": string;
+        /**
+         * このサーバーにはまだ取り込まれていません。返信やリアクションは元のサーバーでできます。
+         */
+        "mirrorUnavailable": string;
+        /**
+         * チャンネルの一覧
+         */
+        "channelList": string;
+        /**
+         * 連携先サーバー
+         */
+        "partnerServer": string;
+        /**
+         * 通常の投稿
+         */
+        "defaultDestination": string;
+        /**
+         * チャンネルを選ぶ
+         */
+        "chooseChannels": string;
+        /**
+         * 投稿先から「{name}」を外す
+         */
+        "removeSelection": ParameterizedString<"name">;
+        /**
+         * ほか{count}件
+         */
+        "moreChannels": ParameterizedString<"count">;
+        /**
+         * 投稿先を1つ以上選んでください。
+         */
+        "noDestinations": string;
+        /**
+         * 通常の投稿と{count}件のチャンネルに掲載します。通常の投稿の連合はオフです。
+         */
+        "mixedLocal": ParameterizedString<"count">;
+        /**
+         * 通常の投稿と{count}件のチャンネルに掲載します。通常の投稿の連合はオンです。
+         */
+        "mixedFederated": ParameterizedString<"count">;
+        /**
+         * チャンネルに掲載するには、公開範囲を「パブリック」に変更してください。
+         */
+        "requiresPublic": string;
+        /**
+         * チャンネルだけに掲載します。投稿と添付ファイルは、既存の公開チャンネルと同じ条件でURLから開けます。
+         */
+        "channelOnly": string;
+        /**
+         * チャンネル外へのリノートを許可していない投稿先があります。「通常の投稿」か、そのチャンネルの選択を外してください。
+         */
+        "externalRenoteRestricted": string;
+        /**
+         * 掲載先
+         */
+        "placements": string;
+        /**
+         * 掲載中
+         */
+        "active": string;
+        /**
+         * 掲載待ち
+         */
+        "pending": string;
+        /**
+         * 掲載に失敗
+         */
+        "failed": string;
+        /**
+         * 掲載解除済み
+         */
+        "removed": string;
+        /**
+         * 一部の掲載先を確認できませんでした
+         */
+        "unavailable": string;
+        /**
+         * 本文は確定しています。未掲載でもURLから開ける場合があります。
+         */
+        "noPlacements": string;
+        /**
+         * 「{name}」から掲載を解除
+         */
+        "removePlacement": ParameterizedString<"name">;
+        /**
+         * 「{name}」の一覧から外します。投稿本体は残ります。
+         */
+        "confirmRemove": ParameterizedString<"name">;
+        /**
+         * 掲載を再試行
+         */
+        "retryPlacement": string;
+        /**
+         * 投稿は作成されました。投稿を開くと、チャンネルごとの掲載状態を確認できます。
+         */
+        "checkPlacements": string;
+        /**
+         * 投稿を開く
+         */
+        "openNote": string;
+        /**
+         * 投稿結果を確認
+         */
+        "checkResult": string;
+        /**
+         * 投稿結果を確認していない下書きを開く
+         */
+        "openPendingDraft": string;
+        /**
+         * 前回の投稿はまだ確認できていません。編集前の内容で再送しますか？ 編集後の内容は下書きに残ります。
+         */
+        "retryOriginal": string;
+        /**
+         * 別の投稿フォームで送った投稿の結果を確認してください。
+         */
+        "otherRequest": string;
+        /**
+         * 投稿結果を確認できるまで、この下書きを保持します。
+         */
+        "pendingCreate": string;
+        /**
+         * 選んだ投稿先への掲載は、現在利用できません。
+         */
+        "placementsUnavailable": string;
+        /**
+         * この投稿は作成後に削除されています。
+         */
+        "deleted": string;
+        /**
+         * 前回の投稿を確認しました。
+         */
+        "confirmed": string;
+        /**
+         * 前回の投稿結果を確認するには、投稿に使ったアカウントで再度ログインしてください。
+         */
+        "accountUnavailable": string;
+        /**
+         * 下書きに保存したアカウントを確認できません。投稿に使うアカウントを選んでください。
+         */
+        "chooseAccount": string;
+    };
 }

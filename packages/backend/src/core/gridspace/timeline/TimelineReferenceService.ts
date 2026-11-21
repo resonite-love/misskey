@@ -10,15 +10,20 @@ import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { IdService } from '@/core/IdService.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
+import { FanoutTimelineService } from '@/core/FanoutTimelineService.js';
+import { mirrorPlacementCondition } from '@/misc/note-distribution.js';
+import type { MiMeta } from '@/models/Meta.js';
 import { MiNote } from '@/models/Note.js';
 import { MiGridspaceTimelineOutbox, MiGridspaceTimelineChange, MiGridspaceTimelineState } from '@/models/GridspaceTimeline.js';
 import { canonicalGridspaceNoteUri } from '../note-protocol.js';
 import { TimelineChangeBroker, type TimelineChangeSnapshot } from './TimelineChangeBroker.js';
+import { refreshPlacementChannel } from './placement-change.js';
 import { TimelinePeerService } from './TimelinePeerService.js';
 
 export type TimelinePosition = { sortAt: string; canonicalUri: string };
 export type TimelineReference = TimelinePosition & { noteId: string; normalized: boolean; generation: number };
-export type TimelineChange = { sequence: string; canonicalUri: string | null; noteId: string | null; kind: string; affectedUserId: string | null; createdAt: Date };
+export type TimelineChange = { sequence: string; canonicalUri: string | null; noteId: string | null; kind: string; affectedUserId: string | null; createdAt: Date;
+	channelOrigin?: string | null; channelId?: string | null; sourceRevision?: string | null; targetRevision?: string | null; eventId?: string | null };
 
 export function timelineMicroseconds(date: Date): string {
 	const time = date.getTime();
@@ -48,6 +53,8 @@ export class TimelineReferenceService implements OnModuleInit, OnApplicationShut
 		private readonly events: GlobalEventService,
 		private readonly broker?: TimelineChangeBroker,
 		private readonly peer?: TimelinePeerService,
+		private readonly fanout?: FanoutTimelineService,
+		@Inject(DI.meta) private readonly meta?: MiMeta,
 	) {}
 
 	public onModuleInit(): void {
@@ -107,6 +114,7 @@ export class TimelineReferenceService implements OnModuleInit, OnApplicationShut
 			do {
 				this.dirty = false;
 				await this.drainChanges();
+				await this.projectPlacedMirrors();
 			} while (this.dirty && !this.stopping);
 			if (prune) await this.pruneChanges();
 		} catch {
@@ -139,14 +147,20 @@ export class TimelineReferenceService implements OnModuleInit, OnApplicationShut
 			const pending = await manager.getRepository(MiGridspaceTimelineOutbox).createQueryBuilder('event').orderBy('event.createdAt', 'ASC').addOrderBy('event.id', 'ASC').limit(limit).setLock('pessimistic_write').getMany();
 			let sequence = BigInt(state.nextSequence);
 			if (pending.length) {
-				changed = true;
+				const ids = pending.flatMap(event => event.eventId ? [event.eventId] : []);
+				const sequenced = ids.length ? await manager.getRepository(MiGridspaceTimelineChange).findBy({ eventId: In(ids) }) : [];
+				const known = new Set(sequenced.map(event => event.eventId));
+				const fresh = pending.filter(event => !event.eventId || !known.has(event.eventId));
+				changed = fresh.length > 0;
 				// One bulk commit can emit one NOTIFY for more than a full batch.
 				if (pending.length === limit) this.dirty = true;
-				invalidated = pending.some(event => event.kind !== 'insert');
+				invalidated = fresh.some(event => event.kind !== 'insert');
 				const createdAt = new Date();
-				await manager.getRepository(MiGridspaceTimelineChange).insert(pending.map(event => ({
+				if (fresh.length) await manager.getRepository(MiGridspaceTimelineChange).insert(fresh.map(event => ({
 					sequence: (++sequence).toString(), canonicalUri: event.canonicalUri ?? (event.noteId ? `${this.config.url}/notes/${event.noteId}` : null),
 					noteId: event.noteId, kind: event.kind, affectedUserId: event.affectedUserId, createdAt,
+					channelOrigin: event.channelOrigin, channelId: event.channelId, eventId: event.eventId,
+					sourceRevision: event.sourceRevision, targetRevision: event.targetRevision,
 				})));
 				await manager.getRepository(MiGridspaceTimelineOutbox).delete(pending.map(event => event.id));
 				await manager.getRepository(MiGridspaceTimelineState).update({ key: 'changes' }, { nextSequence: sequence.toString() });
@@ -161,6 +175,50 @@ export class TimelineReferenceService implements OnModuleInit, OnApplicationShut
 			this.peer?.notifyChanges();
 		}
 		return result;
+	}
+
+	/** Independently checkpoint the legacy channel projection. HTTP cursors can advance during a Redis outage. */
+	public async projectPlacedMirrors() {
+		if (!this.config.gridspace?.enabled || !this.fanout || !this.meta) return;
+		const fanout = this.fanout;
+		const meta = this.meta;
+		await this.db.transaction(async manager => {
+			const states = manager.getRepository(MiGridspaceTimelineState);
+			const key = 'channel-mirror-projection';
+			await states.createQueryBuilder().insert().values({ key }).orIgnore().execute();
+			const checkpoint = await states.findOneOrFail({ where: { key }, lock: { mode: 'pessimistic_write' } });
+			const scanned = await manager.getRepository(MiGridspaceTimelineChange).createQueryBuilder('event').select('event.sequence', 'sequence')
+				.where('event.sequence > :after', { after: checkpoint.nextSequence }).orderBy('event.sequence', 'ASC')
+				.limit(1000).getRawMany<{ sequence: string }>();
+			const until = scanned.at(-1)?.sequence;
+			if (!until) return;
+			const matches: { noteId: string; channelId: string; placementId: string; withFiles: boolean; pinned: boolean }[] = await manager.query(`
+				SELECT DISTINCT note.id AS "noteId", peer_placement.id AS "placementId", peer_placement."channelId", cardinality(note."fileIds") > 0 AS "withFiles",
+					EXISTS (SELECT 1 FROM channel_placement_pin pin WHERE pin."channelId" = peer_placement."channelId"
+						AND pin."canonicalUri" = peer_placement."canonicalUri") AS pinned
+				FROM gridspace_timeline_change event
+				JOIN note ON note.id = event."noteId" OR (event.kind = 'place-add' AND note.uri IN (event."canonicalUri", event."canonicalUri" || '/activity'))
+				JOIN gridspace_channel_placement peer_placement ON ${mirrorPlacementCondition('note')}
+				WHERE event.sequence > $1 AND event.sequence <= $2 AND (event.kind IN ('insert', 'mirror-ready') OR
+					(event.kind = 'place-add' AND event."channelOrigin" = $3 AND event."channelId" = peer_placement."channelId"
+						AND event."canonicalUri" = peer_placement."canonicalUri"))
+				ORDER BY "channelId", "noteId"`, [checkpoint.nextSequence, until, new URL(this.config.url).origin]);
+			const pinnedChannels = [...new Set(matches.filter(match => match.pinned).map(match => match.channelId))];
+			if (pinnedChannels.length) {
+				const locked = await manager.query<{ id: string }[]>('SELECT id FROM channel WHERE id = ANY($1::varchar[]) ORDER BY id FOR UPDATE', [pinnedChannels]);
+				for (const { id } of locked) await refreshPlacementChannel(manager, id, this.config.url, this.config.id);
+			}
+			for (const item of matches) {
+				if (meta.enableFanoutTimeline) {
+					const followers: { followerId: string }[] = await manager.query('SELECT "followerId" FROM channel_following WHERE "followeeId" = $1', [item.channelId]);
+					await fanout.cachePlacedMirror(item.noteId, item.channelId, this.config.perChannelMaxNoteCacheCount,
+						followers.map(f => f.followerId), meta.perUserHomeTimelineCacheMax, item.withFiles);
+				}
+				await this.events.publishPlacedChannelMirror(item.channelId, item.noteId, item.placementId);
+			}
+			await states.update({ key }, { nextSequence: until });
+			if (scanned.length === 1000) this.dirty = true;
+		});
 	}
 
 	private async changeSnapshot(): Promise<TimelineChangeSnapshot> {
@@ -196,7 +254,7 @@ export class TimelineReferenceService implements OnModuleInit, OnApplicationShut
 			await manager.getRepository(MiGridspaceTimelineState).findOneOrFail({ where: { key: 'changes' }, lock: { mode: 'pessimistic_write' } });
 			// Sequence time is commit order. Remove only a contiguous prefix and retain
 			// its boundary even when every change row expires.
-			await manager.query(`WITH expired AS (DELETE FROM "gridspace_timeline_change" WHERE "sequence" IN (SELECT "sequence" FROM "gridspace_timeline_change" WHERE "createdAt" < now() - interval '24 hours' AND "sequence" < COALESCE((SELECT min("sequence") FROM "gridspace_timeline_change" WHERE "createdAt" >= now() - interval '24 hours'), 9223372036854775807) ORDER BY "sequence" LIMIT 10000) RETURNING "sequence") UPDATE "gridspace_timeline_state" SET "trimmedThrough" = GREATEST("trimmedThrough", COALESCE((SELECT max("sequence") FROM expired), 0)) WHERE "key" = 'changes'`);
+			await manager.query(`WITH expired AS (DELETE FROM "gridspace_timeline_change" WHERE "sequence" IN (SELECT "sequence" FROM "gridspace_timeline_change" WHERE "sequence" <= COALESCE((SELECT "nextSequence" FROM gridspace_timeline_state WHERE key = 'channel-mirror-projection'), 9223372036854775807) AND "createdAt" < now() - interval '24 hours' AND "sequence" < COALESCE((SELECT min("sequence") FROM "gridspace_timeline_change" WHERE "createdAt" >= now() - interval '24 hours'), 9223372036854775807) ORDER BY "sequence" LIMIT 10000) RETURNING "sequence") UPDATE "gridspace_timeline_state" SET "trimmedThrough" = GREATEST("trimmedThrough", COALESCE((SELECT max("sequence") FROM expired), 0)) WHERE "key" = 'changes'`);
 		});
 	}
 }

@@ -11,6 +11,7 @@ import { bindThis } from '@/decorators.js';
 import { isRenotePacked, isQuotePacked } from '@/misc/is-renote.js';
 import { isInstanceMuted } from '@/misc/is-instance-muted.js';
 import { isUserRelated } from '@/misc/is-user-related.js';
+import type { InternalEventTypes, EventTypesToEventPayload } from '@/core/GlobalEventService.js';
 import type { JsonObject } from '@/misc/json-value.js';
 import Channel, { type ChannelRequest } from '../channel.js';
 import { REQUEST } from '@nestjs/core';
@@ -21,6 +22,7 @@ export class ChannelChannel extends Channel {
 	public static shouldShare = false;
 	public static requireCredential = false as const;
 	private channelId: string;
+	private readonly recentMirrors = new Set<string>();
 
 	constructor(
 		@Inject(REQUEST)
@@ -40,11 +42,27 @@ export class ChannelChannel extends Channel {
 
 		// Subscribe stream
 		this.subscriber.on('notesStream', this.onNote);
+		this.subscriber.on('internal', this.onPlacement);
+	}
+
+	@bindThis
+	private async onPlacement(event: EventTypesToEventPayload<InternalEventTypes>) {
+		if (event.type !== 'channelMirrorPlaced' || event.body.channelId !== this.channelId || this.recentMirrors.has(event.body.noteId)) return;
+		const source = await this.placementNotes.findOneBy({ id: event.body.noteId });
+		if (!source) return;
+		const note = await this.noteEntityService.pack(source, this.user);
+		if (!note.isHidden) await this.deliverNote(note);
 	}
 
 	@bindThis
 	private async onNote(note: Packed<'Note'>) {
-		if (note.channelId !== this.channelId) return;
+		// A remote mirror can arrive before or after the placement. Its channel event comes from the committed projection.
+		if (note.uri && note.gridspaceShared) return;
+		await this.deliverNote(note);
+	}
+
+	private async deliverNote(note: Packed<'Note'>) {
+		if (!await this.hasLocalChannelPlacement(note, [this.channelId])) return;
 
 		if (note.user.requireSigninToViewContents && this.user == null) return;
 		if (note.renote && note.renote.user.requireSigninToViewContents && this.user == null) return;
@@ -58,7 +76,13 @@ export class ChannelChannel extends Channel {
 		// eslint-disable-next-line no-param-reassign -- これ以降元の Note オブジェクトは見てはいけないので、いっそ再代入した方が安全
 		note = filtered;
 
-		this.send('note', await this.noteEntityService.withMyRenoteReaction(note, this.user?.id ?? null));
+		const result = await this.noteEntityService.withMyRenoteReaction(note, this.user?.id ?? null);
+		if (note.uri && note.gridspaceShared) {
+			if (this.recentMirrors.has(note.id)) return;
+			this.recentMirrors.add(note.id);
+			if (this.recentMirrors.size > 512) this.recentMirrors.delete(this.recentMirrors.values().next().value!);
+		}
+		this.send('note', result);
 	}
 
 	/*
@@ -94,5 +118,6 @@ export class ChannelChannel extends Channel {
 	public dispose() {
 		// Unsubscribe events
 		this.subscriber.off('notesStream', this.onNote);
+		this.subscriber.off('internal', this.onPlacement);
 	}
 }

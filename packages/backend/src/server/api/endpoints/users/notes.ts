@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { noteListingCondition } from '@/misc/note-distribution.js';
 import { Brackets } from 'typeorm';
 import { Inject, Injectable } from '@nestjs/common';
 import type { MiMeta, NotesRepository } from '@/models/_.js';
@@ -127,6 +128,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				limit: ps.limit,
 				allowPartial: ps.allowPartial,
 				me,
+				listing: ps.withChannelNotes ? { kind: 'profile', viewerId: me?.id } : { kind: 'default' },
 				redisTimelines,
 				useDbFallback: true,
 				ignoreAuthorFromMute: true,
@@ -171,7 +173,6 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				.list({ requestUserId: me.id }, { idOnly: true })
 				.then(x => x.map(x => x.id))
 			: [];
-		const isSelf = me && (me.id === ps.userId);
 
 		const query = this.queryService.makePaginationQuery(this.notesRepository.createQueryBuilder('note'), ps.sinceId, ps.untilId)
 			.andWhere('note.userId = :userId', { userId: ps.userId })
@@ -182,25 +183,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			.leftJoinAndSelect('reply.user', 'replyUser')
 			.leftJoinAndSelect('renote.user', 'renoteUser');
 
-		if (ps.withChannelNotes) {
-			query.andWhere(new Brackets(qb => {
-				if (mutingChannelIds.length > 0) {
-					qb.andWhere(new Brackets(qb2 => {
-						qb2.orWhere('note.channelId IS NULL');
-						qb2.orWhere('note.channelId NOT IN (:...mutingChannelIds)', { mutingChannelIds });
-					}));
-				}
-
-				if (!isSelf) {
-					qb.andWhere(new Brackets(qb2 => {
-						qb2.orWhere('note.channelId IS NULL');
-						qb2.orWhere('channel.isSensitive = false');
-					}));
-				}
-			}));
-		} else {
-			query.andWhere('note.channelId IS NULL');
-		}
+		query.andWhere(...noteListingCondition(ps.withChannelNotes ? { kind: 'profile', viewerId: me?.id } : { kind: 'default' }));
 
 		// -- ミュートされたチャンネルのリノート対策
 		if (mutingChannelIds.length > 0) {

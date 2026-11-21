@@ -21,6 +21,8 @@ import { DriveFileEntityService } from '@/core/entities/DriveFileEntityService.j
 import { UserEntityService } from '@/core/entities/UserEntityService.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
 import { createTemp } from '@/misc/create-temp.js';
+import { GridspacePlacementActionService } from './GridspacePlacementActionService.js';
+import { dedicatedOriginal } from './conversation-protocol.js';
 import { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
 import { GridspaceLinkError, GridspaceLinkService, type GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
@@ -44,6 +46,7 @@ export class GridspaceActionService {
 		private extended: ExtendedReactionService,
 		private pairedReactions: GridspaceReactionService,
 		private channelAuth: GridspaceChannelAuthService,
+		private placementActions?: GridspacePlacementActionService,
 	) {}
 
 	private async source(input: GridspacePeerLinkRequest & { noteId: string; channelId?: string }, write: boolean) {
@@ -60,7 +63,7 @@ export class GridspaceActionService {
 		if (write && !await this.links.hasActionScope(input)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const user = await this.db.getRepository(MiUser).findOneBy({ id: link.localUserId, host: IsNull() }) as MiLocalUser | null;
 		const note = user && await this.reader.readableSourceNote(user.id, input.noteId, undefined, input.channelId);
-		if (!user || user.movedToUri || !note || (note.channelId ?? null) !== (input.channelId ?? null)) throw new GridspaceLinkError('ACTION_REJECTED');
+		if (!user || user.movedToUri || !note || note.multiNoteKind || (note.channelId ?? null) !== (input.channelId ?? null)) throw new GridspaceLinkError('ACTION_REJECTED');
 		return { user, note };
 	}
 
@@ -75,20 +78,27 @@ export class GridspaceActionService {
 
 	public async peerAction(input: ActionPeerRequest, rateLimit: (userId: string) => Promise<void>) {
 		const write = input.action !== 'prepare' && input.action !== 'reaction-list';
-		const { user, note } = await this.source(input, write);
+		const placement = !!(input.placementActorId || input.conversationUri);
+		const purpose = !write ? 'read' : input.action === 'vote' ? 'vote' : 'reaction';
+		const { user, note } = placement ? await this.placementActions!.source(input, purpose) : await this.source(input, write);
+		const recheck = async (manager: EntityManager) => {
+			if (placement) return (await this.placementActions!.source(input, purpose, manager)).note;
+			await this.lockAction(input, manager);
+			const fresh = await this.reader.readableSourceNote(user.id, note.id, manager.queryRunner, input.channelId);
+			if (!fresh || (fresh.channelId ?? null) !== (input.channelId ?? null)) throw new GridspaceLinkError('ACTION_REJECTED');
+			return fresh;
+		};
 		if (write && input.expectedActorUri && input.expectedActorUri !== (user.uri ?? `${this.config.url}/users/${user.id}`)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if (write) await rateLimit(user.id);
 		try {
 			if (input.action === 'add-reaction' || input.action === 'remove-reaction') {
 				if (!input.reaction) throw new GridspaceLinkError('ACTION_REJECTED');
 				await this.reactions.withReactionLock(user.id, note.id, () => this.db.transaction(async manager => {
-					await this.lockAction(input, manager);
-					const fresh = await this.reader.readableSourceNote(user.id, note.id, manager.queryRunner, input.channelId);
-					if (!fresh || (fresh.channelId ?? null) !== (input.channelId ?? null)) throw new GridspaceLinkError('ACTION_REJECTED');
-					const authorized = fresh.channelId ? fresh : await this.pairedReactions.prepareMutation(user as MiLocalUser, fresh);
+					const fresh = await recheck(manager);
+					const authorized = placement || fresh.channelId ? fresh : await this.pairedReactions.prepareMutation(user as MiLocalUser, fresh);
 					try {
-						if (input.action === 'add-reaction') await this.extended.createUnlocked(user, authorized, input.reaction!, authorized.userHost !== null, !!input.channelActorId);
-						else await this.extended.deleteUnlocked(user, authorized, input.reaction!, authorized.userHost !== null, !!input.channelActorId);
+						if (input.action === 'add-reaction') await this.extended.createUnlocked(user, authorized, input.reaction!, authorized.userHost !== null, placement ? 'conversation' : !!input.channelActorId);
+						else await this.extended.deleteUnlocked(user, authorized, input.reaction!, authorized.userHost !== null, placement ? 'conversation' : !!input.channelActorId);
 					} catch (error) {
 						// Retrying a desired membership state never toggles it back.
 						const duplicate = input.action === 'add-reaction' ? '51c42bb4-931a-456b-bff7-e5a8a70dd298' : '60527ec9-b4cb-4a88-a6bd-32d3ad26817d';
@@ -99,9 +109,7 @@ export class GridspaceActionService {
 			if (input.action === 'react') {
 				if (input.reaction === undefined) throw new GridspaceLinkError('ACTION_REJECTED');
 				await this.reactions.withReactionLock(user.id, note.id, () => this.db.transaction(async manager => {
-					await this.lockAction(input, manager);
-					const fresh = await this.reader.readableSourceNote(user.id, note.id, manager.queryRunner, input.channelId);
-					if (!fresh || (fresh.channelId ?? null) !== (input.channelId ?? null)) throw new GridspaceLinkError('ACTION_REJECTED');
+					const fresh = await recheck(manager);
 					const wanted = input.reaction === null ? null : await this.reactions.resolveReaction(user, fresh, input.reaction);
 					const previous = await manager.getRepository(MiNoteReaction).findOneBy({ userId: user.id, noteId: note.id });
 					if ((previous?.reaction ?? null) === wanted) return;
@@ -113,9 +121,8 @@ export class GridspaceActionService {
 				if (input.choice === undefined) throw new GridspaceLinkError('ACTION_REJECTED');
 				try {
 					await this.polls.castVote(user, note, input.choice, async manager => {
-						await this.lockAction(input, manager);
-						if (!await this.reader.readableSourceNote(user.id, note.id, manager.queryRunner, input.channelId)) throw new GridspaceLinkError('ACTION_REJECTED');
-					});
+						await recheck(manager);
+					}, placement);
 				} catch (error) {
 					// A retry of the same vote is successful; a different single choice is rejected.
 					if (!(error instanceof PollVoteError && error.code === 'alreadyVoted' && await this.db.getRepository(MiPollVote).existsBy({ userId: user.id, noteId: note.id, choice: input.choice }))) throw error;
@@ -136,25 +143,32 @@ export class GridspaceActionService {
 		if (!page.notes[0]) throw new GridspaceLinkError('ACTION_REJECTED');
 		const { filterActors: _actors, ...display } = page.notes[0];
 		return {
-			canInteract: !!input.channelActorId || (await this.links.hasActionScope(input) && (!input.channelId || await this.links.hasChannelScope(input))), note: display, reactors,
+			canInteract: placement ? dedicatedOriginal(note) || (note.hasPoll && note.localOnly) : !!input.channelActorId || (await this.links.hasActionScope(input) && (!input.channelId || await this.links.hasChannelScope(input))), note: display, reactors,
 			account: { name: user.name, username: user.username, host: user.host ?? new URL(this.config.url).host,
 				uri: user.uri ?? `${this.config.url}/users/${user.id}`, avatarUrl: (user.avatarId == null ? null : user.avatarUrl) ?? this.users.getIdenticonUrl(user) },
 		};
 	}
 
 	public async action(viewer: MiLocalUser, input: ActionOptions) {
-		const channel = input.channelId ? await this.channelAuth.destination(viewer) : null;
+		const channel = input.conversationUri ? await this.placementActions!.destination(viewer, input.conversationUri, input.noteId) : input.channelId ? await this.channelAuth.destination(viewer) : null;
 		const link = channel ? null : await this.links.privateLink(viewer.id);
-		if (!(await this.reader.notes(viewer, { mode: 'show', noteId: input.noteId, channelId: input.channelId }, 1)).notes.length) throw new GridspaceLinkError('ACTION_REJECTED');
+		if (!(await this.reader.notes(viewer, { mode: 'show', noteId: input.noteId, channelId: input.channelId, conversationUri: input.conversationUri }, 1)).notes.length) throw new GridspaceLinkError('ACTION_REJECTED');
 		const result = await this.links.json<Awaited<ReturnType<GridspaceActionService['peerAction']>>>('/gridspace/v1/private/action', {
-			action: input.action, noteId: input.noteId, channelId: input.channelId, expectedActorUri: input.expectedActorUri, reaction: input.reaction, choice: input.choice, untilId: input.untilId, limit: input.limit, ...(channel ? channel.credential : this.links.privateCredential(link!)),
+			action: input.action, conversationUri: input.conversationUri, noteId: input.noteId, channelId: input.channelId, expectedActorUri: input.expectedActorUri, reaction: input.reaction, choice: input.choice, untilId: input.untilId, limit: input.limit, ...(channel ? channel.credential : this.links.privateCredential(link!)),
 		});
+		if (input.conversationUri) {
+			const latest = (await this.reader.notes(viewer, { mode: 'show', noteId: input.noteId, conversationUri: input.conversationUri }, 1)).notes[0];
+			if (!latest) throw new GridspaceLinkError('ACTION_REJECTED');
+			await channel!.check();
+			return { ...result, note: latest };
+		}
 		const note = await this.reader.filterChannelRenote(viewer, result.note, channel?.peerUserId ?? link!.peerUserId);
 		if (channel) await channel.check(); else await this.links.checkPrivateUnchanged(link!);
 		return { ...result, note };
 	}
 
 	private async uploadSource(input: UploadPeerRequest) {
+		if (input.placementActorId || input.conversationUri) return (await this.placementActions!.source(input, 'upload')).user;
 		if (input.channelId) this.channelAuth.assertSource();
 		if (!input.channelId) {
 			if (!input.noteId) throw new GridspaceLinkError('FILE_REJECTED');
@@ -177,6 +191,10 @@ export class GridspaceActionService {
 	}
 
 	private async lockUpload(input: UploadPeerRequest, user: MiUser, manager: EntityManager) {
+		if (input.placementActorId || input.conversationUri) {
+			await this.placementActions!.source(input, 'upload', manager);
+			return;
+		}
 		await this.lockAction(input, manager);
 		if (input.channelId) {
 			if (!await manager.getRepository(MiChannel).findOne({ where: { id: input.channelId, isArchived: false }, lock: { mode: 'pessimistic_read' } })) throw new GridspaceLinkError('FILE_REJECTED');
@@ -187,7 +205,7 @@ export class GridspaceActionService {
 	public async peerUpload(input: UploadPeerRequest, rateLimit: (userId: string) => Promise<void>) {
 		const user = await this.uploadSource(input);
 		if (input.expectedActorUri && input.expectedActorUri !== (user.uri ?? `${this.config.url}/users/${user.id}`)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-		if (input.channelActorId && (!input.sourceFileUrl || new URL(input.sourceFileUrl).protocol !== 'https:')) throw new GridspaceLinkError('FILE_REJECTED');
+		if ((input.placementActorId || input.channelActorId) && (!input.sourceFileUrl || new URL(input.sourceFileUrl).protocol !== 'https:')) throw new GridspaceLinkError('FILE_REJECTED');
 		if (!this.files.validateFileName(input.name)) throw new GridspaceLinkError('FILE_REJECTED');
 		const data = Buffer.from(input.data, 'base64');
 		if (!data.length || data.length > Math.min(PRIVATE_FILE_LIMIT, this.config.maxFileSize) || data.toString('base64') !== input.data) throw new GridspaceLinkError('FILE_REJECTED');
@@ -202,7 +220,7 @@ export class GridspaceActionService {
 			const file = await this.db.transaction(async manager => {
 				await this.lockUpload(input, user, manager);
 				created = await this.drive.addFile({ user, path, name: input.name, comment: input.comment ?? null, sensitive: input.isSensitive ?? false, force: true,
-					...(input.channelActorId ? { url: input.sourceFileUrl, uri: input.sourceFileUrl, isLink: true } : {}) });
+					...(input.placementActorId || input.channelActorId ? { url: input.sourceFileUrl, uri: input.sourceFileUrl, isLink: true } : {}) });
 				await this.lockUpload(input, user, manager);
 				return created;
 			});
@@ -217,23 +235,28 @@ export class GridspaceActionService {
 
 	public async upload(viewer: MiLocalUser, input: UploadOptions, path: string) {
 		// Use the same author as channel-post; the original stays in their G Drive.
-		const channel = input.channelId ? await this.channelAuth.destination(viewer, true) : null;
+		const channel = input.conversationUri ? await this.placementActions!.destination(viewer, input.conversationUri, input.noteId) : input.channelId ? await this.channelAuth.destination(viewer, true) : null;
 		const link = channel ? null : await this.links.privateLink(viewer.id);
 		if (!input.noteId && !input.channelId) throw new GridspaceLinkError('ACTION_REJECTED');
-		if (input.noteId && !(await this.reader.notes(viewer, { mode: 'show', noteId: input.noteId, channelId: input.channelId }, 1)).notes.length) throw new GridspaceLinkError('ACTION_REJECTED');
+		if (input.noteId && !(await this.reader.notes(viewer, { mode: 'show', noteId: input.noteId, channelId: input.channelId, conversationUri: input.conversationUri }, 1)).notes.length) throw new GridspaceLinkError('ACTION_REJECTED');
 		const size = (await stat(path)).size;
 		if (!size || size > PRIVATE_FILE_LIMIT) throw new GridspaceLinkError('FILE_REJECTED');
 		let sourceFileUrl: string | undefined;
-		if (channel?.credential.channelActorId) {
+		if (channel && ('placementActorId' in channel.credential || ('channelActorId' in channel.credential && channel.credential.channelActorId))) {
 			if (input.expectedActorUri && input.expectedActorUri !== `${this.config.url}/users/${viewer.id}`) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-			// The G user owns the original in their normal Drive. R stores only a
-			// re-fetchable cache, so the author can manage files without an R login.
+			// Keep the original in the signed-in author's Drive. The note origin stores a re-fetchable copy.
+			if ('placementActorId' in channel.credential) {
+				const prepared = await this.links.json<{ canAttach: boolean }>('/gridspace/v1/private/reply', {
+					action: 'prepare', conversationUri: input.conversationUri, noteId: input.noteId, ...channel.credential,
+				});
+				if (!prepared.canAttach) throw new GridspaceLinkError('FILE_REJECTED');
+			}
 			const original = await this.drive.addFile({ user: viewer, path, name: input.name, comment: input.comment ?? null, sensitive: input.isSensitive ?? false, force: true });
-			sourceFileUrl = original.url;
+			sourceFileUrl = input.conversationUri ? this.files.getPublicUrl(original) : original.url;
 			await channel.check();
 		}
 		const result = await this.links.json<{ id: string; name: string }>('/gridspace/v1/private/upload', {
-			noteId: input.noteId, channelId: input.channelId, expectedActorUri: input.expectedActorUri, name: input.name, comment: input.comment, isSensitive: input.isSensitive,
+			conversationUri: input.conversationUri, noteId: input.noteId, channelId: input.channelId, expectedActorUri: input.expectedActorUri, name: input.name, comment: input.comment, isSensitive: input.isSensitive,
 			data: (await readFile(path)).toString('base64'), sourceFileUrl, ...(channel ? channel.credential : this.links.privateCredential(link!)),
 		});
 		if (channel) await channel.check(); else await this.links.checkPrivateUnchanged(link!);

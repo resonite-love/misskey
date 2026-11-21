@@ -6,6 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <div
 	:class="[$style.root]"
+	:inert="preparing || posting"
 	@dragover.stop="onDragover"
 	@dragenter="onDragenter"
 	@dragleave="onDragleave"
@@ -17,8 +18,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<img :class="$style.avatar" :src="(postAccount ?? $i).avatarUrl" style="border-radius: 100%;"/>
 			</button>
 		</template>
-		<template v-if="!(targetChannel != null && fixed)">
-			<button v-if="targetChannel == null" ref="visibilityButton" v-tooltip="i18n.ts.visibility" :class="['_button', $style.headerRightItem, $style.visibility]" @click="setVisibility">
+		<template v-if="placementForm || !(targetChannel != null && fixed)">
+			<button v-if="targetChannel == null || placementForm" ref="visibilityButton" v-tooltip="i18n.ts.visibility" :class="['_button', $style.headerRightItem, $style.visibility]" @click="setVisibility">
 				<span v-if="visibility === 'public'"><i class="ti ti-world"></i></span>
 				<span v-if="visibility === 'home'"><i class="ti ti-home"></i></span>
 				<span v-if="visibility === 'followers'"><i class="ti ti-lock"></i></span>
@@ -30,8 +31,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<span :class="$style.headerRightButtonText">{{ targetChannel.name }}</span>
 			</button>
 		</template>
-		<button v-if="visibility !== 'specified'" v-tooltip="i18n.ts._visibility.disableFederation" class="_button" :class="[$style.headerRightItem, { [$style.danger]: localOnly }]" :disabled="targetChannel != null" @click="toggleLocalOnly">
-			<span v-if="!localOnly"><i class="ti ti-rocket"></i></span>
+		<button v-if="visibility !== 'specified'" v-tooltip="i18n.ts._visibility.disableFederation" class="_button" :class="[$style.headerRightItem, { [$style.danger]: effectiveLocalOnly }]" :disabled="placementForm ? !destinations.includeDefault : targetChannel != null" @click="toggleLocalOnly">
+			<span v-if="!effectiveLocalOnly"><i class="ti ti-rocket"></i></span>
 			<span v-else><i class="ti ti-rocket-off"></i></span>
 		</button>
 		<button ref="otherSettingsButton" v-tooltip="i18n.ts.other" class="_button" :class="$style.headerRightItem" @click="showOtherSettings"><i class="ti ti-dots"></i></button>
@@ -44,6 +45,16 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</div>
 		</button>
 	</MkPostFormHeader>
+	<MkNoteDestinations v-if="placementForm" v-model="destinations" :localOrigin="localOrigin" :localOnly="effectiveLocalOnly" :visibility="visibility" :disabled="posting || preparing || posted" :peerEnabled="instance.features?.multiNotePeer === true" :token="candidateToken"/>
+	<MkInfo v-for="key in otherPendingDrafts" :key="key">
+		<button type="button" class="_textButton" @click="openPendingDraft(key)">{{ i18n.ts._multiNote.openPendingDraft }}</button>
+	</MkInfo>
+	<MkInfo v-if="missingDraftAccountId && !pendingCreate" warn>{{ i18n.ts._multiNote.chooseAccount }}</MkInfo>
+	<MkInfo v-if="placementsUnavailable" warn>{{ i18n.ts._multiNote.placementsUnavailable }}</MkInfo>
+	<MkInfo v-if="pendingCreate">
+		{{ i18n.ts._multiNote.pendingCreate }}
+		<button type="button" class="_textButton" :disabled="posting || preparing" @click="recoverPending">{{ i18n.ts._multiNote.checkResult }}</button>
+	</MkInfo>
 	<MkNoteSimple v-if="replyTargetNote" :class="$style.targetNote" :note="replyTargetNote"/>
 	<MkNoteSimple v-if="renoteTargetNote" :class="$style.targetNote" :note="renoteTargetNote"/>
 	<div v-if="quoteId" :class="$style.withQuote"><i class="ti ti-quote"></i> {{ i18n.ts.quoteAttached }}<button @click="quoteId = null; renoteTargetNote = null;"><i class="ti ti-x"></i></button></div>
@@ -68,7 +79,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</I18n> - <button class="_textButton" @click="cancelSchedule()">{{ i18n.ts.cancel }}</button>
 	</MkInfo>
 	<MkInfo v-if="hasNotSpecifiedMentions" warn :class="$style.hasNotSpecifiedMentions">{{ i18n.ts.notSpecifiedMentionWarning }} - <button class="_textButton" @click="addMissingMention()">{{ i18n.ts.add }}</button></MkInfo>
-	<MkPostFormFields :useCw="useCw" :channelColor="targetChannel?.color"><template #cw><input ref="cwInputEl" v-model="cw" :class="$style.cw" :placeholder="i18n.ts.annotation" @keydown="onKeydown" @keyup="onKeyup" @compositionend="onCompositionEnd"><div v-if="maxCwTextLength - cwTextLength < 20" :class="['_acrylic', $style.cwTextCount, { [$style.cwTextOver]: cwTextLength > maxCwTextLength }]">{{ maxCwTextLength - cwTextLength }}</div></template><textarea ref="textareaEl" v-model="text" :class="[$style.text]" :disabled="posting || posted" :readonly="textAreaReadOnly" :placeholder="placeholder" data-testid="post-form-text" @keydown="onKeydown" @keyup="onKeyup" @paste="onPaste" @compositionupdate="onCompositionUpdate" @compositionend="onCompositionEnd"></textarea><template #counter><div v-if="maxTextLength - textLength < 100" :class="['_acrylic', $style.textCount, { [$style.textOver]: textLength > maxTextLength }]">{{ maxTextLength - textLength }}</div></template></MkPostFormFields>
+	<MkPostFormFields :useCw="useCw" :channelColor="targetChannel?.color"><template #cw><input ref="cwInputEl" v-model="cw" :class="$style.cw" :placeholder="i18n.ts.annotation" @keydown="onKeydown" @keyup="onKeyup" @compositionend="onCompositionEnd"><div v-if="maxCwTextLength - cwTextLength < 20" :class="['_acrylic', $style.cwTextCount, { [$style.cwTextOver]: cwTextLength > maxCwTextLength }]">{{ maxCwTextLength - cwTextLength }}</div></template><textarea ref="textareaEl" v-model="text" :class="[$style.text]" :disabled="preparing || posting || posted" :readonly="textAreaReadOnly" :placeholder="placeholder" data-testid="post-form-text" @keydown="onKeydown" @keyup="onKeyup" @paste="onPaste" @compositionupdate="onCompositionUpdate" @compositionend="onCompositionEnd"></textarea><template #counter><div v-if="maxTextLength - textLength < 100" :class="['_acrylic', $style.textCount, { [$style.textOver]: textLength > maxTextLength }]">{{ maxTextLength - textLength }}</div></template></MkPostFormFields>
 	<input v-show="withHashtags" ref="hashtagsInputEl" v-model="hashtags" :class="$style.hashtags" :placeholder="i18n.ts.hashtags" list="hashtags">
 	<XPostFormAttaches v-model="files" @detach="detachFile" @changeSensitive="updateFileSensitive" @changeName="updateFileName"/>
 	<div v-if="uploader.items.value.length > 0" style="padding: 12px;">
@@ -102,6 +113,9 @@ import type { MenuItem } from '@/types/menu.js';
 import type { PollEditorModelValue } from '@/components/MkPollEditor.vue';
 import type { UploaderItem } from '@/composables/use-uploader.js';
 import MkPostFormActionBar from '@/components/MkPostFormActionBar.vue';
+import MkNoteDestinations from '@/components/MkNoteDestinations.vue';
+import { canUseDestinations, initialDestinations, noteInputHash, placementParams, recoverNoteCreate, startNoteCreate, withDraftLock } from '@/utility/multi-note.js';
+import type { NoteDestinations, PendingNoteCreate } from '@/utility/multi-note.js';
 import MkPostFormFields from '@/components/MkPostFormFields.vue';
 import MkPostFormHeader from '@/components/MkPostFormHeader.vue';
 import MkNotePreview from '@/components/MkNotePreview.vue';
@@ -114,7 +128,7 @@ import { extractMentions } from '@/utility/extract-mentions.js';
 import { formatTimeString } from '@/utility/format-time-string.js';
 import { Autocomplete } from '@/utility/autocomplete.js';
 import * as os from '@/os.js';
-import { misskeyApi } from '@/utility/misskey-api.js';
+import { getApiErrorStatus, misskeyApi } from '@/utility/misskey-api.js';
 import { chooseDriveFile } from '@/utility/drive.js';
 import { store } from '@/store.js';
 import MkInfo from '@/components/MkInfo.vue';
@@ -211,6 +225,38 @@ const justEndedComposition = ref(false);
 const renoteTargetNote: ShallowRef<PostFormProps['renote'] | null> = shallowRef(props.renote);
 const replyTargetNote: ShallowRef<PostFormProps['reply'] | null> = shallowRef(props.reply);
 const targetChannel = shallowRef(props.channel);
+const localOrigin = new URL(url).origin;
+const initialChannel = props.initialChannelDestination ?? (props.channel ? {
+	origin: localOrigin, channelId: props.channel.id, name: props.channel.name, color: props.channel.color,
+	isSensitive: props.channel.isSensitive, allowRenoteToExternal: props.channel.allowRenoteToExternal,
+} : null);
+const destinations = ref(initialDestinations(initialChannel));
+const pendingCreate = shallowRef<PendingNoteCreate | null>(null);
+const preparing = ref(false);
+const otherPendingDrafts = ref<string[]>([]);
+let pauseDraftSaving = false;
+let lastDraftRevision: string | undefined;
+const initiallyPlaced = !props.reply && !props.renote && !props.instant && initialChannel != null &&
+	(props.initialChannelDestination != null || instance.features?.multiNote === true);
+const keepDestinationSelection = ref(initiallyPlaced);
+watch(destinations, value => {
+	if (!props.instant && !replyTargetNote.value && !renoteTargetNote.value && !quoteId.value && !scheduledAt.value && (value.channels.length || !value.includeDefault)) keepDestinationSelection.value = true;
+}, { deep: true, flush: 'sync' });
+const placementForm = computed(() => (instance.features?.multiNote === true || keepDestinationSelection.value) && !props.instant &&
+	!replyTargetNote.value && !renoteTargetNote.value && !quoteId.value && !scheduledAt.value);
+const explicitDestinations = computed(() => keepDestinationSelection.value && (!destinations.value.includeDefault || destinations.value.channels.length > 0));
+const hasPlacements = computed(() => placementForm.value && destinations.value.channels.length > 0);
+const placementsUnavailable = computed(() => hasPlacements.value && (instance.features?.multiNote !== true ||
+	(destinations.value.channels.some(item => item.origin !== localOrigin) && instance.features?.multiNotePeer !== true)));
+const serverDraftChannel = computed(() => {
+	if (!placementForm.value) return targetChannel.value?.id ?? null;
+	const [only] = destinations.value.channels;
+	return !destinations.value.includeDefault && destinations.value.channels.length === 1 && only.origin === localOrigin ? only.channelId : null;
+});
+const effectiveLocalOnly = computed(() => (placementForm.value && !destinations.value.includeDefault) || localOnly.value);
+const postAccount = ref<Misskey.entities.UserDetailed | null>(null);
+const missingDraftAccountId = ref<string | null>(null);
+const candidateToken = computed(() => postAccount.value ? store.s.accountTokens[host + '/' + postAccount.value.id] : undefined);
 
 const serverDraftId = ref<string | null>(null);
 const postFormActions = getPluginHandlers('post_form_action');
@@ -233,7 +279,8 @@ uploader.events.on('itemUploaded', ctx => {
 });
 
 const draftKey = computed((): string => {
-	let key = targetChannel.value ? `channel:${targetChannel.value.id}` : '';
+	if (props.initialPendingDraftKey) return props.initialPendingDraftKey;
+	let key = props.initialChannelDestination ? `channel:${props.initialChannelDestination.origin}:${props.initialChannelDestination.channelId}` : targetChannel.value ? `channel:${targetChannel.value.id}` : '';
 
 	if (renoteTargetNote.value) {
 		key += `renote:${renoteTargetNote.value.id}`;
@@ -241,6 +288,8 @@ const draftKey = computed((): string => {
 		key += `reply:${replyTargetNote.value.id}`;
 	} else {
 		key += `note:${$i.id}`;
+		if (props.specified) key += `:specified:${props.specified.id}`;
+		else if (props.mention) key += `:mention:${props.mention.id}`;
 	}
 
 	return key;
@@ -295,7 +344,8 @@ const cwTextLength = computed((): number => {
 const maxCwTextLength = 100;
 
 const canPost = computed((): boolean => {
-	return !props.mock && !resolvingLinkedQuote.value && !posting.value && !posted.value && !uploader.uploading.value && (uploader.items.value.length === 0 || uploader.readyForUpload.value) &&
+	return !missingDraftAccountId.value && !placementsUnavailable.value && (!explicitDestinations.value || placementForm.value) && (!placementForm.value || canUseDestinations(destinations.value, visibility.value)) && !preparing.value &&
+		!props.mock && !resolvingLinkedQuote.value && !posting.value && !posted.value && !uploader.uploading.value && (uploader.items.value.length === 0 || uploader.readyForUpload.value) &&
 		(
 			1 <= textLength.value ||
 			1 <= files.value.length ||
@@ -318,7 +368,7 @@ const canPost = computed((): boolean => {
 
 // cannot save pure renote as draft
 const canSaveAsServerDraft = computed((): boolean => {
-	return canPost.value && (textLength.value > 0 || files.value.length > 0 || poll.value != null);
+	return (!explicitDestinations.value || serverDraftChannel.value != null) && !pendingCreate.value && canPost.value && (textLength.value > 0 || files.value.length > 0 || poll.value != null);
 });
 
 const withHashtags = store.model('postFormWithHashtags');
@@ -372,7 +422,7 @@ if ($i.isSilenced && visibility.value === 'public') {
 	visibility.value = 'home';
 }
 
-if (targetChannel.value) {
+if (targetChannel.value && !placementForm.value) {
 	visibility.value = 'public';
 	localOnly.value = true; // TODO: チャンネルが連合するようになった折には消す
 }
@@ -414,6 +464,9 @@ if (prefer.s.keepCw && replyTargetNote.value && replyTargetNote.value.cw) {
 }
 
 function watchForDraft() {
+	watch(destinations, () => saveDraft(), { deep: true });
+	watch([withHashtags, hashtags], () => saveDraft());
+	watch([postAccount, missingDraftAccountId], () => saveDraft());
 	watch(text, () => saveDraft());
 	watch(useCw, () => saveDraft());
 	watch(cw, () => saveDraft());
@@ -510,7 +563,7 @@ function updateFileName(file: Misskey.entities.DriveFile, name: Misskey.entities
 }
 
 function setVisibility() {
-	if (targetChannel.value) {
+	if (targetChannel.value && !placementForm.value) {
 		visibility.value = 'public';
 		localOnly.value = true; // TODO: チャンネルが連合するようになった折には消す
 		return;
@@ -533,7 +586,7 @@ function setVisibility() {
 }
 
 async function toggleLocalOnly() {
-	if (targetChannel.value) {
+	if (targetChannel.value && !placementForm.value) {
 		visibility.value = 'public';
 		localOnly.value = true; // TODO: チャンネルが連合するようになった折には消す
 		return;
@@ -648,7 +701,7 @@ function showOtherSettings() {
 			}
 			saveServerDraft();
 		},
-	}, ...($i.policies.scheduledNoteLimit > 0 ? [{
+	}, ...(!explicitDestinations.value && !pendingCreate.value && $i.policies.scheduledNoteLimit > 0 ? [{
 		icon: 'ti ti-calendar-time',
 		text: i18n.ts.schedulePost + '...',
 		action: () => {
@@ -699,6 +752,8 @@ function removeVisibleUser(id: string) {
 }
 
 function clear() {
+	destinations.value = initialDestinations(initialChannel);
+	keepDestinationSelection.value = initiallyPlaced;
 	text.value = '';
 	cw.value = null;
 	files.value = [];
@@ -757,12 +812,12 @@ async function onPaste(ev: ClipboardEvent) {
 
 	const paste = ev.clipboardData.getData('text');
 
-	if (!renoteTargetNote.value && !quoteId.value && !replyTargetNote.value && isGridspaceNoteLink(paste.trim())) {
+	if (!explicitDestinations.value && !pendingCreate.value && !renoteTargetNote.value && !quoteId.value && !replyTargetNote.value && isGridspaceNoteLink(paste.trim())) {
 		ev.preventDefault();
 		resolvingLinkedQuote.value = true;
 		textAreaReadOnly.value = true;
 		const current = ++linkedQuoteGeneration;
-		const draftState = () => JSON.stringify([text.value, cw.value, useCw.value, withHashtags.value, hashtags.value, poll.value, postAccount.value?.id, scheduledAt.value, targetChannel.value?.id, visibility.value, localOnly.value, visibleUsers.value.map(u => u.id), files.value.map(f => [f.id, f.name, f.isSensitive, f.comment]), uploader.items.value.map(f => [f.id, f.name, f.caption, f.isSensitive])]);
+		const draftState = () => JSON.stringify([text.value, cw.value, useCw.value, withHashtags.value, hashtags.value, poll.value, postAccount.value?.id, scheduledAt.value, destinations.value, targetChannel.value?.id, visibility.value, localOnly.value, visibleUsers.value.map(u => u.id), files.value.map(f => [f.id, f.name, f.isSensitive, f.comment]), uploader.items.value.map(f => [f.id, f.name, f.caption, f.isSensitive])]);
 		const initialState = draftState();
 		const unchanged = () => current === linkedQuoteGeneration && !window.document.hidden && !!textareaEl.value?.isConnected && draftState() === initialState;
 		try {
@@ -827,7 +882,7 @@ async function onPaste(ev: ClipboardEvent) {
 		return;
 	}
 
-	if (!renoteTargetNote.value && !quoteId.value && paste.startsWith(url + '/notes/')) {
+	if (!explicitDestinations.value && !pendingCreate.value && !renoteTargetNote.value && !quoteId.value && paste.startsWith(url + '/notes/')) {
 		ev.preventDefault();
 
 		const { canceled } = await os.confirm({
@@ -921,6 +976,8 @@ function onDrop(ev: DragEvent): void {
 type StoredDrafts = {
 	[key: string]: {
 		updatedAt: string;
+		ownerId?: string;
+		revision?: string;
 		data: {
 			text: string;
 			useCw: boolean;
@@ -933,41 +990,127 @@ type StoredDrafts = {
 			quoteId: string | null;
 			reactionAcceptance: 'likeOnly' | 'likeOnlyForRemote' | 'nonSensitiveOnly' | 'nonSensitiveOnlyForLocalLikeOnlyForRemote' | null;
 			scheduledAt: number | null;
+			destinations?: NoteDestinations;
+			pendingCreate?: PendingNoteCreate | null;
+			postAccountId?: string;
+			withHashtags?: boolean;
+			hashtags?: string;
 		};
 	};
 };
 
-function saveDraft() {
-	if (props.instant || props.mock) return;
-
-	const draftsData = JSON.parse(miLocalStorage.getItem('drafts') ?? '{}') as StoredDrafts;
-
-	draftsData[draftKey.value] = {
-		updatedAt: new Date().toISOString(),
-		data: {
-			text: text.value,
-			useCw: useCw.value,
-			cw: cw.value,
-			visibility: visibility.value,
-			localOnly: localOnly.value,
-			files: files.value,
-			poll: poll.value,
-			...( visibleUsers.value.length > 0 ? { visibleUserIds: visibleUsers.value.map(x => x.id) } : {}),
-			quoteId: quoteId.value,
-			reactionAcceptance: reactionAcceptance.value,
-			scheduledAt: scheduledAt.value,
-		},
-	};
-
-	miLocalStorage.setItem('drafts', JSON.stringify(draftsData));
+function updatePendingDrafts() {
+	if (props.instant || props.mock || props.initialPendingDraftKey || props.reply || props.renote) return;
+	const drafts = JSON.parse(miLocalStorage.getItem('drafts') ?? '{}') as StoredDrafts;
+	otherPendingDrafts.value = Object.keys(drafts).filter(key => key !== draftKey.value && drafts[key].ownerId === $i.id && drafts[key].data.pendingCreate != null);
 }
 
-function deleteDraft() {
-	const draftsData = JSON.parse(miLocalStorage.getItem('drafts') ?? '{}') as StoredDrafts;
+async function openPendingDraft(key: string) {
+	updatePendingDrafts();
+	if (!otherPendingDrafts.value.includes(key)) return;
+	await os.post({ initialPendingDraftKey: key });
+	updatePendingDrafts();
+}
 
-	delete draftsData[draftKey.value];
+type DraftData = StoredDrafts[string]['data'];
 
-	miLocalStorage.setItem('drafts', JSON.stringify(draftsData));
+function readDrafts(): StoredDrafts {
+	return JSON.parse(miLocalStorage.getItem('drafts') ?? '{}');
+}
+
+function writeDrafts(drafts: StoredDrafts) {
+	miLocalStorage.setItem('drafts', JSON.stringify(drafts));
+}
+
+function snapshotDraft(): DraftData {
+	return JSON.parse(JSON.stringify({
+		text: text.value, useCw: useCw.value, cw: cw.value, visibility: visibility.value, localOnly: localOnly.value,
+		files: files.value, poll: poll.value, visibleUserIds: visibleUsers.value.map(user => user.id),
+		quoteId: quoteId.value, reactionAcceptance: reactionAcceptance.value, scheduledAt: scheduledAt.value,
+		destinations: placementForm.value ? destinations.value : undefined,
+		postAccountId: postAccount.value?.id ?? missingDraftAccountId.value ?? undefined,
+		withHashtags: withHashtags.value, hashtags: hashtags.value,
+	}));
+}
+
+function draftContent(data: DraftData): string {
+	return JSON.stringify({ ...data, pendingCreate: undefined });
+}
+
+async function saveDraft(reserve?: PendingNoteCreate, submitted?: DraftData): Promise<boolean> {
+	if (props.instant || props.mock || pauseDraftSaving) return false;
+	const key = draftKey.value;
+	const data = submitted ?? snapshotDraft();
+	const content = draftContent(data);
+	return await withDraftLock(() => {
+		const drafts = readDrafts();
+		const previous = drafts[key];
+		if (reserve && draftContent(snapshotDraft()) !== content) {
+			pendingCreate.value = previous?.data.pendingCreate ?? null;
+			return false;
+		}
+		const previousRequest = previous?.data.pendingCreate;
+		const sameContent = previous != null && draftContent(previous.data) === content;
+		if (reserve && (previousRequest || (lastDraftRevision != null && (!previous || !sameContent)))) {
+			pendingCreate.value = previousRequest ?? null;
+			return false;
+		}
+		const revision = reserve?.clientRequestId ?? (sameContent && previous?.revision ? previous.revision : crypto.randomUUID?.());
+		data.pendingCreate = reserve ?? previousRequest ?? null;
+		drafts[key] = { ownerId: $i.id, updatedAt: new Date().toISOString(), revision, data };
+		writeDrafts(drafts);
+		lastDraftRevision = revision;
+		return true;
+	}, reserve != null);
+}
+
+async function updateRequestDraft(request: PendingNoteCreate, update: (latest: StoredDrafts[string]) => 'keep' | 'delete' | 'skip'): Promise<boolean> {
+	const key = draftKey.value;
+	return await withDraftLock(() => {
+		const drafts = readDrafts();
+		const latest = drafts[key];
+		if (latest?.data.pendingCreate?.clientRequestId !== request.clientRequestId) return false;
+		const change = update(latest);
+		if (change === 'skip') return false;
+		if (change === 'delete') delete drafts[key];
+		writeDrafts(drafts);
+		lastDraftRevision = drafts[key]?.revision;
+		return true;
+	}, true);
+}
+
+async function finishPendingDraft(request: PendingNoteCreate) {
+	await updateRequestDraft(request, latest => {
+		if (latest.revision === request.clientRequestId) return 'delete';
+		latest.data.pendingCreate = null;
+		return 'keep';
+	});
+}
+
+async function releaseRejectedCreate(request: PendingNoteCreate, error: unknown, token?: string) {
+	const status = getApiErrorStatus(error);
+	if (status == null || status < 400 || status >= 500 || !error || typeof error !== 'object' ||
+		!('kind' in error) || (error.kind !== 'client' && error.kind !== 'permission')) return;
+	const receipt = await misskeyApi('notes/create-status', { clientRequestId: request.clientRequestId }, token, AbortSignal.timeout(20000)).catch(() => null);
+	if (receipt?.status !== 'missing') return;
+	const released = await updateRequestDraft(request, latest => {
+		// A retry in another tab could still commit after our first attempt was rejected.
+		if (latest.data.pendingCreate?.retried) return 'skip';
+		latest.data.pendingCreate = null;
+		return 'keep';
+	});
+	if (released) pendingCreate.value = null;
+}
+
+async function deleteDraft() {
+	const key = draftKey.value;
+	await withDraftLock(() => {
+		const drafts = readDrafts();
+		if (drafts[key]?.data.pendingCreate) return;
+		delete drafts[key];
+		writeDrafts(drafts);
+		lastDraftRevision = undefined;
+	});
 }
 
 async function saveServerDraft(options: {
@@ -985,7 +1128,7 @@ async function saveServerDraft(options: {
 		visibleUserIds: visibleUsers.value.map(x => x.id),
 		renoteId: renoteTargetNote.value ? renoteTargetNote.value.id : quoteId.value ? quoteId.value : null,
 		replyId: replyTargetNote.value ? replyTargetNote.value.id : null,
-		channelId: targetChannel.value ? targetChannel.value.id : null,
+		channelId: serverDraftChannel.value,
 		reactionAcceptance: reactionAcceptance.value,
 		scheduledAt: scheduledAt.value,
 		isActuallyScheduled: options.isActuallyScheduled ?? false,
@@ -1010,6 +1153,23 @@ async function uploadFiles() {
 }
 
 async function post(ev?: PointerEvent) {
+	if (preparing.value || posting.value || !canPost.value) return;
+	preparing.value = true;
+	try {
+		pendingCreate.value ??= await withDraftLock(() => readDrafts()[draftKey.value]?.data.pendingCreate ?? null);
+		if (pendingCreate.value) {
+			await recoverPendingResult(true);
+		} else {
+			await sendPost(ev);
+		}
+	} catch (error) {
+		await os.alert({ type: 'error', text: error instanceof Error ? error.message : i18n.ts.somethingHappened });
+	} finally {
+		preparing.value = false;
+	}
+}
+
+async function sendPost(ev?: PointerEvent) {
 	if (ev != null) {
 		const el = (ev.currentTarget ?? ev.target) as HTMLElement | null;
 
@@ -1067,6 +1227,8 @@ async function post(ev?: PointerEvent) {
 		}
 	}
 
+	if (placementForm.value && !canUseDestinations(destinations.value, visibility.value)) return;
+
 	if (uploader.items.value.some(x => x.uploaded == null)) {
 		await uploadFiles();
 
@@ -1076,15 +1238,16 @@ async function post(ev?: PointerEvent) {
 		}
 	}
 
+	const submittedDraft = hasPlacements.value ? snapshotDraft() : null;
 	let postData = {
 		text: text.value === '' ? null : text.value,
 		fileIds: files.value.length > 0 ? files.value.map(f => f.id) : undefined,
 		replyId: replyTargetNote.value ? replyTargetNote.value.id : undefined,
 		renoteId: renoteTargetNote.value ? renoteTargetNote.value.id : quoteId.value ? quoteId.value : undefined,
-		channelId: targetChannel.value ? targetChannel.value.id : undefined,
+		channelId: !placementForm.value ? targetChannel.value?.id : undefined,
 		poll: poll.value,
 		cw: useCw.value ? cw.value ?? '' : null,
-		localOnly: visibility.value === 'specified' ? false : localOnly.value,
+		localOnly: visibility.value === 'specified' ? false : effectiveLocalOnly.value,
 		visibility: visibility.value,
 		visibleUserIds: visibility.value === 'specified' ? visibleUsers.value.map(u => u.id) : undefined,
 		reactionAcceptance: reactionAcceptance.value,
@@ -1121,7 +1284,7 @@ async function post(ev?: PointerEvent) {
 
 	if (postAccount.value) {
 		const storedAccounts = await getAccounts();
-		const storedAccount = storedAccounts.find(x => x.id === postAccount.value?.id);
+		const storedAccount = storedAccounts.find(x => x.host === host && x.id === postAccount.value?.id);
 		if (storedAccount && storedAccount.token != null) {
 			token = storedAccount.token;
 		} else {
@@ -1133,26 +1296,47 @@ async function post(ev?: PointerEvent) {
 		}
 	}
 
+	const accountId = postAccount.value?.id ?? $i.id;
+	if (placementsUnavailable.value) throw new Error(i18n.ts._multiNote.placementsUnavailable);
+	let placementRequest: Misskey.entities.NotesCreateRequest | undefined;
+	if (submittedDraft?.destinations) {
+		if (!hasPlacements.value || draftContent(submittedDraft) !== draftContent(snapshotDraft())) return;
+		const input = { ...postData, ...placementParams(submittedDraft.destinations, localOrigin) };
+		pendingCreate.value = await startNoteCreate(accountId, input, await noteInputHash(submittedDraft));
+		if (!await saveDraft(pendingCreate.value, submittedDraft)) {
+			throw new Error(i18n.ts._multiNote.otherRequest);
+		}
+		placementRequest = { ...pendingCreate.value.input, clientRequestId: pendingCreate.value.clientRequestId };
+	} else if (explicitDestinations.value) {
+		return;
+	}
+
 	posting.value = true;
-	misskeyApi('notes/create', postData, token).then((res) => {
-		if (props.freezeAfterPosted) {
-			posted.value = true;
-		} else {
-			clear();
+	await misskeyApi('notes/create', placementRequest ?? postData, token, placementRequest ? AbortSignal.timeout(30000) : undefined).then(async (res) => {
+		const completedRequest = pendingCreate.value;
+		if (completedRequest) await finishPendingDraft(completedRequest);
+		const unchanged = !completedRequest || completedRequest.draftSnapshot === await currentDraftHash();
+		pauseDraftSaving = completedRequest != null && unchanged;
+		pendingCreate.value = null;
+		if (unchanged) {
+			if (props.freezeAfterPosted) posted.value = true;
+			else clear();
 		}
 
 		globalEvents.emit('notePosted', res.createdNote);
+		void showPlacementResult(res.createdNote);
 
 		nextTick(() => {
-			deleteDraft();
-			emit('posted');
+			if (!completedRequest) void deleteDraft();
+			if (unchanged) emit('posted');
 			if (postData.text && postData.text !== '') {
 				const hashtags_ = mfm.parse(postData.text).map(x => x.type === 'hashtag' && x.props.hashtag).filter(x => x) as string[];
 				const history = JSON.parse(miLocalStorage.getItem('hashtags') ?? '[]') as string[];
 				miLocalStorage.setItem('hashtags', JSON.stringify(unique(hashtags_.concat(history))));
 			}
 			posting.value = false;
-			postAccount.value = null;
+			if (unchanged) postAccount.value = null;
+			nextTick(() => { pauseDraftSaving = false; });
 
 			incNotesCount();
 			if (notesCount === 1) {
@@ -1200,8 +1384,9 @@ async function post(ev?: PointerEvent) {
 				misskeyApi('notes/drafts/delete', { draftId: serverDraftId.value });
 			}
 		});
-	}).catch(err => {
+	}).catch(async err => {
 		posting.value = false;
+		if (placementRequest && pendingCreate.value) await releaseRejectedCreate(pendingCreate.value, err, token);
 		os.alert({
 			type: 'error',
 			text: err.message + '\n' + (err as any).id,
@@ -1210,7 +1395,7 @@ async function post(ev?: PointerEvent) {
 }
 
 async function postAsScheduled() {
-	if (props.mock) return;
+	if (props.mock || explicitDestinations.value || pendingCreate.value) return;
 
 	await saveServerDraft({
 		isActuallyScheduled: true,
@@ -1306,10 +1491,77 @@ function showActions(ev: PointerEvent) {
 	})), ev.currentTarget ?? ev.target);
 }
 
-const postAccount = ref<Misskey.entities.UserDetailed | null>(null);
+async function currentDraftHash(): Promise<string> {
+	return await noteInputHash(snapshotDraft());
+}
+
+async function showPlacementResult(note: Misskey.entities.Note): Promise<boolean> {
+	if (note.multiNoteKind !== 'root') return false;
+	const placements = note.channelPlacements ?? [];
+	if (!note.channelPlacementsUnavailable && placements.length && placements.every(item => item.state === 'active')) return false;
+	const { canceled, result } = await os.actions({
+		type: 'info',
+		text: i18n.ts._multiNote.checkPlacements,
+		actions: [{ value: 'open', text: i18n.ts._multiNote.openNote, primary: true }, { value: 'close', text: i18n.ts.close }],
+	});
+	if (!canceled && result === 'open') os.pageWindow(`/notes/${note.id}`);
+	return true;
+}
+
+async function recoverPendingResult(retryMissing = false): Promise<boolean> {
+	const pending = pendingCreate.value;
+	if (!pending) return false;
+	const token = pending.accountId === $i.id ? undefined : (await getAccounts()).find(account => account.host === host && account.id === pending.accountId)?.token;
+	if (pending.accountId !== $i.id && !token) throw new Error(i18n.ts._multiNote.accountUnavailable);
+	let result = await recoverNoteCreate<Misskey.entities.Note>(pending, clientRequestId => misskeyApi('notes/create-status', { clientRequestId }, token, AbortSignal.timeout(20000)), currentDraftHash);
+	if (!result) {
+		if (!retryMissing || !pending.input) return false;
+		if (!instance.features?.multiNote || (pending.input.channelTargets?.length && !instance.features.multiNotePeer)) throw new Error(i18n.ts._multiNote.placementsUnavailable);
+		if (await noteInputHash(pending.input) !== pending.inputHash) throw new Error(i18n.ts._multiNote.pendingCreate);
+		const unchanged = pending.draftSnapshot === await currentDraftHash();
+		if (!unchanged && (await os.confirm({ type: 'question', text: i18n.ts._multiNote.retryOriginal })).canceled) return false;
+		const canRetry = await updateRequestDraft(pending, latest => {
+			latest.data.pendingCreate!.retried = true;
+			return 'keep';
+		});
+		if (!canRetry) {
+			pendingCreate.value = readDrafts()[draftKey.value]?.data.pendingCreate ?? null;
+			return false;
+		}
+		const { createdNote } = await misskeyApi('notes/create', { ...pending.input, clientRequestId: pending.clientRequestId }, token, AbortSignal.timeout(30000));
+		result = { status: 'created', createdNote, clearDraft: pending.draftSnapshot === await currentDraftHash() };
+	}
+	const unchanged = result.clearDraft;
+	await finishPendingDraft(pending);
+	pendingCreate.value = null;
+	if (unchanged) {
+		pauseDraftSaving = true;
+		clear();
+		await nextTick();
+		pauseDraftSaving = false;
+	}
+	if (result.createdNote) globalEvents.emit('notePosted', result.createdNote);
+	if (!result.createdNote || !await showPlacementResult(result.createdNote)) {
+		await os.alert({ type: 'info', text: result.status === 'deleted' ? i18n.ts._multiNote.deleted : i18n.ts._multiNote.confirmed });
+	}
+	if (unchanged) emit('posted');
+	return true;
+}
+
+async function recoverPending() {
+	if (preparing.value || posting.value) return;
+	preparing.value = true;
+	try {
+		await recoverPendingResult();
+	} catch {
+		await os.alert({ type: 'error', text: i18n.ts._multiNote.pendingCreate });
+	} finally {
+		preparing.value = false;
+	}
+}
 
 async function openAccountMenu(ev: PointerEvent) {
-	if (props.mock) return;
+	if (props.mock || pendingCreate.value || preparing.value || posting.value) return;
 
 	function showDraftsDialog(scheduled: boolean) {
 		const { dispose } = os.popup(defineAsyncComponent(() => import('@/components/MkNoteDraftsDialog.vue')), {
@@ -1347,7 +1599,9 @@ async function openAccountMenu(ev: PointerEvent) {
 				replyTargetNote.value = draft.reply;
 				reactionAcceptance.value = draft.reactionAcceptance;
 				scheduledAt.value = draft.scheduledAt ?? null;
-				if (draft.channel) targetChannel.value = draft.channel as unknown as Misskey.entities.Channel;
+				keepDestinationSelection.value = false;
+				targetChannel.value = draft.channel as PostFormProps['channel'];
+				destinations.value = initialDestinations(draft.channel ? { origin: localOrigin, channelId: draft.channel.id, name: draft.channel.name, color: draft.channel.color } : null);
 
 				serverDraftId.value = draft.id;
 			},
@@ -1365,6 +1619,7 @@ async function openAccountMenu(ev: PointerEvent) {
 		includeCurrentAccount: true,
 		active: postAccount.value != null ? postAccount.value.id : $i.id,
 		onChoose: (account) => {
+			missingDraftAccountId.value = null;
 			if (account.id === $i.id) {
 				postAccount.value = null;
 			} else {
@@ -1401,11 +1656,12 @@ function showPerUploadItemMenuViaContextmenu(item: UploaderItem, ev: PointerEven
 }
 
 async function schedule() {
+	if (explicitDestinations.value || pendingCreate.value) return;
 	const { canceled, result } = await os.inputDatetime({
 		title: i18n.ts.schedulePost,
 	});
 	if (canceled) return;
-	if (result.getTime() <= Date.now()) return;
+	if (result.getTime() <= Date.now() || explicitDestinations.value || pendingCreate.value) return;
 
 	scheduledAt.value = result.getTime();
 }
@@ -1454,6 +1710,9 @@ function showTour() {
 }
 
 onMounted(() => {
+	updatePendingDrafts();
+	window.addEventListener('storage', updatePendingDrafts);
+	window.addEventListener('focus', updatePendingDrafts);
 	if (props.autofocus) {
 		focus();
 
@@ -1468,9 +1727,10 @@ onMounted(() => {
 
 	nextTick(() => {
 		// 書きかけの投稿を復元
-		if (!props.instant && !props.mention && !props.specified && !props.mock) {
+		if (!props.instant && !props.mock) {
 			const draft = JSON.parse(miLocalStorage.getItem('drafts') ?? '{}')[draftKey.value] as StoredDrafts[string] | undefined;
-			if (draft != null) {
+			if (draft != null && (!props.initialPendingDraftKey || draft.ownerId === $i.id) && ((!props.mention && !props.specified) || draft.data.pendingCreate)) {
+				lastDraftRevision = draft.revision;
 				text.value = draft.data.text;
 				useCw.value = draft.data.useCw;
 				cw.value = draft.data.cw;
@@ -1480,7 +1740,7 @@ onMounted(() => {
 				if (draft.data.poll) {
 					poll.value = draft.data.poll;
 				}
-				if (draft.data.visibleUserIds) {
+				if (draft.data.visibleUserIds?.length) {
 					misskeyApi('users/show', { userIds: draft.data.visibleUserIds }).then(users => {
 						users.forEach(u => pushVisibleUser(u));
 					});
@@ -1488,12 +1748,27 @@ onMounted(() => {
 				quoteId.value = draft.data.quoteId;
 				reactionAcceptance.value = draft.data.reactionAcceptance;
 				scheduledAt.value = draft.data.scheduledAt ?? null;
+				if (draft.data.destinations) {
+					destinations.value = draft.data.destinations;
+					keepDestinationSelection.value = draft.data.destinations.channels.length > 0 || !draft.data.destinations.includeDefault;
+				}
+				pendingCreate.value = draft.data.pendingCreate ?? null;
+				if (draft.data.postAccountId) {
+					postAccount.value = store.s.accountInfos[host + '/' + draft.data.postAccountId] ?? null;
+					if (!postAccount.value) missingDraftAccountId.value = draft.data.postAccountId;
+				}
 			}
 		}
 
 		// 削除して編集
 		if (props.initialNote) {
 			const init = props.initialNote;
+			if (init.multiNoteKind === 'root') {
+				keepDestinationSelection.value = true;
+				destinations.value = { includeDefault: init.includeDefault === true, channels: (init.channelPlacements ?? [])
+					.filter(item => item.state === 'active' || item.state === 'pending' || item.state === 'failed')
+					.map(({ origin, channelId, color, name }) => ({ origin, channelId, color, name })) };
+			}
 			text.value = init.text ? init.text : '';
 			useCw.value = init.cw != null;
 			cw.value = init.cw ?? null;
@@ -1517,11 +1792,16 @@ onMounted(() => {
 			reactionAcceptance.value = init.reactionAcceptance;
 		}
 
-		nextTick(() => watchForDraft());
+		nextTick(() => {
+			watchForDraft();
+			if (pendingCreate.value) void recoverPending();
+		});
 	});
 });
 
 onBeforeUnmount(() => {
+	window.removeEventListener('storage', updatePendingDrafts);
+	window.removeEventListener('focus', updatePendingDrafts);
 	uploader.abortAll();
 	if (textAutocomplete) {
 		textAutocomplete.detach();

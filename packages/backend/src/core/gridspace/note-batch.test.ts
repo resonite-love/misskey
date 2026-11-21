@@ -20,7 +20,7 @@ function fixture() {
 	const db = mockDeep<Args[1]>(); const ap = mockDeep<Args[5]>(); const resolver = mockDeep<Args[6]>();
 	const create = mockDeep<Args[7]>(); const remove = mockDeep<Args[8]>();
 	db.getRepository.mockReturnValue({ existsBy: async () => false } as never);
-	ap.fetchNote.mockImplementation(async uri => ({ id: uri.split('/').at(-1), gridspaceShared: true } as MiNote));
+	ap.fetchNote.mockImplementation(async uri => ({ id: uri.split('/').at(-1), gridspaceShared: true, visibility: 'public', channelId: null } as MiNote));
 	const service = new GridspaceNoteService({ url: 'https://g.example', gridspace: { enabled: true, peerUrl: 'https://r.example', communityId: 'test', keyId: 'test', secretEnv: 'NOTE_BATCH_TEST_KEY' } } as Args[0],
 		db, mockDeep<Args[2]>(), mockDeep<Args[3]>(), mockDeep<Args[4]>(), ap, resolver, create, remove, mockDeep<Args[9]>(), mockDeep<Args[10]>());
 	return { service, ap, create, remove, budget: { remaining: 64, deadline: Date.now() + 15000 } };
@@ -63,4 +63,25 @@ test('enforces the shared import budget even with prefetched bodies', async () =
 	vi.mocked(requestGridspacePeer).mockResolvedValue({ items: [{ id: 'a', bundle: bundle('a') }] });
 	await expect(f.service.historyNotes(['a'], { ...f.budget, remaining: 0 })).rejects.toThrow('budget');
 	expect(f.ap.fetchNote).not.toHaveBeenCalled();
+});
+
+test('defers a reply when its parent is temporarily unavailable', async () => {
+	const f = fixture();
+	const child = bundle('child');
+	Object.assign(child.notes[0].object, { inReplyTo: 'https://r.example/notes/parent' });
+	f.ap.fetchNote.mockResolvedValue(null);
+	vi.mocked(requestGridspacePeer).mockResolvedValueOnce(child)
+		.mockResolvedValueOnce({ deleted: false, unavailable: true, notes: [] });
+	await expect(f.service.sync('child')).rejects.toThrow('Referenced note unavailable');
+	expect(f.ap.createNote).not.toHaveBeenCalled();
+});
+
+test('never imports a reply as a root when the local parent is missing', async () => {
+	const f = fixture();
+	const child = bundle('child');
+	Object.assign(child.notes[0].object, { inReplyTo: 'https://g.example/notes/parent' });
+	f.ap.fetchNote.mockResolvedValue(null);
+	vi.mocked(requestGridspacePeer).mockResolvedValueOnce(child);
+	await expect(f.service.sync('child')).rejects.toThrow('Local reply target unavailable');
+	expect(f.ap.createNote).not.toHaveBeenCalled();
 });

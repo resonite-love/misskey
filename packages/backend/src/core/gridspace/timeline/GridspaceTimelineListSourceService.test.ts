@@ -6,6 +6,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { DataSource, SelectQueryBuilder } from 'typeorm';
 import type { Config } from '@/config.js';
+import { noteListingCondition } from '@/misc/note-distribution.js';
 import type { QueryService } from '@/core/QueryService.js';
 import type { RoleService } from '@/core/RoleService.js';
 import type { IdService } from '@/core/IdService.js';
@@ -65,10 +66,23 @@ describe('other-list source authorization and keysets', () => {
 		const { service, builder, queries } = fixture();
 		await service.buildQuery(viewer, { kind: 'profile', userId: 'author', withChannelNotes: true, withRenotes: false });
 		expect(queries.generateBaseNoteFilteringQuery).toHaveBeenCalledWith(expect.anything(), viewer, { excludeAuthor: true, excludeUserFromMute: 'author' });
-		expect(builder.andWhere.mock.calls.map(([sql]) => sql).join('\n')).toContain('channel.isSensitive = false');
+		expect(builder.andWhere).toHaveBeenCalledWith(...noteListingCondition({ kind: 'profile', viewerId: viewer.id }));
 		expect(builder.andWhere.mock.calls.map(([sql]) => sql).join('\n')).toContain(':privacyViewer = ANY(note.visibleUserIds)');
 		expect(builder.andWhere.mock.calls.map(([sql]) => sql).join('\n')).toContain('cm."expiresAt" > CURRENT_TIMESTAMP');
 		expect(builder.andWhere.mock.calls.map(([sql]) => sql).join('\n')).toContain('profile_block."blockeeId" = :listSelf');
+	});
+	test.each([true, false])('unlinked profile reads and hydration use the same listing when withChannelNotes=%s', async withChannelNotes => {
+		const { service, builder } = fixture();
+		const options = { kind: 'profile' as const, userId: 'author', withChannelNotes };
+		const expected = noteListingCondition(withChannelNotes ? { kind: 'profile', viewerId: viewer.id } : { kind: 'default' });
+		const refs = await service.read(viewer, options, { limit: 10 });
+		expect(builder.andWhere).toHaveBeenCalledWith(...expected);
+		builder.andWhere.mockClear();
+		await service.hydrate(viewer, options, refs);
+		expect(builder.andWhere).toHaveBeenCalledWith(...expected);
+		builder.andWhere.mockClear();
+		await service.hydrateImported(viewer, options, refs);
+		expect(builder.andWhere).toHaveBeenCalledWith(...expected);
 	});
 	test('linked profile reuses history ACL and re-resolves the link during hydration', async () => {
 		const { service, history, hydrateQuery } = fixture();

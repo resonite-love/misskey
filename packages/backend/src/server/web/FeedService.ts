@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { defaultOrLegacyChannelCondition } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
-import { In, IsNull } from 'typeorm';
+import { In } from 'typeorm';
 import { Feed } from 'feed';
 import { DI } from '@/di-symbols.js';
 import type { DriveFilesRepository, NotesRepository, UserProfilesRepository } from '@/models/_.js';
@@ -49,15 +50,13 @@ export class FeedService {
 
 		const profile = await this.userProfilesRepository.findOneByOrFail({ userId: user.id });
 
-		const notes = await this.notesRepository.find({
-			where: {
-				userId: user.id,
-				renoteId: IsNull(),
-				visibility: In(['public', 'home']),
-			},
-			order: { id: -1 },
-			take: 20,
-		}).then(notes => notes.filter(note => {
+		const notes = await this.notesRepository.createQueryBuilder('note')
+			.where('note.userId = :userId', { userId: user.id })
+			.andWhere('note.renoteId IS NULL')
+			.andWhere('note.visibility IN (:...visibility)', { visibility: ['public', 'home'] })
+			.andWhere(defaultOrLegacyChannelCondition())
+			.orderBy('note.id', 'DESC')
+			.take(20).getMany().then(notes => notes.filter(note => {
 			const createdAt = this.idService.parse(note.id).date;
 			return !shouldHideNoteByTime(user.makeNotesHiddenBefore, createdAt)
 				&& !shouldHideNoteByTime(user.makeNotesFollowersOnlyBefore, createdAt);

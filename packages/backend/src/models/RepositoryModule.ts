@@ -40,6 +40,8 @@ import {
 	MiModerationLog,
 	MiMuting,
 	MiNote,
+	MiNoteChannelPlacement,
+	MiNoteCreateReceipt,
 	MiNoteFavorite,
 	MiNoteReaction,
 	MiNoteThreadMuting,
@@ -91,6 +93,18 @@ import type { DataSource } from 'typeorm';
 const $usersRepository: Provider = {
 	provide: DI.usersRepository,
 	useFactory: (db: DataSource) => db.getRepository(MiUser).extend(miRepository as MiRepository<MiUser>),
+	inject: [DI.db],
+};
+
+const $noteChannelPlacementsRepository: Provider = {
+	provide: DI.noteChannelPlacementsRepository,
+	useFactory: (db: DataSource) => db.getRepository(MiNoteChannelPlacement).extend(miRepository as MiRepository<MiNoteChannelPlacement>),
+	inject: [DI.db],
+};
+
+const $noteCreateReceiptsRepository: Provider = {
+	provide: DI.noteCreateReceiptsRepository,
+	useFactory: (db: DataSource) => db.getRepository(MiNoteCreateReceipt).extend(miRepository as MiRepository<MiNoteCreateReceipt>),
 	inject: [DI.db],
 };
 
@@ -548,6 +562,8 @@ const $reversiGamesRepository: Provider = {
 	imports: [],
 	providers: [
 		$usersRepository,
+		$noteChannelPlacementsRepository,
+		$noteCreateReceiptsRepository,
 		$notesRepository,
 		$announcementsRepository,
 		$announcementReadsRepository,
@@ -626,6 +642,8 @@ const $reversiGamesRepository: Provider = {
 	],
 	exports: [
 		$usersRepository,
+		$noteChannelPlacementsRepository,
+		$noteCreateReceiptsRepository,
 		$notesRepository,
 		$announcementsRepository,
 		$announcementReadsRepository,

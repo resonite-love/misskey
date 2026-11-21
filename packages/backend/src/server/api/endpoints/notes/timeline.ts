@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { noteListingCondition } from '@/misc/note-distribution.js';
 import { Brackets } from 'typeorm';
 import { Inject, Injectable } from '@nestjs/common';
 import type { NotesRepository, MiMeta } from '@/models/_.js';
@@ -14,11 +15,9 @@ import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { DI } from '@/di-symbols.js';
 import { IdService } from '@/core/IdService.js';
 import { CacheService } from '@/core/CacheService.js';
-import { UserFollowingService } from '@/core/UserFollowingService.js';
 import { MiLocalUser } from '@/models/User.js';
 import { FanoutTimelineEndpointService } from '@/core/FanoutTimelineEndpointService.js';
 import { ChannelMutingService } from '@/core/ChannelMutingService.js';
-import { ChannelFollowingService } from '@/core/ChannelFollowingService.js';
 
 export const meta = {
 	tags: ['notes'],
@@ -69,9 +68,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		private idService: IdService,
 		private cacheService: CacheService,
 		private fanoutTimelineEndpointService: FanoutTimelineEndpointService,
-		private userFollowingService: UserFollowingService,
 		private channelMutingService: ChannelMutingService,
-		private channelFollowingService: ChannelFollowingService,
 		private queryService: QueryService,
 		private gridspaceIdentity: GridspaceIdentityService,
 	) {
@@ -112,6 +109,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				allowPartial: ps.allowPartial,
 				me,
 				useDbFallback: this.serverSettings.enableFanoutTimelineDbFallback,
+				listing: { kind: 'home', viewerId: me.id, linkedUserId },
 				redisTimelines: [
 					...(ps.withFiles ? [`homeTimelineWithFiles:${me.id}` as const] : [`homeTimeline:${me.id}` as const]),
 					...(linkedUserId ? (ps.withFiles ? [`userTimelineWithFiles:${linkedUserId}` as const] : [`userTimeline:${linkedUserId}` as const, `userTimelineWithReplies:${linkedUserId}` as const]) : []),
@@ -148,14 +146,10 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 
 	private async getFromDb(ps: { untilId: string | null; sinceId: string | null; limit: number; includeMyRenotes: boolean; includeRenotedMyNotes: boolean; includeLocalRenotes: boolean; withFiles: boolean; withRenotes: boolean; }, me: MiLocalUser) {
 		const linkedUserId = await this.gridspaceIdentity.linkedUserId(me.id);
-		const followees = [...await this.userFollowingService.getFollowees(me.id), ...(linkedUserId ? [{ followeeId: linkedUserId }] : [])];
 
 		const mutingChannelIds = await this.channelMutingService
 			.list({ requestUserId: me.id }, { idOnly: true })
 			.then(x => x.map(x => x.id));
-		const followingChannelIds = await this.channelFollowingService
-			.list({ requestUserId: me.id }, { idOnly: true })
-			.then(x => x.map(x => x.id).filter(x => !mutingChannelIds.includes(x)));
 
 		//#region Construct query
 		const query = this.queryService.makePaginationQuery(this.notesRepository.createQueryBuilder('note'), ps.sinceId, ps.untilId)
@@ -165,50 +159,9 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			.leftJoinAndSelect('reply.user', 'replyUser')
 			.leftJoinAndSelect('renote.user', 'renoteUser');
 
-		if (followees.length > 0 && followingChannelIds.length > 0) {
-			// ユーザー・チャンネルともにフォローあり
-			const meOrFolloweeIds = [me.id, ...followees.map(f => f.followeeId)];
-			query.andWhere(new Brackets(qb => {
-				qb
-					.where(new Brackets(qb2 => {
-						qb2
-							.andWhere('note.userId IN (:...meOrFolloweeIds)', { meOrFolloweeIds: meOrFolloweeIds })
-							.andWhere('note.channelId IS NULL');
-					}))
-					.orWhere('note.channelId IN (:...followingChannelIds)', { followingChannelIds });
-			}));
-		} else if (followees.length > 0) {
-			// ユーザーフォローのみ（チャンネルフォローなし）
-			const meOrFolloweeIds = [me.id, ...followees.map(f => f.followeeId)];
-			query.andWhere(new Brackets(qb => {
-				qb
-					.andWhere('note.channelId IS NULL')
-					.andWhere('note.userId IN (:...meOrFolloweeIds)', { meOrFolloweeIds: meOrFolloweeIds });
-				if (mutingChannelIds.length > 0) {
-					qb.andWhere(new Brackets(qb2 => {
-						qb2.orWhere('note.renoteChannelId IS NULL');
-						qb2.orWhere('note.renoteChannelId NOT IN (:...mutingChannelIds)', { mutingChannelIds });
-					}));
-				}
-			}));
-		} else if (followingChannelIds.length > 0) {
-			// チャンネルフォローのみ（ユーザーフォローなし）
-			query.andWhere(new Brackets(qb => {
-				qb
-					// renoteChannelIdは見る必要が無い
-					// ・HTLに流れてくるチャンネル＝フォローしているチャンネル
-					// ・HTLにフォロー外のチャンネルが流れるのは、フォローしているユーザがそのチャンネル投稿をリノートした場合のみ
-					// つまり、ユーザフォローしてない前提のこのブロックでは見る必要が無い
-					.where('note.channelId IN (:...followingChannelIds)', { followingChannelIds })
-					.orWhere('note.userId = :meId', { meId: me.id });
-			}));
-		} else {
-			// フォローなし
-			query.andWhere(new Brackets(qb => {
-				qb
-					.andWhere('note.channelId IS NULL')
-					.andWhere('note.userId = :meId', { meId: me.id });
-			}));
+		query.andWhere(...noteListingCondition({ kind: 'home', viewerId: me.id, linkedUserId }));
+		if (mutingChannelIds.length > 0) {
+			query.andWhere('(note.renoteChannelId IS NULL OR note.renoteChannelId NOT IN (:...mutingChannelIds))', { mutingChannelIds });
 		}
 
 		query.andWhere(new Brackets(qb => {

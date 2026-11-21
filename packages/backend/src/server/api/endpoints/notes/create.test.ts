@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { describe, test, expect } from 'vitest';
 import { getValidator } from '../../../../../test/prelude/get-api-validator.js';
+import { createInputHash } from '@/core/NotePlacementService.js';
 import { paramDef } from './create.js';
 
 const _filename = fileURLToPath(import.meta.url);
@@ -53,6 +54,20 @@ describe('api:notes/create', () => {
 				expect(v({ text: ' ' }))
 					.toBe(INVALID);
 			});
+		});
+
+		test('validates placement identifiers and target identities', () => {
+			const request = { text: 'multi', channelTargets: [{ origin: 'https://peer.example', channelId: 'abc' }], clientRequestId: '48db4dd8-c0d4-4845-a7b6-a78f09850847' };
+			expect(v(request)).toBe(VALID);
+			expect(v({ ...request, clientRequestId: 'bad' })).toBe(INVALID);
+			expect(v({ ...request, channelTargets: [{ channelId: 'abc' }] })).toBe(INVALID);
+			expect(v({ ...request, channelIds: ['abc', 'abc'] })).toBe(INVALID);
+		});
+
+		test('hashes the submitted relative expiry and ignores object key order', () => {
+			const poll = { expiredAfter: 10000, choices: ['a', 'b'] };
+			expect(createInputHash({ text: 'multi', poll })).toBe(createInputHash({ poll: { choices: ['a', 'b'], expiredAfter: 10000 }, text: 'multi' }));
+			expect(createInputHash({ poll })).not.toBe(createInputHash({ poll: { ...poll, choices: ['b', 'a'] } }));
 		});
 
 		describe('cw', () => {

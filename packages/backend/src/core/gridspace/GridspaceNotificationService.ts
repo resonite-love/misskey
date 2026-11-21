@@ -5,18 +5,19 @@
 
 import { Inject, Injectable } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { DataSource, In, IsNull } from 'typeorm';
+import { DataSource, In, IsNull, type EntityManager } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { NotificationService } from '@/core/NotificationService.js';
 import { NotificationReadService } from '@/core/NotificationReadService.js';
 import { NotificationEntityService } from '@/core/entities/NotificationEntityService.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
-import { MiNote } from '@/models/Note.js';
+import type { MiNote } from '@/models/Note.js';
 import type { MiNotification } from '@/models/Notification.js';
 import type { Packed } from '@/misc/json-schema.js';
 import type { UserEntityService } from '@/core/entities/UserEntityService.js';
 import type { CustomEmojiService } from '@/core/CustomEmojiService.js';
+import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { UserFollowingService } from '@/core/UserFollowingService.js';
 import { MiFollowRequest } from '@/models/FollowRequest.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
@@ -25,8 +26,10 @@ import { GRIDSPACE_NOTIFICATION_WRITE_SCOPE } from './link-crypto.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
 import { GridspaceSearchService } from './GridspaceSearchService.js';
+import { GridspacePlacementService } from './GridspacePlacementService.js';
+import { dedicatedOriginal } from './conversation-protocol.js';
 import { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
-import { notificationReferenceLimit, type NotificationReferences } from './notification-protocol.js';
+import { notificationReferenceLimit, type NotificationReferences, type GuestReference, type WireReferences } from './notification-protocol.js';
 import type { NotificationOptions, NotificationPeerRequest, NotificationPage, WireNotification, LocalNotification, PeerNotification } from './notification-protocol.js';
 import type { PrivateWireNote } from './private-protocol.js';
 
@@ -66,30 +69,85 @@ export class GridspaceNotificationService {
 		return this.page(rows, packed.map((notification, i) => ({ id: notification.id, createdAt: notification.createdAt, isRead: state.isRead[i], notification })), user.id, state.unreadCount, input);
 	}
 
-	private async authorize(input: NotificationPeerRequest) {
-		if (input.channelActorId) {
-			if (input.accessToken || input.linkId || input.localUserId || input.generation || input.pairId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-			return { localUserId: (await this.channels.source(input.channelActorId)).id };
+	private async guestIdentity(user: MiLocalUser) {
+		if (this.config.gridspace?.enabled) {
+			const placements = this.moduleRef.get(GridspacePlacementService);
+			if (await placements.hasPeerCapability()) {
+				const { actorId } = await placements.currentActorCredential(user);
+				const peerOrigin = new URL(this.config.gridspace.peerUrl).origin;
+				return { credential: { placementActorId: actorId }, peerOrigin, key: `placement:${peerOrigin}:${actorId}`,
+					check: async () => { await placements.currentActorCredential(user); } };
+			}
+		}
+		return this.channels.destination(user, true);
+	}
+
+	public async guestBinding(user: MiLocalUser): Promise<string | null> {
+		if (!this.config.gridspace?.enabled) return null;
+		if (!this.channels.isClient && !await this.moduleRef.get(GridspacePlacementService).hasPeerCapability()) return null;
+		return (await this.guestIdentity(user)).key;
+	}
+
+	private async authorize(input: NotificationPeerRequest, manager?: EntityManager) {
+		if (input.channelActorId || input.placementActorId) {
+			if ((input.channelActorId && input.placementActorId) || input.accessToken || input.linkId || input.localUserId || input.generation || input.pairId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			const actor = input.placementActorId ? await this.moduleRef.get(GridspacePlacementService).resolveActor(input.placementActorId, manager)
+				: await this.channels.source(input.channelActorId!, manager);
+			return { localUserId: actor.id };
 		}
 		const link = await this.links.authorizePrivate(input);
 		if (!await this.links.hasNotificationScope(input)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		return link;
 	}
 
-	private async channelRows(userId: string, input: NotificationOptions = {}, fetched?: MiNotification[]) {
-		const rows = fetched ?? await this.raw(userId, { ...input, countOnly: false, limit: input.limit ?? this.config.perUserNotificationsMaxCount });
-		const ids = rows.flatMap(row => row.type === 'reaction' ? [row.noteId] : []);
+	private async channelRows(userId: string, input: NotificationPeerRequest = {}, fetched?: MiNotification[], origins = new Map<string, MiNote>()) {
+		const rows = fetched ?? await this.raw(userId, { ...input, countOnly: false, limit: this.config.perUserNotificationsMaxCount });
+		const ids = rows.flatMap(row => row.type === 'reaction' || (input.placementActorId && row.type === 'reply') ? [row.noteId] : []);
 		if (!ids.length) return [];
 		const notes = await this.search.read(this.search.noteQuery({ id: userId }, { query: '' }, false, true, undefined, false, true)
-			.andWhere('note.id IN (:...notificationNotes) AND note.userId = :notificationAuthor AND note.channelId IS NOT NULL AND note.localOnly = true AND note.uri IS NULL', { notificationNotes: ids, notificationAuthor: userId }));
-		const candidates = rows.filter(row => row.type === 'reaction' && notes.some(note => note.id === row.noteId));
+			.andWhere('note.id IN (:...notificationNotes) AND note.localOnly = true AND note.uri IS NULL', { notificationNotes: ids })
+			.andWhere('(note.userId = :recipient OR note.replyUserId = :recipient)', { recipient: userId }));
+		for (const note of notes) origins.set(note.id, note);
+		const candidates = rows.filter(row => {
+			if (row.type !== 'reaction' && row.type !== 'reply') return false;
+			const note = origins.get(row.noteId);
+			if (!note) return false;
+			if (note.channelId && (!input.placementActorId || this.config.gridspace?.channelRole === 'source')) return row.type === 'reaction' && note.userId === userId;
+			if (!input.placementActorId || !dedicatedOriginal(note) || note.multiNoteKind !== 'conversation-reply' || !['public', 'home'].includes(note.visibility)) return false;
+			return row.type === 'reaction' ? note.userId === userId : note.replyUserId === userId && note.userId === row.notifierId;
+		});
 		if (!candidates.length) return [];
-		const notifiers = await this.search.userQuery({ id: userId }).andWhere('user.id IN (:...notificationActors)', { notificationActors: candidates.map(row => 'notifierId' in row ? row.notifierId : '') }).getMany();
-		return candidates.filter(row => 'notifierId' in row && notifiers.some(user => user.id === row.notifierId));
+		const notifiers = await this.search.userQuery({ id: userId }).andWhere('user.id IN (:...notificationActors)', { notificationActors: candidates.flatMap(row => 'notifierId' in row ? [row.notifierId] : []) }).getMany();
+		const allowed = new Set(notifiers.map(user => user.id));
+		return candidates.filter(row => 'notifierId' in row && allowed.has(row.notifierId));
 	}
 
-	private async channelCount(userId: string) {
-		const rows = await this.channelRows(userId);
+	/** A signed wake-up carries neither a notification body nor an unread count. */
+	public async receiveGuestHint(actorId: string) {
+		const exists = await this.db.getRepository(MiUser).existsBy({ id: actorId, host: IsNull(), isDeleted: false, isSuspended: false, movedToUri: IsNull() });
+		if (exists) this.moduleRef.get(GlobalEventService).publishMainStream(actorId, 'gridspaceNotificationsChanged');
+		return { ok: true };
+	}
+
+	public async hintGuest(userId: string, notification: MiNotification) {
+		const peer = this.config.gridspace;
+		if (!peer?.enabled) return;
+		const origin = new URL(peer.peerUrl).origin;
+		const actor = await this.db.getRepository(MiUser).findOneBy({ id: userId, host: new URL(origin).host, isSuspended: false, isDeleted: false, movedToUri: IsNull() });
+		const prefix = origin + '/users/';
+		if (!actor?.uri?.startsWith(prefix)) return;
+		const actorId = actor.uri.slice(prefix.length);
+		if (!/^[a-zA-Z0-9]{1,32}$/.test(actorId)) return;
+		if (!(await this.channelRows(userId, { placementActorId: actorId }, [notification])).length) return;
+		await this.sendGuestHint(actorId);
+	}
+
+	private async sendGuestHint(actorId: string) {
+		await this.links.json('/gridspace/v1/notifications/changed', { expectedRecipientId: actorId });
+	}
+
+	private async channelCount(userId: string, input: NotificationPeerRequest) {
+		const rows = await this.channelRows(userId, { placementActorId: input.placementActorId, channelActorId: input.channelActorId });
 		const state = await this.reads.state(userId, rows.map(row => row.id));
 		return state.isRead.filter(read => !read).length;
 	}
@@ -105,31 +163,67 @@ export class GridspaceNotificationService {
 											items: rows.slice(0, notificationReferenceLimit).filter(row => !input.excludeTypes?.includes(row.type)).map(row => ({ id: row.id, createdAt: new Date(row.createdAt).toISOString() })) };
 	}
 
-	public async peerReferences(input: NotificationPeerRequest): Promise<NotificationReferences> {
+	public async peerReferences(input: NotificationPeerRequest): Promise<WireReferences> {
 		const link = await this.authorize(input);
 		const fetched = await this.raw(link.localUserId, { limit: notificationReferenceLimit + 1 });
-		const rows = input.channelActorId ? await this.channelRows(link.localUserId, input, fetched) : fetched;
+		const origins = new Map<string, MiNote>();
+		const rows = input.channelActorId || input.placementActorId ? await this.channelRows(link.localUserId, input, fetched, origins) : fetched;
+		const refs = this.references(rows, link.localUserId, input);
+		let items: WireReferences['items'] = refs.items;
+		if (input.placementActorId && items.length) {
+			// Supply actor identities only, so the home can apply its own block/mute rules to counts and reads.
+			const related = new Map(rows.flatMap(row => {
+				if (!('noteId' in row) || !('notifierId' in row)) return [];
+				const note = origins.get(row.noteId)!;
+				const ids = [row.notifierId, note.userId, note.replyUserId, note.renoteUserId, note.renote?.replyUserId, note.renote?.renoteUserId];
+				return [[row.id, [...new Set(ids.filter((id): id is string => !!id))]] as const];
+			}));
+			const users = await this.db.getRepository(MiUser).findBy({ id: In([...new Set([...related.values()].flat())]) });
+			const actors = new Map(users.map(user => [user.id, { uri: user.uri ?? `${this.config.url}/users/${user.id}`,
+				host: user.host ?? new URL(this.config.url).host, username: user.username, name: null }]));
+			const state = await this.reads.state(link.localUserId, items.map(row => row.id));
+			items = items.flatMap((ref, i) => {
+				const ids = related.get(ref.id)!;
+				return ids.every(id => actors.has(id)) ? [{ ...ref, isRead: state.isRead[i], actors: ids.map(id => actors.get(id)!) }] : [];
+			});
+		}
 		await this.authorize(input);
-		return { ...this.references(rows, link.localUserId, input), complete: fetched.length <= notificationReferenceLimit };
+		return { ...refs, items, complete: fetched.length <= notificationReferenceLimit };
 	}
 
-	public async remoteReferences(user: MiLocalUser, input: NotificationOptions, channel = false): Promise<NotificationReferences> {
-		const identity = channel ? await this.channels.destination(user, true) : null;
+	public async remoteReferences(user: MiLocalUser, input: NotificationOptions, channel = false): Promise<NotificationReferences & { unreadCount?: number }> {
+		const identity = channel ? await this.guestIdentity(user) : null;
 		const link = identity ? null : await this.links.privateLink(user.id);
-		const page = await this.links.json<NotificationReferences>('/gridspace/v1/notifications/references', {
+		const page = await this.links.json<WireReferences>('/gridspace/v1/notifications/references', {
 			excludeTypes: input.excludeTypes, ...(identity ? identity.credential : this.links.privateCredential(link!)),
 		});
 		if (page.origin !== (identity?.peerOrigin ?? link!.peerOrigin) || (!identity && page.recipientId !== link!.peerUserId) ||
 			!Array.isArray(page.items) || page.items.length > notificationReferenceLimit || typeof page.complete !== 'boolean' || !/^[a-zA-Z0-9]{1,32}$/.test(page.recipientId) ||
 			page.items.some(item => !/^[a-zA-Z0-9]{1,32}$/.test(item.id) || !Number.isFinite(Date.parse(item.createdAt)))) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		let unreadCount: number | undefined;
+		let items = page.items;
+		if (identity && 'placementActorId' in identity.credential) {
+			const eligible: GuestReference[] = [];
+			for (const item of page.items) {
+				if (!('actors' in item) || typeof item.isRead !== 'boolean' || !Array.isArray(item.actors) || !item.actors.length || item.actors.length > 6 ||
+					item.actors.some(actor => !actor.uri || !actor.host)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+				eligible.push(item);
+			}
+			const allows = await this.notes.localActorChecker(user, eligible.flatMap(row => row.actors));
+			const visible = [];
+			for (const item of eligible) if ((await Promise.all(item.actors.map(allows))).every(Boolean)) visible.push(item);
+			unreadCount = visible.filter(item => !item.isRead).length;
+			items = visible.map(({ id, createdAt }) => ({ id, createdAt }));
+		}
 		if (identity) await identity.check(); else await this.links.checkPrivateUnchanged(link!);
-		return page;
+		return { ...page, items, unreadCount };
 	}
 
 	public async peer(action: string, input: NotificationPeerRequest): Promise<NotificationPage<WireNotification>> {
 		const link = await this.authorize(input);
 		if (input.expectedRecipientId && input.expectedRecipientId !== link.localUserId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-		if (input.channelActorId && !['query', 'read', 'read-all'].includes(action)) throw new GridspaceLinkError('ACTION_REJECTED');
+		const guest = !!(input.channelActorId || input.placementActorId);
+		if (guest && !['query', 'read', 'read-all'].includes(action)) throw new GridspaceLinkError('ACTION_REJECTED');
 		if (action === 'accept-follow' || action === 'reject-follow') {
 			if (input.ids?.length !== 1 || !input.followRequestId) throw new GridspaceLinkError('INVALID_REQUEST');
 			const notification = await this.notifications.getNotification(link.localUserId, input.ids[0]);
@@ -148,32 +242,30 @@ export class GridspaceNotificationService {
 		if (action === 'read' || action === 'read-all') {
 			if (action === 'read' && !input.ids?.length) throw new GridspaceLinkError('INVALID_REQUEST');
 			const state = await this.db.transaction(async manager => {
-				if (input.channelActorId) await this.channels.source(input.channelActorId, manager);
+				if (guest) await this.authorize(input, manager);
 				else await this.links.lockReplyAuthorization(input, manager, GRIDSPACE_NOTIFICATION_WRITE_SCOPE);
-				if (input.channelActorId) {
-					const eligible = await this.channelRows(link.localUserId, action === 'read' ? { ids: input.ids } : {});
-					await this.notifications.readNotifications(link.localUserId, eligible.map(row => row.id));
-					return { unreadCount: await this.channelCount(link.localUserId) };
+				if (guest) {
+					const eligible = await this.channelRows(link.localUserId, { placementActorId: input.placementActorId, channelActorId: input.channelActorId, ids: action === 'read' ? input.ids : undefined });
+					const changed = await this.notifications.readNotifications(link.localUserId, eligible.map(row => row.id));
+					return { changed: changed.changed, unreadCount: await this.channelCount(link.localUserId, input) };
 				}
 				return action === 'read-all' ? this.notifications.readAllNotification(link.localUserId) : this.notifications.readNotifications(link.localUserId, input.ids!);
 			});
+			if (input.placementActorId && state.changed) void this.sendGuestHint(input.placementActorId).catch(() => {});
 			return this.page([], [], link.localUserId, state.unreadCount, input);
 		}
-		const channelCount = input.channelActorId ? await this.channelCount(link.localUserId) : null;
-		if (input.channelActorId && input.countOnly) {
+		const channelCount = guest ? await this.channelCount(link.localUserId, input) : null;
+		if (guest && input.countOnly) {
 			await this.authorize(input);
 			return this.page([], [], link.localUserId, channelCount!, input);
 		}
-		const fetched = await this.raw(link.localUserId, input);
-		const channelNotes = input.channelActorId ? await this.db.getRepository(MiNote).findBy({ id: In(fetched.flatMap(row => row.type === 'reaction' ? [row.noteId] : [])), userId: link.localUserId, localOnly: true, uri: IsNull() }) : [];
-		// The paired channel identity grants access only to reactions on its own
-		// locally hosted channel posts, never to an arbitrary remote user's inbox.
-		const rows = input.channelActorId ? await this.channelRows(link.localUserId, input, fetched) : fetched;
+		const origins = new Map<string, MiNote>();
+		const rows = guest ? (await this.channelRows(link.localUserId, input, undefined, origins)).slice(0, input.ids?.length ?? input.limit ?? 20) : await this.raw(link.localUserId, input);
 		const valid = await this.packer.packMany(rows.filter(n => !input.excludeTypes?.includes(n.type)), link.localUserId) as unknown as Packed<'Notification'>[];
 		if (valid.length === 0) {
 			const state = await this.reads.state(link.localUserId, []);
 			await this.authorize(input);
-			return this.page(fetched, [], link.localUserId, channelCount ?? state.unreadCount, input);
+			return this.page(rows, [], link.localUserId, channelCount ?? state.unreadCount, input);
 		}
 		const noteIds = [...rows.flatMap(n => 'noteId' in n ? [n.noteId] : []), ...valid.flatMap(n => n.type === 'renote' && n.note.renoteId ? [n.note.renoteId] : [])];
 		const items: WireNotification[] = [];
@@ -216,13 +308,23 @@ export class GridspaceNotificationService {
 		// the note audience/deletion and grant after its own asynchronous work.
 		const notes: NonNullable<WireNotification['note']>[] = [];
 		const uniqueNoteIds = [...new Set(noteIds)];
-		if (input.channelActorId) {
+		if (guest) {
 			const groups = new Map<string, string[]>();
 			for (const id of uniqueNoteIds) {
-				const note = channelNotes.find(note => note.id === id);
+				const note = origins.get(id);
+				if (input.placementActorId && note?.multiNoteKind === 'conversation-reply' && !note.channelId) {
+					const conversationUri = `${this.config.url}/notes/${id}`;
+					try {
+						const page = await this.notes.peerNotes({ mode: 'show', placementActorId: input.placementActorId, conversationUri, noteId: id });
+						notes.push(...page.notes.filter(wire => wire.id === id));
+					} catch (error) {
+						if (!(error instanceof GridspaceLinkError) || error.code !== 'ACTION_REJECTED') throw error;
+					}
+					continue;
+				}
 				if (note?.channelId) groups.set(note.channelId, [...(groups.get(note.channelId) ?? []), id]);
 			}
-			for (const [channelId, ids] of groups) notes.push(...(await this.notes.peerNotes({ ...input, mode: 'validate', contextMode: 'show', channelId, ids })).notes);
+			for (const [channelId, ids] of groups) notes.push(...(await this.notes.peerNotes({ channelActorId: input.channelActorId ?? input.placementActorId, mode: 'validate', contextMode: 'show', channelId, ids })).notes);
 		} else for (let i = 0; i < uniqueNoteIds.length; i += 100) {
 			notes.push(...(await this.notes.peerNotes({ ...input, mode: 'validate', contextMode: 'show', ids: uniqueNoteIds.slice(i, i + 100) })).notes);
 		}
@@ -230,26 +332,71 @@ export class GridspaceNotificationService {
 			const raw = rows.find(n => n.id === item.id)!;
 			if (!('noteId' in raw)) return true;
 			item.note = notes.find(n => n.id === raw.noteId) ?? null;
+			if (input.placementActorId && item.note?.conversationUri) item.recipientActorUri = `${new URL(this.config.gridspace!.peerUrl).origin}/users/${input.placementActorId}`;
 			if (item.type === 'renote' && item.note?.renoteId) item.renote = notes.find(n => n.id === item.note!.renoteId) ?? null;
 			return item.note != null;
 		});
 		await this.authorize(input);
 		const state = await this.reads.state(link.localUserId, visible.map(n => n.id));
 		visible.forEach((n, i) => { n.isRead = state.isRead[i]; });
-		return this.page(fetched, visible, link.localUserId, channelCount ?? state.unreadCount, input);
+		return this.page(rows, visible, link.localUserId, channelCount ?? state.unreadCount, input);
 	}
 
 	public async remote(user: MiLocalUser, input: NotificationOptions, action = 'query', channel = false): Promise<NotificationPage<PeerNotification>> {
-		const identity = channel ? await this.channels.destination(user, true) : null;
+		const identity = channel ? await this.guestIdentity(user) : null;
 		const link = identity ? null : await this.links.privateLink(user.id);
 		// Endpoint inputs can contain login credentials and unknown properties.
 		// Only the documented query fields may cross the server boundary.
 		if (input.expectedOrigin && input.expectedOrigin !== (identity?.peerOrigin ?? link!.peerOrigin)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if (!identity && input.expectedRecipientId && input.expectedRecipientId !== link!.peerUserId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const options: NotificationOptions = { before: input.before, since: input.since, ids: input.ids, excludeTypes: input.excludeTypes, limit: input.limit, countOnly: input.countOnly, expectedRecipientId: input.expectedRecipientId };
+		const placement = identity && 'placementActorId' in identity.credential;
+		const guestSummary = async () => {
+			const refs = await this.remoteReferences(user, {}, true);
+			if (refs.unreadCount == null || !refs.complete) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+			if (refs.origin !== identity!.peerOrigin || (input.expectedRecipientId && input.expectedRecipientId !== refs.recipientId)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			return { ...refs, unreadCount: refs.unreadCount };
+		};
+		const summary = placement ? await guestSummary() : null;
+		if (summary && (input.countOnly || action === 'read' || action === 'read-all')) {
+			let fresh = summary;
+			if (action !== 'query') {
+				const selected = summary.items.filter(item => action === 'read-all' || input.ids?.includes(item.id)).map(item => item.id);
+				for (let i = 0; i < selected.length; i += 100) {
+					await this.links.json('/gridspace/v1/notifications/read', { ...identity!.credential, expectedRecipientId: summary.recipientId, ids: selected.slice(i, i + 100) });
+				}
+				if (selected.length) fresh = await guestSummary();
+				if (fresh.recipientId !== summary.recipientId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			}
+			return { items: [], next: null, newest: null, boundary: null, origin: fresh.origin, recipientId: fresh.recipientId, unreadCount: fresh.unreadCount };
+		}
+		const pageSize = input.limit ?? 20;
+		let selected = summary?.items;
+		if (selected && summary) {
+			const eligible = new Map(selected.map(ref => [ref.id, ref]));
+			selected = input.ids ? input.ids.flatMap(id => eligible.has(id) ? [eligible.get(id)!] : []) :
+				selected.filter(ref => (!input.before || ref.id < input.before) && (!input.since || ref.id > input.since));
+			if (!input.ids && input.since && !input.before) selected.reverse();
+			if (!input.ids) selected = selected.slice(0, pageSize);
+			if (!selected.length) return { origin: summary.origin, recipientId: summary.recipientId, items: [], next: null, newest: null, boundary: null, unreadCount: summary.unreadCount };
+			options.ids = selected.map(ref => ref.id);
+			options.expectedRecipientId = summary.recipientId;
+		}
 		const page = await this.links.json<NotificationPage<WireNotification>>(`/gridspace/v1/notifications/${action}`, { ...options, ...(identity ? identity.credential : this.links.privateCredential(link!)) });
 		if (page.origin !== (identity?.peerOrigin ?? link!.peerOrigin) || (!identity && page.recipientId !== link!.peerUserId) || !Array.isArray(page.items) || page.items.length > 100) throw new GridspaceLinkError('PEER_UNAVAILABLE');
-		if (identity && page.items.some(item => item.type !== 'reaction' || !item.note?.channelId || item.note.author.uri !== `${this.config.url}/users/${user.id}`)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		if (summary && page.recipientId !== summary.recipientId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		if (identity) {
+			const actorUri = `${this.config.url}/users/${user.id}`;
+			const valid = page.items.every(item => {
+				const note = item.note;
+				if (!note) return false;
+				if (note.channelId) return item.type === 'reaction' && note.author.uri === actorUri;
+				if (!('placementActorId' in identity.credential) || item.recipientActorUri !== actorUri || note.multiNoteKind !== 'conversation-reply' || note.includeDefault !== false || !note.localOnly ||
+					note.conversationUri !== `${identity.peerOrigin}/notes/${note.id}` || note.uri !== note.conversationUri) return false;
+				return item.type === 'reaction' ? note.author.uri === actorUri : item.type === 'reply' && item.user?.uri === note.author.uri && note.filterActors.some(actor => actor.uri === actorUri);
+			});
+			if (!valid) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		}
 		const items: PeerNotification[] = [];
 		const actorAllows = await this.notes.localActorChecker(user, [
 			...page.items.flatMap(item => item.user ? [item.user] : []),
@@ -261,9 +408,14 @@ export class GridspaceNotificationService {
 			if (item.note && !await this.notes.localAllows(user, item.note, false, peerUserId, actorAllows)) continue;
 			const note = item.note ? await this.notes.filterChannelRenote(user, (({ filterActors: _, ...display }) => display)(item.note), peerUserId, actorAllows) : null;
 			const renote = item.renote && await this.notes.localAllows(user, item.renote, false, peerUserId, actorAllows) ? await this.notes.filterChannelRenote(user, (({ filterActors: _, ...display }) => display)(item.renote), peerUserId, actorAllows) : null;
-			items.push({ ...item, note, renote });
+			const { recipientActorUri: _recipient, ...display } = item;
+			items.push({ ...display, note, renote });
 		}
 		if (identity) await identity.check(); else await this.links.checkPrivateUnchanged(link!);
+		if (selected && summary) {
+			return { ...page, items, next: !input.ids && selected.length === pageSize ? selected.at(-1)!.id : null,
+				newest: (input.since ? selected.at(-1) : selected[0])?.id ?? null, boundary: selected.at(-1)?.createdAt ?? null, unreadCount: summary.unreadCount };
+		}
 		return { ...page, items };
 	}
 

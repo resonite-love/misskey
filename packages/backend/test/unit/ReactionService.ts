@@ -134,9 +134,10 @@ describe('ReactionService', () => {
 	});
 
 	describe('create', () => {
-		test('ローカル限定カスタム絵文字はリモートノートへのリアクションではハートにフォールバックする', async () => {
+		function fixture() {
 			const inserted: Array<{ reaction: string }> = [];
 			const locks = new Map<string, string>();
+			const featured = { updateInChannelNotesRanking: vi.fn(), updateGlobalNotesRanking: vi.fn(), updatePerUserNotesRanking: vi.fn() };
 			const service = new ReactionService(
 				{
 					set: vi.fn(async (key: string, value: string) => { locks.set(key, value); return 'OK'; }),
@@ -182,7 +183,7 @@ describe('ReactionService', () => {
 				{ checkBlocked: vi.fn().mockResolvedValue(false) } as never,
 				{ create: vi.fn(), delete: vi.fn() } as never,
 				{ gen: vi.fn(() => 'reaction-id'), parse: vi.fn(() => ({ date: new Date() })) } as never,
-				{ updateInChannelNotesRanking: vi.fn(), updateGlobalNotesRanking: vi.fn(), updatePerUserNotesRanking: vi.fn() } as never,
+				featured as never,
 				{ publishNoteStream: vi.fn() } as never,
 				{
 					addContext: (content: unknown) => content,
@@ -195,31 +196,51 @@ describe('ReactionService', () => {
 						execute: vi.fn().mockResolvedValue(undefined),
 					})),
 				} as never,
-				{ createNotification: vi.fn() } as never,
+				{ createReactionNotification: vi.fn() } as never,
 				{ update: vi.fn() } as never,
+				{ mutate: (_note: unknown, write: (manager: unknown) => Promise<unknown>) => write({
+					insert: (_entity: unknown, record: { reaction: string }) => { inserted.push(record); return Promise.resolve(); },
+				}) } as never,
+				{ activeLocalChannelIds: async () => ['a', 'b'] } as never,
 			);
 
-			await service.create(
-				{ id: 'local-user', host: null, isBot: false },
-				{
-					id: 'remote-note',
-					userId: 'remote-user',
-					userHost: 'remote.example',
-					renoteId: null,
-					renote: null,
-					renoteUserHost: null,
-					reactionAcceptance: null,
-					reactionAndUserPairCache: [],
-					localOnly: false,
-					visibility: 'public',
-					replyId: null,
-					channelId: null,
-					visibleUserIds: [],
-				} as never,
-				':localonly:',
-			);
+			const note = {
+				id: 'remote-note',
+				userId: 'remote-user',
+				userHost: 'remote.example',
+				renoteId: null,
+				renote: null,
+				renoteUserHost: null,
+				reactionAcceptance: null,
+				reactionAndUserPairCache: [],
+				localOnly: false,
+				visibility: 'public',
+				replyId: null,
+				channelId: null,
+				visibleUserIds: [],
+			};
+			return { service, inserted, featured, note };
+		}
+
+		test('ローカル限定カスタム絵文字はリモートノートへのリアクションではハートにフォールバックする', async () => {
+			const { service, inserted, note } = fixture();
+			await service.create({ id: 'local-user', host: null, isBot: false }, note as never, ':localonly:');
 
 			assert.strictEqual(inserted[0].reaction, '❤');
+		});
+
+		test.each([false, true])('a sampled reaction scores each active channel; default distribution is %s', async includeDefault => {
+			const { service, featured, note } = fixture();
+			const random = vi.spyOn(Math, 'random').mockReturnValue(0.1);
+			try {
+				await service.create({ id: 'local-user', host: null, isBot: false },
+					{ ...note, userHost: null, localOnly: true, includeDefault, multiNoteKind: 'root' } as never, '👍');
+			} finally {
+				random.mockRestore();
+			}
+			assert.deepStrictEqual(featured.updateInChannelNotesRanking.mock.calls, [['a', note.id, 1], ['b', note.id, 1]]);
+			assert.strictEqual(featured.updateGlobalNotesRanking.mock.calls.length, includeDefault ? 1 : 0);
+			assert.strictEqual(featured.updatePerUserNotesRanking.mock.calls.length, includeDefault ? 1 : 0);
 		});
 	});
 });

@@ -48,6 +48,7 @@ export type Channels = {
 			urlUploadFinished: (payload: { marker: string; file: DriveFile; }) => void;
 			readAllNotifications: () => void;
 			notificationRead: (payload: { unreadCount: number }) => void;
+			gridspaceNotificationsChanged: () => void;
 			unreadNotification: (payload: Notification) => void;
 			notificationFlushed: () => void;
 			unreadAntenna: (payload: Antenna) => void;

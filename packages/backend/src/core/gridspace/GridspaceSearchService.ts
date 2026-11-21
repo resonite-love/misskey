@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { channelPlacementCondition, defaultNoteCondition, defaultOrLegacyChannelCondition } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { DataSource, type ObjectLiteral, type SelectQueryBuilder } from 'typeorm';
 import { DI } from '@/di-symbols.js';
@@ -126,15 +127,19 @@ export class GridspaceSearchService {
 		// so neither an ID nor a continuation token reveals a match in hidden text.
 		filterNoteVisibility(query, singleNoteId == null ? this.noteTime : ':singleNoteTime::bigint', viewer, source, authenticated);
 		if (source) {
-			query.andWhere("note.userHost IS NULL AND note.channelId IS NULL AND note.visibility IN ('public', 'home')");
+			query.andWhere("note.userHost IS NULL AND note.visibility IN ('public', 'home')").andWhere(defaultNoteCondition());
 		} else {
 			this.queries.generateVisibilityQuery(query, viewer);
 			// The general timeline helper also admits mentions. A mention alone is not
 			// a recipient of a specified note and must not reveal a search match.
 			query.andWhere("(note.visibility != 'specified' OR note.userId = :privacyViewer OR :privacyViewer = ANY(note.visibleUserIds))");
 			if (!viewer) this.queries.generateUgcVisibilityQueryForVisitor(query);
-			if (channelId) query.andWhere('note.channelId = :openedChannel', { openedChannel: channelId });
-			else if (!includeSensitiveChannels) query.andWhere('(note.channelId IS NULL OR channel.isSensitive = false OR note.userId = :channelAuthor)', { channelAuthor: viewer?.id ?? null });
+			if (channelId) {
+				query.andWhere(channelPlacementCondition(':openedChannel'), { openedChannel: channelId });
+			} else if (!includeSensitiveChannels) {
+				query.andWhere('(note.channelId IS NULL OR channel.isSensitive = false OR note.userId = :channelAuthor)', { channelAuthor: viewer?.id ?? null });
+				if (options.query && !singleNoteId) query.andWhere(defaultOrLegacyChannelCondition());
+			}
 		}
 		if (viewer) {
 			query.andWhere(`NOT EXISTS (SELECT 1 FROM blocking b WHERE b."blockerId" = :viewer
@@ -198,7 +203,7 @@ export class GridspaceSearchService {
 		const localNotes = (includePeerPublic = false) => {
 			const query = this.noteQuery(viewer, options, false)
 				.andWhere('(note.userHost IS NULL OR note.userHost = :peerHost)', { peerHost });
-			if (!includePeerPublic) query.andWhere("(note.userHost IS NULL OR note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL)");
+			if (!includePeerPublic) query.andWhere(`(note."userHost" IS NULL OR note.visibility IN ('followers', 'specified') OR NOT ${defaultNoteCondition()})`);
 			// Resolve linked actors before scanning notes, so both authors use the note.userId index.
 			if (authorIds.length) query.andWhere('note.userId IN (:...authors)', { authors: authorIds });
 			return query;

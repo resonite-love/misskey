@@ -7,33 +7,34 @@ import { compareTimelinePosition } from './timeline-protocol.js';
 import type { TimelinePosition, TimelineReference } from './timeline-protocol.js';
 
 export type TimelineSourceCursor = { before: TimelinePosition | null; upper: TimelinePosition | null; ended: boolean; pending: TimelineReference[] };
-export type TimelineMergeState = { local: TimelineSourceCursor; peer: TimelineSourceCursor; seen: string[]; owners: Record<string, 'local' | 'peer'> };
+export type TimelineMergeState = { local: TimelineSourceCursor; peer: TimelineSourceCursor; localPlacement?: TimelineSourceCursor; peerPlacement?: TimelineSourceCursor; seen: string[]; owners: Record<string, 'local' | 'peer'> };
 export type TimelineRead = (source: 'local' | 'peer', cursor: TimelineSourceCursor) => Promise<{ references: TimelineReference[]; next: TimelinePosition | null; upper: TimelinePosition | null; ended: boolean }>;
 
 /** Pure reference merge. The caller checkpoints only the successfully completed state. */
-export async function mergeTimeline(state: TimelineMergeState, limit: number, read: TimelineRead, canRead: () => boolean = () => true, compare = compareTimelinePosition): Promise<TimelineReference[]> {
+export async function mergeTimeline(state: TimelineMergeState, limit: number, read: TimelineRead, canRead: () => boolean = () => true, compare = compareTimelinePosition, readPlacement?: TimelineRead): Promise<TimelineReference[]> {
 	const output: TimelineReference[] = [];
 	const seen = new Set(state.seen);
 	let reads = 0;
 	let peerReads = 0;
 	while (output.length < limit) {
-		const a = state.local.pending[0];
-		const b = state.peer.pending[0];
-		const candidate = !b || (a && compare(a, b) <= 0) ? a : b;
-		// An empty filtered page still proves that every unread row is beyond
-		// its exclusive scan boundary. Do not wait for a matching row when the
-		// other source already has a candidate ahead of that boundary.
-		const missing = (['local', 'peer'] as const).find(source => {
-			const cursor = state[source];
-			return !cursor.pending.length && !cursor.ended &&
-				(!candidate || !cursor.before || compare(candidate, { ...cursor.before, source }) > 0);
+		const lanes = (['local', 'peer', 'localPlacement', 'peerPlacement'] as const).flatMap(key => {
+			const cursor = state[key];
+			const placement = key === 'localPlacement' || key === 'peerPlacement';
+			const source = key === 'local' || key === 'localPlacement' ? 'local' : 'peer';
+			return cursor ? [{ cursor, source: source as 'local' | 'peer', read: placement ? readPlacement! : read }] : [];
 		});
+		const heads = lanes.filter(lane => lane.cursor.pending.length);
+		heads.sort((a, b) => compare(a.cursor.pending[0], b.cursor.pending[0]));
+		const first = heads[0];
+		const candidate = first?.cursor.pending[0];
+		const missing = lanes.find(({ cursor, source }) => !cursor.pending.length && !cursor.ended &&
+			(!candidate || !cursor.before || compare(candidate, { ...cursor.before, source }) > 0));
 		if (missing) {
-			if (!canRead() || reads >= 8 || (missing === 'peer' && peerReads >= 4)) break;
+			if (!canRead() || reads >= (state.localPlacement ? 12 : 8) || (missing.source === 'peer' && peerReads >= 4)) break;
 			reads++;
-			if (missing === 'peer') peerReads++;
-			const cursor = state[missing];
-			const page = await read(missing, cursor);
+			if (missing.source === 'peer') peerReads++;
+			const cursor = missing.cursor;
+			const page = await missing.read(missing.source, cursor);
 			if (!page.ended && !page.next) throw new Error('Timeline source made no progress');
 			cursor.before = page.next;
 			cursor.upper ??= page.upper;
@@ -42,17 +43,18 @@ export async function mergeTimeline(state: TimelineMergeState, limit: number, re
 			continue;
 		}
 		if (!candidate) break;
-		const chosen = state[candidate.source].pending.shift()!;
+		const chosen = first.cursor.pending.shift()!;
 		state.owners[chosen.canonicalUri] ??= chosen.source;
 		if (seen.has(chosen.canonicalUri)) continue;
 		seen.add(chosen.canonicalUri);
 		state.seen.push(chosen.canonicalUri);
 		output.push(chosen);
 	}
-	if (state.seen.length + state.local.pending.length + state.peer.pending.length > 2000) throw new Error('Timeline session reference limit reached');
-	// Source ownership is disjoint; only a bounded recent duplicate guard is
-	// necessary across the next checkpoint, not the whole consumed history.
-	state.seen = state.seen.slice(-100);
+	if (state.localPlacement || state.peerPlacement) {
+		if (state.seen.length > 2000) throw new Error('Timeline session reference limit reached');
+	} else {
+		state.seen = state.seen.slice(-100);
+	}
 	return output;
 }
 

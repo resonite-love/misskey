@@ -254,6 +254,12 @@ describe('local timeline subscription SQL', () => {
 		await runner.query('ALTER TABLE "user" ADD COLUMN uri text');
 		await runner.query('CREATE TEMP TABLE gridspace_link ("localUserId" text, "peerOrigin" text, "peerUserId" text, state text) ON COMMIT DROP');
 		await runner.query('CREATE TEMP TABLE note (id text, "userId" text, "userHost" text, visibility text, "channelId" text, "gridspaceShared" boolean, "replyId" text, "replyUserId" text, "renoteId" text, "renoteUserId" text, "renoteUserHost" text, text text, cw text, "fileIds" text[], "hasPoll" boolean) ON COMMIT DROP');
+		await runner.query('ALTER TABLE note ADD COLUMN "multiNoteKind" text, ADD COLUMN "includeDefault" boolean, ADD COLUMN uri text');
+		await runner.query('CREATE TEMP TABLE channel (id text) ON COMMIT DROP');
+		await runner.query("INSERT INTO channel VALUES ('channel'), ('other-channel')");
+		await runner.query('CREATE TEMP TABLE channel_muting ("channelId" text, "userId" text, "expiresAt" timestamptz) ON COMMIT DROP');
+		await runner.query('CREATE TEMP TABLE gridspace_channel_placement ("channelId" text, "canonicalUri" text, state text, "includeDefault" boolean) ON COMMIT DROP');
+		await runner.query('CREATE TEMP TABLE note_channel_placement ("noteId" text, "channelId" text, state text) ON COMMIT DROP');
 		await runner.query('INSERT INTO "user" (id,"isDeleted","isSuspended") VALUES (\'viewer\',false,false), (\'followed\',false,false), (\'reply-enabled\',false,false), (\'outsider\',false,false), (\'linked\',false,false)');
 		await runner.query("UPDATE \"user\" SET uri='https://peer.test/users/linked' WHERE id='linked'");
 		await runner.query("INSERT INTO gridspace_link VALUES ('viewer','https://peer.test','linked','active')");

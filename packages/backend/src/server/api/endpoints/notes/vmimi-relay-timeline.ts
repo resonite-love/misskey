@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { defaultNoteCondition } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Brackets } from 'typeorm';
 import type { NotesRepository } from '@/models/_.js';
@@ -118,6 +119,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				allowPartial: ps.allowPartial,
 				me,
 				useDbFallback: serverSettings.enableFanoutTimelineDbFallback,
+				listing: { kind: 'default' },
 				redisTimelines:
 					ps.withFiles ? ['vmimiRelayTimelineWithFiles', ...(ps.withLocalOnly ? ['localTimelineWithFiles'] as const : [])]
 					: ps.withReplies ? ['vmimiRelayTimeline', 'vmimiRelayTimelineWithReplies', ...(ps.withLocalOnly ? ['localTimeline', 'localTimelineWithReplies'] as const : [])]
@@ -158,7 +160,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		//#region Construct query
 		const query = this.queryService.makePaginationQuery(this.notesRepository.createQueryBuilder('note'), ps.sinceId, ps.untilId)
 			.andWhere('note.visibility = \'public\'')
-			.andWhere('note.channelId IS NULL')
+			.andWhere(defaultNoteCondition())
 			.innerJoinAndSelect('note.user', 'user')
 			.leftJoinAndSelect('note.reply', 'reply')
 			.leftJoinAndSelect('note.renote', 'renote')

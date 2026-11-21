@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { Inject, Injectable, Scope } from '@nestjs/common';
 import type { Packed } from '@/misc/json-schema.js';
 import { MetaService } from '@/core/MetaService.js';
@@ -12,6 +13,7 @@ import { RoleService } from '@/core/RoleService.js';
 import { VmimiRelayTimelineService } from '@/core/VmimiRelayTimelineService.js';
 import { isQuotePacked, isRenotePacked } from '@/misc/is-renote.js';
 import type { JsonObject } from '@/misc/json-value.js';
+import { NoteStreamingHidingService } from '../NoteStreamingHidingService.js';
 import Channel, { type ChannelRequest } from '../channel.js';
 import { REQUEST } from '@nestjs/core';
 
@@ -33,6 +35,7 @@ export class VmimiRelayTimelineChannel extends Channel {
 		private roleService: RoleService,
 		private noteEntityService: NoteEntityService,
 		private vmimiRelayTimelineService: VmimiRelayTimelineService,
+		private noteStreamingHidingService: NoteStreamingHidingService,
 	) {
 		super(request);
 	}
@@ -58,7 +61,7 @@ export class VmimiRelayTimelineChannel extends Channel {
 		if (!this.vmimiRelayTimelineService.isRelayedInstance(note.user.host ?? null)) return;
 		if (!this.withLocalOnly && note.localOnly) return;
 		if (note.visibility !== 'public') return;
-		if (note.channelId != null) return;
+		if (!includesDefault(note)) return;
 
 		// 関係ない返信は除外
 		if (note.reply && this.user && !this.following[note.userId]?.withReplies && !this.withReplies) {
@@ -71,14 +74,9 @@ export class VmimiRelayTimelineChannel extends Channel {
 
 		if (this.isNoteMutedOrBlocked(note)) return;
 
-		if (this.user && isRenotePacked(note) && !isQuotePacked(note)) {
-			if (note.renote && Object.keys(note.renote.reactions).length > 0) {
-				const myRenoteReaction = await this.noteEntityService.populateMyReaction(note.renote, this.user.id);
-				note.renote.myReaction = myRenoteReaction;
-			}
-		}
-
-		this.send('note', note);
+		const viewerId = this.user?.id ?? null;
+		const filtered = await this.noteStreamingHidingService.filter(note, viewerId);
+		if (filtered) this.send('note', await this.noteEntityService.withMyRenoteReaction(filtered, viewerId));
 	}
 
 	@bindThis

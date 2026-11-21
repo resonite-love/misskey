@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { GridspaceIdentityService } from '@/core/gridspace/GridspaceIdentityService.js';
 import { Inject, Injectable, Scope } from '@nestjs/common';
 import type { Packed } from '@/misc/json-schema.js';
@@ -49,15 +50,8 @@ export class HomeTimelineChannel extends Channel {
 
 		if (this.withFiles && (note.fileIds == null || note.fileIds.length === 0)) return;
 
-		if (note.channelId) {
-			// そのチャンネルをフォローしていない
-			if (!this.followingChannels.has(note.channelId)) {
-				return;
-			}
-		} else {
-			// その投稿のユーザーをフォローしていなかったら弾く
-			if (!isMe && !Object.hasOwn(this.following, note.userId)) return;
-		}
+		const ordinary = includesDefault(note) && (isMe || Object.hasOwn(this.following, note.userId));
+		if (!ordinary && !await this.hasFollowedChannelPlacement(note)) return;
 
 		if (!this.isNoteVisibleForMe(note)) return;
 

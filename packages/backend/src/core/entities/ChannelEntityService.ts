@@ -5,6 +5,8 @@
 
 import { Inject, Injectable } from '@nestjs/common';
 import { In } from 'typeorm';
+import type { Config } from '@/config.js';
+import { MiChannelPlacementPin } from '@/models/NotePlacement.js';
 import { DI } from '@/di-symbols.js';
 import type {
 	ChannelFavoritesRepository,
@@ -19,6 +21,7 @@ import type { Packed } from '@/misc/json-schema.js';
 import type { MiUser } from '@/models/User.js';
 import type { MiChannel } from '@/models/Channel.js';
 import { bindThis } from '@/decorators.js';
+import { RoleService } from '@/core/RoleService.js';
 import { IdService } from '@/core/IdService.js';
 import { DriveFileEntityService } from './DriveFileEntityService.js';
 import { NoteEntityService } from './NoteEntityService.js';
@@ -41,6 +44,8 @@ export class ChannelEntityService {
 		private noteEntityService: NoteEntityService,
 		private driveFileEntityService: DriveFileEntityService,
 		private idService: IdService,
+		@Inject(DI.config) private config: Config,
+		private roles: RoleService,
 	) {
 	}
 
@@ -103,6 +108,14 @@ export class ChannelEntityService {
 			);
 		}
 
+		const placementPins = detailed ? await this.channelsRepository.manager.getRepository(MiChannelPlacementPin)
+			.find({ where: { channelId: channel.id }, order: { rank: 'ASC', canonicalUri: 'ASC' } }) : [];
+		const editPins = detailed && me && (me.id === channel.userId || await this.roles.isModerator(me));
+		const pinnedNoteUris = placementPins.length ? placementPins.map(pin => pin.canonicalUri) : channel.pinnedNoteIds.flatMap(id => {
+			const note = pinnedNotes.find(value => value.id === id);
+			return note ? [note.uri ?? `${this.config.url}/notes/${note.id}`] : [];
+		});
+
 		return {
 			id: channel.id,
 			createdAt: this.idService.parse(channel.id).date.toISOString(),
@@ -112,7 +125,9 @@ export class ChannelEntityService {
 			userId: channel.userId,
 			bannerUrl: bannerFile ? this.driveFileEntityService.getPublicUrl(bannerFile) : null,
 			bannerId: channel.bannerId,
-			pinnedNoteIds: channel.pinnedNoteIds,
+			pinnedNoteIds: channel.pinnedNoteIds.filter(id => pinnedNotes.some(note => note.id === id)),
+			...(detailed ? { hasPlacementPins: pinnedNoteUris.length > 0 } : {}),
+			...(editPins ? { pinnedNoteUris } : {}),
 			color: channel.color,
 			isArchived: channel.isArchived,
 			usersCount: channel.usersCount,

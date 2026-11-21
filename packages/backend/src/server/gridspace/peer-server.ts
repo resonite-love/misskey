@@ -9,12 +9,14 @@ import { channelActionSchema, channelOptionsSchema, type ChannelPeerRequest, typ
 import { contentOptionsSchema, type ContentOptions } from '@/core/gridspace/content-protocol.js';
 import { driveOptionsSchema, type DrivePeerRequest } from '@/core/gridspace/drive-protocol.js';
 import { GRIDSPACE_NOTE_BATCH_LIMIT } from '@/core/gridspace/note-protocol.js';
+import { originPlacementCapability } from '@/core/gridspace/placement-protocol.js';
 import { GRIDSPACE_NONCE_TTL_MS, GRIDSPACE_PROTOCOL_VERSION, verifyGridspaceRequest } from '@/core/gridspace/peer-protocol.js';
 import type { GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
 import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH, GRIDSPACE_PRIVATE_CLIENT_PATH } from '@/core/gridspace/link-crypto.js';
 import { notificationOptionsSchema, type NotificationPeerRequest } from '@/core/gridspace/notification-protocol.js';
 import { privateOptionsSchema, type PrivatePeerRequest } from '@/core/gridspace/private-protocol.js';
 import { noteMenuProperties, type NoteMenuPeerRequest } from '@/core/gridspace/note-menu-protocol.js';
+import { placementActorIdSchema } from '@/core/gridspace/conversation-protocol.js';
 import { actionOptionsSchema, uploadWireSchema, type ActionPeerRequest, type UploadPeerRequest } from '@/core/gridspace/action-protocol.js';
 import { replyOptionsSchema, type ReplyPeerRequest } from '@/core/gridspace/reply-protocol.js';
 import type { GridspacePeerLinkRequest } from '@/core/gridspace/GridspaceLinkService.js';
@@ -26,9 +28,11 @@ import type { TimelinePeerHint } from '@/core/gridspace/timeline/TimelinePeerSer
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 export type ClaimGridspaceNonce = (key: string, ttlMs: number) => Promise<boolean>;
+export type PlacementRoute = { name: string; schema: object; handle(input: unknown): Promise<object> };
+export type PlacementRoutes = { enabled: boolean; routes: PlacementRoute[] };
 
 /** Mounted under /gridspace/v1; independent from user-authorized /api endpoints. */
-export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>, channels?: (input: ChannelPeerRequest) => Promise<object>, channelDelete?: (input: GridspacePeerLinkRequest & { noteId: string; channelId: string }) => Promise<object>, drive?: (input: DrivePeerRequest) => Promise<object>, content?: (input: ContentOptions) => Promise<object>, sharedDrive?: (input: SharedDriveRequest) => Promise<object>, managed?: (input: ManagedPeerInput) => Promise<object>, channelUpdate?: (input: ChannelUpdatePeerRequest) => Promise<object>, noteMenu?: (input: NoteMenuPeerRequest) => Promise<object>, publicNote?: (input: PublicNoteTarget) => Promise<object>, reactionNotification?: (input: ReactionNotification) => Promise<object>, timelineNotification?: (input: TimelinePeerHint) => Promise<object>, timelineInvalidation?: () => object): void {
+export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>, channels?: (input: ChannelPeerRequest) => Promise<object>, channelDelete?: (input: GridspacePeerLinkRequest & { noteId: string; channelId: string }) => Promise<object>, drive?: (input: DrivePeerRequest) => Promise<object>, content?: (input: ContentOptions) => Promise<object>, sharedDrive?: (input: SharedDriveRequest) => Promise<object>, managed?: (input: ManagedPeerInput) => Promise<object>, channelUpdate?: (input: ChannelUpdatePeerRequest) => Promise<object>, noteMenu?: (input: NoteMenuPeerRequest) => Promise<object>, publicNote?: (input: PublicNoteTarget) => Promise<object>, reactionNotification?: (input: ReactionNotification) => Promise<object>, timelineNotification?: (input: TimelinePeerHint) => Promise<object>, timelineInvalidation?: () => object, placements?: PlacementRoutes): void {
 	if (config === null) return;
 	// Preserve wire bytes for the signature without changing other server plugins' parsers.
 	const parseJson = fastify.getDefaultJsonParser('error', 'error');
@@ -72,9 +76,22 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			origin: config.origin,
 			peerOrigin: config.peerOrigin,
 			// Only advertise features once their authorization and persistence are implemented.
-			features: [...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : []), ...(readNotes ? ['community-note-batch'] : []), ...(history ? ['member-history'] : []), ...(search ? ['community-search'] : []), ...(privateAction ? ['private-note-read'] : []), ...(notifications ? ['linked-notifications'] : []), ...(reactions ? ['community-reactions'] : []), ...(reactionUpdates ? ['community-reaction-updates'] : [])],
+			features: [...(placements ? ['channel-placement-v1'] : []), ...(placements?.routes.some(r => r.name === 'origin-lookup') ? [originPlacementCapability] : []), ...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : []), ...(readNotes ? ['community-note-batch'] : []), ...(history ? ['member-history'] : []), ...(search ? ['community-search'] : []), ...(privateAction ? ['private-note-read'] : []), ...(notifications ? ['linked-notifications'] : []), ...(reactions ? ['community-reactions'] : []), ...(reactionUpdates ? ['community-reaction-updates'] : [])],
+			...(placements ? { placementEnabled: placements.enabled } : {}),
 		};
 	});
+	for (const route of placements?.routes ?? []) {
+		fastify.post<{ Body: unknown }>('/placements/' + route.name, {
+			bodyLimit: route.name === 'origin-lookup' ? 8192 : 2 * 1024 * 1024, config: { rawBody: true }, preHandler: authenticate, schema: { body: route.schema },
+		}, async (request, reply) => {
+			try { return await route.handle(request.body); } catch (error) {
+				const code = error instanceof Error && 'code' in error ? error.code : null;
+				if (code === 'CHANNEL_UNAVAILABLE' || code === 'AUTHORIZATION_REVOKED') return reply.code(403).send({ error: code });
+				if (code === 'RATE_LIMITED') return reply.code(429).send({ error: code });
+				return reply.code(503).send({ error: 'PEER_UNAVAILABLE' });
+			}
+		});
+	}
 	if (timelineInvalidation) {
 		fastify.post('/timeline/invalidate', {
 			bodyLimit: 4096, config: { rawBody: true }, preHandler: authenticate,
@@ -281,15 +298,21 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 		}
 	}
 	if (notifications) {
+		fastify.post<{ Body: { expectedRecipientId: string } }>('/notifications/changed', {
+			bodyLimit: 1024, config: { rawBody: true }, preHandler: authenticate,
+			schema: { body: { type: 'object', additionalProperties: false, required: ['expectedRecipientId'], properties: { expectedRecipientId: placementActorIdSchema } } },
+		}, request => notifications('changed', request.body));
+		const linkFields = ['accessToken', 'linkId', 'generation', 'localUserId', 'pairId'];
 		for (const name of ['query', 'references', 'read', 'read-all', 'accept-follow', 'reject-follow']) {
 			fastify.post<{ Body: NotificationPeerRequest }>(`/notifications/${name}`, {
 				bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
 				schema: { body: { type: 'object', additionalProperties: false,
 																						required: name === 'read' ? ['ids'] : [], oneOf: [
-																							{ required: ['accessToken', 'linkId', 'generation', 'localUserId'], not: { required: ['channelActorId'] } },
-																							{ required: ['channelActorId'], not: { anyOf: ['accessToken', 'linkId', 'generation', 'localUserId', 'pairId'].map(key => ({ required: [key] })) } },
+																							{ required: ['accessToken', 'linkId', 'generation', 'localUserId'], not: { anyOf: ['channelActorId', 'placementActorId'].map(key => ({ required: [key] })) } },
+																							{ required: ['channelActorId'], not: { anyOf: [...linkFields, 'placementActorId'].map(key => ({ required: [key] })) } },
+																							{ required: ['placementActorId'], not: { anyOf: [...linkFields, 'channelActorId'].map(key => ({ required: [key] })) } },
 																						], properties: {
-																							...notificationOptionsSchema,
+																							...notificationOptionsSchema, placementActorId: placementActorIdSchema,
 																							expectedRecipientId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 																							followRequestId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 																							channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
@@ -320,8 +343,8 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 	if (interact) {
 		fastify.post<{ Body: ActionPeerRequest }>('/private/action', {
 			bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
-			schema: { body: { type: 'object', additionalProperties: false, required: ['noteId'], allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId', 'channelId'] }] }], properties: {
-				...actionOptionsSchema,
+			schema: { body: { type: 'object', additionalProperties: false, required: ['noteId'], allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId', 'channelId'] }, { required: ['placementActorId', 'conversationUri'] }] }], properties: {
+				...actionOptionsSchema, placementActorId: placementActorIdSchema,
 				channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
 				generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 			} } },
@@ -336,8 +359,8 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 	if (upload) {
 		fastify.post<{ Body: UploadPeerRequest }>('/private/upload', {
 			bodyLimit: 24 * 1024 * 1024, config: { rawBody: true }, preHandler: authenticate,
-			schema: { body: { type: 'object', additionalProperties: false, required: ['name', 'data'], allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId', 'channelId'] }] }], anyOf: [{ required: ['noteId'] }, { required: ['channelId'] }], properties: {
-				...uploadWireSchema,
+			schema: { body: { type: 'object', additionalProperties: false, required: ['name', 'data'], allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId', 'channelId'] }, { required: ['placementActorId', 'conversationUri', 'noteId'] }] }], anyOf: [{ required: ['noteId'] }, { required: ['channelId'] }], properties: {
+				...uploadWireSchema, placementActorId: placementActorIdSchema,
 				channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
 				generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 			} } },
@@ -352,8 +375,8 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 	if (replyAction) {
 		fastify.post<{ Body: ReplyPeerRequest }>('/private/reply', {
 			bodyLimit: 32768, config: { rawBody: true }, preHandler: authenticate,
-			schema: { body: { type: 'object', additionalProperties: false, allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId'] }] }], anyOf: [{ required: ['noteId'] }, { required: ['channelId'] }, { required: ['renoteId'] }], properties: {
-				...replyOptionsSchema,
+			schema: { body: { type: 'object', additionalProperties: false, allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId'] }, { required: ['placementActorId', 'conversationUri'] }] }], anyOf: [{ required: ['noteId'] }, { required: ['channelId'] }, { required: ['renoteId'] }], properties: {
+				...replyOptionsSchema, placementActorId: placementActorIdSchema,
 				channelActorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
 				generation: { type: 'integer', minimum: 1, maximum: 2147483647 }, localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 			} } },
@@ -374,8 +397,9 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			const { userId: _userId, ...readOptions } = privateOptionsSchema;
 			fastify.post<{ Body: PrivatePeerRequest }>(`/private/${name}`, {
 				bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate,
-				schema: { body: { type: 'object', additionalProperties: false, allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId'] }, ...(name === 'timeline' ? [{ required: ['timelineViewerId'] }] : [])] }], properties: {
+				schema: { body: { type: 'object', additionalProperties: false, allOf: [{ anyOf: [{ required: ['accessToken', 'linkId', 'generation', 'localUserId'] }, { required: ['channelActorId'] }, ...(name === 'notes' ? [{ required: ['placementActorId', 'conversationUri', 'noteId'] }] : []), ...(name === 'timeline' ? [{ required: ['timelineViewerId'] }] : [])] }], properties: {
 					...readOptions,
+					...(name === 'notes' ? { placementActorId: placementActorIdSchema } : {}),
 					...(name === 'timeline' ? { ids: { type: 'array', minItems: 0, maxItems: 100, uniqueItems: true, items: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } } : {}),
 					timelineViewerId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 					timelineBefore: { type: 'object', additionalProperties: false, required: ['sortAt', 'canonicalUri', 'noteId'], properties: { sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 }, noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, sourceId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } },

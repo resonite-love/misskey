@@ -31,7 +31,11 @@ import { RoleService } from '@/core/RoleService.js';
 import { RateLimiterService } from '@/server/api/RateLimiterService.js';
 import type { Config } from '@/config.js';
 import type { GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
-import { registerGridspacePeer } from './peer-server.js';
+import { GridspacePlacementService } from '@/core/gridspace/GridspacePlacementService.js';
+import { GridspacePlacementActionService } from '@/core/gridspace/GridspacePlacementActionService.js';
+import { placementSchemas } from '@/core/gridspace/placement-protocol.js';
+import { placementTimelineRequestSchema, TimelinePlacementSource } from '@/core/gridspace/timeline/TimelinePlacementSource.js';
+import { registerGridspacePeer, type PlacementRoute } from './peer-server.js';
 import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
 
 @Injectable()
@@ -62,8 +66,21 @@ export class GridSpaceServerService {
 		private content: GridspaceContentService,
 		private sharedDrive: GridspaceSharedDriveService,
 		private managed: GridspaceManagedResourceService,
+		private placements: GridspacePlacementService,
+		private placementActions: GridspacePlacementActionService,
+		private placementTimeline: TimelinePlacementSource,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
+	}
+
+	private placementRoutes(): PlacementRoute[] {
+		const operations = (Object.keys(placementSchemas) as (keyof typeof placementSchemas)[]).map(name => ({
+			name, schema: placementSchemas[name], handle: this.placements.handlers[name],
+		}));
+		return [...operations, { name: 'timeline', schema: placementTimelineRequestSchema, handle: this.placementTimeline.peerPage.bind(this.placementTimeline) },
+			{ name: 'delete-reply', schema: { type: 'object', additionalProperties: false, required: ['actorId', 'canonicalUri', 'requestId'],
+				properties: { actorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, canonicalUri: { type: 'string', maxLength: 512 }, requestId: { type: 'string', format: 'uuid' } } },
+			handle: this.placementActions.peerDeleteReply.bind(this.placementActions) }];
 	}
 
 	private async limitAction(userId: string, key: string, max: number) {
@@ -80,13 +97,16 @@ export class GridSpaceServerService {
 		input => this.replies.peerReply(input, async userId => {
 			const factor = (await this.roles.getUserPolicies(userId)).rateLimitFactor;
 			if (factor > 0 && await this.limiter.limit({ key: 'notes/create', duration: 3600000, max: 300 }, userId, factor)) throw new GridspaceLinkError('RATE_LIMITED');
-		}), (action, input) => action === 'references' ? this.notifications.peerReferences(input) : this.notifications.peer(action, input),
+		}), (action, input) => {
+			if (action === 'changed') return this.notifications.receiveGuestHint(input.expectedRecipientId!);
+			return action === 'references' ? this.notifications.peerReferences(input) : this.notifications.peer(action, input);
+		},
 		input => this.actions.peerAction(input, userId => this.limitAction(userId, 'gridspace/action', 60)),
 		input => this.actions.peerUpload(input, userId => this.limitAction(userId, 'drive/files/create', 20)),
 		input => this.reactions.peerRead(input), input => this.reactionDelivery.receive(input), noteIds => this.notes.readMany(noteIds), input => this.channels.peerList(input), input => this.channels.peerDelete(input), input => this.drive.peer(input), input => this.content.peer(input), input => this.sharedDrive.peer(input), input => this.managed.peer(input), input => this.channels.peerUpdate(input), input => this.noteMenus.peer(input, userId => this.limitAction(userId, 'gridspace/note-menu', 60)), input => this.publicNotes.local(input), input => this.reactionNotifications.receive(input), async input => {
 			if (input.shared) await this.notes.sync(input.noteId);
 			return this.timelinePeer.receive(input.noteId);
-		}, () => this.timelinePeer.receiveChanges());
+		}, () => this.timelinePeer.receiveChanges(), { enabled: this.placements.enabled, routes: this.placementRoutes() });
 		done();
 	}
 }

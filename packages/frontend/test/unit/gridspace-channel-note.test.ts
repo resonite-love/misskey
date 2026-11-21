@@ -18,7 +18,7 @@ vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: api }));
 vi.mock('@/utility/gridspace-post.js', () => ({ gridspacePost: post }));
 vi.mock('@/utility/get-note-menu.js', () => ({ getRenoteMenu: vi.fn() }));
 vi.mock('@/utility/gridspace-note-menu.js', () => ({ getGridspaceNoteMenu: async () => ({ menu: [], cleanup: vi.fn() }) }));
-vi.mock('@/os.js', () => ({ popupMenu: menu, toast: vi.fn(), alert: vi.fn() }));
+vi.mock('@/os.js', () => ({ popupMenu: menu, toast: vi.fn(), alert: vi.fn(), confirm: async () => ({ canceled: false }) }));
 vi.mock('@/i.js', () => ({ $i: { id: 'current' } }));
 vi.mock('@/preferences.js', () => ({ prefer: { s: { instanceTicker: 'never', dataSaver: { media: true } } } }));
 vi.mock('@/utility/url-preview.js', () => ({ isEnabledUrlPreview: false }));
@@ -30,7 +30,7 @@ vi.mock('@/components/MkNoteHeader.vue', () => ({ default: { template: '<div/>' 
 vi.mock('@/components/global/MkAvatar.vue', () => ({ default: { props: ['preview'], template: '<div data-avatar :data-preview="preview"/>' } }));
 vi.mock('@/components/MkInstanceTicker.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkUrlPreview.vue', () => ({ default: { template: '<div/>' } }));
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { reply: 'Reply', renote: 'Renote', cantRenote: 'Unavailable', reaction: 'React', more: 'More', inChannelRenote: 'Channel renote', inChannelQuote: 'Channel quote', renoted: 'Renoted', _gridspace: {}, _visibility: { public: 'Public' } }, tsx: { _gridspace: { selfRenoteAs: ({ account }: { account: string }) => `Self-renote as ${account}` } } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { delete: 'Delete', reply: 'Reply', renote: 'Renote', cantRenote: 'Unavailable', reaction: 'React', more: 'More', inChannelRenote: 'Channel renote', inChannelQuote: 'Channel quote', renoted: 'Renoted', showOnRemote: 'Open original', _multiNote: { mirrorUnavailable: 'Awaiting local copy' }, _gridspace: {}, _visibility: { public: 'Public' } }, tsx: { _gridspace: { selfRenoteAs: ({ account }: { account: string }) => `Self-renote as ${account}` } } } }));
 
 beforeEach(() => {
 	vi.clearAllMocks(); window.sessionStorage.clear();
@@ -152,4 +152,30 @@ test('a pure renote opened in detail keeps the shared detail layout and source a
  expect(view.getByText('Original content')).toBeTruthy();
  await fireEvent.click(view.getByRole('button', { name: 'Reply' }));
  expect(post).toHaveBeenCalledWith(expect.objectContaining({ reply: original }), expect.any(Function));
+});
+
+test('an unimported ordinary note links to the original and exposes no delegated actions', () => {
+	const view = render(Note, { props: { note: original, readOnly: true }, global: globals });
+	expect(view.getByText('Original content')).toBeTruthy();
+	expect(view.getByRole('link', { name: 'Open original' }).getAttribute('href')).toBe(original.uri);
+	expect(view.queryByRole('button', { name: 'Reply' })).toBeNull();
+	expect(view.queryByRole('button', { name: 'React' })).toBeNull();
+	expect(view.queryByRole('button', { name: 'More' })).toBeNull();
+	expect(api).not.toHaveBeenCalled();
+});
+
+test('deleting an authorized guest reply retries the same request on the original server', async () => {
+	const note = { ...original, channelId: null, multiNoteKind: 'conversation-reply' as const, includeDefault: false, canDelete: true };
+	const view = render(Note, { props: { note }, global: globals });
+	menu.mockResolvedValue(undefined);
+	await fireEvent.click(view.getByRole('button', { name: 'More' }));
+	const items = menu.mock.calls[0][0] as { text: string; action: () => Promise<void> }[];
+	const remove = items.find(item => item.text === 'Delete')!;
+	api.mockRejectedValueOnce(new Error('uncertain')).mockResolvedValueOnce({ deleted: true });
+	await remove.action();
+	await remove.action();
+	const request = { canonicalUri: note.uri, requestId: expect.any(String) };
+	expect(api).toHaveBeenNthCalledWith(1, 'gridspace/delete-reply', request, undefined, expect.anything());
+	expect(api).toHaveBeenNthCalledWith(2, 'gridspace/delete-reply', api.mock.calls[0][1], undefined, expect.anything());
+	expect(view.queryByText(note.text!)).toBeNull();
 });

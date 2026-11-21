@@ -8,6 +8,7 @@ import Fastify from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createGridspaceHeaders, GRIDSPACE_HANDSHAKE_PATH, GRIDSPACE_NONCE_TTL_MS, resolveGridspaceConfig } from '@/core/gridspace/peer-protocol.js';
+import { originPlacementCapability, placementSchemas } from '@/core/gridspace/placement-protocol.js';
 import { registerGridspacePeer } from './peer-server.js';
 import type { FastifyInstance } from 'fastify';
 import type { ClaimGridspaceNonce } from './peer-server.js';
@@ -44,6 +45,30 @@ afterEach(async () => {
 });
 
 describe('GridSpace channel actions', () => {
+	test('origin placement reads advertise a separate capability and authenticate bounded batches when posting is disabled', async () => {
+		const read = vi.fn(async () => ({ roots: [] }));
+		const app = Fastify();
+		servers.push(app);
+		await app.register(fastifyRawBody, { global: false, encoding: null, runFirst: true });
+		await app.register(async child => {
+			const handlers = new Array(25).fill(undefined) as Parameters<typeof registerGridspacePeer> extends [unknown, unknown, unknown, ...infer Rest] ? Rest : never;
+			handlers[24] = { enabled: false, routes: [{ name: 'origin-lookup', schema: placementSchemas['origin-lookup'], handle: read }] };
+			registerGridspacePeer(child, r, async () => true, ...handlers);
+		}, { prefix: '/gridspace/v1' });
+		const handshake = (await app.inject(request())).json();
+		expect(handshake.features).toContain(originPlacementCapability);
+		expect(handshake.placementEnabled).toBe(false);
+		const url = '/gridspace/v1/placements/origin-lookup';
+		const send = (ids: string[], signed = true) => {
+			const payload = Buffer.from(JSON.stringify({ noteIds: ids }));
+			return app.inject({ method: 'POST', url, payload, headers: signed ? createGridspaceHeaders(g, 'POST', url, payload) : { 'content-type': 'application/json' } });
+		};
+		expect((await send(['archived1'], false)).statusCode).toBe(403);
+		expect((await send(['archived1', 'archived2'])).json()).toEqual({ roots: [] });
+		expect((await send(['archived1', 'archived1'])).statusCode).toBe(400);
+		expect((await send(Array.from({ length: 101 }, (_, i) => 'id' + i))).statusCode).toBe(400);
+		expect(read).toHaveBeenCalledTimes(1);
+	});
 	test('policy invalidations require the paired signature and contain no user data', async () => {
 		const notify = vi.fn(() => ({ ok: true }));
 		const app = Fastify(); servers.push(app);
@@ -130,7 +155,19 @@ describe('GridSpace channel actions', () => {
 		expect((await send({ channelActorId: 'viewer' }, false)).statusCode).toBe(403);
 		expect((await send({ channelActorId: 'viewer' })).statusCode).toBe(200);
 		expect(notifications).toHaveBeenCalledWith('query', expect.objectContaining({ channelActorId: 'viewer' }));
-		for (const input of [{ channelActorId: 'viewer', accessToken: 'mixed' }, { channelActorId: 'viewer', localUserId: 'other' }, { channelActorId: 'bad/id' }, {}]) expect((await send(input)).statusCode).toBe(400);
+		expect((await send({ placementActorId: 'viewer' }, false)).statusCode).toBe(403);
+		expect((await send({ placementActorId: 'viewer' })).statusCode).toBe(200);
+		for (const input of [{ placementActorId: 'viewer', channelActorId: 'other' }, { placementActorId: 'viewer', localUserId: 'other' }, { channelActorId: 'viewer', accessToken: 'mixed' }, { channelActorId: 'viewer', localUserId: 'other' }, { channelActorId: 'bad/id' }, {}]) expect((await send(input)).statusCode).toBe(400);
+	});
+
+	test('requires a signed recipient-only notification change hint', async () => {
+		const notifications = vi.fn(async () => ({ ok: true }));
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, notifications);
+		const url = '/gridspace/v1/notifications/changed';
+		const payload = Buffer.from(JSON.stringify({ expectedRecipientId: 'viewer' }));
+		expect((await app.inject({ method: 'POST', url, payload, headers: { 'content-type': 'application/json' } })).statusCode).toBe(403);
+		expect((await app.inject({ method: 'POST', url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) })).statusCode).toBe(200);
+		expect(notifications).toHaveBeenCalledExactlyOnceWith('changed', { expectedRecipientId: 'viewer' });
 	});
 
 	test('signed context navigation preserves its source anchor, scope and direction', async () => {

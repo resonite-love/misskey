@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <div ref="root" :data-gridspace-private-row="row.leased ? '' : undefined" :aria-busy="suspended" :style="{ height: suspended ? `${height}px` : undefined, minHeight: height ? `${height}px` : undefined }" @pointerdown="releaseHeight" @keydown="releaseHeight">
 	<div v-if="suspended" :class="$style.placeholder" aria-hidden="true"></div>
-	<MkGridspacePrivateNote v-else-if="row.kind === 'private'" :key="bodyKey" v-model:expanded="expanded" :note="row.note as GridspacePrivateNote" @unavailable="emit('unavailable')" @replied="emit('replied')"/>
+	<MkGridspacePrivateNote v-else-if="row.kind === 'private'" :key="bodyKey" v-model:expanded="expanded" :readOnly="row.readOnly" :note="row.note as GridspacePrivateNote" @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 	<MkNote v-else-if="row.kind === 'normal'" :key="bodyKey" v-model:expanded="expanded" :note="row.note" :withHardMute="true"/>
 </div>
 </template>

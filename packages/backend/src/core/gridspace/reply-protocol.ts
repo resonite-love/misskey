@@ -4,14 +4,16 @@
  */
 
 import { MAX_NOTE_TEXT_LENGTH } from '@/const.js';
+import { conversationUriSchema, type ConversationCredential, type ConversationOptions } from './conversation-protocol.js';
 import type { MiNote } from '@/models/Note.js';
 import { isRenote, isQuote } from '@/misc/is-renote.js';
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import { privateNoteSchema } from './private-protocol.js';
 
-export type ReplyOptions = { action: 'prepare' | 'send' | 'status'; noteId?: string; renoteId?: string; channelId?: string; expectedActorUri?: string; requestId?: string; text?: string; cw?: string | null; fileIds?: string[]; poll?: { choices: string[]; multiple: boolean; expiresAt: number | null } };
-export type ReplyPeerRequest = GridspacePeerLinkRequest & ReplyOptions;
+export type ReplyOptions = ConversationOptions & { action: 'prepare' | 'send' | 'status'; noteId?: string; renoteId?: string; channelId?: string; expectedActorUri?: string; requestId?: string; text?: string; cw?: string | null; fileIds?: string[]; poll?: { choices: string[]; multiple: boolean; expiresAt: number | null } };
+export type ReplyPeerRequest = ConversationCredential & GridspacePeerLinkRequest & ReplyOptions;
 export const replyOptionsSchema = {
+	conversationUri: conversationUriSchema,
 	action: { type: 'string', enum: ['prepare', 'send', 'status'], default: 'prepare' },
 	noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	renoteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },

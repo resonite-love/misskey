@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { Inject, Injectable, Scope } from '@nestjs/common';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { bindThis } from '@/decorators.js';
@@ -59,6 +60,7 @@ export class RoleTimelineChannel extends Channel {
 
 		if (data.type === 'note') {
 			let note = data.body;
+			if (!includesDefault(note) && !await this.hasLocalChannelPlacement(note, note.channelId ? [note.channelId] : [])) return;
 
 			if (note.visibility !== 'public') return;
 			if (note.user.requireSigninToViewContents && this.user == null) return;

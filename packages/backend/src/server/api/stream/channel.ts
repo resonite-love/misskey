@@ -3,6 +3,10 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { channelPlacementCondition, isConversationOnly } from '@/misc/note-distribution.js';
+import { Inject } from '@nestjs/common';
+import { DI } from '@/di-symbols.js';
+import type { NotesRepository } from '@/models/_.js';
 import { bindThis } from '@/decorators.js';
 import { isInstanceMuted } from '@/misc/is-instance-muted.js';
 import { isUserRelated } from '@/misc/is-user-related.js';
@@ -19,6 +23,24 @@ import type Connection from './Connection.js';
 // eslint-disable-next-line import/no-default-export
 export default abstract class Channel {
 	protected connection: Connection;
+	@Inject(DI.notesRepository)
+	protected readonly placementNotes: NotesRepository;
+
+	/** Verify an active local route before sending a cached event, including delayed events after removal. */
+	protected async hasLocalChannelPlacement(note: Packed<'Note'>, channelIds: string[]): Promise<boolean> {
+		if (!channelIds.length || isConversationOnly(note)) return false;
+		// Older stream producers do not include the distribution fields.
+		if (!note.uri && note.includeDefault == null && !note.channelPlacements) return !!note.channelId && channelIds.includes(note.channelId);
+		if (!note.uri && !(note.channelId && channelIds.includes(note.channelId)) &&
+			!note.channelPlacements?.some(p => p.state === 'active' && channelIds.includes(p.channelId))) return false;
+		return this.placementNotes.createQueryBuilder('note').where('note.id = :id', { id: note.id })
+			.andWhere(channelPlacementCondition('ANY(:routeChannels)'), { routeChannels: channelIds }).getExists();
+	}
+
+	protected hasFollowedChannelPlacement(note: Packed<'Note'>): Promise<boolean> {
+		return this.hasLocalChannelPlacement(note, [...this.followingChannels].filter(id => !this.mutingChannels.has(id)));
+	}
+
 	public id: string;
 	public abstract readonly chName: string;
 	public static readonly shouldShare: boolean;

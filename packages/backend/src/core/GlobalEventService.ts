@@ -69,6 +69,7 @@ export interface MainEventTypes {
 	};
 	readAllNotifications: undefined;
 	notificationRead: { unreadCount: number };
+	gridspaceNotificationsChanged: undefined;
 	notificationFlushed: undefined;
 	unreadNotification: Packed<'Notification'>;
 	unreadAntenna: MiAntenna;
@@ -245,6 +246,7 @@ type UndefinedAsNullAll<T> = {
 };
 
 export interface InternalEventTypes {
+	channelMirrorPlaced: { noteId: string; channelId: string };
 	gridspaceTimelineChanged: { sequence: string };
 	gridspaceTimelineNote: { noteId: string; source: 'peer' };
 	userChangeSuspendedState: { id: MiUser['id']; isSuspended: MiUser['isSuspended']; };
@@ -394,6 +396,27 @@ export class GlobalEventService {
 	@bindThis
 	public publishInternalEvent<K extends keyof InternalEventTypes>(type: K, value?: InternalEventTypes[K]): void {
 		this.publish('internal', type, typeof value === 'undefined' ? null : value);
+	}
+
+	/** Redis publication and its receipt must succeed together when a SQL dispatch is retried. */
+	public async publishCreatedNoteOnce(channel: 'notesStream' | `roleTimelineStream:${string}` | `antennaStream:${string}`, note: Packed<'Note'>): Promise<void> {
+		const message = channel === 'notesStream' ? note : { type: 'note', body: note };
+		await this.redisForPub.eval(`if redis.call('SADD', KEYS[1], ARGV[1]) == 1 then
+			return redis.call('PUBLISH', ARGV[2], ARGV[3]) end return 0`,
+		1, 'multi-note-streams:' + note.id, channel, this.config.host, JSON.stringify({ channel, message }));
+	}
+
+	/** Keep receipts throughout retries. Expire them only after PostgreSQL acknowledges the job. */
+	public async completeCreatedNoteDispatch(noteId: string): Promise<void> {
+		await this.redisForPub.expire('multi-note-streams:' + noteId, 172800);
+	}
+
+	/** Send only a real local reference. Each subscribed channel rechecks placement and viewer policy. */
+	public async publishPlacedChannelMirror(channelId: string, noteId: string, placementId: string): Promise<void> {
+		const message = JSON.stringify({ channel: 'internal', message: { type: 'channelMirrorPlaced', body: { channelId, noteId } } });
+		await this.redisForPub.eval(`if redis.call('SET', KEYS[1], '1', 'EX', 172800, 'NX') then
+			return redis.call('PUBLISH', ARGV[1], ARGV[2]) end return 0`,
+		1, 'channel-mirror-delivery:' + placementId, this.config.host, message);
 	}
 
 	@bindThis

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { MetricsTime, type JobType } from 'bullmq';
 import type { IActivity } from '@/core/activitypub/type.js';
@@ -146,7 +146,7 @@ export class QueueService {
 	}
 
 	@bindThis
-	public deliver(user: ThinUser, content: IActivity | null, to: string | null, isSharedInbox: boolean) {
+	public deliver(user: ThinUser, content: IActivity | null, to: string | null, isSharedInbox: boolean, deliveryKey?: string) {
 		if (content == null) return null;
 		if (to == null) return null;
 
@@ -166,6 +166,7 @@ export class QueueService {
 		const label = to.replace('https://', '').replace('/inbox', '');
 
 		return this.deliverQueue.add(label, data, {
+			...(deliveryKey && { jobId: createHash('sha256').update(deliveryKey + '\n' + to).digest('hex') }),
 			attempts: this.config.deliverJobMaxAttempts ?? 12,
 			backoff: {
 				type: 'custom',
@@ -189,7 +190,7 @@ export class QueueService {
 	 * @returns void
 	 */
 	@bindThis
-	public async deliverMany(user: ThinUser, content: IActivity | null, inboxes: Map<string, boolean>) {
+	public async deliverMany(user: ThinUser, content: IActivity | null, inboxes: Map<string, boolean>, deliveryKey?: string) {
 		if (content == null) return null;
 		const contentBody = JSON.stringify(content);
 		const digest = ApRequestCreator.createDigest(contentBody);
@@ -218,7 +219,7 @@ export class QueueService {
 				to: d[0],
 				isSharedInbox: d[1],
 			} as DeliverJobData,
-			opts,
+			opts: deliveryKey ? { ...opts, jobId: createHash('sha256').update(deliveryKey + '\n' + d[0]).digest('hex') } : opts,
 		})));
 
 		return;

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import type { PackedChannelPlacement } from '@/core/NotePlacementService.js';
 import type { Packed } from '@/misc/json-schema.js';
 import { privateNoteSchema, type PrivateNote } from '../private-protocol.js';
 
@@ -11,18 +12,19 @@ import { privateNoteSchema, type PrivateNote } from '../private-protocol.js';
 export const TIMELINE_AUTHORIZATION_TTL_MS = 60_000;
 export const TIMELINE_REVALIDATE_MS = 30_000;
 
-export type TimelinePosition = { sortAt: string; canonicalUri: string; noteId?: string; sourceId?: string; source?: 'local' | 'peer' };
-export type TimelineReference = TimelinePosition & { noteId: string; normalized: boolean; generation: number; source: 'local' | 'peer'; public?: boolean };
+export type TimelinePosition = { sortAt: string; pinRank?: number; canonicalUri: string; noteId?: string; sourceId?: string; source?: 'local' | 'peer' };
+export type PlacementLocator = { channelId: string; channelOrigin: string; channelIds?: string[]; chips?: PackedChannelPlacement[]; noteOrigin: string; includeDefault: boolean; legacy: boolean };
+export type TimelineReference = TimelinePosition & { noteId: string; normalized: boolean; generation: number; source: 'local' | 'peer'; public?: boolean; placement?: PlacementLocator; routes?: { origin: string; channelIds: string[] }[] };
 export type TimelineOptions = {
 	kind: 'home' | 'social' | 'profile' | 'search' | 'mentions' | 'direct' | 'channel' | 'favorites' | 'antenna' | 'clip'; withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean;
 	includeMyRenotes?: boolean; includeRenotedMyNotes?: boolean; includeLocalRenotes?: boolean;
-	channelId?: string; clipId?: string; antennaId?: string; userId?: string; query?: string;
+	channelId?: string; channelOrigin?: string; pinnedOnly?: boolean; clipId?: string; antennaId?: string; userId?: string; query?: string;
 	withChannelNotes?: boolean; order?: 'newest' | 'oldest'; rangeStartAt?: number; rangeEndAt?: number;
 };
 export type TimelineItem = {
 	key: string; sortKey: { sortAt: string; uri: string }; ref: string;
 	representation: 'normal' | 'delegated'; payload: Packed<'Note'> | PrivateNote;
-	validForMs: number | null; nextPolicyCheckAt: string | null;
+	readOnly?: boolean; validForMs: number | null; nextPolicyCheckAt: string | null;
 };
 export type TimelineSourceState = { source: 'local' | 'peer'; status: 'ok' | 'unavailable' | 'unauthorized' | 'disabled'; retryable: boolean };
 export type TimelinePage = {
@@ -33,6 +35,7 @@ export type TimelinePage = {
 
 export const timelineFilterSchema = {
 	kind: { type: 'string', enum: ['home', 'social', 'profile', 'search', 'mentions', 'direct', 'channel', 'favorites', 'antenna', 'clip'] },
+	channelOrigin: { type: 'string', maxLength: 512 }, pinnedOnly: { type: 'boolean' },
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	clipId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, antennaId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	userId: { type: 'string', format: 'misskey:id', maxLength: 32 },
@@ -50,6 +53,7 @@ export const timelineItemSchema = {
 		sortKey: { type: 'object', optional: false, nullable: false, properties: { sortAt: text, uri: text } },
 		representation: { ...text, enum: ['normal', 'delegated'] },
 		payload: { oneOf: [{ type: 'object', ref: 'Note', optional: false, nullable: false }, privateNoteSchema], optional: false, nullable: false },
+		readOnly: { ...boolean, optional: true },
 		validForMs: { type: 'integer', optional: false, nullable: true }, nextPolicyCheckAt: { ...text, nullable: true },
 	},
 } as const;

@@ -7,6 +7,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DI } from '@/di-symbols.js';
 import { bindThis } from '@/decorators.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
+import type { NotePlacementService } from '@/core/NotePlacementService.js';
 import { deepClone } from '@/misc/clone.js';
 import { isRenotePacked, isQuotePacked } from '@/misc/is-renote.js';
 import type { Packed } from '@/misc/json-schema.js';
@@ -21,6 +22,8 @@ export class NoteStreamingHidingService {
 		private meta: MiMeta,
 
 		private noteEntityService: NoteEntityService,
+		@Inject('NotePlacementService')
+		private notePlacementService: NotePlacementService,
 	) {}
 
 	private collectRenoteChain(note: Packed<'Note'>): Packed<'Note'>[] {
@@ -31,6 +34,15 @@ export class NoteStreamingHidingService {
 		}
 
 		return renoteChain;
+	}
+
+	private collectPlacementNotes(note: Packed<'Note'>, result: Packed<'Note'>[] = []): Packed<'Note'>[] {
+		if (note.multiNoteKind === 'root' || (note.gridspaceShared && note.uri) || note.channelPlacements || note.channelPlacementsUnavailable) {
+			result.push(note);
+		}
+		if (note.reply) this.collectPlacementNotes(note.reply, result);
+		if (note.renote) this.collectPlacementNotes(note.renote, result);
+		return result;
 	}
 
 	/**
@@ -55,7 +67,7 @@ export class NoteStreamingHidingService {
 		const shouldHide = await Promise.all(renoteChain.map(n => this.noteEntityService.shouldHideNote(n, meId)));
 		const shouldHideReply = await Promise.all(renoteChain.map(n => n.reply ? this.noteEntityService.shouldHideNote(n.reply, meId) : false));
 
-		if (!shouldHide.some(h => h) && !shouldHideReply.some(h => h)) {
+		if (!shouldHide.some(h => h) && !shouldHideReply.some(h => h) && this.collectPlacementNotes(note).length === 0) {
 			// 隠す必要がない場合は元のノートをそのまま返す
 			return note;
 		}
@@ -76,6 +88,24 @@ export class NoteStreamingHidingService {
 				this.noteEntityService.hideNote(currentCloned.reply);
 			}
 			currentCloned = currentCloned.renote!;
+		}
+
+		// The broadcast payload is shared. Resolve placement names and actions for this subscriber only.
+		const candidates = this.collectPlacementNotes(clonedNote);
+		const visibleIds = [...new Set(candidates.filter(n => !n.isHidden).map(n => n.id))];
+		const routes = visibleIds.length ? await this.notePlacementService.pack(visibleIds, meId ? { id: meId } : null) : undefined;
+		for (const n of candidates) {
+			delete n.channelPlacements;
+			delete n.channelPlacementsUnavailable;
+			// A mirror's root marker comes from the origin's response for this viewer.
+			if (n.gridspaceShared && n.uri) {
+				if (!n.isHidden && routes?.rootNoteIds?.has(n.id)) n.multiNoteKind = 'root';
+				else if (n.multiNoteKind === 'root') delete n.multiNoteKind;
+			}
+			if (n.isHidden) continue;
+			const placements = routes?.get(n.id) ?? [];
+			if (placements.length > 0 || n.multiNoteKind === 'root') n.channelPlacements = placements;
+			if (routes?.unavailableNoteIds?.has(n.id)) n.channelPlacementsUnavailable = true;
 		}
 
 		return clonedNote;

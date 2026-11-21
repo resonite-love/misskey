@@ -50,6 +50,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkNoteDetailedArticle :compactTop="isRenote" @contextmenu.stop="onContextmenu">
 			<template #header><MkNoteDetailedHeader :user="appearNote.user" :visibility="appearNote.visibility" :localOnly="appearNote.localOnly"><MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/></MkNoteDetailedHeader></template>
 			<div :class="$style.noteContent">
+				<MkNotePlacements v-if="!appearNote.isHidden && appearNote.multiNoteKind === 'root'" :placements="appearNote.channelPlacements" :unavailable="appearNote.channelPlacementsUnavailable" :includeDefault="appearNote.includeDefault"/>
 				<MkNoteCw v-if="appearNote.cw != null" v-model="showContent" :cw="appearNote.cw" :text="appearNote.text" :author="appearNote.user" :emojiUrls="appearNote.emojis" :files="appearNote.files" :poll="appearNote.poll" :renote="appearNote.renote" interactive/>
 				<div v-show="appearNote.cw == null || showContent">
 					<span v-if="appearNote.isHidden" style="opacity: 0.5">({{ i18n.ts.private }})</span>
@@ -221,6 +222,7 @@ import MkNoteDetailedArticle from '@/components/MkNoteDetailedArticle.vue';
 import MkNoteDetailedHeader from '@/components/MkNoteDetailedHeader.vue';
 import MkNoteInfo from '@/components/MkNoteInfo.vue';
 import MkNoteText from '@/components/MkNoteText.vue';
+import MkNotePlacements from '@/components/MkNotePlacements.vue';
 import MkNoteCw from '@/components/MkNoteCw.vue';
 import MkMediaList from '@/components/MkMediaList.vue';
 import MkPoll from '@/components/MkPoll.vue';

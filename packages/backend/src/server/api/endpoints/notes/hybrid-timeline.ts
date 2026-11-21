@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { noteListingCondition } from '@/misc/note-distribution.js';
 import { Brackets } from 'typeorm';
 import { Inject, Injectable } from '@nestjs/common';
 import type { NotesRepository, ChannelFollowingsRepository, MiMeta } from '@/models/_.js';
@@ -16,11 +17,9 @@ import { IdService } from '@/core/IdService.js';
 import { CacheService } from '@/core/CacheService.js';
 import { FanoutTimelineName } from '@/core/FanoutTimelineService.js';
 import { QueryService } from '@/core/QueryService.js';
-import { UserFollowingService } from '@/core/UserFollowingService.js';
 import { MiLocalUser } from '@/models/User.js';
 import { FanoutTimelineEndpointService } from '@/core/FanoutTimelineEndpointService.js';
 import { ChannelMutingService } from '@/core/ChannelMutingService.js';
-import { ChannelFollowingService } from '@/core/ChannelFollowingService.js';
 import { ApiError } from '../../error.js';
 
 export const meta = {
@@ -89,9 +88,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		private cacheService: CacheService,
 		private queryService: QueryService,
 		private gridspaceIdentity: GridspaceIdentityService,
-		private userFollowingService: UserFollowingService,
 		private channelMutingService: ChannelMutingService,
-		private channelFollowingService: ChannelFollowingService,
 		private fanoutTimelineEndpointService: FanoutTimelineEndpointService,
 	) {
 		super(meta, paramDef, async (ps, me) => {
@@ -158,6 +155,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				limit: ps.limit,
 				allowPartial: ps.allowPartial,
 				me,
+				listing: { kind: 'social', viewerId: me.id, linkedUserId },
 				redisTimelines: [...timelineConfig, ...(linkedUserId ? (ps.withFiles ? [`userTimelineWithFiles:${linkedUserId}` as const] : [`userTimeline:${linkedUserId}` as const, `userTimelineWithReplies:${linkedUserId}` as const]) : [])],
 				useDbFallback: this.serverSettings.enableFanoutTimelineDbFallback,
 				alwaysIncludeMyNotes: true,
@@ -201,40 +199,19 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		withReplies: boolean,
 	}, me: MiLocalUser) {
 		const linkedUserId = await this.gridspaceIdentity.linkedUserId(me.id);
-		const followees = [...await this.userFollowingService.getFollowees(me.id), ...(linkedUserId ? [{ followeeId: linkedUserId }] : [])];
 
 		const mutingChannelIds = await this.channelMutingService
 			.list({ requestUserId: me.id }, { idOnly: true })
 			.then(x => x.map(x => x.id));
-		const followingChannelIds = await this.channelFollowingService
-			.list({ requestUserId: me.id }, { idOnly: true })
-			.then(x => x.map(x => x.id).filter(x => !mutingChannelIds.includes(x)));
 
 		const query = this.queryService.makePaginationQuery(this.notesRepository.createQueryBuilder('note'), ps.sinceId, ps.untilId)
-			.andWhere(new Brackets(qb => {
-				if (followees.length > 0) {
-					const meOrFolloweeIds = [me.id, ...followees.map(f => f.followeeId)];
-					qb.where('note.userId IN (:...meOrFolloweeIds)', { meOrFolloweeIds: meOrFolloweeIds });
-					qb.orWhere('(note.visibility = \'public\') AND ((note.userHost IS NULL OR note.gridspaceShared = true))');
-				} else {
-					qb.where('note.userId = :meId', { meId: me.id });
-					qb.orWhere('(note.visibility = \'public\') AND ((note.userHost IS NULL OR note.gridspaceShared = true))');
-				}
-			}))
 			.innerJoinAndSelect('note.user', 'user')
 			.leftJoinAndSelect('note.reply', 'reply')
 			.leftJoinAndSelect('note.renote', 'renote')
 			.leftJoinAndSelect('reply.user', 'replyUser')
 			.leftJoinAndSelect('renote.user', 'renoteUser');
 
-		if (followingChannelIds.length > 0) {
-			query.andWhere(new Brackets(qb => {
-				qb.where('note.channelId IN (:...followingChannelIds)', { followingChannelIds });
-				qb.orWhere('note.channelId IS NULL');
-			}));
-		} else {
-			query.andWhere('note.channelId IS NULL');
-		}
+		query.andWhere(...noteListingCondition({ kind: 'social', viewerId: me.id, linkedUserId }));
 
 		if (mutingChannelIds.length > 0) {
 			query.andWhere(new Brackets(qb => {

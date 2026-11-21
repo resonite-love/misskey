@@ -31,6 +31,7 @@ import { i18n } from '@/i18n.js';
 const props = withDefaults(defineProps<{
 	paginator: IPaginator<entities.Channel>;
 	peerEnabled: boolean;
+	placementAccount?: boolean;
 	peerParams: entities.GridspaceChannelsRequest;
 	grid?: boolean;
 }>(), { grid: true });
@@ -59,7 +60,7 @@ async function loadPeer(more = false) {
 	const current = generation;
 	peerLoading.value = true; peerError.value = false;
 	try {
-		const result = await misskeyApi('gridspace/channels', { ...props.peerParams, limit: 10, before: more ? next.value! : undefined }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
+		const result = await misskeyApi(props.placementAccount ? 'gridspace/multi-note/channels' : 'gridspace/channels', { ...props.peerParams, limit: 10, before: more ? next.value! : undefined }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
 		if (current !== generation) return;
 		const seen = new Set(more ? peerItems.value.map(channel => channel.id) : []);
 		peerItems.value = [...(more ? peerItems.value : []), ...result.channels.filter(channel => !seen.has(channel.id))];
@@ -78,7 +79,7 @@ async function retry() {
 	await Promise.all([localError.value ? props.paginator.reload() : undefined, peerError.value ? loadPeer() : undefined]);
 }
 
-watch([() => props.paginator, () => JSON.stringify([props.peerEnabled, props.peerParams])], ([paginator], previous) => {
+watch([() => props.paginator, () => JSON.stringify([props.peerEnabled, props.placementAccount, props.peerParams])], ([paginator], previous) => {
 	if (paginator !== previous?.[0]) void paginator.init();
 	generation++; controller.abort(); controller = new AbortController();
 	peerItems.value = []; next.value = null; peerLoading.value = false; peerError.value = false;

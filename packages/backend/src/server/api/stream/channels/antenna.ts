@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { Inject, Injectable, Scope } from '@nestjs/common';
 import { DI } from '@/di-symbols.js';
 import type { AntennasRepository } from '@/models/_.js';
@@ -62,6 +63,7 @@ export class AntennaChannel extends Channel {
 	private async onEvent(data: GlobalEvents['antenna']['payload']) {
 		if (data.type === 'note') {
 			let note = data.body;
+			if (!includesDefault(note) && !await this.hasLocalChannelPlacement(note, note.channelId ? [note.channelId] : [])) return;
 
 			if (!this.isNoteVisibleForMe(note)) return;
 			if (this.isNoteMutedOrBlocked(note)) return;

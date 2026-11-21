@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { startLinkedNotificationCounts } from '@/utility/gridspace-notification-state.js';
+import { refreshLinkedNotifications, startLinkedNotificationCounts } from '@/utility/gridspace-notification-state.js';
 import { createApp, defineAsyncComponent, markRaw } from 'vue';
 import { ui, version } from '@@/js/config.js';
 import * as Misskey from 'misskey-js';
@@ -364,6 +364,8 @@ export async function mainBoot() {
 			main.on('meUpdated', i => {
 				updateCurrentAccount(i);
 			});
+
+			main.on('gridspaceNotificationsChanged', refreshLinkedNotifications);
 
 			main.on('notificationRead', ({ unreadCount }) => {
 				updateCurrentAccount({ hasUnreadNotification: unreadCount > 0, unreadNotificationsCount: unreadCount });

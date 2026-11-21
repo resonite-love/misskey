@@ -7,6 +7,7 @@ import { setTimeout } from 'node:timers/promises';
 import * as Redis from 'ioredis';
 import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common';
 import { In } from 'typeorm';
+import { ModuleRef } from '@nestjs/core';
 import { ReplyError } from 'ioredis';
 import { DI } from '@/di-symbols.js';
 import type { UsersRepository } from '@/models/_.js';
@@ -16,6 +17,7 @@ import type { MiNotification } from '@/models/Notification.js';
 import { bindThis } from '@/decorators.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { PushNotificationService } from '@/core/PushNotificationService.js';
+import { dedicatedOriginal } from './gridspace/conversation-protocol.js';
 import { NotificationReadService } from './NotificationReadService.js';
 import { NotificationEntityService } from '@/core/entities/NotificationEntityService.js';
 import { IdService } from '@/core/IdService.js';
@@ -30,7 +32,11 @@ import { trackPromise } from '@/misc/promise-tracker.js';
 export const reactionNotificationOnceScript = `
 if redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
 redis.call('XADD', KEYS[1], 'MAXLEN', '~', ARGV[1], ARGV[2], 'data', ARGV[3])
-redis.call('SET', KEYS[2], '1', 'EX', 604800)
+if ARGV[4] == 'persistent' then
+ redis.call('SET', KEYS[2], '1')
+else
+ redis.call('SET', KEYS[2], '1', 'EX', 604800)
+end
 return 1
 `;
 
@@ -55,6 +61,7 @@ export class NotificationService implements OnApplicationShutdown {
 		private pushNotificationService: PushNotificationService,
 		private cacheService: CacheService,
 		private userListService: UserListService,
+		private modules: ModuleRef,
 	) {
 	}
 
@@ -83,18 +90,30 @@ export class NotificationService implements OnApplicationShutdown {
 		this.pushNotificationService.pushNotification(userId, 'readAllNotifications', undefined);
 	}
 
+	public isGuestConversationRecipient(note: Pick<MiNote, 'userHost' | 'localOnly' | 'uri' | 'channelId'> & Partial<Pick<MiNote, 'includeDefault' | 'multiNoteKind' | 'multiNoteRootId'>>): boolean {
+		const peer = this.config.gridspace;
+		return peer?.enabled === true && note.userHost === new URL(peer.peerUrl).host &&
+			note.multiNoteKind === 'conversation-reply' && dedicatedOriginal(note);
+	}
+
 	@bindThis
-	public createReactionNotification(note: Pick<MiNote, 'id' | 'userId' | 'userHost' | 'channelId' | 'localOnly' | 'uri'>, reaction: string, notifierId: string) {
+	public createReactionNotification(note: Pick<MiNote, 'id' | 'userId' | 'userHost' | 'channelId' | 'localOnly' | 'uri'> & Partial<Pick<MiNote, 'includeDefault' | 'multiNoteKind' | 'multiNoteRootId'>>, reaction: string, notifierId: string) {
 		const peer = this.config.gridspace;
 		const channelRecipient = peer?.enabled === true && peer.channelRole === 'source' &&
 			note.channelId != null && note.localOnly && note.uri === null && note.userHost === new URL(peer.peerUrl).host;
-		if (note.userHost === null || channelRecipient) this.createNotification(note.userId, 'reaction', { noteId: note.id, reaction }, notifierId);
+		if (note.userHost === null || channelRecipient || this.isGuestConversationRecipient(note)) this.createNotification(note.userId, 'reaction', { noteId: note.id, reaction }, notifierId);
 	}
 
 	/** The caller has verified a new, still-visible reaction from the configured peer. */
 	public async createReactionNotificationOnce(note: MiNote, reaction: string, notifierId: string, receipt: string): Promise<void> {
 		if (note.userHost !== null) return;
-		await this.#createNotificationInternal(note.userId, 'reaction', { noteId: note.id, reaction }, notifierId, receipt);
+		await this.#createNotificationInternal(note.userId, 'reaction', { noteId: note.id, reaction }, notifierId, { key: `gridspace:reaction-notification:${receipt}`, persistent: false });
+	}
+
+	public async createNoteNotificationOnce(notifieeId: string, type: 'note' | 'reply' | 'mention', noteId: string, notifierId: string): Promise<void> {
+		await this.#createNotificationInternal(notifieeId, type, { noteId }, notifierId, {
+			key: `gridspace:note-create:${noteId}:${type}:${notifieeId}`, persistent: true,
+		});
 	}
 
 	@bindThis
@@ -114,7 +133,7 @@ export class NotificationService implements OnApplicationShutdown {
 		type: T,
 		data: Omit<FilterUnionByProperty<MiNotification, 'type', T>, 'type' | 'id' | 'createdAt' | 'notifierId'>,
 		notifierId?: MiUser['id'] | null,
-		receipt?: string,
+		receipt?: { key: string; persistent: boolean },
 	): Promise<MiNotification | null> {
 		const profile = await this.cacheService.userProfileCache.fetch(notifieeId);
 
@@ -187,8 +206,8 @@ export class NotificationService implements OnApplicationShutdown {
 			try {
 				if (receipt) {
 					const added = await this.redisClient.eval(reactionNotificationOnceScript, 2,
-						`notificationTimeline:${notifieeId}`, `gridspace:reaction-notification:${receipt}`,
-						this.config.perUserNotificationsMaxCount.toString(), this.toXListId(notification.id), JSON.stringify(notification));
+						`notificationTimeline:${notifieeId}`, receipt.key,
+						this.config.perUserNotificationsMaxCount.toString(), this.toXListId(notification.id), JSON.stringify(notification), receipt.persistent ? 'persistent' : 'expiring');
 					if (added === 0) return null;
 				} else {
 					redisId = (await this.redisClient.xadd(
@@ -210,6 +229,13 @@ export class NotificationService implements OnApplicationShutdown {
 		const packed = await this.notificationEntityService.pack(notification, notifieeId, {});
 
 		if (packed == null) return null;
+
+		if (this.config.gridspace?.enabled && (packed.type === 'reply' || packed.type === 'reaction') && packed.note.multiNoteKind === 'conversation-reply') {
+			// The recipient's home revalidates the inbox. An unreachable peer can still poll this committed entry.
+			void import('./gridspace/GridspaceNotificationService.js')
+				.then(({ GridspaceNotificationService }) => this.modules.get(GridspaceNotificationService).hintGuest(notifieeId, notification))
+				.catch(() => {});
+		}
 
 		// Publish notification event
 		this.globalEventService.publishMainStream(notifieeId, 'notification', packed);

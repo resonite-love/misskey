@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { noteListingCondition } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Brackets } from 'typeorm';
-import type { ChannelFollowingsRepository, NotesRepository } from '@/models/_.js';
+import type { NotesRepository } from '@/models/_.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { QueryService } from '@/core/QueryService.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
@@ -17,7 +18,6 @@ import { FanoutTimelineEndpointService } from '@/core/FanoutTimelineEndpointServ
 import { MiLocalUser } from '@/models/User.js';
 import { MetaService } from '@/core/MetaService.js';
 import { IdService } from '@/core/IdService.js';
-import { UserFollowingService } from '@/core/UserFollowingService.js';
 import { FanoutTimelineName } from '@/core/FanoutTimelineService.js';
 import { CacheService } from '@/core/CacheService.js';
 import { ApiError } from '../../error.js';
@@ -75,16 +75,12 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		@Inject(DI.notesRepository)
 		private notesRepository: NotesRepository,
 
-		@Inject(DI.channelFollowingsRepository)
-		private channelFollowingsRepository: ChannelFollowingsRepository,
-
 		private noteEntityService: NoteEntityService,
 		private queryService: QueryService,
 		private roleService: RoleService,
 		private activeUsersChart: ActiveUsersChart,
 		private idService: IdService,
 		private vmimiRelayTimelineService: VmimiRelayTimelineService,
-		private userFollowingService: UserFollowingService,
 		private fanoutTimelineEndpointService: FanoutTimelineEndpointService,
 		private cacheService: CacheService,
 		private metaService: MetaService,
@@ -155,6 +151,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				limit: ps.limit,
 				allowPartial: ps.allowPartial,
 				me,
+				listing: { kind: 'relay-social', viewerId: me.id, withLocalOnly: ps.withLocalOnly, relayHosts: this.vmimiRelayTimelineService.hostNames },
 				redisTimelines: timelineConfig,
 				useDbFallback: serverSettings.enableFanoutTimelineDbFallback,
 				alwaysIncludeMyNotes: true,
@@ -192,59 +189,14 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		withReplies: boolean,
 		withLocalOnly: boolean,
 	}, me: MiLocalUser) {
-		const followees = await this.userFollowingService.getFollowees(me.id);
-		const followingChannels = await this.channelFollowingsRepository.find({
-			where: {
-				followerId: me.id,
-			},
-		});
-		const vmimiRelayInstances = this.vmimiRelayTimelineService.hostNames;
-
 		const query = this.queryService.makePaginationQuery(this.notesRepository.createQueryBuilder('note'), ps.sinceId, ps.untilId)
-			.andWhere(new Brackets(qb => {
-				if (followees.length > 0) {
-					const meOrFolloweeIds = [me.id, ...followees.map(f => f.followeeId)];
-					qb.where('note.userId IN (:...meOrFolloweeIds)', { meOrFolloweeIds: meOrFolloweeIds });
-					qb.orWhere(new Brackets(qb => {
-						qb.where('note.visibility = \'public\'');
-						if (!ps.withLocalOnly) qb.andWhere('note.localOnly = FALSE');
-						qb.andWhere(new Brackets(qb => {
-							qb.where('note.userHost IS NULL');
-							if (vmimiRelayInstances.length !== 0) {
-								qb.orWhere('note.userHost IN (:...vmimiRelayInstances)', { vmimiRelayInstances });
-							}
-						}));
-					}));
-				} else {
-					qb.where('note.userId = :meId', { meId: me.id });
-					qb.orWhere(new Brackets(qb => {
-						qb.where('note.visibility = \'public\'');
-						if (!ps.withLocalOnly) qb.andWhere('note.localOnly = FALSE');
-						qb.andWhere(new Brackets(qb => {
-							qb.where('note.userHost IS NULL');
-							if (vmimiRelayInstances.length !== 0) {
-								qb.orWhere('note.userHost IN (:...vmimiRelayInstances)', { vmimiRelayInstances });
-							}
-						}));
-					}));
-				}
-			}))
 			.innerJoinAndSelect('note.user', 'user')
 			.leftJoinAndSelect('note.reply', 'reply')
 			.leftJoinAndSelect('note.renote', 'renote')
 			.leftJoinAndSelect('reply.user', 'replyUser')
 			.leftJoinAndSelect('renote.user', 'renoteUser');
 
-		if (followingChannels.length > 0) {
-			const followingChannelIds = followingChannels.map(x => x.followeeId);
-
-			query.andWhere(new Brackets(qb => {
-				qb.where('note.channelId IN (:...followingChannelIds)', { followingChannelIds });
-				qb.orWhere('note.channelId IS NULL');
-			}));
-		} else {
-			query.andWhere('note.channelId IS NULL');
-		}
+		query.andWhere(...noteListingCondition({ kind: 'relay-social', viewerId: me.id, withLocalOnly: ps.withLocalOnly, relayHosts: this.vmimiRelayTimelineService.hostNames }));
 
 		if (!ps.withReplies) {
 			query.andWhere(new Brackets(qb => {

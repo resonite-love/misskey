@@ -69,10 +69,15 @@ if operation == 'merge' and existing then
   if not a or a == cjson.null then return false end
   if not b or b == cjson.null then return true end
   local ascending = next.options and next.options.kind == 'clip' and next.options.order == 'oldest'
+  if next.options and next.options.pinnedOnly and a.pinRank and b.pinRank then
+   if a.pinRank ~= b.pinRank then return a.pinRank < b.pinRank end
+   return a.canonicalUri > b.canonicalUri
+  end
   if a.sortAt ~= b.sortAt then
    if ascending then return greater(b.sortAt, a.sortAt) end
    return greater(a.sortAt, b.sortAt)
   end
+  if next.options and next.options.channelOrigin then return a.canonicalUri > b.canonicalUri end
   if a.source ~= b.source then return a.source == 'local' end
   if ascending then return (a.sourceId or a.noteId or a.canonicalUri) < (b.sourceId or b.noteId or b.canonicalUri) end
   return (a.sourceId or a.noteId or a.canonicalUri) > (b.sourceId or b.noteId or b.canonicalUri)
@@ -81,6 +86,7 @@ if operation == 'merge' and existing then
   return redis.error_reply('TIMELINE_CONTEXT')
  end
  if greater(next.sequence, old.sequence) then old.sequence = next.sequence end
+ if greater(next.placementSequence, old.placementSequence) then old.placementSequence = next.placementSequence end
  if greater(next.peerSequence, old.peerSequence) then old.peerSequence = next.peerSequence end
  if newer(next.windowHead, old.windowHead) then old.windowHead = next.windowHead end
  if next.nextPolicyCheckAt and next.nextPolicyCheckAt ~= cjson.null and (not old.nextPolicyCheckAt or old.nextPolicyCheckAt == cjson.null or next.nextPolicyCheckAt < old.nextPolicyCheckAt) then old.nextPolicyCheckAt = next.nextPolicyCheckAt end
@@ -96,7 +102,7 @@ if operation == 'merge' and existing then
   local count = 0; for _ in pairs(old.merge.owners) do count = count + 1 end
   if count > 2000 or #values > 2000 then discard(); return redis.error_reply('TIMELINE_CAPACITY') end
   if #values > 0 then old.merge.seen = values end
-  for _, source in ipairs({'local', 'peer'}) do
+  for _, source in ipairs({'local', 'peer','localPlacement','peerPlacement'}) do
    if old.merge[source] and next.merge[source] and (not old.merge[source].upper or old.merge[source].upper == cjson.null) then
     old.merge[source].upper = next.merge[source].upper
    end
@@ -168,7 +174,7 @@ export class TimelineSessionStore {
 		for (const field of ['selected']) if (value[field] != null && !Array.isArray(value[field])) value[field] = [];
 		if (value.merge) {
 			if (!Array.isArray(value.merge.seen)) value.merge.seen = [];
-			for (const source of ['local', 'peer']) {
+			for (const source of ['local', 'peer', 'localPlacement', 'peerPlacement']) {
 				if (value.merge[source]?.pending != null && !Array.isArray(value.merge[source].pending)) value.merge[source].pending = [];
 			}
 		}

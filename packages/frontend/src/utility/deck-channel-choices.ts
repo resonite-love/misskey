@@ -6,6 +6,7 @@
 import { favoritedChannelsCache } from '@/cache.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
+import { instance } from '@/instance.js';
 
 const sharedPrefix = 'gridspace:channel:';
 
@@ -35,16 +36,17 @@ export async function getFavoriteChannelChoices(): Promise<FavoriteChannelChoice
 async function getSharedFavorites() {
 	const channels: FavoriteChannelChoice[] = [];
 	try {
-		const link = await misskeyApi('gridspace/link', {});
-		if (!link.channelsEnabled) return channels;
+		const legacy = (await misskeyApi('gridspace/link', {})).channelsEnabled;
+		const multiNote = !legacy && instance.features?.multiNotePeer === true;
+		if (!legacy && !multiNote) return channels;
 		let before: string | undefined;
 		const seen = new Set<string>();
 		do {
-			const page = await misskeyApi('gridspace/channels', { list: 'favorites', limit: 20, before });
+			const page = await misskeyApi(multiNote ? 'gridspace/multi-note/channels' : 'gridspace/channels', { list: 'favorites', limit: 20, before });
 			for (const channel of page.channels) {
 				const id = sharedPrefix + channel.id;
 				if (!channels.some(item => item.id === id)) {
-					channels.push({ id, name: channel.name, label: `${channel.name}（${i18n.ts._gridspace.resoniteLoveName}）`, to: `/gridspace/channels/${channel.id}`, lastReadKey: `channelLastReadedAt:${new URL(page.origin).origin}:${channel.id}`, lastNotedAt: channel.lastNotedAt ?? null });
+					channels.push({ id, name: channel.name, label: multiNote ? `${channel.name} @${new URL(page.origin).host}` : `${channel.name}（${i18n.ts._gridspace.resoniteLoveName}）`, to: `/gridspace/channels/${channel.id}`, lastReadKey: `channelLastReadedAt:${new URL(page.origin).origin}:${channel.id}`, lastNotedAt: channel.lastNotedAt ?? null });
 				}
 			}
 			before = page.next ?? undefined;

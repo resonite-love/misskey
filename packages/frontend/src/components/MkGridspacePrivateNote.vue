@@ -11,41 +11,49 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkAvatar :user="displayAuthor" :class="$style.renoteAvatar" link/>
 			<i class="ti ti-repeat"></i>
 			<I18n :src="i18n.ts.renotedBy" tag="span"><template #user><MkUserName :user="displayAuthor"/></template></I18n>
-			<button class="_button" :class="$style.renoteMenu" :aria-label="i18n.ts.more" @click="showMenu"><i class="ti ti-dots"></i> <MkTime :time="note.createdAt"/></button>
+			<button v-if="!readOnly" class="_button" :class="$style.renoteMenu" :aria-label="i18n.ts.more" @click="showMenu"><i class="ti ti-dots"></i> <MkTime :time="note.createdAt"/></button>
 		</div>
-		<MkGridspacePrivateNote :note="note.renote" :detailed="detailed" compactTop nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
+		<MkGridspacePrivateNote :note="note.renote" :readOnly="readOnly" :detailed="detailed" compactTop nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 	</template>
 	<component :is="detailed ? MkNoteDetailedArticle : MkNoteArticle" v-else :user="displayAuthor" :channel="channel" :channelTo="channel ? `/gridspace/channels/${channel.id}` : undefined" :showChannelLink="!inChannel" :avatarPreview="false" :stickyAvatar="prefer.s.useStickyIcons" :compactTop="compactTop" :dense="dense" :footerOnHover="prefer.s.showNoteActionsOnlyHover">
 		<template #header>
 			<MkNoteDetailedHeader v-if="detailed" :user="displayAuthor" :visibility="headerNote.visibility" :localOnly="note.localOnly" :preview="false"><MkInstanceTicker v-if="showTicker" :host="displayAuthor.host" :instance="displayAuthor.instance"/></MkNoteDetailedHeader>
-			<MkNoteHeader v-else :note="headerNote" :noteUrl="noteLink(note.id)" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/>
+			<MkNoteHeader v-else :note="headerNote" :noteUrl="readOnly ? note.uri : noteLink(note.id)" :externalNoteUrl="readOnly" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/>
 			<MkInstanceTicker v-if="showTicker && !detailed" :host="displayAuthor.host" :instance="displayAuthor.instance"/>
 		</template>
-		<div v-if="(note.replyId || note.renoteId)" :class="$style.parentLinks"><MkA v-if="note.replyId" :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA><MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA></div>
+		<MkNotePlacements v-if="note.multiNoteKind === 'root'" :placements="note.channelPlacements" :unavailable="note.channelPlacementsUnavailable" :includeDefault="note.includeDefault"/>
+		<div v-if="!readOnly && (note.replyId || note.renoteId)" :class="$style.parentLinks"><MkA v-if="note.replyId" :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA><MkA v-if="note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA></div>
 		<MkNoteCw v-if="displayNote.cw != null" v-model="expanded" :cw="displayNote.cw" :text="displayNote.text" :author="displayNote.author" :emojiUrls="displayNote.emojis ?? {}" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/>
 		<div v-if="displayNote.cw == null || expanded" :class="$style.body"><span v-if="isUnavailableGridspaceNote(note, true)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span><MkNoteText v-else :text="translation?.text ?? displayNote.text ?? ''" :author="displayNote.author" :emojiUrls="displayNote.emojis ?? {}"/></div>
-		<MkGridspacePrivateNote v-if="note.renote && (displayNote.cw == null || expanded)" :note="note.renote" :class="$style.quote" dense nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
+		<MkGridspacePrivateNote v-if="note.renote && (displayNote.cw == null || expanded)" :note="note.renote" :readOnly="readOnly" :class="$style.quote" dense nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 		<button v-if="translation" class="_textButton" @click="translation = null">{{ i18n.ts._autoTranslation.showOriginal }}</button>
 		<div v-if="visible && isEnabledUrlPreview && (displayNote.cw == null || expanded)">
 			<MkUrlPreview v-for="link in urls" :key="link" :url="link" :compact="true" :detail="detailed" :class="$style.urlPreview"/>
 		</div>
 		<div v-if="displayNote.cw == null || expanded" class="_gaps_s">
-			<MkMediaList v-if="media.length" :mediaList="media" :raw="true" ephemeral/>
-			<MkButton v-for="file in note.files.filter(item => !blobs[item.id])" :key="file.id" small :disabled="loading === file.id" @click="loadFile(file.id)">
+			<MkMediaList v-if="media.length" :mediaList="media" :raw="true" :ephemeral="!directMedia"/>
+			<MkButton v-for="file in note.files.filter(item => !directMedia && !blobs[item.id])" :key="file.id" small :disabled="loading === file.id" @click="loadFile(file.id)">
 				<i :class="file.isSensitive ? 'ti ti-eye-exclamation' : 'ti ti-photo'"></i> {{ file.isSensitive ? i18n.ts.sensitive : i18n.ts.clickToShow }}: {{ file.name }}
 			</MkButton>
 		</div>
 		<template #reactions>
-			<MkGridspaceNoteActions v-show="displayNote.cw == null || expanded" ref="actions" :note="note" :compact="true" @changed="updated = $event" @unavailable="emit('unavailable')"/>
+			<MkPoll v-if="readOnly && note.poll && (displayNote.cw == null || expanded)" :noteId="note.id" :choices="note.poll.choices.map(choice => ({ ...choice, isVoted: false }))" :multiple="note.poll.multiple" :expiresAt="note.poll.expiresAt" :emojiUrls="note.emojis" readOnly/>
+			<MkGridspaceNoteActions v-if="!readOnly" v-show="displayNote.cw == null || expanded" ref="actions" :note="note" :compact="true" @changed="updated = $event" @unavailable="emit('unavailable')"/>
 			<p v-if="error" role="alert">{{ i18n.ts._gridspace.privateFileError }}</p>
 		</template>
 		<template #footer="{ buttonClass }">
-			<MkNoteInfo v-if="detailed" :to="noteLink(note.id)" :createdAt="note.createdAt" :visibility="headerNote.visibility"/>
-			<button class="_button" :class="buttonClass" :aria-label="i18n.ts.reply" :title="i18n.ts.reply" @click="reply"><i class="ti ti-arrow-back-up"></i></button>
-			<button ref="renoteButton" class="_button" :class="buttonClass" :aria-label="i18n.ts.renote" :title="canRenote ? i18n.ts.renote : i18n.ts.cantRenote" :disabled="!canRenote || renoteLoading" @click="renote"><i :class="renoteLoading ? 'ti ti-loader ti-spin' : canRenote ? 'ti ti-repeat' : 'ti ti-ban'"></i></button>
-			<button class="_button" :class="buttonClass" :aria-label="i18n.ts.reaction" :title="i18n.ts.reaction" @click="actions?.react($event)"><i class="ti ti-plus"></i></button>
-			<button class="_button" :class="buttonClass" :aria-label="i18n.ts.more" :title="i18n.ts.more" @click="showMenu"><i class="ti ti-dots"></i></button>
-			<p v-if="deleteError" role="alert">{{ i18n.ts._gridspace.channelDeleteFailed }}</p>
+			<div v-if="readOnly">
+				{{ i18n.ts._multiNote.mirrorUnavailable }}
+				<a class="_link" :href="note.uri" target="_blank" rel="noopener noreferrer">{{ i18n.ts.showOnRemote }} <i class="ti ti-external-link" aria-hidden="true"></i></a>
+			</div>
+			<template v-else>
+				<MkNoteInfo v-if="detailed" :to="noteLink(note.id)" :createdAt="note.createdAt" :visibility="headerNote.visibility"/>
+				<button class="_button" :class="buttonClass" :aria-label="i18n.ts.reply" :title="i18n.ts.reply" @click="reply"><i class="ti ti-arrow-back-up"></i></button>
+				<button ref="renoteButton" class="_button" :class="buttonClass" :aria-label="i18n.ts.renote" :title="canRenote ? i18n.ts.renote : i18n.ts.cantRenote" :disabled="!canRenote || renoteLoading" @click="renote"><i :class="renoteLoading ? 'ti ti-loader ti-spin' : canRenote ? 'ti ti-repeat' : 'ti ti-ban'"></i></button>
+				<button class="_button" :class="buttonClass" :aria-label="i18n.ts.reaction" :title="i18n.ts.reaction" @click="actions?.react($event)"><i class="ti ti-plus"></i></button>
+				<button class="_button" :class="buttonClass" :aria-label="i18n.ts.more" :title="i18n.ts.more" @click="showMenu"><i class="ti ti-dots"></i></button>
+				<p v-if="deleteError" role="alert">{{ i18n.ts._gridspace.channelDeleteFailed }}</p>
+			</template>
 		</template>
 	</component>
 </div>
@@ -59,6 +67,11 @@ import type { Ref } from 'vue';
 import type { LinkedClipContext } from '@/utility/gridspace-note-menu.js';
 import { useGlobalEvent } from '@/events.js';
 import type { entities } from 'misskey-js';
+import MkPoll from '@/components/MkPoll.vue';
+import MkNotePlacements from '@/components/MkNotePlacements.vue';
+import { getPlacementMenu } from '@/utility/multi-note-menu.js';
+import { conversationTarget, gridspaceDetailPath } from '@/utility/gridspace-conversation.js';
+import { rememberReplyRequest, forgetReplyRequest } from '@/utility/gridspace-reply-request.js';
 import MkGridspaceNoteActions from '@/components/MkGridspaceNoteActions.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkMediaList from '@/components/MkMediaList.vue';
@@ -88,9 +101,11 @@ import { prefer } from '@/preferences.js';
 import { $i } from '@/i.js';
 import * as os from '@/os.js';
 
-const props = withDefaults(defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number]; compactTop?: boolean; dense?: boolean; nested?: boolean; detailed?: boolean }>(), { compactTop: false, dense: false, nested: false, detailed: false });
+const props = withDefaults(defineProps<{ note: entities.GridspacePrivateNotesResponse['notes'][number]; readOnly?: boolean; compactTop?: boolean; dense?: boolean; nested?: boolean; detailed?: boolean }>(), { compactTop: false, dense: false, nested: false, detailed: false });
 const updated = ref<entities.GridspacePrivateNotesResponse['notes'][number] | null>(null);
 const note = computed(() => updated.value ?? props.note);
+const dedicated = computed(() => !!conversationTarget(note.value).conversationUri);
+const directMedia = computed(() => props.readOnly || dedicated.value);
 const pluginNote = computed(() => applyGridspaceNoteViewPlugins(props.note));
 const hideByPlugin = computed(() => pluginNote.value == null);
 const displayNote = computed(() => pluginNote.value ?? note.value);
@@ -109,7 +124,7 @@ const actions = useTemplateRef('actions');
 const article = useTemplateRef('article');
 const renoteButton = useTemplateRef('renoteButton');
 const isPureRenote = computed(() => !!note.value.renoteId && note.value.text == null && note.value.cw == null && !note.value.replyId && !note.value.files.length && !note.value.poll);
-const canRenote = computed(() => !!$i && (['public', 'home'].includes(note.value.visibility) || (!note.value.channelId && note.value.canSelfRenote)) && (!note.value.channelId || !note.value.renoteId || !!(note.value.text || note.value.cw || note.value.replyId || note.value.files.length || note.value.poll)) && !isUnavailableGridspaceNote(note.value, true));
+const canRenote = computed(() => !!$i && !dedicated.value && (['public', 'home'].includes(note.value.visibility) || (!note.value.channelId && note.value.canSelfRenote)) && (!note.value.channelId || !note.value.renoteId || !!(note.value.text || note.value.cw || note.value.replyId || note.value.files.length || note.value.poll)) && !isUnavailableGridspaceNote(note.value, true));
 const renoteLoading = ref(false);
 const expanded = defineModel<boolean>('expanded', { default: false });
 const deleted = ref(false);
@@ -119,10 +134,9 @@ const deleting = ref(false);
 const deleteError = ref(false);
 const isOwnGridNote = computed(() => !!$i && props.note.author.uri === `${url}/users/${$i.id}`);
 const blobs = ref<Record<string, string>>({});
-// Ephemeral blobs only: source file IDs never enter normal drive APIs or caches.
-const media = computed<entities.DriveFile[]>(() => note.value.files.filter(file => blobs.value[file.id]).map(file => ({
+const media = computed<entities.DriveFile[]>(() => note.value.files.filter(file => directMedia.value ? file.url : blobs.value[file.id]).map(file => ({
 	...file, id: `gridspace:${note.value.origin}:${file.id}`, createdAt: note.value.createdAt,
-	url: blobs.value[file.id], thumbnailUrl: file.type.startsWith('image/') ? blobs.value[file.id] : null, properties: {}, blurhash: null, md5: '',
+	url: directMedia.value ? file.url! : blobs.value[file.id], thumbnailUrl: directMedia.value ? file.thumbnailUrl ?? null : file.type.startsWith('image/') ? blobs.value[file.id] : null, properties: {}, blurhash: null, md5: '',
 	userId: null, user: null, folderId: null, folder: null,
 })));
 const loading = ref<string | null>(null);
@@ -198,23 +212,48 @@ async function showMenu(event: MouseEvent) {
 	const { menu, cleanup } = await getGridspaceNoteMenu(note.value, noteLink(note.value.id), translation, translating, props.nested ? null : linkedClip?.value, () => current === generation);
 	if (current !== generation) { cleanup(); return; }
 	disposeMenu = cleanup;
-	if (note.value.channelId && (note.value.canDelete || isOwnGridNote.value)) menu.push({ text: i18n.ts.delete, icon: 'ti ti-trash', danger: true, action: deleteNote });
+	if (note.value.multiNoteKind === 'root') {
+		menu.push(...getPlacementMenu(note.value.channelPlacements, note.value.uri, async () => {
+			if (current !== generation) return;
+			emit('replied');
+			try {
+				const page = await misskeyApi('gridspace/private-notes', { mode: 'show', ...conversationTarget(note.value), limit: 1 }, undefined, AbortSignal.timeout(15000));
+				if (current !== generation) return;
+				const original = page.notes.find(item => item.uri === note.value.uri);
+				if (original) updated.value = original;
+				else emit('unavailable');
+			} catch {
+				if (current === generation) emit('unavailable');
+			}
+		}));
+	}
+	if ((dedicated.value && note.value.multiNoteKind === 'conversation-reply' && note.value.canDelete) || (note.value.channelId && (note.value.canDelete || isOwnGridNote.value))) menu.push({ text: i18n.ts.delete, icon: 'ti ti-trash', danger: true, action: () => { if (current === generation) return deleteNote(); return undefined; } });
 	await os.popupMenu(menu, anchor).finally(() => { cleanup(); if (disposeMenu === cleanup) disposeMenu = null; });
 }
 
 async function deleteNote() {
-	if (deleting.value || !props.note.channelId) return;
-	const target = { noteId: props.note.id, channelId: props.note.channelId, asCurrentAccount: isOwnGridNote.value };
-	if ((await os.confirm({ type: 'warning', text: i18n.ts._gridspace.channelDeleteConfirm })).canceled) return;
+	if (deleting.value || !$i) return;
+	const target = props.note;
+	const current = generation;
+	if ((await os.confirm({ type: 'warning', text: dedicated.value ? i18n.ts.noteDeleteConfirm : i18n.ts._gridspace.channelDeleteConfirm })).canceled || current !== generation) return;
 	deleting.value = true; deleteError.value = false;
 	try {
-		await misskeyApi('gridspace/channel-delete', target, undefined, AbortSignal.timeout(15000));
-		clear(); deleted.value = true;
-	} catch { deleteError.value = true; } finally { deleting.value = false; }
+		if (dedicated.value && target.multiNoteKind === 'conversation-reply' && target.canDelete) {
+			const key = `delete:${target.uri}`;
+			const requestId = rememberReplyRequest($i.id, key, crypto.randomUUID());
+			await misskeyApi('gridspace/delete-reply', { canonicalUri: target.uri, requestId }, undefined, AbortSignal.timeout(15000));
+			forgetReplyRequest($i.id, key, requestId);
+		} else if (target.channelId) {
+			await misskeyApi('gridspace/channel-delete', { noteId: target.id, channelId: target.channelId, asCurrentAccount: isOwnGridNote.value }, undefined, AbortSignal.timeout(15000));
+		} else {
+			return;
+		}
+		if (current === generation) { clear(); deleted.value = true; }
+	} catch { if (current === generation) deleteError.value = true; } finally { deleting.value = false; }
 }
 
 function noteLink(id: string) {
-	return `/gridspace/private?noteId=${id}${props.note.channelId ? `&channelId=${props.note.channelId}` : ''}`;
+	return gridspaceDetailPath(note.value, id);
 }
 
 function clearFile(id: string) {
@@ -250,14 +289,14 @@ async function loadFile(fileId: string) {
 	} finally { if (current === generation) loading.value = null; }
 }
 
-watch(() => props.note.id, clear);
+watch(() => props.note.uri, () => { clear(); deleted.value = false; deleteError.value = false; });
 watch(() => props.note.cw, () => { expanded.value = false; clear(); });
 watch(expanded, value => { if (!value) clear(); });
 watch(() => props.note.files, files => {
 	for (const id of Object.keys(blobs.value)) if (!files.some(file => file.id === id)) clearFile(id);
 });
 watch([visible, expanded, () => props.note.id], async () => {
-	if (!visible.value || hideByPlugin.value || prefer.s.dataSaver.media || (displayNote.value.cw != null && !expanded.value)) return;
+	if (directMedia.value || !visible.value || hideByPlugin.value || prefer.s.dataSaver.media || (displayNote.value.cw != null && !expanded.value)) return;
 	const current = generation;
 	for (const file of note.value.files) {
 		if (current !== generation) return;

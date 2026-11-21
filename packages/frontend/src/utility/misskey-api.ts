@@ -9,6 +9,11 @@ import { apiUrl } from '@@/js/config.js';
 import { $i } from '@/i.js';
 import { routeManagedApi } from '@/utility/gridspace-managed-api.js';
 export const pendingApiRequestsCount = ref(0);
+const responseStatus = new WeakMap<object, number>();
+
+export function getApiErrorStatus(error: unknown): number | undefined {
+	return typeof error === 'object' && error !== null ? responseStatus.get(error) : undefined;
+}
 
 // Implements Misskey.api.ApiClient.request
 export function misskeyApi<
@@ -60,6 +65,7 @@ function rawMisskeyApi<ResT = void, E extends keyof Misskey.Endpoints = keyof Mi
 			} else if (res.status === 204) {
 				resolve(undefined as _ResT); // void -> undefined
 			} else {
+				if (typeof body.error === 'object' && body.error) responseStatus.set(body.error, res.status);
 				reject(body.error);
 			}
 		}).catch(reject);
@@ -102,6 +108,7 @@ export function misskeyApiGet<
 			} else if (res.status === 204) {
 				resolve(undefined as _ResT); // void -> undefined
 			} else {
+				if (typeof body.error === 'object' && body.error) responseStatus.set(body.error, res.status);
 				reject(body.error);
 			}
 		}).catch(reject);

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import * as Redis from 'ioredis';
 import { In } from 'typeorm';
@@ -653,16 +654,24 @@ export class RoleService implements OnApplicationShutdown, OnModuleInit {
 
 	@bindThis
 	public async addNoteToRoleTimeline(note: Packed<'Note'>): Promise<void> {
+		if (!includesDefault(note) && (note.multiNoteKind != null || !note.channelId)) return;
 		const roles = await this.getUserRoles(note.userId);
 
 		const redisPipeline = this.redisForTimelines.pipeline();
 
 		for (const role of roles) {
-			this.fanoutTimelineService.push(`roleTimeline:${role.id}`, note.id, 1000, redisPipeline);
-			this.globalEventService.publishRoleTimelineStream(role.id, 'note', note);
+			const push = note.multiNoteKind ? this.fanoutTimelineService.pushOnce : this.fanoutTimelineService.push;
+			push(`roleTimeline:${role.id}`, note.id, 1000, redisPipeline);
+			if (note.multiNoteKind) {
+				await this.globalEventService.publishCreatedNoteOnce(`roleTimelineStream:${role.id}`, note);
+			} else {
+				this.globalEventService.publishRoleTimelineStream(role.id, 'note', note);
+			}
 		}
 
-		redisPipeline.exec();
+		const result = await redisPipeline.exec();
+		if (!result) throw new Error('Role timeline pipeline was aborted');
+		for (const [error] of result) if (error) throw error;
 	}
 
 	@bindThis

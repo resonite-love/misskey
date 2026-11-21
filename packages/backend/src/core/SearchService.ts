@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { activeChannelIdsQuery, channelPlacementCondition, defaultOrLegacyChannelCondition, includesDefault, isConversationOnly } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { In } from 'typeorm';
 import { DI } from '@/di-symbols.js';
@@ -30,6 +31,7 @@ type Q =
 	{ op: '<=', k: K, v: number } |
 	{ op: 'is null', k: K } |
 	{ op: 'is not null', k: K } |
+	{ op: 'not exists', k: K } |
 	{ op: 'and', qs: Q[] } |
 	{ op: 'or', qs: Q[] } |
 	{ op: 'not', q: Q };
@@ -69,6 +71,7 @@ function compileQuery(q: Q): string {
 		case '<=': return `(${q.k} <= ${compileValue(q.v)})`;
 		case 'and': return q.qs.length === 0 ? '' : `(${ q.qs.map(_q => compileQuery(_q)).join(' AND ') })`;
 		case 'or': return q.qs.length === 0 ? '' : `(${ q.qs.map(_q => compileQuery(_q)).join(' OR ') })`;
+		case 'not exists': return '(' + q.k + ' NOT EXISTS)';
 		case 'is null': return `(${q.k} IS NULL)`;
 		case 'is not null': return `(${q.k} IS NOT NULL)`;
 		case 'not': return `(NOT ${compileQuery(q.q)})`;
@@ -115,6 +118,8 @@ export class SearchService {
 					'userId',
 					'userHost',
 					'channelId',
+					'channelIds',
+					'defaultSearchable',
 					'tags',
 				],
 				typoTolerance: {
@@ -137,7 +142,7 @@ export class SearchService {
 	@bindThis
 	public async indexNote(note: MiNote): Promise<void> {
 		if (!this.meilisearch) return;
-		if (note.text == null && note.cw == null) return;
+		if (isConversationOnly(note) || (note.text == null && note.cw == null)) return;
 		if (!['home', 'public'].includes(note.visibility)) return;
 
 		switch (this.meilisearchIndexScope) {
@@ -155,12 +160,20 @@ export class SearchService {
 			}
 		}
 
+		const placements = note.multiNoteKind === 'root' || note.channelId
+			? await this.notesRepository.createQueryBuilder('note').select('channels.id', 'id')
+				.innerJoin('channel', 'channels', `channels.id IN (${activeChannelIdsQuery()})`)
+				.where('note.id = :id', { id: note.id }).getRawMany<{ id: string }>()
+			: [];
+
 		await this.meilisearchNoteIndex?.addDocuments([{
 			id: note.id,
 			createdAt: this.idService.parse(note.id).date.getTime(),
 			userId: note.userId,
 			userHost: note.userHost,
 			channelId: note.channelId,
+			channelIds: placements.map(p => p.id),
+			defaultSearchable: includesDefault(note) || (note.multiNoteKind == null && placements.length > 0),
 			cw: note.cw,
 			text: note.text,
 			tags: note.tags,
@@ -212,8 +225,11 @@ export class SearchService {
 
 		if (opts.userId) {
 			query.andWhere('note.userId = :userId', { userId: opts.userId });
-		} else if (opts.channelId) {
-			query.andWhere('note.channelId = :channelId', { channelId: opts.channelId });
+		}
+		if (opts.channelId) {
+			query.andWhere(channelPlacementCondition(':channelId'), { channelId: opts.channelId });
+		} else {
+			query.andWhere(defaultOrLegacyChannelCondition());
 		}
 
 		query
@@ -290,7 +306,17 @@ export class SearchService {
 			v: opts.rangeStartAt,
 		});
 		if (opts.userId) filter.qs.push({ op: '=', k: 'userId', v: opts.userId });
-		if (opts.channelId) filter.qs.push({ op: '=', k: 'channelId', v: opts.channelId });
+		if (opts.channelId) {
+			filter.qs.push({ op: 'or', qs: [
+				{ op: '=', k: 'channelIds', v: opts.channelId },
+				{ op: '=', k: 'channelId', v: opts.channelId },
+			] });
+		} else {
+			filter.qs.push({ op: 'or', qs: [
+				{ op: '=', k: 'defaultSearchable', v: true },
+				{ op: 'not exists', k: 'defaultSearchable' },
+			] });
+		}
 		if (opts.host) {
 			if (opts.host === '.') {
 				filter.qs.push({ op: 'is null', k: 'userHost' });
@@ -333,6 +359,9 @@ export class SearchService {
 
 		query.where('note.id IN (:...noteIds)', { noteIds: res.hits.map(x => x.id) });
 
+		query.andWhere(opts.channelId ? channelPlacementCondition(':channelId') : defaultOrLegacyChannelCondition(), { channelId: opts.channelId });
+		this.queryService.generateVisibilityQuery(query, me);
+		if (me == null) this.queryService.generateUgcVisibilityQueryForVisitor(query);
 		this.queryService.generateBlockedHostQueryForNote(query);
 		this.queryService.generateSuspendedUserQueryForNote(query);
 

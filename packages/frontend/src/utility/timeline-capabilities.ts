@@ -11,3 +11,8 @@ export function supportsTimelineKind(status: unknown, kind: string): boolean {
 	const capability = value as { version?: unknown; enabled?: unknown; kinds?: unknown };
 	return capability.version === 1 && capability.enabled === true && Array.isArray(capability.kinds) && capability.kinds.includes(kind);
 }
+
+export function supportsChannelPlacements(status: unknown): boolean {
+	if (!supportsTimelineKind(status, 'channel')) return false;
+	return (status as { timeline: { channelPlacements?: boolean } }).timeline.channelPlacements === true;
+}

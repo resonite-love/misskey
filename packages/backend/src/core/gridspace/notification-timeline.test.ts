@@ -10,7 +10,6 @@ import { meta, paramDef } from '@/server/api/endpoints/gridspace/notifications/t
 import { GridspaceLinkError } from './GridspaceLinkService.js';
 import { GridspaceNotificationTimelineService } from './GridspaceNotificationTimelineService.js';
 import type { Redis } from 'ioredis';
-import type { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
 import type { GridspaceLinkService } from './GridspaceLinkService.js';
 import type { GridspaceNotificationService } from './GridspaceNotificationService.js';
 
@@ -22,7 +21,7 @@ function fixture() {
 	redis.get.mockImplementation(async key => stored.get(key) ?? null);
 	const notifications = mockDeep<GridspaceNotificationService>();
 	const links = mockDeep<GridspaceLinkService>();
-	const channels = mockDeep<GridspaceChannelAuthService>();
+	notifications.guestBinding.mockResolvedValue(null);
 	links.privateLink.mockResolvedValue({ id: 'link', generation: 1, privateRevision: 1, privateTokenCipher: 'secret', peerOrigin: 'https://peer', peerUserId: 'old' } as never);
 	const reference = (id: string, time: number) => ({ id, createdAt: at(time) });
 	const localRefs = [reference('same', 4), reference('l2', 1)];
@@ -34,8 +33,8 @@ function fixture() {
 	});
 	notifications.local.mockImplementation(async (_user, input) => page(localRefs, input, 'https://local', 'viewer', true) as never);
 	notifications.remote.mockImplementation(async (_user, input) => page(peerRefs, input, 'https://peer', 'old') as never);
-	const service = new GridspaceNotificationTimelineService(redis, notifications, links, channels);
-	return { redis, stored, notifications, links, channels, localRefs, peerRefs, service, user: { id: 'viewer' } as MiLocalUser };
+	const service = new GridspaceNotificationTimelineService(redis, notifications, links);
+	return { redis, stored, notifications, links, localRefs, peerRefs, service, user: { id: 'viewer' } as MiLocalUser };
 }
 
 describe('notification timeline snapshots', () => {
@@ -50,6 +49,13 @@ describe('notification timeline snapshots', () => {
 		expect(f.notifications.remote.mock.calls.every(call => !call[2] || call[2] === 'query')).toBe(true);
 	});
 
+	test('deduplicates a retransmitted origin notification for the same recipient across sources', async () => {
+		const f = fixture();
+		f.notifications.guestBinding.mockResolvedValue('placement:actor');
+		const result = await f.service.read(f.user, {});
+		expect(result.items).toHaveLength(5);
+		expect(result.items.filter(item => item.origin === 'https://peer' && item.id === 'same')).toHaveLength(1);
+	});
 	test('replays concurrently without moving the boundary and rechecks bodies/read flags', async () => {
 		const f = fixture(); const first = await f.service.read(f.user, { limit: 2 });
 		const [a, b] = await Promise.all([f.service.read(f.user, { cursor: first.nextCursor! }), f.service.read(f.user, { cursor: first.nextCursor! })]);

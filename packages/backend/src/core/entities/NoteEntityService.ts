@@ -10,6 +10,8 @@ import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
 import { supportsGridspaceReactions, supportsGridspaceChannelReactions } from '@/core/gridspace/reaction-protocol.js';
+import type { NotePlacementService, PlacementMap } from '@/core/NotePlacementService.js';
+import { includesDefault } from '@/misc/note-distribution.js';
 import type { Packed } from '@/misc/json-schema.js';
 import { awaitAll } from '@/misc/prelude/await-all.js';
 import type { MiUser } from '@/models/User.js';
@@ -27,6 +29,10 @@ import type { CustomEmojiService } from '../CustomEmojiService.js';
 import type { ReactionService } from '../ReactionService.js';
 import type { UserEntityService } from './UserEntityService.js';
 import type { DriveFileEntityService } from './DriveFileEntityService.js';
+
+function needsPlacementLookup(note: MiNote): boolean {
+	return note.multiNoteKind === 'root' || (note.gridspaceShared && note.uri != null);
+}
 
 // is-renote.tsとよしなにリンク
 function isPureRenote(note: MiNote): note is MiNote & { renoteId: MiNote['id']; renote: MiNote } {
@@ -66,6 +72,7 @@ async function nullIfEntityNotFound<T>(promise: Promise<T>): Promise<T | null> {
 @Injectable()
 export class NoteEntityService implements OnModuleInit {
 	private readonly gridspacePeer: GridspacePeerConfig | null;
+	private notePlacementService: NotePlacementService;
 	private userEntityService: UserEntityService;
 	private driveFileEntityService: DriveFileEntityService;
 	private customEmojiService: CustomEmojiService;
@@ -116,6 +123,7 @@ export class NoteEntityService implements OnModuleInit {
 	}
 
 	onModuleInit() {
+		this.notePlacementService = this.moduleRef.get('NotePlacementService', { strict: false });
 		this.userEntityService = this.moduleRef.get('UserEntityService');
 		this.driveFileEntityService = this.moduleRef.get('DriveFileEntityService');
 		this.customEmojiService = this.moduleRef.get('CustomEmojiService');
@@ -388,10 +396,13 @@ export class NoteEntityService implements OnModuleInit {
 			detail?: boolean;
 			skipHide?: boolean;
 			withReactionAndUserPairCache?: boolean;
+			_renoteAncestors_?: ReadonlySet<string>;
 			_hint_?: {
 				bufferedReactions: Map<MiNote['id'], { deltas: Record<string, number>; pairs: ([MiUser['id'], string])[] }> | null;
 				myReactions: Map<MiNote['id'], string | null>;
 				packedFiles: Map<MiNote['fileIds'][number], Packed<'DriveFile'> | null>;
+				placements?: PlacementMap;
+				relatedNotes?: Map<string, MiNote | null>;
 				packedUsers: Map<MiUser['id'], Packed<'UserLite'>>
 			};
 		},
@@ -432,6 +443,10 @@ export class NoteEntityService implements OnModuleInit {
 			.map(x => this.reactionService.decodeReaction(x).reaction.replaceAll(':', ''));
 		const packedFiles = options?._hint_?.packedFiles;
 		const packedUsers = options?._hint_?.packedUsers;
+		const relatedNotes = options?._hint_?.relatedNotes;
+		const reply = note.reply === undefined && note.replyId ? relatedNotes?.get(note.replyId) : note.reply;
+		const renote = note.renote === undefined && note.renoteId ? relatedNotes?.get(note.renoteId) : note.renote;
+		const renoteCycle = note.renoteId != null && (note.renoteId === note.id || options?._renoteAncestors_?.has(note.renoteId));
 
 		const packed: Packed<'Note'> = await awaitAll({
 			id: note.id,
@@ -441,6 +456,8 @@ export class NoteEntityService implements OnModuleInit {
 			text: text,
 			cw: note.cw,
 			visibility: note.visibility,
+			includeDefault: includesDefault(note),
+			multiNoteKind: note.multiNoteKind ?? undefined,
 			localOnly: note.localOnly,
 			gridspaceShared: note.gridspaceShared,
 			gridspaceReactions: supportsGridspaceReactions(note, this.gridspacePeer) || supportsGridspaceChannelReactions(note, this.gridspacePeer),
@@ -476,7 +493,7 @@ export class NoteEntityService implements OnModuleInit {
 				clippedCount: note.clippedCount,
 
 				// そもそもJOINしていない場合はundefined、JOINしたけど存在していなかった場合はnullで区別される
-				reply: (note.replyId && note.reply === null) ? null : note.replyId ? nullIfEntityNotFound(this.pack(note.reply ?? note.replyId, me, {
+				reply: (note.replyId && reply === null) ? null : note.replyId ? nullIfEntityNotFound(this.pack(reply ?? note.replyId, me, {
 					detail: false,
 					skipHide: opts.skipHide,
 					withReactionAndUserPairCache: opts.withReactionAndUserPairCache,
@@ -484,8 +501,9 @@ export class NoteEntityService implements OnModuleInit {
 				})) : undefined,
 
 				// そもそもJOINしていない場合はundefined、JOINしたけど存在していなかった場合はnullで区別される
-				renote: (note.renoteId && note.renote === null) ? null : note.renoteId ? nullIfEntityNotFound(this.pack(note.renote ?? note.renoteId, me, {
+				renote: (note.renoteId && (renote === null || renoteCycle)) ? null : note.renoteId ? nullIfEntityNotFound(this.pack(renote ?? note.renoteId, me, {
 					detail: true,
+					_renoteAncestors_: new Set(options?._renoteAncestors_).add(note.id),
 					skipHide: opts.skipHide,
 					withReactionAndUserPairCache: opts.withReactionAndUserPairCache,
 					_hint_: options?._hint_,
@@ -509,7 +527,44 @@ export class NoteEntityService implements OnModuleInit {
 			this.hideNote(packed);
 		}
 
+		if (!packed.isHidden && needsPlacementLookup(note)) {
+			const hints = options?._hint_?.placements;
+			const routes = hints?.has(note.id) ? hints : await this.notePlacementService.pack([note.id], me);
+			const placements = routes.get(note.id) ?? [];
+			if (routes.rootNoteIds?.has(note.id)) packed.multiNoteKind = 'root';
+			if (routes.unavailableNoteIds?.has(note.id)) packed.channelPlacementsUnavailable = true;
+			if (placements.length > 0 || packed.multiNoteKind === 'root') packed.channelPlacements = placements;
+		}
 		return packed;
+	}
+
+	/** pack expands quotes recursively, but renders each reply without its own references. */
+	private async collectPackNotes(notes: MiNote[], detail: boolean): Promise<Map<string, MiNote | null>> {
+		const byId = new Map<string, MiNote | null>(notes.map(note => [note.id, note]));
+		const expanded = new Set<string>();
+		let frontier = detail ? notes : [];
+		while (frontier.length > 0) {
+			const missing = new Set<string>();
+			const quotes = new Set<string>();
+			for (const note of frontier) {
+				if (expanded.has(note.id)) continue;
+				expanded.add(note.id);
+				for (const [id, joined] of [[note.replyId, note.reply], [note.renoteId, note.renote]] as const) {
+					if (!id || joined === null) continue;
+					if (joined) byId.set(id, joined);
+					else if (!byId.has(id)) missing.add(id);
+				}
+				if (note.renoteId && note.renote !== null) quotes.add(note.renoteId);
+			}
+			const ids = [...missing].filter(id => !byId.has(id));
+			if (ids.length) {
+				for (const id of ids) byId.set(id, null);
+				const found = await this.notesRepository.find({ where: { id: In(ids) }, relations: { user: true } });
+				for (const note of found) byId.set(note.id, note);
+			}
+			frontier = [...quotes].filter(id => !expanded.has(id)).map(id => byId.get(id)).filter(note => note != null);
+		}
+		return byId;
 	}
 
 	@bindThis
@@ -593,10 +648,16 @@ export class NoteEntityService implements OnModuleInit {
 		const packedUsers = await this.userEntityService.packMany(users, me)
 			.then(users => new Map(users.map(u => [u.id, u])));
 
+		const relatedNotes = await this.collectPackNotes(notes, options?.detail !== false);
+		const placementIds = [...relatedNotes.values()].flatMap(note => note && needsPlacementLookup(note) ? [note.id] : []);
+		const placements = await this.notePlacementService.pack(placementIds, me);
+		for (const id of placementIds) if (!placements.has(id)) placements.set(id, []);
 		return await Promise.all(notes.map(n => this.pack(n, me, {
 			...options,
 			_hint_: {
 				bufferedReactions,
+				placements,
+				relatedNotes,
 				myReactions: myReactionsMap,
 				packedFiles,
 				packedUsers,

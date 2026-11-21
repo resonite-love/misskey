@@ -9,7 +9,6 @@ import * as Redis from 'ioredis';
 import { DI } from '@/di-symbols.js';
 import type { MiLocalUser } from '@/models/User.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
-import { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
 import { GridspaceNotificationService } from './GridspaceNotificationService.js';
 import type { LocalNotification, PeerNotification, NotificationPage } from './notification-protocol.js';
 
@@ -41,7 +40,6 @@ export class GridspaceNotificationTimelineService {
 		@Inject(DI.redis) private redis: Redis.Redis,
 		private notifications: GridspaceNotificationService,
 		private links: GridspaceLinkService,
-		private channels: GridspaceChannelAuthService,
 	) {}
 
 	private filter(input: NotificationTimelineInput) { return JSON.stringify([...new Set(input.excludeTypes ?? [])].sort()); }
@@ -56,7 +54,7 @@ export class GridspaceNotificationTimelineService {
 	}
 	private async binding(user: MiLocalUser, source: NotificationSource): Promise<string | null> {
 		if (source === 'local') return user.id;
-		if (source === 'channel') return this.channels.isClient ? (await this.channels.destination(user, true)).key : null;
+		if (source === 'channel') return this.notifications.guestBinding(user);
 		try {
 			const link = await this.links.privateLink(user.id);
 			return link.privateTokenCipher ? this.hash([link.id, link.generation, link.privateRevision, link.privateTokenCipher, link.peerOrigin, link.peerUserId]) : null;
@@ -85,7 +83,7 @@ export class GridspaceNotificationTimelineService {
 				if (await this.within(this.binding(user, source), deadline) !== binding) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 				snapshot.bindings[source] = binding;
 				snapshot.sources[source] = 'ok';
-				snapshot.refs.push(...page.items.map(item => ({ id: item.id, createdAt: item.createdAt, source, origin: page.origin, recipientId: page.recipientId, key: JSON.stringify([source, page.origin, page.recipientId, item.id]) })));
+				snapshot.refs.push(...page.items.map(item => ({ id: item.id, createdAt: item.createdAt, source, origin: page.origin, recipientId: page.recipientId, key: JSON.stringify([page.origin, page.recipientId, item.id]) })));
 			} catch (error) { snapshot.sources[source] = this.status(error); }
 		}));
 		// Source IDs are never compared with each other. Ties use the full identity.

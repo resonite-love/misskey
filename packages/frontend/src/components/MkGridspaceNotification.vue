@@ -51,6 +51,7 @@ import { computed, ref, watch } from 'vue';
 import { userPage } from '@@/js/user.js';
 import type { NotificationGroup } from '@/utility/use-gridspace-notifications.js';
 import MkFollowRequestActions from '@/components/MkFollowRequestActions.vue';
+import { gridspaceDetailPath } from '@/utility/gridspace-conversation.js';
 import MkNotificationLayout from '@/components/MkNotificationLayout.vue';
 import MkReactionIcon from '@/components/MkReactionIcon.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
@@ -94,7 +95,7 @@ const title = computed(() => {
 	return i18n.ts._notification._types[type.value as keyof typeof i18n.ts._notification._types] ?? i18n.ts.notifications;
 });
 const icon = computed(() => ({ follow: 'ti ti-plus', receiveFollowRequest: 'ti ti-clock', followRequestAccepted: 'ti ti-check', renote: 'ti ti-repeat', reply: 'ti ti-arrow-back-up', mention: 'ti ti-at', quote: 'ti ti-quote', pollEnded: 'ti ti-chart-arrows', scheduledNotePosted: 'ti ti-send', scheduledNotePostFailed: 'ti ti-alert-triangle', achievementEarned: 'ti ti-medal', exportCompleted: 'ti ti-archive', login: 'ti ti-login-2', createToken: 'ti ti-key', chatRoomInvitationReceived: 'ti ti-messages', roleAssigned: 'ti ti-badges' }[type.value] ?? 'ti ti-bell'));
-const noteUrl = computed(() => `/gridspace/private?noteId=${notice.value.note?.id}${notice.value.note?.channelId ? `&channelId=${notice.value.note.channelId}` : ''}`);
+const noteUrl = computed(() => notice.value.note ? gridspaceDetailPath(notice.value.note) : '/gridspace/private');
 const summaryNote = computed(() => type.value === 'renote' ? notice.value.renote : notice.value.note);
 const summary = computed(() => {
 	const note = summaryNote.value;

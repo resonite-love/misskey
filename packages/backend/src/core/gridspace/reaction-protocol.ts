@@ -3,19 +3,22 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
+import { dedicatedOriginal } from './conversation-protocol.js';
+import type { MiNote } from '@/models/Note.js';
 import { gridspaceNoteId } from './note-protocol.js';
 import type { GridspacePeerConfig } from './peer-protocol.js';
 
 /** Reaction sharing does not make a restricted note eligible for the shared LTL. */
-export function supportsGridspaceReactions(note: { userHost: string | null; uri: string | null; channelId: string | null }, peer: GridspacePeerConfig | null): boolean {
-	if (!peer || note.channelId !== null) return false;
+export function supportsGridspaceReactions(note: { userHost: string | null; uri: string | null; channelId: string | null; includeDefault?: boolean | null; multiNoteKind?: MiNote['multiNoteKind'] }, peer: GridspacePeerConfig | null): boolean {
+	if (!peer || note.channelId !== null || !includesDefault(note)) return false;
 	const prefix = `${peer.peerOrigin}/notes/`;
 	return note.userHost === null || (note.userHost === new URL(peer.peerOrigin).host && note.uri?.startsWith(prefix) === true && gridspaceNoteId(note.uri.slice(prefix.length)));
 }
 
 /** Peer-authored channel posts live here; reactions never use the federation merge path. */
-export function supportsGridspaceChannelReactions(note: { userHost: string | null; uri: string | null; channelId: string | null; localOnly: boolean }, peer: GridspacePeerConfig | null): boolean {
-	return !!peer && note.channelId != null && note.localOnly && note.uri === null && note.userHost === new URL(peer.peerOrigin).host;
+export function supportsGridspaceChannelReactions(note: { userHost: string | null; uri: string | null; channelId: string | null; localOnly: boolean; includeDefault?: boolean | null; multiNoteKind?: MiNote['multiNoteKind']; multiNoteRootId?: string | null }, peer: GridspacePeerConfig | null): boolean {
+	return !!peer && (note.channelId != null || dedicatedOriginal(note)) && note.localOnly && note.uri === null && note.userHost === new URL(peer.peerOrigin).host;
 }
 
 export const GRIDSPACE_REACTIONS_PATH = '/gridspace/v1/reactions';

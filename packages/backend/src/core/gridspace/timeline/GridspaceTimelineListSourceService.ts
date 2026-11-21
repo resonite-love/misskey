@@ -7,6 +7,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { type DataSource, type SelectQueryBuilder } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
+import { noteListingCondition } from '@/misc/note-distribution.js';
 import { MiNote } from '@/models/Note.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
 import { QueryService } from '@/core/QueryService.js';
@@ -94,8 +95,7 @@ export class GridspaceTimelineListSourceService {
 		if (!options.withReplies) query.andWhere('note.replyId IS NULL');
 		if (options.withFiles) query.andWhere('cardinality(note.fileIds) > 0');
 		if (options.withRenotes === false) query.andWhere('(note.renoteId IS NULL OR note.text IS NOT NULL OR cardinality(note.fileIds) > 0 OR note.hasPoll = true)');
-		if (!options.withChannelNotes) query.andWhere('note.channelId IS NULL');
-		else query.andWhere('(note.channelId IS NULL OR channel.isSensitive = false OR note.userId = :listSelf)', { listSelf: viewer.id });
+		query.andWhere(...noteListingCondition(options.withChannelNotes ? { kind: 'profile', viewerId: viewer.id } : { kind: 'default' }));
 		query.andWhere(`NOT EXISTS (SELECT 1 FROM channel_muting cm WHERE cm."userId" = :listSelf
 			AND cm."channelId" IN (note."channelId", note."renoteChannelId")
 			AND (cm."expiresAt" IS NULL OR cm."expiresAt" > CURRENT_TIMESTAMP))`, { listSelf: viewer.id });

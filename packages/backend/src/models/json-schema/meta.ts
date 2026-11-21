@@ -320,6 +320,8 @@ export const packedMetaDetailedOnlySchema = {
 			type: 'object',
 			optional: true, nullable: false,
 			properties: {
+				multiNote: { type: 'boolean', optional: false, nullable: false },
+				multiNotePeer: { type: 'boolean', optional: false, nullable: false },
 				registration: {
 					type: 'boolean',
 					optional: false, nullable: false,

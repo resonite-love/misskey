@@ -772,6 +772,7 @@ export type Channels = {
             notificationRead: (payload: {
                 unreadCount: number;
             }) => void;
+            gridspaceNotificationsChanged: () => void;
             unreadNotification: (payload: Notification_2) => void;
             notificationFlushed: () => void;
             unreadAntenna: (payload: Antenna) => void;
@@ -2125,6 +2126,8 @@ declare namespace entities {
         GridspaceCollectionsResponse,
         GridspaceContentRequest,
         GridspaceContentResponse,
+        GridspaceDeleteReplyRequest,
+        GridspaceDeleteReplyResponse,
         GridspaceDriveRequest,
         GridspaceDriveResponse,
         GridspaceDriveImportRequest,
@@ -2141,6 +2144,12 @@ declare namespace entities {
         GridspaceManagedResourceResponse,
         GridspaceMemberRequest,
         GridspaceMemberResponse,
+        GridspaceMultiNoteChannelUpdateRequest,
+        GridspaceMultiNoteChannelUpdateResponse,
+        GridspaceMultiNoteChannelsRequest,
+        GridspaceMultiNoteChannelsResponse,
+        GridspaceMultiNoteRemoveRequest,
+        GridspaceMultiNoteRetryRequest,
         GridspaceNoteLinkRequest,
         GridspaceNoteLinkResponse,
         GridspaceNoteMenuRequest,
@@ -2288,6 +2297,8 @@ declare namespace entities {
         NotesConversationResponse,
         NotesCreateRequest,
         NotesCreateResponse,
+        NotesCreateStatusRequest,
+        NotesCreateStatusResponse,
         NotesDeleteRequest,
         NotesDraftsCountResponse,
         NotesDraftsCreateRequest,
@@ -2810,6 +2821,12 @@ type GridspaceContentRequest = operations['gridspace___content']['requestBody'][
 type GridspaceContentResponse = operations['gridspace___content']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
+type GridspaceDeleteReplyRequest = operations['gridspace___delete-reply']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceDeleteReplyResponse = operations['gridspace___delete-reply']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
 type GridspaceDriveImportRequest = operations['gridspace___drive-import']['requestBody']['content']['application/json'];
 
 // @public (undocumented)
@@ -2856,6 +2873,24 @@ type GridspaceMemberRequest = operations['gridspace___member']['requestBody']['c
 
 // @public (undocumented)
 type GridspaceMemberResponse = operations['gridspace___member']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceMultiNoteChannelsRequest = operations['gridspace___multi-note___channels']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceMultiNoteChannelsResponse = operations['gridspace___multi-note___channels']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceMultiNoteChannelUpdateRequest = operations['gridspace___multi-note___channel-update']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceMultiNoteChannelUpdateResponse = operations['gridspace___multi-note___channel-update']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceMultiNoteRemoveRequest = operations['gridspace___multi-note___remove']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceMultiNoteRetryRequest = operations['gridspace___multi-note___retry']['requestBody']['content']['application/json'];
 
 // @public (undocumented)
 type GridspaceNoteLinkRequest = operations['gridspace___note-link']['requestBody']['content']['application/json'];
@@ -3433,6 +3468,12 @@ type NotesCreateRequest = operations['notes___create']['requestBody']['content']
 
 // @public (undocumented)
 type NotesCreateResponse = operations['notes___create']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
+type NotesCreateStatusRequest = operations['notes___create-status']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type NotesCreateStatusResponse = operations['notes___create-status']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type NotesDeleteRequest = operations['notes___delete']['requestBody']['content']['application/json'];
@@ -4263,8 +4304,8 @@ type VerifyEmailRequest = operations['verify-email']['requestBody']['content']['
 // Warnings were encountered during analysis:
 //
 // src/streaming.ts:57:3 - (ae-forgotten-export) The symbol "ReconnectingWebSocket" needs to be exported by the entry point index.d.ts
-// src/streaming.types.ts:273:4 - (ae-forgotten-export) The symbol "ReversiUpdateKey" needs to be exported by the entry point index.d.ts
-// src/streaming.types.ts:288:4 - (ae-forgotten-export) The symbol "ReversiUpdateSettings" needs to be exported by the entry point index.d.ts
+// src/streaming.types.ts:274:4 - (ae-forgotten-export) The symbol "ReversiUpdateKey" needs to be exported by the entry point index.d.ts
+// src/streaming.types.ts:289:4 - (ae-forgotten-export) The symbol "ReversiUpdateSettings" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

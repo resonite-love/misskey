@@ -79,3 +79,19 @@ test.each(['unified', 'local-fallback'] as const)('an empty %s page keeps the au
 	expect(view.getByText('Channel note')).toBeTruthy();
 	expect(view.container.querySelector('[data-timeline-load-more]')).toBeNull();
 });
+
+test.each(['https://local.example', 'https://peer.example'])('pinned placement requests retain destination %s', async channelOrigin => {
+	api.mockResolvedValueOnce({ timeline: { version: 1, enabled: true, kinds: ['channel'], channelPlacements: true } } as never).mockResolvedValueOnce(page as never);
+	const view = render(PrivateNotes, { props: { params: { mode: 'channel', channelId: 'sameId' }, channelOrigin, pinnedOnly: true, plain: true }, global: { stubs: { MkLoading: true } } });
+	await flush();
+	expect(view.getByText('Channel note')).toBeTruthy();
+	expect(api.mock.calls[1][1]).toMatchObject({ kind: 'channel', channelId: 'sameId', channelOrigin, pinnedOnly: true });
+});
+
+test('an old unified channel reader does not reinterpret the local ID as a peer channel', async () => {
+	api.mockResolvedValueOnce({ timeline: { version: 1, enabled: true, kinds: ['channel'] } } as never);
+	const view = render(PrivateNotes, { props: { params: { mode: 'channel', channelId: 'sameId' }, channelOrigin: 'https://local.example' }, slots: { fallback: '<div>Local channel</div>' }, global: { stubs: { MkLoading: true } } });
+	await flush();
+	expect(view.getByText('Local channel')).toBeTruthy();
+	expect(api.mock.calls.map(([endpoint]) => endpoint)).toEqual(['gridspace/link']);
+});

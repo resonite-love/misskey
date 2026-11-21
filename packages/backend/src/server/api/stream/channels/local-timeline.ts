@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { Inject, Injectable, Scope } from '@nestjs/common';
 import type { Packed } from '@/misc/json-schema.js';
 import { MetaService } from '@/core/MetaService.js';
@@ -56,7 +57,7 @@ export class LocalTimelineChannel extends Channel {
 
 		if (note.user.host !== null && !note.gridspaceShared) return;
 		if (note.visibility !== 'public') return;
-		if (note.channelId != null) return;
+		if (!includesDefault(note)) return;
 		if (note.user.requireSigninToViewContents && this.user == null) return;
 		if (note.renote && note.renote.user.requireSigninToViewContents && this.user == null) return;
 		if (note.reply && note.reply.user.requireSigninToViewContents && this.user == null) return;

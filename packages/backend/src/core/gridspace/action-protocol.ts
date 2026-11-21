@@ -3,15 +3,17 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { conversationUriSchema, type ConversationCredential, type ConversationOptions } from './conversation-protocol.js';
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import { privateNoteSchema, PRIVATE_FILE_LIMIT } from './private-protocol.js';
 
-export type ActionOptions = { action: 'prepare' | 'react' | 'vote' | 'add-reaction' | 'remove-reaction' | 'reaction-list'; noteId: string; channelId?: string; expectedActorUri?: string; reaction?: string | null; choice?: number; untilId?: string; limit?: number };
-export type ActionPeerRequest = GridspacePeerLinkRequest & ActionOptions;
-export type UploadOptions = { noteId?: string; channelId?: string; expectedActorUri?: string; name: string; comment?: string | null; isSensitive?: boolean };
-export type UploadPeerRequest = GridspacePeerLinkRequest & UploadOptions & { data: string; sourceFileUrl?: string };
+export type ActionOptions = ConversationOptions & { action: 'prepare' | 'react' | 'vote' | 'add-reaction' | 'remove-reaction' | 'reaction-list'; noteId: string; channelId?: string; expectedActorUri?: string; reaction?: string | null; choice?: number; untilId?: string; limit?: number };
+export type ActionPeerRequest = ConversationCredential & GridspacePeerLinkRequest & ActionOptions;
+export type UploadOptions = ConversationOptions & { noteId?: string; channelId?: string; expectedActorUri?: string; name: string; comment?: string | null; isSensitive?: boolean };
+export type UploadPeerRequest = ConversationCredential & GridspacePeerLinkRequest & UploadOptions & { data: string; sourceFileUrl?: string };
 const text = { type: 'string', optional: false, nullable: false } as const;
 export const actionOptionsSchema = {
+	conversationUri: conversationUriSchema,
 	action: { type: 'string', enum: ['prepare', 'react', 'vote', 'add-reaction', 'remove-reaction', 'reaction-list'], default: 'prepare' },
 	noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
@@ -30,6 +32,7 @@ export const actionResultSchema = { type: 'object', optional: false, nullable: f
 	} } },
 } } as const;
 export const uploadOptionsSchema = {
+	conversationUri: conversationUriSchema,
 	noteId: actionOptionsSchema.noteId,
 	channelId: actionOptionsSchema.channelId,
 	expectedActorUri: actionOptionsSchema.expectedActorUri,

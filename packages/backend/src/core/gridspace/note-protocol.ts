@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import type { MiNote } from '@/models/Note.js';
 import type { IPost } from '@/core/activitypub/type.js';
 
@@ -13,8 +14,8 @@ export const GRIDSPACE_NOTE_BATCH_BODY_LIMIT = GRIDSPACE_NOTE_BATCH_LIMIT * GRID
 export type GridspaceNoteEntry = { object: IPost; localOnly: boolean; reactionAcceptance: MiNote['reactionAcceptance'] };
 export type GridspaceNoteBundle = { deleted: boolean; unavailable?: boolean; notes: GridspaceNoteEntry[] };
 
-export function canShareGridspaceNote(note: { visibility: string; channelId: string | null }): boolean {
-	return !note.channelId && (note.visibility === 'public' || note.visibility === 'home');
+export function canShareGridspaceNote(note: { visibility: string; channelId: string | null; includeDefault?: boolean | null; multiNoteKind?: MiNote['multiNoteKind'] }): boolean {
+	return includesDefault(note) && (note.visibility === 'public' || note.visibility === 'home');
 }
 
 export function gridspaceNoteId(value: unknown): value is string {

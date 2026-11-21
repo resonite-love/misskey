@@ -13,12 +13,16 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkButton v-if="!channelId || error" :disabled="loading" @click="refresh">{{ channelId ? i18n.ts.reload : i18n.ts.search }}</MkButton>
 		<MkLoading v-if="loading"/>
 		<MkInfo v-if="error" warn role="alert">{{ i18n.ts._gridspace.channelsUnavailable }} <MkA to="/settings/gridspace">{{ i18n.ts._gridspace.title }}</MkA></MkInfo>
-		<MkGridspacePostForm v-if="channelId && composerReady && prefer.s.showFixedPostFormInChannel" v-show="selected && !selected.isArchived && tab === 'timeline'" :key="channelId" :channelId="channelId" :channel="selected" embedded :autofocus="deviceKind === 'desktop'" class="_panel" @sent="refreshNotes"/>
+		<MkGridspacePostForm v-if="channelId && composerReady && ((!placementAccount && placement !== '1') || multiNotePeer) && prefer.s.showFixedPostFormInChannel" v-show="canPost && tab === 'timeline'" :key="channelId" :channelId="channelId" :channel="selected" :channelOrigin="origin" embedded :autofocus="deviceKind === 'desktop'" class="_panel" @sent="refreshNotes"/>
 		<template v-if="selected">
 			<MkChannelOverview v-if="tab === 'overview'" :channel="selected" :origin="originHost"><template #follow><MkChannelFollowButton :key="selected.id" :channel="selected" full :disabled="updating" :updateFollowing="updateFollowing"/></template><template #favorite><MkButton v-tooltip="selected.isFavorited ? i18n.ts.unfavorite : i18n.ts.favorite" asLike rounded :primary="selected.isFavorited" :disabled="updating" :aria-label="selected.isFavorited ? i18n.ts.unfavorite : i18n.ts.favorite" :aria-pressed="selected.isFavorited" @click="toggleFavorite"><i class="ti ti-star"></i></MkButton></template></MkChannelOverview>
+			<MkFoldableSection v-if="tab === 'overview' && placementRead">
+				<template #header><i class="ti ti-pin" aria-hidden="true"></i> {{ i18n.ts.pinnedNotes }}</template>
+				<MkGridspacePrivateNotes :params="{ mode: 'channel', channelId: selected.id }" :channelOrigin="origin" pinnedOnly plain alwaysShow/>
+			</MkFoldableSection>
 			<MkInfo v-if="selected.isArchived" warn>{{ i18n.ts.thisChannelArchived }}</MkInfo>
 			<template v-if="tab === 'timeline'">
-				<MkGridspacePrivateNotes ref="timeline" :params="{ mode: 'channel', channelId: selected.id }" plain alwaysShow @loaded="markRead"/>
+				<MkGridspacePrivateNotes ref="timeline" :channelOrigin="placementRead ? origin : undefined" :params="{ mode: 'channel', channelId: selected.id }" plain alwaysShow @loaded="markRead"/>
 			</template>
 			<template v-else-if="tab === 'search'">
 				<MkInput v-model="searchQuery" type="search" @enter="search"><template #prefix><i class="ti ti-search"></i></template></MkInput>
@@ -27,7 +31,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</template>
 		</template>
 		<template v-else-if="!channelId">
-			<MkA v-for="channel in channels" :key="channel.id" :to="`/gridspace/channels/${channel.id}`" class="_panel" :class="$style.card">
+			<MkA v-for="channel in channels" :key="channel.id" :to="`/gridspace/channels/${channel.id}${placementAccount ? '?placement=1' : ''}`" class="_panel" :class="$style.card">
 				<img v-if="channel.bannerUrl && !channel.isSensitive" :src="channel.bannerUrl" alt="" :class="$style.banner" loading="lazy">
 				<strong><i class="ti ti-device-tv" aria-hidden="true"></i> {{ channel.name }}</strong>
 				<span v-if="channel.isSensitive">{{ i18n.ts._gridspace.channelSensitive }}</span>
@@ -37,7 +41,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkButton v-if="next" :disabled="loading" @click="load(true)">{{ i18n.ts.loadMore }}</MkButton>
 		</template>
 	</div>
-	<template v-if="selected && !selected.isArchived" #footer>
+	<template v-if="canPost" #footer>
 		<div :class="$style.footer"><div class="_spacer" style="--MI_SPACER-w: 700px; --MI_SPACER-min: 16px; --MI_SPACER-max: 16px;"><div class="_buttonsCenter"><MkButton inline rounded primary gradate @click="openPostForm"><i class="ti ti-pencil"></i> {{ i18n.ts.postToTheChannel }}</MkButton></div></div></div>
 	</template>
 </PageWithHeader>
@@ -47,6 +51,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 import { computed, onActivated, onBeforeUnmount, onDeactivated, provide, ref, shallowRef, useTemplateRef, watch } from 'vue';
 import type { entities } from 'misskey-js';
 import { DI } from '@/di.js';
+import { supportsChannelPlacements } from '@/utility/timeline-capabilities.js';
+import { instance } from '@/instance.js';
+import MkFoldableSection from '@/components/MkFoldableSection.vue';
 import MkChannelOverview from '@/components/MkChannelOverview.vue';
 import MkButton from '@/components/MkButton.vue';
 import MkInfo from '@/components/MkInfo.vue';
@@ -64,7 +71,7 @@ import { i18n } from '@/i18n.js';
 import { miLocalStorage } from '@/local-storage.js';
 import * as os from '@/os.js';
 
-const props = defineProps<{ channelId?: string }>();
+const props = defineProps<{ channelId?: string; placement?: string }>();
 type Channel = entities.GridspaceChannelsResponse['channels'][number];
 const channels = shallowRef<Channel[]>([]);
 const selected = computed(() => props.channelId ? channels.value.find(channel => channel.id === props.channelId) : undefined);
@@ -72,6 +79,10 @@ provide(DI.linkedChannel, selected);
 const query = ref('');
 const followed = ref(false);
 const origin = ref('');
+const placementAccount = ref(false);
+const placementRead = ref(false);
+const multiNotePeer = computed(() => instance.features?.multiNotePeer === true);
+const canPost = computed(() => selected.value && !selected.value.isArchived && ((!placementAccount.value && props.placement !== '1') || multiNotePeer.value));
 const originHost = computed(() => origin.value ? new URL(origin.value).host : '');
 const next = ref<string | null>(null);
 const loading = ref(false);
@@ -81,7 +92,7 @@ const tab = ref('timeline');
 const headerTabs = computed(() => props.channelId ? [
 	{ key: 'overview', title: i18n.ts.overview, icon: 'ti ti-info-circle' },
 	{ key: 'timeline', title: i18n.ts.timeline, icon: 'ti ti-messages' },
-	{ key: 'search', title: i18n.ts.search, icon: 'ti ti-search' },
+	...(placementAccount.value ? [] : [{ key: 'search', title: i18n.ts.search, icon: 'ti ti-search' }]),
 ] : []);
 const searchQuery = ref('');
 const appliedSearch = ref('');
@@ -108,9 +119,17 @@ async function load(more: boolean, background = false) {
 	const current = generation;
 	loading.value = !background; error.value = false;
 	try {
-		const result = await misskeyApi('gridspace/channels', {
-			channelId: props.channelId, query: appliedQuery, followed: followed.value, before: more ? next.value! : undefined,
-		}, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
+		const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
+		if (!more && !background) {
+			const status = await misskeyApi('gridspace/link', {}, undefined, signal).catch(() => null);
+			if (current !== generation) return;
+			placementRead.value = supportsChannelPlacements(status);
+			placementAccount.value = props.placement === '1' || (placementRead.value && status?.channelsEnabled === false);
+		}
+		const params = { channelId: props.channelId, query: appliedQuery, before: more ? next.value! : undefined };
+		const result = placementAccount.value
+			? await misskeyApi('gridspace/multi-note/channels', { ...params, list: props.channelId ? undefined : followed.value ? 'following' : appliedQuery ? 'search' : 'featured' }, undefined, signal)
+			: await misskeyApi('gridspace/channels', { ...params, followed: followed.value }, undefined, signal);
 		if (current !== generation) return;
 		if (props.channelId && !result.channels.length) throw new Error('Unavailable');
 		const seen = new Set(channels.value.map(channel => channel.id));
@@ -130,7 +149,7 @@ async function updateChannel(action: entities.GridspaceChannelUpdateRequest['act
 	const current = generation;
 	updating.value = true;
 	try {
-		const state = await misskeyApi('gridspace/channel-update', { channelId, action }, undefined, AbortSignal.timeout(15000));
+		const state = await misskeyApi(placementAccount.value ? 'gridspace/multi-note/channel-update' : 'gridspace/channel-update', { channelId, action }, undefined, AbortSignal.timeout(15000));
 		if (current === generation && props.channelId === channelId) channels.value = channels.value.map(channel => channel.id === channelId ? { ...channel, ...state } : channel);
 		return state;
 	} catch (err) {
@@ -157,7 +176,7 @@ async function toggleFavorite() {
 
 function search() { appliedSearch.value = searchQuery.value.trim(); }
 
-function openPostForm() { if (selected.value) void gridspacePost({ channelId: selected.value.id, channel: selected.value }, refreshNotes); }
+function openPostForm() { if (canPost.value && selected.value) void gridspacePost({ channelId: selected.value.id, channel: selected.value, channelOrigin: origin.value }, refreshNotes); }
 
 function refresh() { refreshNotes(); void load(false); }
 
@@ -171,7 +190,7 @@ window.document.addEventListener('visibilitychange', visibility);
 watch(selected, () => {
 	if (selected.value && !selected.value.isArchived) composerReady.value = true;
 });
-watch(() => props.channelId, () => { composerReady.value = false; void load(false); }, { immediate: true });
+watch(() => [props.channelId, props.placement], () => { composerReady.value = false; tab.value = 'timeline'; appliedSearch.value = ''; void load(false); }, { immediate: true });
 onDeactivated(() => { active = false; suspend(); });
 onActivated(() => { if (!active) { active = true; resume(); } });
 onBeforeUnmount(() => { active = false; clear(); window.document.removeEventListener('visibilitychange', visibility); });

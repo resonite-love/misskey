@@ -4,14 +4,17 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { NotePlacementService, PlacementError, type PreparedPlacements, type MultiNoteRequest } from '@/core/NotePlacementService.js';
+import { includesDefault } from '@/misc/note-distribution.js';
+import { MiNoteCreateDispatch } from '@/models/NotePlacement.js';
 import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone, MiGridspaceReplyReceipt } from '@/models/Gridspace.js';
 import { canShareGridspaceNote, canonicalGridspaceNoteUri, gridspaceNoteUris } from '@/core/gridspace/note-protocol.js';
 import { TimelinePeerService } from '@/core/gridspace/timeline/TimelinePeerService.js';
 import { setImmediate } from 'node:timers/promises';
 import * as mfm from 'mfm-js';
-import { In, DataSource, IsNull, LessThan, type EntityManager } from 'typeorm';
+import { In, DataSource, IsNull, LessThan, LessThanOrEqual, type EntityManager } from 'typeorm';
 import * as Redis from 'ioredis';
-import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common';
+import { Inject, Injectable, OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import { extractMentions } from '@/misc/extract-mentions.js';
 import { extractCustomEmojisFromMfm } from '@/misc/extract-custom-emojis-from-mfm.js';
 import { extractHashtags } from '@/misc/extract-hashtags.js';
@@ -182,6 +185,9 @@ type Option = {
 	files?: MiDriveFile[] | null;
 	poll?: IPoll | null;
 	localOnly?: boolean | null;
+	multiNote?: MultiNoteRequest;
+	placements?: PreparedPlacements;
+	multiNoteConversationRootId?: string;
 	gridspaceShared?: boolean;
 	gridspaceHistorical?: boolean;
 	gridspaceReply?: { requestId: string; requestHash: string; beforeInsert: (manager: EntityManager) => Promise<void> };
@@ -200,9 +206,11 @@ type Option = {
 };
 
 @Injectable()
-export class NoteCreateService implements OnApplicationShutdown {
+export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 	// private logger: Logger;
 	#shutdownController = new AbortController();
+	private dispatchTimer?: ReturnType<typeof setInterval>;
+	private dispatching?: Promise<void>;
 	private updateNotesCountQueue: CollapsedQueue<MiNote['id'], number>;
 
 	constructor(
@@ -257,6 +265,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 		private vmimiRelayTimelineService: VmimiRelayTimelineService,
 		private userEntityService: UserEntityService,
 		private noteEntityService: NoteEntityService,
+		private notePlacementService: NotePlacementService,
 		private idService: IdService,
 		private globalEventService: GlobalEventService,
 		private timelinePeer: TimelinePeerService,
@@ -287,6 +296,12 @@ export class NoteCreateService implements OnApplicationShutdown {
 	}
 
 	@bindThis
+	public onModuleInit() {
+		this.dispatchTimer = setInterval(() => this.wakeDispatch(), 3000);
+		this.dispatchTimer.unref();
+	}
+
+	@bindThis
 	public async fetchAndCreate(user: {
 		id: MiUser['id'];
 		username: MiUser['username'];
@@ -309,8 +324,17 @@ export class NoteCreateService implements OnApplicationShutdown {
 		apMentions?: MinimumUser[] | null;
 		apHashtags?: string[] | null;
 		apEmojis?: string[] | null;
+		multiNote?: MultiNoteRequest;
+		multiNoteConversationRootId?: string;
 		gridspaceReply?: Option['gridspaceReply'];
 	}): Promise<MiNote> {
+		if (data.multiNote) {
+			const existing = await this.notePlacementService.status(user.id, data.multiNote.clientRequestId, data.multiNote.inputHash);
+			if (existing.status === 'deleted') throw new PlacementError('request-note-deleted');
+			if (existing.note) return existing.note;
+			if (data.channelId || data.replyId || data.renoteId) throw new PlacementError('incompatible-destination');
+			if (data.visibility !== 'public') throw new PlacementError('public-visibility-required');
+		}
 		const visibleUsers = data.visibleUserIds.length > 0 ? await this.usersRepository.findBy({
 			id: In(data.visibleUserIds),
 		}) : [];
@@ -434,6 +458,8 @@ export class NoteCreateService implements OnApplicationShutdown {
 		}
 
 		return this.create(user, {
+			multiNote: data.multiNote,
+			multiNoteConversationRootId: data.multiNoteConversationRootId,
 			createdAt: data.createdAt,
 			files: files,
 			poll: data.poll,
@@ -461,6 +487,15 @@ export class NoteCreateService implements OnApplicationShutdown {
 		isBot: MiUser['isBot'];
 		isCat: MiUser['isCat'];
 	}, data: Option, silent = false): Promise<MiNote> {
+		if (data.renote?.multiNoteKind && !includesDefault(data.renote)) throw new PlacementError('dedicated-note-renote');
+		if (data.reply?.multiNoteKind && !includesDefault(data.reply)) {
+			const rootId = data.reply.multiNoteKind === 'root' ? data.reply.id : data.reply.multiNoteRootId;
+			if (!rootId || (data.multiNoteConversationRootId && data.multiNoteConversationRootId !== rootId)) throw new PlacementError('invalid-conversation-root');
+			data.multiNoteConversationRootId = rootId;
+			data.channel = null;
+		} else if (data.multiNoteConversationRootId) {
+			throw new PlacementError('invalid-conversation-parent');
+		}
 		// チャンネル外にリプライしたら対象のスコープに合わせる
 		// (クライアントサイドでやっても良い処理だと思うけどとりあえずサーバーサイドで)
 		if (data.reply && data.channel && data.reply.channelId !== data.channel.id) {
@@ -482,14 +517,16 @@ export class NoteCreateService implements OnApplicationShutdown {
 		if (data.localOnly == null) data.localOnly = false;
 		if (data.channel != null) data.visibility = 'public';
 		if (data.channel != null) data.visibleUsers = [];
-		if (data.channel != null) data.localOnly = true;
+		if (data.channel != null || data.multiNoteConversationRootId || data.multiNote?.includeDefault === false) data.localOnly = true;
 
 		if (data.visibility === 'public' && data.channel == null) {
 			const sensitiveWords = this.meta.sensitiveWords;
 			const sensitiveWordsTarget = data.cw ?? data.text ?? '';
 			if (sensitiveWords.length > 0 && this.utilityService.isKeyWordIncluded([sensitiveWordsTarget, ...extractUrlsForKeyWordCheck(sensitiveWordsTarget)].join('\n'), sensitiveWords)) {
+				if (data.multiNote) throw new PlacementError('sensitive-word-visibility-downgrade');
 				data.visibility = 'home';
 			} else if ((await this.roleService.getUserPolicies(user.id)).canPublicNote === false) {
+				if (data.multiNote) throw new PlacementError('public-post-permission-required');
 				data.visibility = 'home';
 			}
 		}
@@ -675,7 +712,24 @@ export class NoteCreateService implements OnApplicationShutdown {
 			throw new IdentifiableError('9f466dab-c856-48cd-9e65-ff90ff750580', 'Note contains too many mentions');
 		}
 
-		const note = await this.insertNote(user, data, tags, emojis, mentionedUsers);
+		if (data.multiNote) {
+			const preview = {
+				text: data.text, cw: data.cw, pollChoices: data.poll?.choices,
+				files: data.files?.map(({ name, comment, isSensitive }) => ({ name, comment, isSensitive })),
+			};
+			const keywords = this.utilityService.concatNoteContentsForKeyWordCheck({ ...preview, others: [
+				...(preview.files ?? []).flatMap(file => [file.name, file.comment ?? '']),
+				...extractUrlsForKeyWordCheck(preview.text ?? ''), ...extractUrlsForKeyWordCheck(preview.cw ?? ''),
+			] });
+			if (this.utilityService.isKeyWordIncluded(keywords, this.meta.prohibitedWords)) throw new IdentifiableError('689ee33f-f97c-479a-ac49-1b9f8140af99', 'Note contains prohibited words');
+			if (this.utilityService.isKeyWordIncluded(keywords, this.meta.sensitiveWords)) throw new PlacementError('sensitive-word-visibility-downgrade');
+			if (preview.files?.some(file => file.isSensitive)) throw new PlacementError('sensitive-file');
+			data.placements = await this.notePlacementService.prepare(user.id, data.multiNote, preview);
+		}
+		const result = await this.insertNote(user, data, tags, emojis, mentionedUsers, silent);
+		if (result.replayed) return result.note;
+		const note = result.note;
+		if (note.multiNoteKind) this.wakeDispatch();
 
 		setImmediate('post created', { signal: this.#shutdownController.signal }).then(
 			() => this.postNoteCreated(note, user, data, silent, tags!, mentionedUsers!),
@@ -686,8 +740,12 @@ export class NoteCreateService implements OnApplicationShutdown {
 	}
 
 	@bindThis
-	private async insertNote(user: { id: MiUser['id']; host: MiUser['host']; }, data: Option, tags: string[], emojis: string[], mentionedUsers: MinimumUser[]) {
+	private async insertNote(user: { id: MiUser['id']; host: MiUser['host']; }, data: Option, tags: string[], emojis: string[], mentionedUsers: MinimumUser[], silent: boolean) {
+		const includeDefault = !data.multiNoteConversationRootId && (data.placements?.request.includeDefault ?? !data.channel);
 		const insert = new MiNote({
+			includeDefault,
+			multiNoteKind: data.placements ? 'root' : data.multiNoteConversationRootId ? 'conversation-reply' : null,
+			multiNoteRootId: data.multiNoteConversationRootId ?? null,
 			id: this.idService.gen(data.createdAt?.getTime()),
 			fileIds: data.files ? data.files.map(file => file.id) : [],
 			replyId: data.reply ? data.reply.id : null,
@@ -706,7 +764,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			emojis,
 			userId: user.id,
 			localOnly: data.localOnly!,
-			gridspaceShared: data.gridspaceShared === true || (user.host == null && this.config.gridspace?.enabled === true && canShareGridspaceNote({ visibility: data.visibility!, channelId: data.channel?.id ?? null })),
+			gridspaceShared: includeDefault && (data.gridspaceShared === true || (user.host == null && this.config.gridspace?.enabled === true && canShareGridspaceNote({ visibility: data.visibility!, channelId: data.channel?.id ?? null, includeDefault }))),
 			reactionAcceptance: data.reactionAcceptance ?? null,
 			visibility: data.visibility as any,
 			visibleUserIds: data.visibility === 'specified'
@@ -747,9 +805,17 @@ export class NoteCreateService implements OnApplicationShutdown {
 
 		// 投稿を作成
 		try {
-			if (insert.hasPoll || insert.gridspaceShared || insert.uri || data.gridspaceReply) {
+			if (insert.hasPoll || insert.gridspaceShared || insert.uri || data.gridspaceReply || insert.channelId || insert.multiNoteKind) {
 				// Persist delivery with the note; tombstones serialize against late/replayed creates.
-				await this.db.transaction(async transactionalEntityManager => {
+				const replay = await this.db.transaction(async transactionalEntityManager => {
+					if (data.placements) {
+						const existing = await this.notePlacementService.lockRequest(transactionalEntityManager, insert, data.placements);
+						if (existing) return existing;
+					}
+					if (data.multiNoteConversationRootId) {
+						await this.notePlacementService.lockConversation(transactionalEntityManager, data.multiNoteConversationRootId, data.reply!.id);
+						if (!data.gridspaceReply) await this.notePlacementService.authorizeReply(transactionalEntityManager, user.id, data.multiNoteConversationRootId, data.reply!.id);
+					}
 					if (data.gridspaceReply) {
 						await data.gridspaceReply.beforeInsert(transactionalEntityManager);
 						await transactionalEntityManager.insert(MiGridspaceReplyReceipt, { userId: user.id, requestId: data.gridspaceReply.requestId, requestHash: data.gridspaceReply.requestHash, noteId: insert.id });
@@ -759,10 +825,16 @@ export class NoteCreateService implements OnApplicationShutdown {
 						if (await transactionalEntityManager.existsBy(MiGridspaceNoteTombstone, gridspaceNoteUris(insert.uri, this.config.gridspace?.peerUrl).map(uri => ({ uri })))) throw new Error('GridSpace note was deleted');
 					}
 					await transactionalEntityManager.insert(MiNote, insert);
+					if (data.placements || insert.channelId) await this.notePlacementService.stage(transactionalEntityManager, insert, data.placements);
+					if (insert.multiNoteKind) {
+						await transactionalEntityManager.insert(MiNoteCreateDispatch, { noteId: insert.id, retryAt: new Date(), silent });
+						await transactionalEntityManager.createQueryBuilder().update(this.usersRepository.target).set({ updatedAt: new Date(), notesCount: () => '"notesCount" + 1' }).where('id = :id', { id: user.id }).execute();
+					}
+					if ((data.gridspaceShared || insert.multiNoteKind) && insert.replyId) await transactionalEntityManager.increment(MiNote, { id: insert.replyId }, 'repliesCount', 1);
 					if (insert.gridspaceShared && user.host == null) {
 						await transactionalEntityManager.insert(MiGridspaceNoteDelivery, { noteId: insert.id, version: randomUUID(), peerOrigin: new URL(this.config.gridspace!.peerUrl).origin, retryAt: new Date() });
 					}
-					if (!insert.hasPoll) return;
+					if (!insert.hasPoll) return null;
 
 					const poll = new MiPoll({
 						noteId: insert.id,
@@ -777,16 +849,14 @@ export class NoteCreateService implements OnApplicationShutdown {
 					});
 
 					await transactionalEntityManager.insert(MiPoll, poll);
+					return null;
 				});
+				if (replay) return { replayed: true, note: replay };
 			} else {
 				await this.notesRepository.insert(insert);
 			}
 
-			return {
-				...insert,
-				reply: data.reply ?? null,
-				renote: data.renote ?? null,
-			};
+			return { replayed: false, note: { ...insert, reply: data.reply ?? null, renote: data.renote ?? null } };
 		} catch (e) {
 			// duplicate key error
 			if (isDuplicateKeyValueError(e)) {
@@ -795,10 +865,92 @@ export class NoteCreateService implements OnApplicationShutdown {
 				throw err;
 			}
 
-			console.error(e);
+			if (!(e instanceof PlacementError)) console.error(e);
 
 			throw e;
 		}
+	}
+
+	private wakeDispatch() {
+		if (this.dispatching || this.#shutdownController.signal.aborted) return;
+		this.dispatching = this.dispatchPending().catch(error => console.error('Multi-note dispatch failed', error)).finally(() => {
+			this.dispatching = undefined;
+		});
+	}
+
+	/** Lock the note before its dispatch row, matching deletion's lock order. */
+	private async dispatchPending() {
+		const jobs = await this.db.manager.find(MiNoteCreateDispatch, {
+			where: { retryAt: LessThanOrEqual(new Date()) }, order: { retryAt: 'ASC', noteId: 'ASC' }, take: 32,
+		});
+		for (const job of jobs) {
+			if (this.#shutdownController.signal.aborted) return;
+			try {
+				const completed = await this.db.transaction(async manager => {
+					const note = await manager.findOne(MiNote, { where: { id: job.noteId }, lock: { mode: 'pessimistic_read', onLocked: 'skip_locked' } });
+					if (!note) return false;
+					const current = await manager.findOne(MiNoteCreateDispatch, {
+						where: { noteId: job.noteId, retryAt: LessThanOrEqual(new Date()) }, lock: { mode: 'pessimistic_write', onLocked: 'skip_locked' },
+					});
+					if (!current) return false;
+					await this.dispatchCreatedNote(note, current.silent);
+					await manager.delete(MiNoteCreateDispatch, job.noteId);
+					return true;
+				});
+				if (completed) await this.globalEventService.completeCreatedNoteDispatch(job.noteId);
+			} catch (error) {
+				await this.db.manager.update(MiNoteCreateDispatch, { noteId: job.noteId, attempts: job.attempts }, {
+					attempts: job.attempts + 1, retryAt: new Date(Date.now() + Math.min(300000, 1000 * 2 ** Math.min(job.attempts, 9))),
+				});
+				console.error('Unable to dispatch multi-note', job.noteId, error);
+			}
+		}
+	}
+
+	private async dispatchCreatedNote(note: MiNote, silent: boolean) {
+		const user = await this.usersRepository.findOneByOrFail({ id: note.userId });
+		note.reply = note.replyId ? await this.notesRepository.findOneBy({ id: note.replyId }) : null;
+		await this.pushToTl(note, user);
+		await this.searchService.indexNote(note);
+		const antennas = await this.antennaService.addNoteToAntennas(note, user);
+		const poll = note.hasPoll ? await this.db.manager.findOneBy(MiPoll, { noteId: note.id }) : null;
+		if (poll?.expiresAt) {
+			await this.queueService.endedPollNotificationQueue.add(note.id, { noteId: note.id }, {
+				jobId: note.id, delay: Math.max(0, poll.expiresAt.getTime() - Date.now()),
+				removeOnComplete: { age: 3600 * 24 * 7, count: 30 }, removeOnFail: { age: 3600 * 24 * 7, count: 100 },
+			});
+		}
+		const mentions = note.mentions.length ? await this.usersRepository.findBy({ id: In(note.mentions) }) : [];
+		if (includesDefault(note) && !note.replyId) {
+			const followers = await this.followingsRepository.find({ where: { followeeId: user.id, notify: 'normal' }, select: { followerId: true } });
+			for (const { followerId } of followers) {
+				if (await this.notePlacementService.readable(followerId, note.id)) await this.notificationService.createNoteNotificationOnce(followerId, 'note', note.id, user.id);
+			}
+		}
+		if (silent) return;
+		const packed = await this.noteEntityService.pack(note, null, { skipHide: true, withReactionAndUserPairCache: true });
+		await this.globalEventService.publishCreatedNoteOnce('notesStream', packed);
+		await this.roleService.addNoteToRoleTimeline(packed);
+		for (const antenna of antennas) await this.globalEventService.publishCreatedNoteOnce(`antennaStream:${antenna.id}`, packed);
+
+		const recipients = new Map<string, 'reply' | 'mention'>();
+		for (const mention of mentions) if (mention.host === null) recipients.set(mention.id, 'mention');
+		if (note.reply && (note.reply.userHost === null || this.notificationService.isGuestConversationRecipient(note.reply))) {
+			recipients.set(note.reply.userId, 'reply');
+		}
+		for (const [targetId, type] of recipients) {
+			if (targetId === user.id || !await this.notePlacementService.readable(targetId, note.id)) continue;
+			if (await this.noteThreadMutingsRepository.existsBy({ userId: targetId, threadId: note.threadId ?? note.id })) continue;
+			await this.notificationService.createNoteNotificationOnce(targetId, type, note.id, user.id);
+		}
+		if (note.localOnly || !includesDefault(note) || !this.userEntityService.isLocalUser(user)) return;
+		const activity = await this.renderNoteOrRenoteActivity({}, note);
+		const delivery = this.apDeliverManagerService.createDeliverManager(user, activity);
+		delivery.addFollowersRecipe();
+		for (const mention of mentions) if (this.userEntityService.isRemoteUser(mention)) delivery.addDirectRecipe(mention);
+		const key = 'multi-note-' + note.id;
+		await delivery.execute(key);
+		await this.relayService.deliverToRelays(user, activity, key);
 	}
 
 	@bindThis
@@ -833,25 +985,26 @@ export class NoteCreateService implements OnApplicationShutdown {
 		}
 
 		// ハッシュタグ更新
-		if (data.visibility === 'public' || data.visibility === 'home') {
+		if ((!note.multiNoteKind || includesDefault(note)) && (data.visibility === 'public' || data.visibility === 'home')) {
 			this.hashtagService.updateHashtags(user, tags);
 		}
 
 		// Increment notes count (user)
-		this.incNotesCountOfUser(user);
+		if (!note.multiNoteKind) {
+			this.incNotesCountOfUser(user);
+			this.pushToTl(note, user);
+		}
 
-		this.pushToTl(note, user);
-
-		const matchedAntennas = this.antennaService.addNoteToAntennas({
+		const matchedAntennas = note.multiNoteKind ? Promise.resolve([]) : this.antennaService.addNoteToAntennas({
 			...note,
 			channel: data.channel ?? null,
 		}, user).catch(() => []);
 
-		if (data.reply) {
+		if (data.reply && !data.gridspaceShared && !note.multiNoteKind) {
 			this.saveReply(data.reply, note);
 		}
 
-		if (data.reply == null) {
+		if (data.reply == null && !note.multiNoteKind) {
 			// TODO: キャッシュ
 			this.followingsRepository.findBy({
 				followeeId: user.id,
@@ -880,7 +1033,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			this.incRenoteCount(data.renote);
 		}
 
-		if (data.poll && data.poll.expiresAt) {
+		if (!note.multiNoteKind && data.poll && data.poll.expiresAt) {
 			const delay = data.poll.expiresAt.getTime() - Date.now();
 			this.queueService.endedPollNotificationQueue.add(note.id, {
 				noteId: note.id,
@@ -903,10 +1056,10 @@ export class NoteCreateService implements OnApplicationShutdown {
 			// Pack the note
 			const noteObj = await this.noteEntityService.pack(note, null, { skipHide: true, withReactionAndUserPairCache: true });
 
-			this.globalEventService.publishNotesStream(noteObj);
-			this.timelinePeer.notify(note);
+			if (!note.multiNoteKind) this.globalEventService.publishNotesStream(noteObj);
+			if (!note.multiNoteKind || includesDefault(note)) this.timelinePeer.notify(note);
 
-			this.roleService.addNoteToRoleTimeline(noteObj);
+			if (!note.multiNoteKind) this.roleService.addNoteToRoleTimeline(noteObj);
 
 			matchedAntennas.then(antennas => {
 				for (const antenna of antennas) {
@@ -924,7 +1077,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 			// If has in reply to note
 			if (data.reply) {
 				// 通知
-				if (data.reply.userHost === null) {
+				if (data.reply.userHost === null || (note.multiNoteKind === 'conversation-reply' && this.notificationService.isGuestConversationRecipient(data.reply))) {
 					const isThreadMuted = await this.noteThreadMutingsRepository.exists({
 						where: {
 							userId: data.reply.userId,
@@ -934,8 +1087,11 @@ export class NoteCreateService implements OnApplicationShutdown {
 
 					if (!isThreadMuted) {
 						nm.push(data.reply.userId, 'reply');
-						this.globalEventService.publishMainStream(data.reply.userId, 'reply', noteObj);
-						this.webhookService.enqueueUserWebhook(data.reply.userId, 'reply', { note: noteObj });
+						if (data.reply.userHost === null && (!note.multiNoteKind || await this.notePlacementService.readable(data.reply.userId, note.id))) {
+							const reply = note.multiNoteKind ? await this.noteEntityService.pack(note, { id: data.reply.userId }) : noteObj;
+							this.globalEventService.publishMainStream(data.reply.userId, 'reply', reply);
+							this.webhookService.enqueueUserWebhook(data.reply.userId, 'reply', { note: reply });
+						}
 					}
 				}
 			}
@@ -956,10 +1112,10 @@ export class NoteCreateService implements OnApplicationShutdown {
 				}
 			}
 
-			nm.notify();
+			if (!note.multiNoteKind) nm.notify();
 
 			//#region AP deliver
-			if (!data.localOnly && this.userEntityService.isLocalUser(user)) {
+			if (!note.multiNoteKind && !data.localOnly && this.userEntityService.isLocalUser(user)) {
 				(async () => {
 					const noteActivity = await this.renderNoteOrRenoteActivity(data, note);
 					const dm = this.apDeliverManagerService.createDeliverManager(user, noteActivity);
@@ -996,26 +1152,8 @@ export class NoteCreateService implements OnApplicationShutdown {
 			//#endregion
 		}
 
-		if (data.channel) {
-			this.channelsRepository.increment({ id: data.channel.id }, 'notesCount', 1);
-			this.channelsRepository.update(data.channel.id, {
-				lastNotedAt: new Date(),
-			});
-
-			this.notesRepository.countBy({
-				userId: user.id,
-				channelId: data.channel.id,
-			}).then(count => {
-				// この処理が行われるのはノート作成後なので、ノートが一つしかなかったら最初の投稿だと判断できる
-				// TODO: とはいえノートを削除して何回も投稿すればその分だけインクリメントされる雑さもあるのでどうにかしたい
-				if (count === 1) {
-					this.channelsRepository.increment({ id: data.channel!.id }, 'usersCount', 1);
-				}
-			});
-		}
-
 		// Register to search database
-		this.index(note);
+		if (!note.multiNoteKind) this.index(note);
 	}
 
 	@bindThis
@@ -1036,7 +1174,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 	}
 
 	@bindThis
-	private incRenoteCount(renote: MiNote) {
+	private async incRenoteCount(renote: MiNote) {
 		this.notesRepository.createQueryBuilder().update()
 			.set({
 				renoteCount: () => '"renoteCount" + 1',
@@ -1046,15 +1184,14 @@ export class NoteCreateService implements OnApplicationShutdown {
 
 		// ~~30%の確率、~~3日以内に投稿されたノートの場合ハイライト用ランキング更新
 		if ((Date.now() - this.idService.parse(renote.id).date.getTime()) < 1000 * 60 * 60 * 24 * 3) {
-			if (renote.channelId != null) {
-				if (renote.replyId == null) {
-					this.featuredService.updateInChannelNotesRanking(renote.channelId, renote.id, 5);
+			if (renote.replyId == null) {
+				for (const channelId of await this.notePlacementService.activeLocalChannelIds(renote)) {
+					this.featuredService.updateInChannelNotesRanking(channelId, renote.id, 5);
 				}
-			} else {
-				if (this.featuredService.shouldBeIncludedInGlobalOrUserFeatured(renote)) {
-					this.featuredService.updateGlobalNotesRanking(renote.id, 5);
-					this.featuredService.updatePerUserNotesRanking(renote.userId, renote.id, 5);
-				}
+			}
+			if (includesDefault(renote) && this.featuredService.shouldBeIncludedInGlobalOrUserFeatured(renote)) {
+				this.featuredService.updateGlobalNotesRanking(renote.id, 5);
+				this.featuredService.updatePerUserNotesRanking(renote.userId, renote.id, 5);
 			}
 		}
 	}
@@ -1073,6 +1210,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 				continue;
 			}
 
+			if (note.multiNoteKind && !await this.notePlacementService.readable(u.id, note.id)) continue;
 			const detailPackedNote = await this.noteEntityService.pack(note, u, {
 				detail: true,
 			});
@@ -1141,26 +1279,34 @@ export class NoteCreateService implements OnApplicationShutdown {
 		if (!this.meta.enableFanoutTimeline) return;
 
 		const r = this.redisForTimelines.pipeline();
+		const push = note.multiNoteKind || (note.gridspaceShared && note.uri) ? this.fanoutTimelineService.pushOnce : this.fanoutTimelineService.push;
 
-		if (note.channelId) {
-			this.fanoutTimelineService.push(`channelTimeline:${note.channelId}`, note.id, this.config.perChannelMaxNoteCacheCount, r);
+		const channels = await this.notePlacementService.activeLocalChannelIds(note);
+		const channelFollowers = new Set<string>();
+		if (channels.length > 0) {
+			for (const channelId of channels) {
+				push(`channelTimeline:${channelId}`, note.id, this.config.perChannelMaxNoteCacheCount, r);
+			}
 
-			this.fanoutTimelineService.push(`userTimelineWithChannel:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax : this.meta.perRemoteUserUserTimelineCacheMax, r);
+			push(`userTimelineWithChannel:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax : this.meta.perRemoteUserUserTimelineCacheMax, r);
 
 			const channelFollowings = await this.channelFollowingsRepository.find({
 				where: {
-					followeeId: note.channelId,
+					followeeId: In(channels),
 				},
 				select: { followerId: true },
 			});
 
 			for (const channelFollowing of channelFollowings) {
-				this.fanoutTimelineService.push(`homeTimeline:${channelFollowing.followerId}`, note.id, this.meta.perUserHomeTimelineCacheMax, r);
+				if (channelFollowers.has(channelFollowing.followerId)) continue;
+				channelFollowers.add(channelFollowing.followerId);
+				push(`homeTimeline:${channelFollowing.followerId}`, note.id, this.meta.perUserHomeTimelineCacheMax, r);
 				if (note.fileIds.length > 0) {
-					this.fanoutTimelineService.push(`homeTimelineWithFiles:${channelFollowing.followerId}`, note.id, this.meta.perUserHomeTimelineCacheMax / 2, r);
+					push(`homeTimelineWithFiles:${channelFollowing.followerId}`, note.id, this.meta.perUserHomeTimelineCacheMax / 2, r);
 				}
 			}
-		} else {
+		}
+		if (includesDefault(note)) {
 			// TODO: キャッシュ？
 			// eslint-disable-next-line prefer-const
 			let [followings, userListMemberships] = await Promise.all([
@@ -1194,6 +1340,7 @@ export class NoteCreateService implements OnApplicationShutdown {
 
 			// TODO: あまりにも数が多いと redisPipeline.exec に失敗する(理由は不明)ため、3万件程度を目安に分割して実行するようにする
 			for (const following of followings) {
+				if (channelFollowers.has(following.followerId)) continue;
 				// 基本的にvisibleUserIdsには自身のidが含まれている前提であること
 				if (note.visibility === 'specified' && !note.visibleUserIds.some(v => v === following.followerId)) continue;
 
@@ -1202,9 +1349,9 @@ export class NoteCreateService implements OnApplicationShutdown {
 					if (!following.withReplies) continue;
 				}
 
-				this.fanoutTimelineService.push(`homeTimeline:${following.followerId}`, note.id, this.meta.perUserHomeTimelineCacheMax, r);
+				push(`homeTimeline:${following.followerId}`, note.id, this.meta.perUserHomeTimelineCacheMax, r);
 				if (note.fileIds.length > 0) {
-					this.fanoutTimelineService.push(`homeTimelineWithFiles:${following.followerId}`, note.id, this.meta.perUserHomeTimelineCacheMax / 2, r);
+					push(`homeTimelineWithFiles:${following.followerId}`, note.id, this.meta.perUserHomeTimelineCacheMax / 2, r);
 				}
 			}
 
@@ -1221,54 +1368,54 @@ export class NoteCreateService implements OnApplicationShutdown {
 					if (!userListMembership.withReplies) continue;
 				}
 
-				this.fanoutTimelineService.push(`userListTimeline:${userListMembership.userListId}`, note.id, this.meta.perUserListTimelineCacheMax, r);
+				push(`userListTimeline:${userListMembership.userListId}`, note.id, this.meta.perUserListTimelineCacheMax, r);
 				if (note.fileIds.length > 0) {
-					this.fanoutTimelineService.push(`userListTimelineWithFiles:${userListMembership.userListId}`, note.id, this.meta.perUserListTimelineCacheMax / 2, r);
+					push(`userListTimelineWithFiles:${userListMembership.userListId}`, note.id, this.meta.perUserListTimelineCacheMax / 2, r);
 				}
 			}
 
 			// 自分自身のHTL
-			if (note.userHost == null) {
+			if (note.userHost == null && !channelFollowers.has(user.id)) {
 				if (note.visibility !== 'specified' || !note.visibleUserIds.some(v => v === user.id)) {
-					this.fanoutTimelineService.push(`homeTimeline:${user.id}`, note.id, this.meta.perUserHomeTimelineCacheMax, r);
+					push(`homeTimeline:${user.id}`, note.id, this.meta.perUserHomeTimelineCacheMax, r);
 					if (note.fileIds.length > 0) {
-						this.fanoutTimelineService.push(`homeTimelineWithFiles:${user.id}`, note.id, this.meta.perUserHomeTimelineCacheMax / 2, r);
+						push(`homeTimelineWithFiles:${user.id}`, note.id, this.meta.perUserHomeTimelineCacheMax / 2, r);
 					}
 				}
 			}
 
 			// 自分自身以外への返信
 			if (isReply(note)) {
-				this.fanoutTimelineService.push(`userTimelineWithReplies:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax : this.meta.perRemoteUserUserTimelineCacheMax, r);
+				push(`userTimelineWithReplies:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax : this.meta.perRemoteUserUserTimelineCacheMax, r);
 
 				if (note.visibility === 'public' && (note.userHost == null || note.gridspaceShared)) {
-					this.fanoutTimelineService.push('localTimelineWithReplies', note.id, 300, r);
+					push('localTimelineWithReplies', note.id, 300, r);
 					if (note.replyUserHost == null) {
-						this.fanoutTimelineService.push(`localTimelineWithReplyTo:${note.replyUserId}`, note.id, 300 / 10, r);
+						push(`localTimelineWithReplyTo:${note.replyUserId}`, note.id, 300 / 10, r);
 					}
 				}
 				if (note.visibility === 'public' && this.vmimiRelayTimelineService.isRelayedInstance(note.userHost) && !note.localOnly) {
-					this.fanoutTimelineService.push('vmimiRelayTimelineWithReplies', note.id, this.meta.vmimiRelayTimelineCacheMax, r);
+					push('vmimiRelayTimelineWithReplies', note.id, this.meta.vmimiRelayTimelineCacheMax, r);
 					if (note.replyUserHost == null) {
-						this.fanoutTimelineService.push(`vmimiRelayTimelineWithReplyTo:${note.replyUserId}`, note.id, this.meta.vmimiRelayTimelineCacheMax / 10, r);
+						push(`vmimiRelayTimelineWithReplyTo:${note.replyUserId}`, note.id, this.meta.vmimiRelayTimelineCacheMax / 10, r);
 					}
 				}
 			} else {
-				this.fanoutTimelineService.push(`userTimeline:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax : this.meta.perRemoteUserUserTimelineCacheMax, r);
+				push(`userTimeline:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax : this.meta.perRemoteUserUserTimelineCacheMax, r);
 				if (note.fileIds.length > 0) {
-					this.fanoutTimelineService.push(`userTimelineWithFiles:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax / 2 : this.meta.perRemoteUserUserTimelineCacheMax / 2, r);
+					push(`userTimelineWithFiles:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax / 2 : this.meta.perRemoteUserUserTimelineCacheMax / 2, r);
 				}
 
 				if (note.visibility === 'public' && (note.userHost == null || note.gridspaceShared)) {
-					this.fanoutTimelineService.push('localTimeline', note.id, 1000, r);
+					push('localTimeline', note.id, 1000, r);
 					if (note.fileIds.length > 0) {
-						this.fanoutTimelineService.push('localTimelineWithFiles', note.id, 500, r);
+						push('localTimelineWithFiles', note.id, 500, r);
 					}
 				}
 				if (note.visibility === 'public' && this.vmimiRelayTimelineService.isRelayedInstance(note.userHost) && !note.localOnly) {
-					this.fanoutTimelineService.push('vmimiRelayTimeline', note.id, this.meta.vmimiRelayTimelineCacheMax, r);
+					push('vmimiRelayTimeline', note.id, this.meta.vmimiRelayTimelineCacheMax, r);
 					if (note.fileIds.length > 0) {
-						this.fanoutTimelineService.push('vmimiRelayTimelineWithFiles', note.id, this.meta.vmimiRelayTimelineCacheMax / 2, r);
+						push('vmimiRelayTimelineWithFiles', note.id, this.meta.vmimiRelayTimelineCacheMax / 2, r);
 					}
 				}
 			}
@@ -1280,7 +1427,9 @@ export class NoteCreateService implements OnApplicationShutdown {
 			}
 		}
 
-		r.exec();
+		const replies = await r.exec();
+		if (!replies) throw new Error('Timeline pipeline was aborted');
+		for (const [error] of replies) if (error) throw error;
 	}
 
 	@bindThis
@@ -1361,7 +1510,9 @@ export class NoteCreateService implements OnApplicationShutdown {
 
 	@bindThis
 	public async dispose(): Promise<void> {
+		clearInterval(this.dispatchTimer);
 		this.#shutdownController.abort();
+		await this.dispatching;
 		await this.updateNotesCountQueue.performAllNow();
 	}
 

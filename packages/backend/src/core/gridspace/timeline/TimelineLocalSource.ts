@@ -4,6 +4,7 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
+import { noteListingCondition } from '@/misc/note-distribution.js';
 import { type DataSource, type SelectQueryBuilder } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Packed } from '@/misc/json-schema.js';
@@ -84,9 +85,8 @@ export class TimelineLocalSource {
 			: ':timelineLinked';
 		const followed = (column: string) => `EXISTS (SELECT 1 FROM following tf WHERE tf."followerId" = :timelineViewer AND tf."followeeId" = ${column})`;
 		const self = `(note."userId" = :timelineViewer OR (note."userId" = ${linked} AND note.visibility IN ('public', 'home')))`;
-		const channels = `EXISTS (SELECT 1 FROM channel_following tcf WHERE tcf."followerId" = :timelineViewer AND tcf."followeeId" = note."channelId")`;
-		const publicLocal = options.kind === 'social' ? ` OR (note.visibility = 'public' AND (note."userHost" IS NULL OR note."gridspaceShared" = true))` : '';
-		query.andWhere(`((note."channelId" IS NULL AND (${self} OR ${followed('note."userId"')}${publicLocal})) OR ${channels})`);
+		const [routes, bindings] = noteListingCondition({ kind: options.kind, viewerId: viewer.id, linkedUserId: linkedId });
+		query.andWhere(routes.replaceAll(':routeLinked', linked), bindings);
 		// withReplies belongs to each follow on home; social additionally has the
 		// explicit global switch. Self replies and replies to the viewer remain.
 		const expandedReplies = options.kind === 'social' && options.withReplies === true ? 'true'
@@ -270,7 +270,7 @@ export class TimelineLocalSource {
 		return result;
 	}
 
-	private readableQuery(viewer: MiLocalUser, singleNoteId?: string): SelectQueryBuilder<MiNote> {
+	public readableQuery(viewer: MiLocalUser, singleNoteId?: string): SelectQueryBuilder<MiNote> {
 		return this.search.noteQuery(viewer, { query: '' }, false, true, undefined, false, true, singleNoteId)
 			.andWhere('"user"."isDeleted" = false')
 			.andWhere('EXISTS (SELECT 1 FROM "user" tv WHERE tv.id = :timelineViewer AND tv."isDeleted" = false AND tv."isSuspended" = false)', { timelineViewer: viewer.id });

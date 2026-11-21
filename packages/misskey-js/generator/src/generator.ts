@@ -3,10 +3,10 @@ import { mkdir, readFile, writeFile } from 'fs/promises';
 import type { OpenAPIV3_1 } from 'openapi-types';
 import { toPascal } from 'ts-case-convert';
 import { parse } from '@readme/openapi-parser';
-import openapiTS, { astToString } from 'openapi-typescript';
+import openapiTS from 'openapi-typescript';
 import type { OpenAPI3, OperationObject, PathItemObject } from 'openapi-typescript';
 import ts from 'typescript';
-import { removeNeverPropertiesFromAST } from './ast-transformer.js';
+import { printWithoutNeverProperties } from './ast-transformer.js';
 
 async function generateBaseTypes(
 	openApiDocs: OpenAPIV3_1.Document,
@@ -55,9 +55,7 @@ async function generateBaseTypes(
 		},
 	});
 
-	const filteredAst = removeNeverPropertiesFromAST(generatedTypesAst);
-
-	lines.push(astToString(filteredAst));
+	lines.push(printWithoutNeverProperties(generatedTypesAst));
 
 	lines.push('');
 
@@ -249,7 +247,7 @@ async function generateApiClientJSDoc(
 
 		endpointOutputLine.push(
 			'    /**',
-			`     * ${endpoint.description.split('\n').join('\n     * ')}`,
+			...endpoint.description.split('\n').map(line => line.trim() ? `     * ${line}` : '     *'),
 			'     */',
 			`    request<E extends '${endpoint.path}', P extends Endpoints[E][\'req\']>(`,
 			'      endpoint: E,',

@@ -39,19 +39,21 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<template #label>{{ i18n.ts.pinnedNotes }}</template>
 
 				<div class="_gaps">
-					<MkButton primary rounded @click="addPinnedNote()"><i class="ti ti-plus"></i></MkButton>
+					<MkButton primary rounded :aria-label="i18n.ts.pin" @click="addPinnedNote()"><i class="ti ti-plus" aria-hidden="true"></i></MkButton>
 
 					<MkDraggable
-						:modelValue="pinnedNoteIds.map(id => ({ id }))"
+						:modelValue="pins.map(id => ({ id }))"
 						direction="vertical"
 						manualDragStart
-						@update:modelValue="v => pinnedNoteIds = v.map(x => x.id)"
+						@update:modelValue="v => pins = v.map(x => x.id)"
 					>
-						<template #default="{ item, dragStart }">
-							<div :class="$style.pinnedNote">
-								<button class="_button" :class="$style.pinnedNoteHandle" tabindex="-1" :draggable="true" @dragstart.stop="dragStart"><i class="ti ti-menu"></i></button>
-								{{ item.id }}
-								<button class="_button" :class="$style.pinnedNoteRemove" @click="removePinnedNote(item.id)"><i class="ti ti-x"></i></button>
+						<template #default="{ item, index, dragStart }">
+							<div :class="$style.pinnedNote" role="group" :aria-label="item.id">
+								<span :class="$style.pinnedNoteHandle" aria-hidden="true" draggable="true" @dragstart.stop="dragStart"><i class="ti ti-menu"></i></span>
+								<span :class="$style.pinnedNoteUri">{{ item.id }}</span>
+								<button type="button" class="_button" :disabled="index === 0" :aria-label="i18n.ts._deck.swapUp" @click="movePinnedNote(index, -1)"><i class="ti ti-chevron-up" aria-hidden="true"></i></button>
+								<button type="button" class="_button" :disabled="index === pins.length - 1" :aria-label="i18n.ts._deck.swapDown" @click="movePinnedNote(index, 1)"><i class="ti ti-chevron-down" aria-hidden="true"></i></button>
+								<button type="button" class="_button" :class="$style.pinnedNoteRemove" :aria-label="i18n.ts.unpin" @click="removePinnedNote(item.id)"><i class="ti ti-x" aria-hidden="true"></i></button>
 							</div>
 						</template>
 					</MkDraggable>
@@ -69,6 +71,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script lang="ts" setup>
 import { computed, ref, watch } from 'vue';
+import { url } from '@@/js/config.js';
 import * as Misskey from 'misskey-js';
 import MkButton from '@/components/MkButton.vue';
 import MkInput from '@/components/MkInput.vue';
@@ -98,7 +101,8 @@ const bannerId = ref<string | null>(null);
 const color = ref('#000');
 const isSensitive = ref(false);
 const allowRenoteToExternal = ref(true);
-const pinnedNoteIds = ref<Misskey.entities.Note['id'][]>([]);
+const pins = ref<string[]>([]);
+const canonicalPins = computed(() => Array.isArray(channel.value?.pinnedNoteUris));
 
 watch(() => bannerId.value, async () => {
 	if (bannerId.value == null) {
@@ -122,7 +126,7 @@ async function fetchChannel() {
 	bannerId.value = result.bannerId;
 	bannerUrl.value = result.bannerUrl;
 	isSensitive.value = result.isSensitive;
-	pinnedNoteIds.value = result.pinnedNoteIds;
+	pins.value = [...(result.pinnedNoteUris ?? result.pinnedNoteIds)];
 	color.value = result.color;
 	allowRenoteToExternal.value = result.allowRenoteToExternal;
 
@@ -136,15 +140,43 @@ async function addPinnedNote() {
 		title: i18n.ts.noteIdOrUrl,
 	});
 	if (canceled || value == null) return;
-	const fromUrl = value.includes('/') ? value.split('/').pop() : null;
+	let noteId = value.trim();
+	if (canonicalPins.value && URL.canParse(noteId)) {
+		let uri = new URL(noteId);
+		if (uri.origin === new URL(url).origin && uri.pathname === '/gridspace/private') {
+			const linked = uri.searchParams.get('conversationUri');
+			if (linked && URL.canParse(linked)) uri = new URL(linked);
+		}
+		if (!['https:', 'http:'].includes(uri.protocol) || uri.username || uri.password || !/^\/notes\/[A-Za-z0-9]+$/.test(uri.pathname)) {
+			await os.alert({ type: 'error', text: i18n.ts.invalidValue });
+			return;
+		}
+		if (uri.origin !== new URL(url).origin) {
+			addPin(uri.origin + uri.pathname);
+			return;
+		}
+		noteId = uri.pathname.slice('/notes/'.length);
+	}
+	const fromUrl = noteId.includes('/') ? noteId.split('/').pop() : null;
 	const note = await os.apiWithDialog('notes/show', {
-		noteId: fromUrl ?? value,
+		noteId: fromUrl ?? noteId,
 	});
-	pinnedNoteIds.value.unshift(note.id);
+	addPin(canonicalPins.value ? note.uri ?? `${url}/notes/${note.id}` : note.id);
+}
+
+function addPin(value: string) {
+	if (!pins.value.includes(value)) pins.value.unshift(value);
+}
+
+function movePinnedNote(index: number, offset: -1 | 1) {
+	const destination = index + offset;
+	if (destination < 0 || destination >= pins.value.length) return;
+	const [pin] = pins.value.splice(index, 1);
+	pins.value.splice(destination, 0, pin);
 }
 
 function removePinnedNote(id: string) {
-	pinnedNoteIds.value = pinnedNoteIds.value.filter(x => x !== id);
+	pins.value = pins.value.filter(x => x !== id);
 }
 
 function save() {
@@ -161,7 +193,7 @@ function save() {
 		os.apiWithDialog('channels/update', {
 			...params,
 			channelId: props.channelId,
-			pinnedNoteIds: pinnedNoteIds.value,
+			...(canonicalPins.value ? { pinnedNoteUris: pins.value } : { pinnedNoteIds: pins.value }),
 		});
 	} else {
 		os.apiWithDialog('channels/create', params).then(created => {
@@ -217,30 +249,31 @@ definePage(() => ({
 
 <style lang="scss" module>
 .pinnedNote {
-	position: relative;
-	display: block;
-	line-height: 2.85rem;
-	text-overflow: ellipsis;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-height: 2.85rem;
+
+	button {
+		flex: 0 0 32px;
+		height: 32px;
+	}
+}
+
+.pinnedNoteUri {
+	flex: 1;
 	overflow: hidden;
+	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: var(--MI_THEME-navFg);
 }
 
 .pinnedNoteRemove {
-	position: absolute;
-	z-index: 10000;
-	width: 32px;
-	height: 32px;
-	color: #ff2a2a;
-	right: 8px;
-	opacity: 0.8;
+	color: var(--MI_THEME-error);
 }
 
 .pinnedNoteHandle {
-	cursor: move;
-	width: 32px;
-	height: 32px;
-	margin: 0 8px;
+	cursor: grab;
+	padding: 8px;
 	opacity: 0.5;
 }
 </style>

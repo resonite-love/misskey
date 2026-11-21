@@ -50,6 +50,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkNoteHeader :note="appearNote" :mini="true"/>
 			<MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/>
 		</template>
+		<MkNotePlacements v-if="!appearNote.isHidden && appearNote.multiNoteKind === 'root'" :placements="appearNote.channelPlacements" :unavailable="appearNote.channelPlacementsUnavailable" :includeDefault="appearNote.includeDefault"/>
 		<MkNoteCw v-if="appearNote.cw != null" v-model="showContent" :cw="appearNote.cw" :text="appearNote.text" :author="appearNote.user" :emojiUrls="appearNote.emojis" :files="appearNote.files" :poll="appearNote.poll" :renote="appearNote.renote" interactive/>
 		<div v-show="appearNote.cw == null || showContent" :class="[{ [$style.contentCollapsed]: collapsed }]">
 			<div :class="$style.text">
@@ -213,6 +214,7 @@ import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
 import MkReactionsViewer from '@/components/MkReactionsViewer.vue';
 import MkNoteText from '@/components/MkNoteText.vue';
+import MkNotePlacements from '@/components/MkNotePlacements.vue';
 import MkNoteCw from '@/components/MkNoteCw.vue';
 import MkMediaList from '@/components/MkMediaList.vue';
 import MkPoll from '@/components/MkPoll.vue';

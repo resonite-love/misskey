@@ -12,24 +12,30 @@ SPDX-License-Identifier: AGPL-3.0-only
 	<div v-if="sharedChannel" class="_gaps_s">
 		<MkInfo v-if="linkedChannelError" warn>{{ i18n.ts._gridspace.channelsUnavailable }} <MkButton @click="refreshColumn">{{ i18n.ts.retry }}</MkButton></MkInfo>
 		<MkInfo v-if="linkedChannel?.isArchived" warn>{{ i18n.ts.thisChannelArchived }}</MkInfo>
-		<MkGridspacePostForm v-else-if="$i && linkedChannel && prefer.r.showFixedPostFormInChannel.value" :key="sharedChannel" :channelId="sharedChannel" :channel="linkedChannel" embedded :autofocus="false" :class="$style.postForm" @sent="sharedTimeline?.refresh()"/>
-		<div v-else-if="linkedChannel" style="padding: 10px 8px 0; text-align: center;">
+		<MkGridspacePostForm v-else-if="$i && linkedChannel && canPostLinked && prefer.r.showFixedPostFormInChannel.value" :key="sharedChannel" :channelId="sharedChannel" :channel="linkedChannel" :channelOrigin="linkedOrigin" embedded :autofocus="false" :class="$style.postForm" @sent="sharedTimeline?.refresh()"/>
+		<div v-else-if="linkedChannel && canPostLinked" style="padding: 10px 8px 0; text-align: center;">
 			<MkButton primary gradate rounded inline small :aria-label="i18n.ts.note" @click="post"><i class="ti ti-pencil"></i></MkButton>
 		</div>
-		<MkGridspacePrivateNotes :key="sharedChannel" ref="sharedTimeline" :params="{ mode: 'channel', channelId: sharedChannel }" plain alwaysShow/>
+		<MkGridspacePrivateNotes v-if="linkedOrigin" :key="sharedChannel" ref="sharedTimeline" :channelOrigin="placementRead ? linkedOrigin : undefined" :params="{ mode: 'channel', channelId: sharedChannel }" plain alwaysShow/>
 	</div>
 	<div v-else-if="column.channelId" class="_gaps_s">
 		<MkPostForm v-if="$i && channel != null && channel.id === column.channelId && prefer.r.showFixedPostFormInChannel.value" :key="channel.id" :channel="channel" :class="$style.postForm" fixed :autofocus="false"/>
 		<div v-else style="padding: 10px 8px 0; text-align: center;">
 			<MkButton primary gradate rounded inline small @click="post"><i class="ti ti-pencil"></i></MkButton>
 		</div>
-		<MkStreamingNotesTimeline ref="timeline" src="channel" :channel="column.channelId"/>
+		<MkGridspacePrivateNotes v-if="placementRead && channel?.id === column.channelId" ref="localTimeline" :params="{ mode: 'channel', channelId: column.channelId }" :channelOrigin="url" plain alwaysShow>
+			<template #fallback><MkStreamingNotesTimeline ref="timeline" src="channel" :channel="column.channelId"/></template>
+		</MkGridspacePrivateNotes>
+		<MkStreamingNotesTimeline v-else ref="timeline" src="channel" :channel="column.channelId"/>
 	</div>
 </XColumn>
 </template>
 
 <script lang="ts" setup>
 import { computed, provide, ref, shallowRef, watch, useTemplateRef } from 'vue';
+import { url } from '@@/js/config.js';
+import { supportsChannelPlacements } from '@/utility/timeline-capabilities.js';
+import { instance } from '@/instance.js';
 import MkGridspacePrivateNotes from '@/components/MkGridspacePrivateNotes.vue';
 import MkGridspacePostForm from '@/components/MkGridspacePostForm.vue';
 import { gridspacePost } from '@/utility/gridspace-post.js';
@@ -52,6 +58,11 @@ import { $i } from '@/i.js';
 import { i18n } from '@/i18n.js';
 import { soundSettingsButton } from '@/ui/deck/tl-note-notification.js';
 
+const multiNotePeer = computed(() => !!$i && instance.features?.multiNotePeer === true);
+const placementRead = ref(false);
+const placementAccount = ref(false);
+const canPostLinked = computed(() => !placementAccount.value || multiNotePeer.value);
+const localTimeline = useTemplateRef('localTimeline');
 const sharedTimeline = useTemplateRef('sharedTimeline');
 
 const props = defineProps<{
@@ -63,6 +74,7 @@ const timeline = useTemplateRef('timeline');
 const sharedChannel = computed(() => getSharedDeckChannelId(props.column.channelId));
 const linkedChannel = shallowRef<Misskey.entities.GridspaceChannelsResponse['channels'][number]>();
 const linkedChannelError = ref(false);
+const linkedOrigin = ref<string>();
 provide(DI.linkedChannel, computed(() => linkedChannel.value));
 const channel = shallowRef<Misskey.entities.Channel>();
 const soundSetting = ref<SoundStore>(props.column.soundSetting ?? { type: null, volume: 1 });
@@ -70,6 +82,7 @@ const soundSetting = ref<SoundStore>(props.column.soundSetting ?? { type: null, 
 let metadataRequest = 0;
 watch(sharedChannel, (id, _oldId, onCleanup) => {
 	linkedChannel.value = undefined;
+	linkedOrigin.value = undefined;
 	linkedChannelError.value = false;
 	onCleanup(() => { metadataRequest++; });
 	if (!id) return;
@@ -82,8 +95,13 @@ async function loadLinkedChannel() {
 	const request = ++metadataRequest;
 	linkedChannelError.value = false;
 	try {
-		const result = await misskeyApi('gridspace/channels', { channelId: id });
+		const status = await misskeyApi('gridspace/link', {}).catch(() => null);
+		if (request !== metadataRequest) return;
+		placementRead.value = supportsChannelPlacements(status);
+		placementAccount.value = placementRead.value && status?.channelsEnabled === false;
+		const result = await misskeyApi(placementAccount.value ? 'gridspace/multi-note/channels' : 'gridspace/channels', { channelId: id });
 		if (request !== metadataRequest || sharedChannel.value !== id) return;
+		linkedOrigin.value = new URL(result.origin).origin;
 		linkedChannel.value = result.channels.find(item => item.id === id);
 		linkedChannelError.value = !linkedChannel.value;
 		if (linkedChannel.value && linkedChannel.value.name !== props.column.timelineNameCache) {
@@ -100,11 +118,12 @@ async function refreshColumn() {
 	if (sharedChannel.value) {
 		await Promise.all([loadLinkedChannel(), sharedTimeline.value?.refresh()]);
 	} else {
-		await timeline.value?.reloadTimeline();
+		if (timeline.value) await timeline.value.reloadTimeline();
+		else await localTimeline.value?.refresh();
 	}
 }
 
-watch([() => props.column.channelId, () => prefer.r.showFixedPostFormInChannel.value], ([newChannelId, showFixedPostForm], oldValue, onCleanup) => {
+watch([() => props.column.channelId, () => prefer.r.showFixedPostFormInChannel.value], async ([newChannelId, showFixedPostForm], oldValue, onCleanup) => {
 	if (sharedChannel.value) return;
 	if (newChannelId == null) {
 		// 設定値の変更だけで選択ダイアログを開かないよう、初回実行時か channelId が変わったときのみ
@@ -112,13 +131,19 @@ watch([() => props.column.channelId, () => prefer.r.showFixedPostFormInChannel.v
 		if (oldValue == null || !(0 in oldValue) || oldValue[0] !== newChannelId) setChannel();
 		return;
 	}
-	if (!showFixedPostForm && props.column.name) return;
-	if (channel.value != null && channel.value.id === newChannelId) return;
 
 	let invalidated = false;
 	onCleanup(() => {
 		invalidated = true;
 	});
+	if ($i) {
+		try {
+			const status = await misskeyApi('gridspace/link', {});
+			if (invalidated) return;
+			placementRead.value = supportsChannelPlacements(status);
+		} catch { if (!invalidated) placementRead.value = false; }
+	}
+	if (invalidated || (!placementRead.value && !showFixedPostForm && props.column.name) || channel.value?.id === newChannelId) return;
 	misskeyApi('channels/show', { channelId: newChannelId })
 		.then(value => {
 			if (invalidated || props.column.channelId !== newChannelId) return;
@@ -156,8 +181,8 @@ async function setChannel() {
 
 async function post() {
 	if (sharedChannel.value) {
-		if (!linkedChannel.value || linkedChannel.value.isArchived) return;
-		await gridspacePost({ channelId: sharedChannel.value, channel: linkedChannel.value }, () => { void sharedTimeline.value?.refresh(); });
+		if (!canPostLinked.value || !linkedChannel.value || linkedChannel.value.isArchived) return;
+		await gridspacePost({ channelId: sharedChannel.value, channel: linkedChannel.value, channelOrigin: linkedOrigin.value }, () => { void sharedTimeline.value?.refresh(); });
 		return;
 	}
 	if (props.column.channelId == null) return;

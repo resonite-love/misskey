@@ -75,6 +75,29 @@ export class FanoutTimelineService {
 		}
 	}
 
+	/** A committed dispatch can run again after a process stops between Redis and PostgreSQL. */
+	@bindThis
+	public pushOnce(tl: FanoutTimelineName, id: string, maxlen: number, pipeline: Redis.ChainableCommander) {
+		pipeline.eval(`if redis.call('LPOS', KEYS[1], ARGV[1]) then return 0 end
+			local tail = redis.call('LINDEX', KEYS[1], -1)
+			if tail and ARGV[3] == '0' and tail > ARGV[1] then return 0 end
+			redis.call('LPUSH', KEYS[1], ARGV[1])
+			redis.call('LTRIM', KEYS[1], 0, tonumber(ARGV[2]) - 1)
+			return 1`, 1, 'list:' + tl, id, Math.max(1, Math.floor(maxlen)), this.idService.parse(id).date.getTime() > Date.now() - 180000 ? '1' : '0');
+	}
+
+	/** A peer placement may become active after its ordinary mirror was already delivered. */
+	public async cachePlacedMirror(noteId: string, channelId: string, maxlen: number, followers: string[], homeMax: number, withFiles: boolean) {
+		const batch = this.redisForTimelines.pipeline();
+		this.pushOnce(`channelTimeline:${channelId}`, noteId, maxlen, batch);
+		for (const viewerId of followers) {
+			this.pushOnce(`homeTimeline:${viewerId}`, noteId, homeMax, batch);
+			if (withFiles) this.pushOnce(`homeTimelineWithFiles:${viewerId}`, noteId, homeMax / 2, batch);
+		}
+		const result = await batch.exec();
+		if (!result || result.some(([error]) => error)) throw new Error('Could not cache placed mirror');
+	}
+
 	@bindThis
 	public get(name: FanoutTimelineName, untilId?: string | null, sinceId?: string | null) {
 		if (untilId && sinceId) {

@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { ModuleRef } from '@nestjs/core';
+import { GridspacePlacementService } from '@/core/gridspace/GridspacePlacementService.js';
 import { canonicalGridspaceNoteUri } from '@/core/gridspace/note-protocol.js';
 import { randomUUID } from 'node:crypto';
 import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone } from '@/models/Gridspace.js';
@@ -57,6 +59,7 @@ export class NoteDeleteService {
 		private notesChart: NotesChart,
 		private perUserNotesChart: PerUserNotesChart,
 		private instanceChart: InstanceChart,
+		private modules: ModuleRef,
 	) {}
 
 	/**
@@ -69,6 +72,7 @@ export class NoteDeleteService {
 			await beforeDelete?.(manager);
 			const current = await manager.findOne(MiNote, { where: { id: note.id, userId: user.id }, lock: { mode: 'pessimistic_write' } });
 			if (!current) return false;
+			if (current.multiNoteKind || current.channelId) await this.modules.get(GridspacePlacementService, { strict: false }).stageOriginDelete(manager, current);
 			if (current.gridspaceShared && user.host == null && this.config.gridspace?.peerUrl) {
 				await manager.upsert(MiGridspaceNoteDelivery, { noteId: note.id, version: randomUUID(), peerOrigin: new URL(this.config.gridspace.peerUrl).origin, retryAt: new Date(), attempts: 0 }, ['noteId']);
 			}
@@ -80,7 +84,8 @@ export class NoteDeleteService {
 			return true;
 		});
 		// Channel authorization is locked through deletion; publish effects only after commit.
-		if (beforeDelete && !await remove()) return;
+		const removeBeforeEffects = !!beforeDelete || !!note.multiNoteKind;
+		if (removeBeforeEffects && !await remove()) return;
 		const deletedAt = new Date();
 
 		if (note.replyId) {
@@ -130,7 +135,7 @@ export class NoteDeleteService {
 
 		this.searchService.unindexNote(note);
 
-		if (!beforeDelete) await remove();
+		if (!removeBeforeEffects) await remove();
 
 		if (deleter && (note.userId !== deleter.id)) {
 			const user = await this.usersRepository.findOneByOrFail({ id: note.userId });

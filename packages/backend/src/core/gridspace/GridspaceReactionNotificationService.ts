@@ -17,6 +17,7 @@ import { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
 import { GridspaceSearchService } from './GridspaceSearchService.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
 import { requestGridspacePeer } from './peer-client.js';
+import { includesDefault } from '@/misc/note-distribution.js';
 import { canonicalReaction, localReaction, type ReactionNotification } from './reaction-protocol.js';
 
 const maxAge = 24 * 60 * 60 * 1000;
@@ -57,7 +58,7 @@ export class GridspaceReactionNotificationService implements OnModuleInit, OnApp
 					// A deletion/cancellation before delivery must not produce a stale notification.
 					const active = await this.db.query(`SELECT 1 FROM note_reaction WHERE id=$1 AND "noteId"=$2 AND "userId"=$3 AND reaction=$4
 						UNION ALL SELECT 1 FROM extended_note_reaction WHERE id=$1 AND "noteId"=$2 AND "userId"=$3 AND reaction=$4`, [item.reactionId, item.noteId, item.notifierId, item.reaction]);
-					if (Date.now() - item.createdAt.getTime() > maxAge || !active.length || !note?.localOnly || note.channelId !== null ||
+					if (Date.now() - item.createdAt.getTime() > maxAge || !active.length || !note?.localOnly || note.channelId !== null || !includesDefault(note) ||
 						note.userHost !== new URL(this.peer.peerOrigin).host || !note.uri?.startsWith(`${this.peer.peerOrigin}/notes/`)) {
 						await queue.delete(item.reactionId);
 						continue;
@@ -84,7 +85,7 @@ export class GridspaceReactionNotificationService implements OnModuleInit, OnApp
 		if (!this.peer) throw new Error('GridSpace disabled');
 		if (Date.now() - input.createdAt > maxAge || input.createdAt > Date.now() + 60000) return { ok: true };
 		const note = await this.db.getRepository(MiNote).findOneBy({ id: input.noteId });
-		if (!note || note.userHost !== null || !note.localOnly || note.channelId !== null) return { ok: true };
+		if (!note || note.userHost !== null || !note.localOnly || note.channelId !== null || !includesDefault(note)) return { ok: true };
 		const actorUri = `${this.peer.peerOrigin}/users/${input.actorId}`;
 		const users = this.db.getRepository(MiUser);
 		const actor = await users.findOneBy({ uri: actorUri }) ?? await this.modules.get(ApPersonService).resolvePerson(actorUri);

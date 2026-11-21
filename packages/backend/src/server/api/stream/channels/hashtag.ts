@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { Inject, Injectable, Scope } from '@nestjs/common';
 import { normalizeTag } from '@/misc/normalize-tag.js';
 import type { Packed } from '@/misc/json-schema.js';
@@ -48,6 +49,7 @@ export class HashtagChannel extends Channel {
 
 	@bindThis
 	private async onNote(note: Packed<'Note'>) {
+		if (!includesDefault(note) && !await this.hasLocalChannelPlacement(note, note.channelId ? [note.channelId] : [])) return;
 		const noteTags = note.tags ? note.tags.map((t: string) => t.toLowerCase()) : [];
 		const matched = this.q.some(tags => tags.every(tag => noteTags.includes(tag)));
 		if (!matched) return;

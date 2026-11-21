@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { defaultNoteCondition, noteListingCondition } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Brackets, DataSource } from 'typeorm';
 import { DI } from '@/di-symbols.js';
@@ -118,7 +119,7 @@ export class GridspaceHistoryService {
 		// Only public/home posts cross the peer API, even when its authenticated visitor is unknown here.
 		const query = this.baseQuery(viewer, options)
 			.andWhere('note.userId = :author', { author: userId })
-			.andWhere('note.channelId IS NULL')
+			.andWhere(defaultNoteCondition())
 			.andWhere('note.visibility IN (:...visibility)', { visibility: ['public', 'home'] });
 		filterNoteVisibility(query, this.noteTime, viewer, true, authenticated);
 		if (before) query.andWhere('note.id < :before', { before });
@@ -133,19 +134,14 @@ export class GridspaceHistoryService {
 					peer.where('note.userId = ANY(ARRAY(SELECT peer_author.id FROM "user" peer_author WHERE peer_author.uri = :peerAuthor))', { peerAuthor: `${this.peer!.peerOrigin}/users/${link.peerUserId}` });
 					// Public peer posts have their own source keyset. Only already-delivered restricted
 					// posts join this server's keyset; linking never delegates the peer account's rights.
-					if (!includePeerPublic) peer.andWhere(`(note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL
+					if (!includePeerPublic) peer.andWhere(`(note.visibility IN ('followers', 'specified') OR NOT ${defaultNoteCondition()}
 						OR NOT ${noteNewerThanPolicySql(this.noteTime, 'makeNotesFollowersOnlyBefore')})`);
 				}));
 		}));
 		filterNoteVisibility(query, this.noteTime, viewer, false);
 		this.queries.generateVisibilityQuery(query, viewer);
 		if (!viewer) this.queries.generateUgcVisibilityQueryForVisitor(query);
-		if (!options.withChannelNotes) {
-			query.andWhere('note.channelId IS NULL');
-		} else {
-			// Match profile timelines: sensitive channel posts are shown only to their author.
-			query.andWhere('(note.channelId IS NULL OR channel.isSensitive = false OR note.userId = :channelAuthor)', { channelAuthor: viewer?.id ?? null });
-		}
+		query.andWhere(...noteListingCondition(options.withChannelNotes ? { kind: 'profile', viewerId: viewer?.id } : { kind: 'default' }));
 		if (viewer) {
 			query.andWhere(`NOT EXISTS (SELECT 1 FROM channel_muting cm WHERE cm."userId" = :channelViewer
 				AND (cm."channelId" = note."channelId" OR cm."channelId" = note."renoteChannelId")

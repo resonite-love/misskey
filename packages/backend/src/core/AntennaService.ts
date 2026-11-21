@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import * as Redis from 'ioredis';
 import { In } from 'typeorm';
@@ -99,6 +100,7 @@ export class AntennaService implements OnApplicationShutdown {
 
 	@bindThis
 	public async addNoteToAntennas(note: MiNote, noteUser: { id: MiUser['id']; username: string; host: string | null; isBot: boolean; }): Promise<MiAntenna[]> {
+		if (!includesDefault(note) && (note.multiNoteKind != null || !note.channelId)) return [];
 		const antennas = await this.getAntennas();
 		const antennasWithMatchResult = await Promise.all(antennas.map(antenna => this.checkHitAntenna(antenna, note, noteUser).then(hit => [antenna, hit] as const)));
 		const matchedAntennas = antennasWithMatchResult.filter(([, hit]) => hit).map(([antenna]) => antenna);
@@ -108,8 +110,12 @@ export class AntennaService implements OnApplicationShutdown {
 		const pending: Promise<void>[] = [];
 
 		for (const antenna of matchedAntennas) {
-			const write = this.fanoutTimelineService.push(`antennaTimeline:${antenna.id}`, note.id, 200, redisPipeline);
-			if (write) pending.push(write);
+			if (note.multiNoteKind) {
+				this.fanoutTimelineService.pushOnce(`antennaTimeline:${antenna.id}`, note.id, 200, redisPipeline);
+			} else {
+				const write = this.fanoutTimelineService.push(`antennaTimeline:${antenna.id}`, note.id, 200, redisPipeline);
+				if (write) pending.push(write);
+			}
 		}
 
 		const [result] = await Promise.all([redisPipeline.exec(), ...pending]);

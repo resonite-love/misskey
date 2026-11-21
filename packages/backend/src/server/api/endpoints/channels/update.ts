@@ -4,6 +4,8 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
+import type { Config } from '@/config.js';
+import { recordChannelPolicy, replacePlacementPins } from '@/core/gridspace/timeline/placement-change.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import type { DriveFilesRepository, ChannelsRepository } from '@/models/_.js';
 import { ChannelEntityService } from '@/core/entities/ChannelEntityService.js';
@@ -53,6 +55,7 @@ export const paramDef = {
 		description: { type: 'string', nullable: true, maxLength: 2048 },
 		bannerId: { type: 'string', format: 'misskey:id', nullable: true },
 		isArchived: { type: 'boolean', nullable: true },
+		pinnedNoteUris: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', maxLength: 1024 } },
 		pinnedNoteIds: {
 			type: 'array',
 			items: {
@@ -78,6 +81,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		private channelEntityService: ChannelEntityService,
 
 		private roleService: RoleService,
+		@Inject(DI.config) private config: Config,
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			const channel = await this.channelsRepository.findOneBy({
@@ -108,15 +112,23 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				banner = null;
 			}
 
-			await this.channelsRepository.update(channel.id, {
-				...(ps.name !== undefined ? { name: ps.name } : {}),
-				...(ps.description !== undefined ? { description: ps.description } : {}),
-				...(ps.pinnedNoteIds !== undefined ? { pinnedNoteIds: ps.pinnedNoteIds } : {}),
-				...(ps.color !== undefined ? { color: ps.color } : {}),
-				...(typeof ps.isArchived === 'boolean' ? { isArchived: ps.isArchived } : {}),
-				...(banner ? { bannerId: banner.id } : {}),
-				...(typeof ps.isSensitive === 'boolean' ? { isSensitive: ps.isSensitive } : {}),
-				...(typeof ps.allowRenoteToExternal === 'boolean' ? { allowRenoteToExternal: ps.allowRenoteToExternal } : {}),
+			await this.channelsRepository.manager.transaction(async manager => {
+				await manager.query('SELECT id FROM channel WHERE id = $1 FOR UPDATE', [channel.id]);
+				if (ps.pinnedNoteIds !== undefined || ps.pinnedNoteUris !== undefined) {
+					await replacePlacementPins(manager, channel.id, this.config.url, this.config.id, { ids: ps.pinnedNoteIds, uris: ps.pinnedNoteUris });
+				}
+				const fields = {
+					...(ps.name !== undefined ? { name: ps.name } : {}),
+					...(ps.description !== undefined ? { description: ps.description } : {}),
+					...(ps.color !== undefined ? { color: ps.color } : {}),
+					...(typeof ps.isArchived === 'boolean' ? { isArchived: ps.isArchived } : {}),
+					...(banner ? { bannerId: banner.id } : {}),
+					...(typeof ps.isSensitive === 'boolean' ? { isSensitive: ps.isSensitive } : {}),
+					...(typeof ps.allowRenoteToExternal === 'boolean' ? { allowRenoteToExternal: ps.allowRenoteToExternal } : {}),
+				};
+				if (Object.keys(fields).length) await manager.update(this.channelsRepository.target, channel.id, fields);
+				if (ps.pinnedNoteIds || ps.pinnedNoteUris || ps.name !== undefined || ps.color !== undefined || ps.isArchived != null ||
+					ps.isSensitive != null || ps.allowRenoteToExternal != null) await recordChannelPolicy(manager, channel.id, this.config.url);
 			});
 
 			return await this.channelEntityService.pack(channel.id, me);

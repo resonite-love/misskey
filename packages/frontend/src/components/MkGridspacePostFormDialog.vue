@@ -15,7 +15,7 @@ import type { entities } from 'misskey-js';
 import MkModal from '@/components/MkModal.vue';
 import MkGridspacePostForm from '@/components/MkGridspacePostForm.vue';
 
-const props = defineProps<{ channelId?: string; channel?: { name: string; color: string }; reply?: entities.GridspacePrivateNotesResponse['notes'][number]; initialText?: string; initialCw?: string; initialFiles?: import('@/utility/gridspace-note-link.js').LinkedQuoteAttachment[]; initialPoll?: import('@/components/MkPollEditor.vue').PollEditorModelValue | null; renote?: entities.GridspacePrivateNotesResponse['notes'][number] }>();
+const props = defineProps<{ channelId?: string; channelOrigin?: string; channel?: { name: string; color: string; isSensitive?: boolean; allowRenoteToExternal?: boolean }; reply?: entities.GridspacePrivateNotesResponse['notes'][number]; initialText?: string; initialCw?: string; initialFiles?: import('@/utility/gridspace-note-link.js').LinkedQuoteAttachment[]; initialPoll?: import('@/components/MkPollEditor.vue').PollEditorModelValue | null; renote?: entities.GridspacePrivateNotesResponse['notes'][number] }>();
 const emit = defineEmits<{ (event: 'closed'): void; (event: 'sent'): void }>();
 const modal = useTemplateRef('modal');
 const form = useTemplateRef('form');

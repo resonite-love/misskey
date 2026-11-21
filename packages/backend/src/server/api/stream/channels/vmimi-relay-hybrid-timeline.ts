@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { Inject, Injectable, Scope } from '@nestjs/common';
 import type { Packed } from '@/misc/json-schema.js';
 import { MetaService } from '@/core/MetaService.js';
@@ -12,6 +13,7 @@ import { RoleService } from '@/core/RoleService.js';
 import { VmimiRelayTimelineService } from '@/core/VmimiRelayTimelineService.js';
 import { isRenotePacked, isQuotePacked } from '@/misc/is-renote.js';
 import type { JsonObject } from '@/misc/json-value.js';
+import { NoteStreamingHidingService } from '../NoteStreamingHidingService.js';
 import Channel, { type ChannelRequest } from '../channel.js';
 import { REQUEST } from '@nestjs/core';
 
@@ -34,6 +36,7 @@ export class VmimiRelayHybridTimelineChannel extends Channel {
 		private roleService: RoleService,
 		private noteEntityService: NoteEntityService,
 		private vmimiRelayTimelineService: VmimiRelayTimelineService,
+		private noteStreamingHidingService: NoteStreamingHidingService,
 	) {
 		super(request);
 	}
@@ -58,16 +61,9 @@ export class VmimiRelayHybridTimelineChannel extends Channel {
 
 		if (this.withFiles && (note.fileIds == null || note.fileIds.length === 0)) return;
 
-		// チャンネルの投稿ではなく、自分自身の投稿 または
-		// チャンネルの投稿ではなく、その投稿のユーザーをフォローしている または
-		// チャンネルの投稿ではなく、全体公開のぶいみみリレーまたはローカルの投稿 または
-		// フォローしているチャンネルの投稿 の場合だけ
-		if (!(
-			(note.channelId == null && isMe) ||
-			(note.channelId == null && Object.hasOwn(this.following, note.userId)) ||
-			(note.channelId == null && (this.vmimiRelayTimelineService.isRelayedInstance(note.user.host) && note.visibility === 'public') && (this.withLocalOnly || !note.localOnly)) ||
-			(note.channelId != null && this.followingChannels.has(note.channelId))
-		)) return;
+		const ordinary = includesDefault(note) && (isMe || Object.hasOwn(this.following, note.userId) ||
+			(this.vmimiRelayTimelineService.isRelayedInstance(note.user.host) && note.visibility === 'public' && (this.withLocalOnly || !note.localOnly)));
+		if (!ordinary && !await this.hasFollowedChannelPlacement(note)) return;
 
 		if (note.visibility === 'followers') {
 			if (!isMe && !Object.hasOwn(this.following, note.userId)) return;
@@ -98,14 +94,9 @@ export class VmimiRelayHybridTimelineChannel extends Channel {
 			}
 		}
 
-		if (this.user && note.renoteId && !note.text) {
-			if (note.renote && Object.keys(note.renote.reactions).length > 0) {
-				const myRenoteReaction = await this.noteEntityService.populateMyReaction(note.renote, this.user.id);
-				note.renote.myReaction = myRenoteReaction;
-			}
-		}
-
-		this.send('note', note);
+		const viewerId = this.user?.id ?? null;
+		const filtered = await this.noteStreamingHidingService.filter(note, viewerId);
+		if (filtered) this.send('note', await this.noteEntityService.withMyRenoteReaction(filtered, viewerId));
 	}
 
 	@bindThis

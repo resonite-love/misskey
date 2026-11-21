@@ -3,12 +3,15 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { packedNoteSchema } from '@/models/json-schema/note.js';
+import type { PackedChannelPlacement } from '@/core/NotePlacementService.js';
 import { packedUserLiteSchema } from '@/models/json-schema/user.js';
+import { conversationUriSchema, type ConversationCredential, type ConversationOptions } from './conversation-protocol.js';
 import type { Packed } from '@/misc/json-schema.js';
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import type { ReactionPreview } from './reaction-protocol.js';
 
-export type PrivateOptions = {
+export type PrivateOptions = ConversationOptions & {
 	mode: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna' | 'context' | 'validate';
 	contextMode?: 'home' | 'search' | 'profile' | 'show' | 'channel' | 'mentions' | 'direct' | 'favorites' | 'clip' | 'antenna' | 'context';
 	contextScope?: 'channel' | 'user';
@@ -18,7 +21,7 @@ export type PrivateOptions = {
 	rangeStartAt?: number; rangeEndAt?: number;
 	withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean; withChannelNotes?: boolean;
 };
-export type PrivatePeerRequest = GridspacePeerLinkRequest & Omit<PrivateOptions, 'userId'> & {
+export type PrivatePeerRequest = ConversationCredential & GridspacePeerLinkRequest & Omit<PrivateOptions, 'userId'> & {
 	targetUris?: string[]; before?: string; head?: string; limit?: number; fileId?: string; collectionKind?: 'clips' | 'clip-favorites' | 'status';
 	timelineBefore?: { sortAt: string; canonicalUri: string; noteId?: string; sourceId?: string }; timelineUpper?: { sortAt: string; canonicalUri: string; noteId?: string; sourceId?: string };
 	timelineViewerId?: string;
@@ -34,6 +37,8 @@ export type PrivateNote = {
 	id: string; uri: string; createdAt: string; origin: string; text: string | null; cw: string | null;
 	visibility: string; localOnly: boolean; author: PrivateActor & { avatarUrl: string; emojis?: Record<string, string>; instance?: { name?: string | null; faviconUrl?: string | null; themeColor?: string | null } } & Partial<Pick<Packed<'UserLite'>, 'avatarBlurhash' | 'avatarDecorations' | 'isBot' | 'isCat'>>;
 	channelId?: string | null;
+	channelPlacements?: PackedChannelPlacement[]; channelPlacementsUnavailable?: boolean;
+	conversationUri?: string; multiNoteKind?: 'root' | 'conversation-reply'; includeDefault?: boolean;
 	channel?: { id: string; name: string; color: string } | null;
 	canDelete?: boolean;
 	canSelfRenote?: boolean;
@@ -43,7 +48,7 @@ export type PrivateNote = {
 	reactionPreviews?: ReactionPreview[];
 	replyId: string | null; renoteId: string | null;
 	renote?: PrivateNote | null;
-	files: { id: string; name: string; type: string; size: number; comment: string | null; isSensitive: boolean }[];
+	files: { id: string; name: string; type: string; size: number; comment: string | null; isSensitive: boolean; url?: string; thumbnailUrl?: string | null }[];
 	poll: { choices: { text: string; votes: number; isVoted?: boolean }[]; expiresAt: string | null; multiple: boolean } | null;
 };
 export type PrivateWireNote = Omit<PrivateNote, 'renote'> & { filterActors: PrivateActor[]; renote?: PrivateWireNote | null };
@@ -60,6 +65,9 @@ const integer = { type: 'integer', optional: false, nullable: false } as const;
 const privateNoteBaseSchema = {
 	type: 'object', optional: false, nullable: false, properties: {
 		id: text, uri: text, createdAt: text, origin: text, text: nullableText, cw: nullableText, visibility: text, localOnly: flag,
+		channelPlacements: packedNoteSchema.properties.channelPlacements,
+		channelPlacementsUnavailable: packedNoteSchema.properties.channelPlacementsUnavailable,
+		conversationUri: { ...text, optional: true }, multiNoteKind: { ...text, enum: ['root', 'conversation-reply'], optional: true }, includeDefault: { ...flag, optional: true },
 		channelId: { ...nullableText, optional: true },
 		channel: { type: 'object', optional: true, nullable: true, properties: { id: text, name: text, color: text } },
 		collectionId: { ...text, optional: true }, collectionAt: { ...text, optional: true },
@@ -82,7 +90,7 @@ const privateNoteBaseSchema = {
 		extendedReactions: { ...flag, optional: true },
 		replyId: nullableText, renoteId: nullableText,
 		files: { type: 'array', optional: false, nullable: false, items: { type: 'object', optional: false, nullable: false, properties: {
-			id: text, name: text, type: text, size: integer, comment: nullableText, isSensitive: flag,
+			id: text, name: text, type: text, size: integer, comment: nullableText, isSensitive: flag, url: { ...text, optional: true }, thumbnailUrl: { ...nullableText, optional: true },
 		} } },
 		poll: { type: 'object', optional: false, nullable: true, properties: {
 			choices: { type: 'array', optional: false, nullable: false, items: { type: 'object', optional: false, nullable: false, properties: { text, votes: integer, isVoted: { ...flag, optional: true } } } },
@@ -99,6 +107,7 @@ export const privateNoteSchema = {
 } as const;
 
 export const privateOptionsSchema = {
+	conversationUri: conversationUriSchema,
 	mode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip', 'antenna', 'context', 'validate'], default: 'home' },
 	contextMode: { type: 'string', enum: ['home', 'search', 'profile', 'show', 'channel', 'mentions', 'direct', 'favorites', 'clip', 'antenna', 'context'] },
 	contextScope: { type: 'string', enum: ['channel', 'user'] },

@@ -44,6 +44,8 @@ import { MiMeta } from '@/models/Meta.js';
 import { MiModerationLog } from '@/models/ModerationLog.js';
 import { MiMuting } from '@/models/Muting.js';
 import { MiRenoteMuting } from '@/models/RenoteMuting.js';
+import { MiGridspacePlacement, MiGridspacePlacementTarget } from '@/models/GridspacePlacement.js';
+import { MiChannelPlacementPin, MiNoteChannelPlacement, MiNoteCreateReceipt, MiNoteCreateDispatch } from '@/models/NotePlacement.js';
 import { MiNote } from '@/models/Note.js';
 import { MiNoteFavorite } from '@/models/NoteFavorite.js';
 import { MiExtendedNoteReaction } from '@/models/ExtendedNoteReaction.js';
@@ -211,6 +213,12 @@ export const entities = [
 	MiRenoteMuting,
 	MiBlocking,
 	MiNote,
+	MiGridspacePlacement,
+	MiGridspacePlacementTarget,
+	MiChannelPlacementPin,
+	MiNoteChannelPlacement,
+	MiNoteCreateReceipt,
+	MiNoteCreateDispatch,
 	MiNoteFavorite,
 	MiNoteReaction,
 	MiExtendedNoteReaction,

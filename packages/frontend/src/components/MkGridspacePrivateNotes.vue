@@ -5,7 +5,9 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <MkLoading v-if="deciding"/>
-<MkLegacyGridspacePrivateNotes v-else-if="!integrated" ref="legacy" v-bind="props" @loaded="emit('loaded')" @snapshot="note => emit('snapshot', note)"/>
+<slot v-else-if="!integrated" name="fallback">
+	<MkLegacyGridspacePrivateNotes v-if="!pinnedOnly" ref="legacy" :params="params" :direction="direction" :alwaysShow="alwaysShow" :plain="plain" :excludeId="excludeId" @loaded="emit('loaded')" @replied="emit('replied')" @snapshot="note => emit('snapshot', note)"/>
+</slot>
 <component :is="prefer.s.enablePullToRefresh && direction !== 'up' ? MkPullToRefresh : 'div'" v-else :refresher="refresh">
 	<section ref="root" class="_panel _gaps_s" :class="$style.root" data-gridspace-private :aria-label="params.channelId ? i18n.ts.channel : i18n.ts._gridspace.privateTitle">
 		<div v-if="!plain" :class="$style.heading" class="_gaps_s">
@@ -40,15 +42,15 @@ import MkTimelineNoteRow from '@/components/MkTimelineNoteRow.vue';
 import MkLegacyGridspacePrivateNotes from '@/components/MkLegacyGridspacePrivateNotes.vue';
 import { prefer } from '@/preferences.js';
 import { TimelineClient } from '@/utility/timeline-client.js';
-import { supportsTimelineKind } from '@/utility/timeline-capabilities.js';
+import { supportsChannelPlacements, supportsTimelineKind } from '@/utility/timeline-capabilities.js';
 import { subscribeTimeline } from '@/utility/timeline-stream.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { clearLeavingPrivateNote } from '@/utility/gridspace-note-suspension.js';
 import { i18n } from '@/i18n.js';
 import { $i } from '@/i.js';
 
-const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; alwaysShow?: boolean; plain?: boolean; direction?: 'up' | 'down' }>();
-const emit = defineEmits<{ (event: 'loaded'): void; (event: 'snapshot', note: entities.GridspacePrivateNotesResponse['notes'][number] | null): void }>();
+const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; channelOrigin?: string; pinnedOnly?: boolean; excludeId?: string; alwaysShow?: boolean; plain?: boolean; direction?: 'up' | 'down' }>();
+const emit = defineEmits<{ (event: 'loaded'): void; (event: 'replied'): void; (event: 'snapshot', note: entities.GridspacePrivateNotesResponse['notes'][number] | null): void }>();
 const root = useTemplateRef('root');
 const legacy = useTemplateRef('legacy');
 const client = shallowRef<TimelineClient | null>(null);
@@ -59,7 +61,7 @@ let active = true;
 let stopScroll: (() => void) | null = null;
 const rows = computed(() => client.value?.rows.value ?? []);
 const loading = computed(() => client.value?.busy.value ?? false);
-const error = computed(() => client.value?.error.value ?? false);
+const error = computed(() => client.value?.error.value || client.value?.sources.value.some(source => source.status === 'unavailable'));
 const failed = computed(() => client.value?.failed.value ?? false);
 const hasMore = computed(() => client.value?.hasMore.value ?? false);
 const queuedCount = computed(() => client.value?.queuedCount.value ?? 0);
@@ -73,11 +75,16 @@ async function select() {
 	const kind = props.params.mode;
 	if ($i && (kind === 'channel' || kind === 'antenna' || kind === 'clip')) {
 		try {
-			const status = await misskeyApi('gridspace/link', { action: 'status' });
+			const status = await misskeyApi('gridspace/link', { action: 'status' }, undefined, AbortSignal.timeout(10000));
 			if (current !== generation) return;
-			if (supportsTimelineKind(status, kind)) {
+			if (supportsTimelineKind(status, kind) && (!props.channelOrigin || supportsChannelPlacements(status))) {
 				const { mode: _mode, ...filters } = props.params;
-				client.value = new TimelineClient({ ...filters, kind }, { isTop: () => !root.value || isHeadVisible(root.value), subscribe: subscribeTimeline });
+				const query = {
+					...filters, kind,
+					...(props.channelOrigin ? { channelOrigin: props.channelOrigin } : {}),
+					...(props.pinnedOnly ? { pinnedOnly: true } : {}),
+				};
+				client.value = new TimelineClient(query, { isTop: () => !root.value || isHeadVisible(root.value), subscribe: subscribeTimeline });
 				integrated.value = true;
 				if (active) { await client.value.reload(); if (current === generation) emit('loaded'); }
 			}
@@ -100,7 +107,7 @@ function visibility() { if (window.document.hidden) client.value?.suspend(); els
 function focus() { if (active && !window.document.hidden) void client.value?.resume(); }
 
 window.document.addEventListener('visibilitychange', visibility); window.addEventListener('focus', focus);
-watch(() => JSON.stringify(Object.entries(props.params).sort(([a], [b]) => a.localeCompare(b))), select, { immediate: true });
+watch(() => JSON.stringify([props.channelOrigin, props.pinnedOnly, Object.entries(props.params).sort(([a], [b]) => a.localeCompare(b))]), select, { immediate: true });
 watch(root, element => {
 	stopScroll?.();
 	stopScroll = element ? onScrollTop(element, visible => { if (visible) releaseQueue(); }) : null;

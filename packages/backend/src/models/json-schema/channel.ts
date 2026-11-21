@@ -45,6 +45,11 @@ export const packedChannelSchema = {
 			nullable: true, optional: false,
 			format: 'id',
 		},
+		hasPlacementPins: { type: 'boolean', optional: true, nullable: false },
+		pinnedNoteUris: {
+			type: 'array', nullable: false, optional: true,
+			items: { type: 'string' },
+		},
 		pinnedNoteIds: {
 			type: 'array',
 			nullable: false, optional: false,

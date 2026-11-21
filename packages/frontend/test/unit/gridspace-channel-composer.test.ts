@@ -11,6 +11,11 @@ import PostForm from '@/components/MkGridspacePostForm.vue';
 const { api, confirm } = vi.hoisted(() => ({ api: vi.fn(), confirm: vi.fn() }));
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: api }));
 vi.mock('@/os.js', () => ({ confirm }));
+vi.mock('@/instance.js', () => ({ instance: { features: { multiNote: true, multiNotePeer: true } } }));
+vi.mock('@/components/MkPostForm.vue', () => ({ __esModule: true, default: {
+	props: ['initialChannelDestination', 'initialCw'],
+	template: '<div data-testid="native-destination">{{ JSON.stringify(initialChannelDestination) }}</div>',
+} }));
 vi.mock('@/i.js', () => ({ $i: { id: 'current', token: 'token' } }));
 vi.mock('@/utility/autocomplete.js', () => ({ Autocomplete: class { detach() {} } }));
 vi.mock('@/utility/emoji-picker.js', () => ({ emojiPicker: { show: vi.fn() } }));
@@ -23,12 +28,21 @@ vi.mock('@/components/MkButton.vue', () => ({ default: { template: '<button><slo
 vi.mock('@/components/MkInfo.vue', () => ({ default: { template: '<div><slot/></div>' } }));
 vi.mock('@/components/MkPollEditor.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkUploaderItems.vue', () => ({ default: { template: '<div/>' } }));
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { text: 'Text', note: 'Post', quote: 'Quote', reply: 'Reply', close: 'Close', annotation: 'CW', retry: 'Retry', _postForm: {}, _gridspace: {}, _visibility: {} } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { text: 'Text', note: 'Post', quote: 'Quote', reply: 'Reply', close: 'Close', annotation: 'CW', retry: 'Retry', _postForm: {}, _gridspace: {}, _visibility: { public: 'Public', followers: 'Followers', specified: 'Direct' } } } }));
 
 beforeEach(() => { vi.clearAllMocks(); window.sessionStorage.clear(); });
 afterEach(cleanup);
 const target = { id: 'source-note', text: 'Original channel post', author: { name: 'Source author', username: 'source' }, files: [], channelId: 'source-channel' } as unknown as entities.GridspacePrivateNotesResponse['notes'][number];
 const prepared = { canReply: true, canAttach: true, account: { username: 'current', host: 'g.example', uri: 'https://g.example/users/current' }, recipients: [], maxTextLength: 3000 };
+
+test('opens the placement composer on a sensitive public peer channel', async () => {
+	const channel = { name: 'Peer channel', color: '#123', isSensitive: true, allowRenoteToExternal: true };
+	const channelOrigin = 'https://peer.example';
+	const view = render(PostForm, { props: { channelId: 'source-channel', channelOrigin, channel }, global: { stubs: { MkEllipsis: true, MkLoading: true, Mfm: true, MkA: true } } });
+	const destination = await view.findByTestId('native-destination');
+	expect(JSON.parse(destination.textContent!)).toEqual({ ...channel, channelId: 'source-channel', origin: channelOrigin });
+	expect(api).not.toHaveBeenCalled();
+});
 
 test('channel quote displays its target and sends a renote instead of a reply', async () => {
 	api.mockImplementation(async (_path, input) => input.action === 'prepare' ? prepared : { ...prepared, createdNoteId: 'created' });
@@ -46,4 +60,20 @@ test('ordinary replies keep using the reply target', async () => {
 	const view = render(PostForm, { props: { channelId: 'source-channel', reply: target }, global: { stubs: { Mfm: true, MkLoading: true, MkA: true } } });
 	await vi.waitFor(() => expect(view.getByRole('button', { name: 'Reply' })).toBeTruthy());
 	expect(api).toHaveBeenCalledWith('gridspace/channel-post', expect.objectContaining({ noteId: 'source-note', renoteId: undefined }), undefined, expect.anything());
+});
+
+test.each([
+	['public', 'Public', 'ti-world'],
+	['followers', 'Followers', 'ti-lock'],
+	['specified', 'Direct', 'ti-mail'],
+] as const)('displays the prepared %s reply audience and its icon', async (visibility, label, icon) => {
+	api.mockResolvedValue({ ...prepared, visibility });
+	const reply = visibility === 'public'
+		? { ...target, multiNoteKind: 'root' as const, includeDefault: false, uri: 'https://g.example/notes/source-note' }
+		: target;
+	const view = render(PostForm, { props: { reply }, global: { stubs: { Mfm: true, MkLoading: true, MkA: true } } });
+	expect(view.queryByTitle('Followers')).toBeNull();
+	const audience = await view.findByTitle(label);
+	expect(audience.textContent).toBe(label);
+	expect(audience.querySelector('i')?.classList.contains(icon)).toBe(true);
 });

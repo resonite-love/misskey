@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { Entity, Index, JoinColumn, Column, PrimaryColumn, ManyToOne } from 'typeorm';
+import { Check, Entity, Index, JoinColumn, Column, PrimaryColumn, ManyToOne } from 'typeorm';
 import { noteVisibilities, noteReactionAcceptances } from '@/types.js';
 import { id } from './util/id.js';
 import { MiUser } from './User.js';
@@ -24,6 +24,7 @@ import type { MiDriveFile } from './DriveFile.js';
 @Index(['userId', 'id']) // Note: this index is ("userId", "id" DESC) in production, but not in test.
 @Index('IDX_GRIDSPACE_NOTE_CHANNEL_ID_ID', ['channelId', 'id'], { where: '"channelId" IS NOT NULL' })
 @Index('IDX_GRIDSPACE_NOTE_CW_SEARCH', { synchronize: false }) // Optional PGroonga expression index, managed by migration.
+@Check('CHK_NOTE_CHANNEL_ONLY', '"includeDefault" IS DISTINCT FROM FALSE OR ("localOnly" AND NOT "gridspaceShared")')
 @Entity('note')
 export class MiNote {
 	@PrimaryColumn(id())
@@ -98,6 +99,15 @@ export class MiNote {
 
 	@Column('boolean', { default: false })
 	public gridspaceShared: boolean;
+
+	@Column('boolean', { nullable: true })
+	public includeDefault: boolean | null;
+
+	@Column('varchar', { length: 32, nullable: true })
+	public multiNoteKind: 'root' | 'conversation-reply' | null;
+
+	@Column({ ...id(), nullable: true })
+	public multiNoteRootId: string | null;
 
 	@Column('varchar', {
 		length: 64, nullable: true,

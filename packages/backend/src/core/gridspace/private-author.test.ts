@@ -29,3 +29,19 @@ describe('delegated note author emoji', () => {
 		expect(packed.channel).toEqual({ id: 'channel', name: 'Channel', color: '#ff8a8a' });
 	});
 });
+
+test.each([false, true])('a mixed root retains confirmed placements when peer status is unknown (%s)', async unavailable => {
+	const root = { id: 'root', multiNoteKind: 'root', includeDefault: true };
+	const confirmed = [{ channelId: 'local', state: 'active' }];
+	const placements = Object.assign(new Map([[root.id, confirmed]]), { unavailableNoteIds: new Set(unavailable ? [root.id] : []) });
+	const service = Object.assign(Object.create(GridspacePrivateService.prototype), {
+		placementActions: { source: async () => ({ user: { id: 'viewer' }, note: root }) },
+		sourceNotes: async () => [root], query: () => ({ andWhere: vi.fn() }), search: { read: async () => [root] },
+		ids: { parse: () => ({ date: new Date(0) }) },
+		notePlacements: { pack: async () => placements }, extendedReactions: { show: async () => [] }, pack: async () => ({ ...root }),
+	});
+	const page = await service.peerNotes({ mode: 'show', placementActorId: 'viewer', conversationUri: 'https://source.example/notes/root', noteId: root.id });
+	expect(page.notes).toHaveLength(1);
+	expect(page.notes[0].channelPlacements).toEqual(confirmed);
+	expect(page.notes[0].channelPlacementsUnavailable).toBe(unavailable ? true : undefined);
+});

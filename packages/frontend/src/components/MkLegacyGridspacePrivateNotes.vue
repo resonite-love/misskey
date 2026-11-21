@@ -15,7 +15,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkTimelineLoadMore v-if="direction === 'up'" :key="pagingKey" :hasMore="hasMore" :loading="loading" :disabled="error" :automatic="false" @load="load"/>
 			<MkButton v-if="queued.length" :class="$style.new" rounded primary @click="releaseQueue(true)">{{ i18n.ts.newNote }}</MkButton>
 			<component :is="prefer.s.animation ? TransitionGroup : 'div'" tag="div" :enterActiveClass="$style.enterActive" :enterFromClass="$style.enterFrom" :moveClass="$style.move" @beforeLeave="clearLeavingPrivateNote">
-				<MkGridspacePrivateNoteRow v-for="note in displayed" :key="note.id" :note="note" :detailed="params.mode === 'show'" :data-scroll-anchor="note.uri" @unavailable="fail" @replied="refresh"/>
+				<MkGridspacePrivateNoteRow v-for="note in displayed" :key="note.id" :note="note" :detailed="params.mode === 'show'" :data-scroll-anchor="note.uri" @unavailable="fail" @replied="onReply"/>
 			</component>
 			<div v-if="error || loading || (notes.length === 0 && !hasMore)" :class="$style.heading" class="_gaps_s">
 				<p v-if="error" role="alert">{{ params.channelId ? i18n.ts._gridspace.channelNotesUnavailable : i18n.ts._gridspace.privateUnavailable }}</p>
@@ -44,8 +44,8 @@ import { i18n } from '@/i18n.js';
 import { $i } from '@/i.js';
 import { clearLeavingPrivateNote, isRevokedGridspaceRead, isVisiblePrivateNote, suspendPrivateNotes } from '@/utility/gridspace-note-suspension.js';
 
-const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; alwaysShow?: boolean; plain?: boolean; direction?: 'up' | 'down' }>();
-const emit = defineEmits<{ (event: 'loaded'): void; (event: 'snapshot', note: entities.GridspacePrivateNotesResponse['notes'][number] | null): void }>();
+const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; excludeId?: string; alwaysShow?: boolean; plain?: boolean; direction?: 'up' | 'down' }>();
+const emit = defineEmits<{ (event: 'loaded'): void; (event: 'replied'): void; (event: 'snapshot', note: entities.GridspacePrivateNotesResponse['notes'][number] | null): void }>();
 type Note = entities.GridspacePrivateNotesResponse['notes'][number];
 const enabled = ref(false);
 const notes = ref<GridspaceNoteEntry[]>([]);
@@ -57,8 +57,8 @@ let newer: { start: number; cursor?: string; observedAt?: number; notes: Gridspa
 let controller = new AbortController();
 const signal = () => AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
 const displayed = computed(() => {
-	const visible = notes.value.filter(note => isVisiblePrivateNote(note));
-	return props.params.order === 'oldest' ? visible.toSorted((a, b) => b.id.localeCompare(a.id)) : visible;
+	const visible = notes.value.filter(note => note.id !== props.excludeId && isVisiblePrivateNote(note));
+	return props.params.order === 'oldest' && !props.params.conversationUri ? visible.toSorted((a, b) => b.id.localeCompare(a.id)) : visible;
 });
 watch(() => notes.value.map(note => note), items => {
 	if (props.params.mode === 'show') emit('snapshot', items.find(note => !('suspended' in note) && isVisiblePrivateNote(note)) as Note | undefined ?? null);
@@ -111,7 +111,7 @@ async function reload() {
 	notes.value = []; cursor = undefined; hasMore.value = false; error.value = false; loading.value = false;
 	if (!$i || window.document.hidden || !active) return;
 	try {
-		if (props.params.channelId) { enabled.value = true; hasMore.value = true; await load(); return; }
+		if (props.params.channelId || props.params.conversationUri) { enabled.value = true; hasMore.value = true; await load(); return; }
 		const status = await misskeyApi('gridspace/private-grant', { action: 'status' }, undefined, signal());
 		if (current !== generation) return;
 		if (!status.available) { if (status.granted || enabled.value || props.alwaysShow) { enabled.value = true; fail(); } return; }
@@ -131,7 +131,8 @@ async function revalidate(retry = false) {
 	try {
 		const allowed = new Map<string, Note>();
 		if (snapshot.length === 0) {
-			if (props.params.channelId) await misskeyApi('gridspace/channels', { channelId: props.params.channelId }, undefined, signal());
+			if (props.params.conversationUri) await misskeyApi('gridspace/private-notes', { ...props.params, limit: 1 }, undefined, signal());
+			else if (props.params.channelId) await misskeyApi('gridspace/channels', { channelId: props.params.channelId }, undefined, signal());
 			else {
 				const status = await misskeyApi('gridspace/private-grant', { action: 'status' }, undefined, signal());
 				if (!status.granted || !status.available) throw new Error('Unavailable');
@@ -176,6 +177,12 @@ async function revalidate(retry = false) {
 			if (refreshPending) { refreshPending = false; void refresh(); }
 		}
 	}
+}
+
+function onReply() {
+	emit('replied');
+	if (props.params.conversationUri && props.params.mode === 'context') void reload();
+	else void refresh();
 }
 
 function invalidate() { generation++; controller.abort(); controller = new AbortController(); checking = null; refreshPending = false; }

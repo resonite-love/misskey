@@ -18,6 +18,8 @@ export interface PostFormProps {
 	} | null;
 	mention?: Misskey.entities.User;
 	specified?: Misskey.entities.UserLite;
+	initialPendingDraftKey?: string;
+	initialChannelDestination?: import('@/utility/multi-note.js').PostingChannel;
 	initialText?: string;
 	initialCw?: string;
 	initialVisibility?: (typeof Misskey.noteVisibilities)[number];

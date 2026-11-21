@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { Inject, Injectable, Scope } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
 import type { InternalEventTypes, EventTypesToEventPayload } from '@/core/GlobalEventService.js';
@@ -50,17 +51,17 @@ export class GridspaceTimelineChannel extends Channel {
 		return true;
 	}
 	@bindThis
-	private onNote(note: Packed<'Note'>) {
+	private async onNote(note: Packed<'Note'>) {
 		const options = this.options!;
 		if (options.withFiles && !note.fileIds?.length) return;
 		if (options.kind === 'home' || options.kind === 'social') {
 			const self = note.userId === this.user!.id || (note.userId === this.linkedUserId && (note.visibility === 'public' || note.visibility === 'home'));
-			if (note.channelId) {
-				if (!this.followingChannels.has(note.channelId)) return;
-			} else if (!self && !Object.hasOwn(this.following, note.userId) && !(options.kind === 'social' && note.visibility === 'public' && (note.user.host == null || note.gridspaceShared))) return;
+			const ordinary = includesDefault(note) && (self || Object.hasOwn(this.following, note.userId) ||
+				(options.kind === 'social' && note.visibility === 'public' && (note.user.host == null || note.gridspaceShared)));
+			if (!ordinary && !await this.hasFollowedChannelPlacement(note)) return;
 			if (!this.isNoteVisibleForMe(note) || this.isNoteMutedOrBlocked(note)) return;
 		} else if (options.kind === 'channel') {
-			if (note.channelId !== options.channelId) return;
+			if (!await this.hasLocalChannelPlacement(note, options.channelId ? [options.channelId] : [])) return;
 		} else if (options.kind === 'mentions' || options.kind === 'direct') {
 			if (!note.mentions?.includes(this.user!.id) && !note.visibleUserIds?.includes(this.user!.id)) return;
 			if (options.kind === 'direct' && note.visibility !== 'specified') return;

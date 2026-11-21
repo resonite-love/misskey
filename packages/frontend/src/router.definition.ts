@@ -271,10 +271,11 @@ export const ROUTE_DEF = [{
 }, {
 	path: '/gridspace/private',
 	component: page(() => import('@/pages/gridspace-private.vue')),
-	query: { noteId: 'noteId', channelId: 'channelId' },
+	query: { noteId: 'noteId', channelId: 'channelId', conversationUri: 'conversationUri' },
 }, {
 	path: '/gridspace/channels/:channelId?',
 	component: page(() => import('@/pages/gridspace-channels.vue')),
+	query: { placement: 'placement' },
 	loginRequired: true,
 }, {
 	// Legacy Compatibility

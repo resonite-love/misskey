@@ -5,6 +5,7 @@
 
 import { describe, expect, test, vi } from 'vitest';
 import { mockDeep } from 'vitest-mock-extended';
+import { GlobalEventService } from '@/core/GlobalEventService.js';
 import { UserFollowingService } from '@/core/UserFollowingService.js';
 import type { UserEntityService } from '@/core/entities/UserEntityService.js';
 import type { MiNotification } from '@/models/Notification.js';
@@ -19,18 +20,20 @@ import type { NotificationService } from '@/core/NotificationService.js';
 import type { NotificationReadService } from '@/core/NotificationReadService.js';
 import type { NotificationEntityService } from '@/core/entities/NotificationEntityService.js';
 import type { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
-import { MiNote } from '@/models/Note.js';
+import { GridspacePlacementService } from './GridspacePlacementService.js';
+import type { MiNote } from '@/models/Note.js';
 import { GridspaceNotificationService } from './GridspaceNotificationService.js';
 import type { GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
 import type { GridspaceSearchService } from './GridspaceSearchService.js';
 import type { NotificationOptions, WireNotification } from './notification-protocol.js';
 
-function fixture() {
+function fixture(role?: 'client' | 'source') {
 	const links = mockDeep<GridspaceLinkService>();
 	const notes = mockDeep<GridspacePrivateService>();
 	notes.filterChannelRenote.mockImplementation((...args) => GridspacePrivateService.prototype.filterChannelRenote.call(notes, ...args));
 	const notifications = mockDeep<NotificationService>();
+	notifications.readNotifications.mockResolvedValue({ changed: false, isRead: [], unreadCount: 0 });
 	const reads = mockDeep<NotificationReadService>();
 	const packer = mockDeep<NotificationEntityService>();
 	const link = { peerOrigin: 'https://r.example', peerUserId: 'old', localUserId: 'viewer' } as MiGridspaceLink;
@@ -50,14 +53,19 @@ function fixture() {
 	const db = mockDeep<DataSource>();
 	db.transaction.mockImplementation((async (run: (manager: EntityManager) => Promise<unknown>) => run(db.manager)) as DataSource['transaction']);
 	const moduleRef = mockDeep<ModuleRef>();
+	const placements = mockDeep<GridspacePlacementService>();
+	placements.currentActorCredential.mockResolvedValue({ actorId: 'viewer' });
+	placements.resolveActor.mockResolvedValue({ id: 'remoteViewer' } as never);
+	placements.hasPeerCapability.mockResolvedValue(true);
+	const events = mockDeep<GlobalEventService>();
 	const following = mockDeep<UserFollowingService>();
 	const users = mockDeep<UserEntityService>();
-	moduleRef.get.mockImplementation(((token: unknown) => token === UserFollowingService ? following : users) as ModuleRef['get']);
+	moduleRef.get.mockImplementation(((token: unknown) => token === GlobalEventService ? events : token === GridspacePlacementService ? placements : token === UserFollowingService ? following : users) as ModuleRef['get']);
 	users.pack.mockResolvedValue({ id: 'viewer', username: 'viewer', host: null } as Packed<'UserLite'>);
 	const search = mockDeep<GridspaceSearchService>();
 	const channels = mockDeep<GridspaceChannelAuthService>();
-	const service = new GridspaceNotificationService({ url: 'https://g.example' } as Config, db, notifications, reads, packer, links, notes, search, moduleRef, channels);
-	return { service, channels, following, users, search, db, links, notes, notifications, reads, packer, viewer: { id: 'viewer' } as MiLocalUser };
+	const service = new GridspaceNotificationService({ url: 'https://g.example', gridspace: role ? { enabled: true, channelRole: role, peerUrl: 'https://r.example' } : undefined } as Config, db, notifications, reads, packer, links, notes, search, moduleRef, channels);
+	return { service, events, placements, channels, following, users, search, db, links, notes, notifications, reads, packer, viewer: { id: 'viewer' } as MiLocalUser };
 }
 
 describe('GridSpace notifications', () => {
@@ -124,12 +132,11 @@ describe('GridSpace notifications', () => {
 		const query = { andWhere: () => query, getMany: async () => [{ id: 'reactor', username: 'reactor', host: null, uri: null, name: null }] };
 		f.search.userQuery.mockReturnValue(query as never);
 		f.search.noteQuery.mockReturnValue(query as never);
-		f.search.read.mockResolvedValue([{ id: 'owned', channelId: 'channel' } as MiNote]);
+		f.search.read.mockResolvedValue([{ id: 'owned', userId: 'remoteViewer', channelId: 'channel' } as MiNote]);
 		f.notes.peerNotes.mockResolvedValue({ notes: [{ id: 'owned' } as PrivateWireNote], next: null, head: null, scannedThrough: null, observedAt: '' });
 		f.reads.state.mockResolvedValue({ unreadCount: 1, changed: false, isRead: [false] });
 		const result = await f.service.peer('query', { channelActorId: 'viewer' });
 		expect(result.items.map(n => n.id)).toEqual(['0']);
-		expect(f.db.getRepository).toHaveBeenCalledWith(MiNote);
 		expect(f.notes.peerNotes).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'channel', channelActorId: 'viewer', ids: ['owned'] }));
 	});
 
@@ -157,6 +164,90 @@ describe('GridSpace notifications', () => {
 		expect(body).not.toHaveProperty('i'); expect(body).not.toHaveProperty('source');
 		expect(body).toMatchObject({ accessToken: 'pair-token', linkId: 'real-link', before: 'cursor', generation: 2 });
 	});
+	test.each(['source', 'client'] as const)('filters current guest references, bodies, counts and reads on the %s', async role => {
+		const f = fixture(role);
+		const actor = { id: 'childAuthor', uri: 'https://g.example/users/childAuthor', username: 'child', host: null, name: null };
+		const query = { andWhere: () => query, getMany: async () => [actor] };
+		f.search.userQuery.mockReturnValue(query as never);
+		f.search.noteQuery.mockReturnValue(query as never);
+		const base = { multiNoteKind: 'conversation-reply', includeDefault: false, multiNoteRootId: 'root', channelId: null, uri: null, localOnly: true, visibility: 'public' };
+		const notes = [
+			{ ...base, id: 'child', userId: actor.id, replyUserId: 'remoteViewer' },
+			{ ...base, id: 'mine', userId: 'remoteViewer' },
+			{ ...base, id: 'other', userId: 'someone' },
+			{ ...base, id: 'standard', multiNoteKind: null, userId: 'remoteViewer' },
+		];
+		f.search.read.mockResolvedValue(notes as MiNote[]);
+		const ids = ['child', 'mine', 'other', 'standard', 'hidden', 'ownFollow'];
+		const rows = ids.map((id, i) => ({ id, type: i === 0 ? 'reply' : i === 5 ? 'follow' : 'reaction', reaction: '👍', noteId: id, notifierId: actor.id, createdAt: new Date().toISOString() } as MiNotification));
+		f.notifications.getNotifications.mockResolvedValue(rows);
+		f.notifications.getNotification.mockImplementation(async (_user, id) => rows.find(row => row.id === id) ?? null);
+		f.packer.packMany.mockImplementation(async rows => rows.map(row => ({ ...row, user: actor, note: { user: actor } })) as never);
+		f.reads.state.mockImplementation(async (_user, ids = []) => ({ unreadCount: 99, changed: false, isRead: ids.map(() => false) }));
+		f.notes.peerNotes.mockImplementation(async request => ({ notes: [{ id: request.noteId, conversationUri: request.conversationUri } as PrivateWireNote], head: null, next: null, scannedThrough: null, observedAt: '' }));
+		f.db.getRepository.mockReturnValue({ findBy: async () => [actor, { id: 'remoteViewer', uri: 'https://r.example/users/viewer', username: 'viewer', host: 'r.example' }] } as never);
+		const credential = { placementActorId: 'viewer' };
+		const refs = await f.service.peerReferences(credential);
+		expect(refs.items.map(item => item.id)).toEqual(['child', 'mine']);
+		const page = await f.service.peer('query', credential);
+		expect(page.items.map(item => item.id)).toEqual(['child', 'mine']);
+		expect(page.unreadCount).toBe(2);
+		expect(page.items.every(item => item.recipientActorUri === 'https://r.example/users/viewer')).toBe(true);
+		expect(f.notes.peerNotes).toHaveBeenCalledWith({ ...credential, mode: 'show', noteId: 'child', conversationUri: 'https://g.example/notes/child' });
+		await f.service.peer('read', { ...credential, ids: ['mine', 'other'] });
+		expect(f.notifications.readNotifications).toHaveBeenLastCalledWith('remoteViewer', ['mine']);
+		await f.service.peer('read-all', credential);
+		expect(f.notifications.readNotifications).toHaveBeenLastCalledWith('remoteViewer', ['child', 'mine']);
+		expect(f.placements.resolveActor).toHaveBeenCalledWith('viewer', f.db.manager);
+		expect(f.notifications.readAllNotification).not.toHaveBeenCalled();
+		await expect(f.service.peer('accept-follow', credential)).rejects.toMatchObject({ code: 'ACTION_REJECTED' });
+		await expect(f.service.peer('query', { ...credential, channelActorId: 'other' })).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+	});
+	test('sends a bodyless hint only to an active local recipient', async () => {
+		const f = fixture();
+		const existsBy = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+		f.db.getRepository.mockReturnValue({ existsBy } as never);
+		await f.service.receiveGuestHint('absent');
+		expect(f.events.publishMainStream).not.toHaveBeenCalled();
+		await f.service.receiveGuestHint('viewer');
+		expect(f.events.publishMainStream).toHaveBeenCalledExactlyOnceWith('viewer', 'gridspaceNotificationsChanged');
+	});
+	test('filters home-side mutes from guest references, counts and bulk reads', async () => {
+		const f = fixture('client');
+		const summary = { origin: 'https://r.example', recipientId: 'remoteViewer', complete: true, items: ['visible', 'muted'].map(id => ({
+			id, createdAt: '2026-01-01T00:00:00Z', isRead: false, actors: [{ uri: 'https://r.example/users/' + id, host: 'r.example', name: null, username: id }],
+		})) };
+		f.links.json.mockImplementation(async (path, body) => {
+			if (path.endsWith('/references')) return summary;
+			expect(path).toBe('/gridspace/v1/notifications/read');
+			expect(body).toEqual({ placementActorId: 'viewer', expectedRecipientId: 'remoteViewer', ids: ['visible'] });
+			summary.items[0].isRead = true;
+			return {};
+		});
+		f.notes.localActorAllows.mockImplementation(async (_user, actor) => !actor.uri.endsWith('/muted'));
+		const refs = await f.service.remoteReferences(f.viewer, {}, true);
+		expect(refs.items).toEqual([{ id: 'visible', createdAt: '2026-01-01T00:00:00Z' }]);
+		expect((await f.service.remote(f.viewer, { countOnly: true }, 'query', true)).unreadCount).toBe(1);
+		expect((await f.service.remote(f.viewer, {}, 'read-all', true)).unreadCount).toBe(0);
+	});
+	test('checks the current recipient, dedicated reply URI and parent actor on the home server', async () => {
+		const f = fixture('source');
+		const recipientActorUri = 'https://g.example/users/viewer';
+		const author = { uri: 'https://r.example/users/author', host: 'r.example' };
+		const note = { id: 'child', uri: 'https://r.example/notes/child', conversationUri: 'https://r.example/notes/child', multiNoteKind: 'conversation-reply', includeDefault: false,
+			localOnly: true, author, filterActors: [author, { uri: recipientActorUri, host: 'g.example' }] };
+		vi.spyOn(f.service, 'remoteReferences').mockResolvedValue({ origin: 'https://r.example', recipientId: 'remoteViewer', unreadCount: 1, complete: true, items: [{ id: 'notice', createdAt: '2026-01-01T00:00:00Z' }] });
+		const response = { items: [{ type: 'reply', id: 'notice', user: author, note, recipientActorUri }], origin: 'https://r.example', recipientId: 'remoteViewer' };
+		f.links.json.mockResolvedValue(response);
+		expect((await f.service.remote(f.viewer, {}, 'query', true)).items.map(item => item.id)).toEqual(['notice']);
+		expect(f.links.json).toHaveBeenCalledWith('/gridspace/v1/notifications/query', expect.objectContaining({ placementActorId: 'viewer' }));
+		expect(f.links.privateLink).not.toHaveBeenCalled();
+		for (const patch of [{ recipientActorUri: 'https://g.example/users/wrong' }, { note: { ...note, filterActors: [author] } }, { note: { ...note, uri: 'https://wrong.example/notes/child' } }]) {
+			f.links.json.mockResolvedValue({ ...response, items: [{ ...response.items[0], ...patch }] });
+			await expect(f.service.remote(f.viewer, {}, 'query', true)).rejects.toMatchObject({ code: 'PEER_UNAVAILABLE' });
+		}
+	});
+
 	test('requires notification consent in addition to the linked private-reader grant', async () => {
 		const f = fixture(); f.links.hasNotificationScope.mockResolvedValue(false);
 		await expect(f.service.peer('query', {})).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });

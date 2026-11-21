@@ -34,6 +34,10 @@ import { QueryService } from '@/core/QueryService.js';
 import { HttpRequestService } from '@/core/HttpRequestService.js';
 import { InternalStorageService } from '@/core/InternalStorageService.js';
 import { UserEntityService } from '@/core/entities/UserEntityService.js';
+import { DriveFileEntityService } from '@/core/entities/DriveFileEntityService.js';
+import { NotePlacementService } from '@/core/NotePlacementService.js';
+import { GridspacePlacementActionService } from './GridspacePlacementActionService.js';
+import { dedicatedOriginal } from './conversation-protocol.js';
 import { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspaceSearchService } from './GridspaceSearchService.js';
@@ -79,6 +83,9 @@ export class GridspacePrivateService {
 		private fanout?: FanoutTimelineService,
 		private events?: GlobalEventService,
 		private publicLists?: TimelinePublicListSource,
+		private placementActions?: GridspacePlacementActionService,
+		private notePlacements?: NotePlacementService,
+		private driveFiles?: DriveFileEntityService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 		this.noteTime = searchNoteTimeSql(config.id);
@@ -86,6 +93,12 @@ export class GridspacePrivateService {
 	}
 
 	private async authorizeRead(input: PrivatePeerRequest) {
+		if (input.placementActorId || input.conversationUri) {
+			const mode = input.mode === 'validate' ? input.contextMode : input.mode;
+			if ((mode !== 'show' && mode !== 'context') || (input.mode !== 'validate' && (input.contextMode || input.ids)) || input.targetUris || input.query || input.fileId || input.clipId || input.antennaId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			const { user } = await this.placementActions!.source(input, 'read');
+			return { localUserId: user.id, initiator: false };
+		}
 		if (input.channelId || input.channelActorId) this.channelAuth.assertSource();
 		if (!input.channelActorId) {
 			const link = await this.links.authorizePrivate(input);
@@ -108,6 +121,7 @@ export class GridspacePrivateService {
 		if ((mode === 'clip' && !input.clipId) || (input.clipId && mode !== 'clip')) throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((mode === 'antenna' && !input.antennaId) || (input.antennaId && mode !== 'antenna')) throw new GridspaceLinkError('INVALID_REQUEST');
 		const query = this.search.noteQuery({ id: viewerId }, { query: mode === 'clip' ? '' : input.query ?? '', rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt }, false, true, input.channelId, boundedSearch || !!input.targetUris?.length || !!input.ids?.length || !!input.noteId, includeSensitiveChannels || mode === 'home' || mode === 'mentions' || mode === 'direct' || mode === 'favorites' || mode === 'clip' || mode === 'antenna');
+		if (input.conversationUri && mode === 'show') query.andWhere('note.id = :conversationId', { conversationId: input.noteId });
 		const followedChannel = 'EXISTS (SELECT 1 FROM channel_following cf WHERE cf."followerId" = :homeChannelViewer AND cf."followeeId" = note."channelId")';
 		if (mode === 'home') query.setParameter('homeChannelViewer', viewerId);
 		if (mode === 'favorites') {
@@ -167,6 +181,15 @@ export class GridspacePrivateService {
 
 	/** Anchor-derived scopes prevent a channel guest from choosing arbitrary authors. */
 	private async contextQuery(viewerId: string, input: PrivatePeerRequest) {
+		if (input.conversationUri) {
+			const { note } = await this.placementActions!.source(input, 'read');
+			if (!dedicatedOriginal(note)) throw new GridspaceLinkError('UNAVAILABLE');
+			const root = note.multiNoteKind === 'root' ? note.id : note.multiNoteRootId;
+			return this.query(viewerId, { mode: 'show' })
+				.andWhere("note.uri IS NULL AND note.localOnly = true AND note.includeDefault = false AND note.visibility IN ('public', 'home')")
+				.andWhere("((note.id = :root AND note.multiNoteKind = 'root') OR (note.multiNoteRootId = :root AND note.multiNoteKind = 'conversation-reply'))", { root })
+				.orderBy('note.id', input.order === 'oldest' ? 'ASC' : 'DESC');
+		}
 		if (!input.noteId || !input.contextScope || input.targetUris?.length || input.query || input.clipId || input.antennaId) throw new GridspaceLinkError('INVALID_REQUEST');
 		if (input.contextScope !== 'channel' && input.contextScope !== 'user') throw new GridspaceLinkError('INVALID_REQUEST');
 		const anchor = await this.readableSourceNote(viewerId, input.noteId, undefined, input.channelId);
@@ -557,16 +580,17 @@ export class GridspacePrivateService {
 			id: note.id, uri: note.uri ?? `${this.peer!.origin}/notes/${note.id}`, origin: this.peer!.origin, createdAt: this.ids.parse(note.id).date.toISOString(), text: note.text, cw: note.cw,
 			visibility: note.visibility, localOnly: note.localOnly, emojis: emojiUrls,
 			...(this.collectionId(note) ? { collectionId: this.collectionId(note), collectionAt: this.ids.parse(this.collectionId(note)!).date.toISOString() } : {}),
-			channelId: note.channelId, canDelete: !!note.channelId && note.userId === viewerId,
+			...(note.multiNoteKind ? { multiNoteKind: note.multiNoteKind, includeDefault: note.includeDefault ?? false, ...(dedicatedOriginal(note) ? { conversationUri: `${this.peer!.origin}/notes/${note.id}` } : {}) } : {}),
+			channelId: note.channelId, canDelete: (!!note.channelId || (dedicatedOriginal(note) && note.multiNoteKind === 'conversation-reply')) && note.userId === viewerId,
 			canSelfRenote: !this.collectionClient && canSelfRenote(note, viewerId),
 			channel: note.channel ? { id: note.channel.id, name: note.channel.name, color: note.channel.color } : null,
-			reactions, reactionEmojis, myReaction, myReactions, extendedReactions: !!note.channelId || supportsGridspaceReactions(note, this.peer),
+			reactions, reactionEmojis, myReaction, myReactions, extendedReactions: dedicatedOriginal(note) || !!note.channelId || supportsGridspaceReactions(note, this.peer),
 			reactionPreviews: reactionState.reactionPreviews?.filter(row => Object.keys(reactions).some(reaction => reaction.replace('@.:', ':') === row.reaction.replace('@.:', ':'))),
 			author: { ...this.actor(note.user!), avatarUrl: author.avatarUrl, emojis: await this.emojiUrls(note.user!.emojis, note.user!.host), avatarBlurhash: author.avatarBlurhash, avatarDecorations: author.avatarDecorations, isBot: author.isBot, isCat: author.isCat,
 													instance: note.user!.host ? author.instance && { name: author.instance.name, faviconUrl: author.instance.faviconUrl, themeColor: author.instance.themeColor } : { name: this.meta.name, faviconUrl: this.meta.iconUrl, themeColor: this.meta.themeColor } }, filterActors: actors.map(user => this.actor(user)),
 			replyId: note.replyId && readableRelated.has(note.replyId) ? note.replyId : null,
 			renoteId: note.renoteId && readableRelated.has(note.renoteId) ? note.renoteId : null,
-			files: files.map(file => ({ id: file.id, name: file.name, type: file.type, size: file.size, comment: file.comment, isSensitive: file.isSensitive || file.maybeSensitive })),
+			files: files.map(file => ({ id: file.id, name: file.name, type: file.type, size: file.size, comment: file.comment, ...(note.multiNoteKind && ['public', 'home'].includes(note.visibility) ? { url: this.driveFiles!.getPublicUrl(file), thumbnailUrl: this.driveFiles!.getThumbnailUrl(file) } : {}), isSensitive: file.isSensitive || file.maybeSensitive })),
 			poll: poll ? { choices: poll.choices.map((text, i) => ({ text, votes: poll.votes[i] ?? 0, isVoted: votes.some(vote => vote.choice === i) })), expiresAt: poll.expiresAt?.toISOString() ?? null, multiple: poll.multiple } : null,
 		};
 	}
@@ -593,10 +617,17 @@ export class GridspacePrivateService {
 			(!link.initiator && !this.collectionClient && canSelfRenote(note, link.localUserId))
 		)));
 		const reactionIds = [...new Set([...selected, ...previewTargets].map(note => note.id))];
+		const rootIds = selected.filter(note => note.multiNoteKind === 'root').map(note => note.id);
+		const placements = rootIds.length ? await this.notePlacements!.pack(rootIds, { id: link.localUserId }) : null;
 		const reactionStates = new Map((reactionIds.length ? await this.extendedReactions.show(reactionIds, { id: link.localUserId }, true) : []).map(state => [state.noteId, state]));
 		const authors = new Map<string, Promise<Packed<'UserLite'>>>();
 		const packed = await Promise.all(selected.map(note => this.pack(note, link.localUserId, new Set(related.map(item => item.id)), reactionStates.get(note.id), authors)));
 		const previews = new Map(await Promise.all(previewTargets.map(async note => [note.id, await this.pack(note, link.localUserId, new Set(), reactionStates.get(note.id), authors)] as const)));
+		for (const note of packed) {
+			if (note.multiNoteKind !== 'root') continue;
+			note.channelPlacements = placements?.get(note.id) ?? [];
+			if (placements?.unavailableNoteIds?.has(note.id)) note.channelPlacementsUnavailable = true;
+		}
 		for (const note of packed) if (note.renoteId && previews.has(note.renoteId)) note.renote = previews.get(note.renoteId);
 		if (link.initiator) for (const note of [...packed, ...previews.values()]) note.canSelfRenote = false;
 		// Recheck after packing attachments/polls, not just before the asynchronous work.
@@ -694,13 +725,14 @@ export class GridspacePrivateService {
 
 	public async notes(viewer: MiLocalUser, input: PrivateOptions, limit: number, cursor?: string) {
 		if (input.mode !== 'validate' && input.contextMode) throw new GridspaceLinkError('INVALID_REQUEST');
-		const channel = input.channelId || (this.channelAuth.isClient && (input.contextMode ?? input.mode) === 'home') ? await this.channelAuth.destination(viewer) : null;
+		const channel = input.conversationUri ? await this.placementActions!.destination(viewer, input.conversationUri, input.noteId) :
+			input.channelId || (this.channelAuth.isClient && (input.contextMode ?? input.mode) === 'home') ? await this.channelAuth.destination(viewer) : null;
 		const link = channel ? null : await this.links.privateLink(viewer.id);
 		const credential = channel ? channel.credential : this.links.privateCredential(link!);
 		if ((input.query || input.mode === 'search' || input.contextMode === 'search') && (!input.query?.trim() || !(await this.roles.getUserPolicies(viewer.id)).canSearchNotes)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if ((input.mode === 'profile' && !input.userId) || (input.mode === 'show' && !input.noteId) || (input.mode === 'validate' && !input.ids?.length)) throw new GridspaceLinkError('INVALID_REQUEST');
 		const options: PrivateOptions = {
-			mode: input.mode, contextMode: input.contextMode, contextScope: input.contextScope, order: input.order, query: input.query?.trim(), userId: input.userId, noteId: input.noteId, channelId: input.channelId, clipId: input.clipId, antennaId: input.antennaId,
+			mode: input.mode, contextMode: input.contextMode, contextScope: input.contextScope, conversationUri: input.conversationUri, order: input.order ?? (input.conversationUri && input.mode === 'context' ? 'oldest' : undefined), query: input.query?.trim(), userId: input.userId, noteId: input.noteId, channelId: input.channelId, clipId: input.clipId, antennaId: input.antennaId,
 			ids: input.ids, rangeStartAt: input.rangeStartAt, rangeEndAt: input.rangeEndAt,
 			withReplies: input.withReplies ?? true, withRenotes: input.withRenotes ?? true, withFiles: input.withFiles ?? false, withChannelNotes: input.withChannelNotes ?? true,
 		};

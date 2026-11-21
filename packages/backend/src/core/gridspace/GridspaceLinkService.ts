@@ -36,6 +36,7 @@ import { IdService } from '@/core/IdService.js';
 import { UserFollowingService } from '@/core/UserFollowingService.js';
 import { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
 import { GridspaceFollowGuardService } from './GridspaceFollowGuardService.js';
+import { GridspacePlacementService } from './GridspacePlacementService.js';
 import { gridspacePeerTransport } from './peer-client.js';
 import { createGridspaceHeaders, resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
 import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH, GRIDSPACE_LINK_SCOPES, GRIDSPACE_ALL_SCOPES, GRIDSPACE_PRIVATE_SCOPES, GRIDSPACE_CHANNEL_SCOPE, GRIDSPACE_PRIVATE_CLIENT_PATH, GRIDSPACE_PRIVATE_SCOPE, GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE, GRIDSPACE_REPLY_SCOPE, GRIDSPACE_ACTION_SCOPE, GRIDSPACE_NOTIFICATION_SCOPE, GRIDSPACE_NOTIFICATION_WRITE_SCOPE, gridspaceChallenge, gridspaceHash, openGridspaceSecret, sealGridspaceSecret } from './link-crypto.js';
@@ -747,7 +748,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 	public async privateStatus(user: MiLocalUser) {
 		const peer = this.peer;
 		const peerRole: 'source' | 'client' | null = this.config.gridspace?.channelRole === 'client' ? 'source' : this.config.gridspace?.channelRole === 'source' ? 'client' : null;
-		const result = { enabled: !!peer, granted: false, mutual: false, canReply: false, canReadNotifications: false, canReadChannelNotifications: !!peer && this.config.gridspace?.channelRole === 'client', canInteract: false, canWriteChannels: false, canManageFollowRequests: false, available: true, peerRole, peerOrigin: peer?.peerOrigin ?? null, authorizationUrl: null as string | null, clientKey: null as string | null };
+		const result = { enabled: !!peer, granted: false, mutual: false, canReply: false, canReadNotifications: false, canReadChannelNotifications: !!peer && (this.config.gridspace?.channelRole === 'client' || await this.modules.get(GridspacePlacementService).hasPeerCapability()), canInteract: false, canWriteChannels: false, canManageFollowRequests: false, available: true, peerRole, peerOrigin: peer?.peerOrigin ?? null, authorizationUrl: null as string | null, clientKey: null as string | null };
 		if (!peer) return result;
 		try {
 			const link = await this.privateLink(user.id);

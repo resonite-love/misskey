@@ -8,7 +8,7 @@ import { privateNoteSchema, type PrivateActor, type PrivateNote, type PrivateWir
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 
 export type NotificationOptions = { before?: string; since?: string; ids?: string[]; excludeTypes?: string[]; limit?: number; countOnly?: boolean; expectedOrigin?: string; expectedRecipientId?: string };
-export type NotificationPeerRequest = GridspacePeerLinkRequest & NotificationOptions & { followRequestId?: string };
+export type NotificationPeerRequest = GridspacePeerLinkRequest & NotificationOptions & { followRequestId?: string; placementActorId?: string };
 export type NotificationPresentation = {
 	user: Packed<'UserLite'> | null; recipient: Packed<'UserLite'>; noteUser: Packed<'UserLite'> | null;
 	header: string | null; icon: string | null; achievement: string | null;
@@ -17,11 +17,13 @@ export type NotificationPresentation = {
 	followRequestId: string | null; canManageFollowRequest: boolean;
 };
 export type PeerNotification = { id: string; createdAt: string; type: string; isRead: boolean; user: PrivateActor | null; note: PrivateNote | null; renote?: PrivateNote | null; body: string | null; reaction: string | null; presentation?: NotificationPresentation };
-export type WireNotification = Omit<PeerNotification, 'note' | 'renote'> & { note: PrivateWireNote | null; renote?: PrivateWireNote | null };
+export type WireNotification = Omit<PeerNotification, 'note' | 'renote'> & { note: PrivateWireNote | null; renote?: PrivateWireNote | null; recipientActorUri?: string };
 export type NotificationPage<T> = { items: T[]; next: string | null; newest: string | null; boundary: string | null; unreadCount: number; origin: string; recipientId: string };
 export type LocalNotification = { id: string; createdAt: string; isRead: boolean; notification: Packed<'Notification'> };
 export type NotificationReference = { id: string; createdAt: string };
 export type NotificationReferences = { items: NotificationReference[]; origin: string; recipientId: string; complete: boolean };
+export type GuestReference = NotificationReference & { actors: PrivateActor[]; isRead: boolean };
+export type WireReferences = Omit<NotificationReferences, 'items'> & { items: (NotificationReference | GuestReference)[] };
 export const notificationReferenceLimit = 2000;
 
 const text = { type: 'string', optional: false, nullable: false } as const;

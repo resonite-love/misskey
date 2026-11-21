@@ -4,11 +4,12 @@
  */
 
 import ms from 'ms';
-import { In } from 'typeorm';
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { MAX_NOTE_TEXT_LENGTH } from '@/const.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
+import { GridspaceLinkError } from '@/core/gridspace/GridspaceLinkService.js';
+import { createInputHash, PlacementError } from '@/core/NotePlacementService.js';
 import { NoteCreateService } from '@/core/NoteCreateService.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
 import { ApiError } from '../../error.js';
@@ -40,6 +41,12 @@ export const meta = {
 	},
 
 	errors: {
+		invalidPlacement: {
+			message: 'The requested placement cannot be created.',
+			code: 'INVALID_NOTE_PLACEMENT',
+			id: '583fe200-dc3f-4351-959c-e997d2aeed32',
+		},
+
 		noSuchRenoteTarget: {
 			message: 'No such renote target.',
 			code: 'NO_SUCH_RENOTE_TARGET',
@@ -128,6 +135,13 @@ export const meta = {
 
 export const paramDef = {
 	type: 'object',
+	not: { allOf: [
+		{ anyOf: [{ required: ['channelIds'] }, { required: ['channelTargets'] }, { required: ['includeDefault'] }, { required: ['clientRequestId'] }] },
+		{ anyOf: [
+			{ required: ['scheduledAt'], properties: { scheduledAt: { type: 'integer' } } },
+			{ required: ['isActuallyScheduled'], properties: { isActuallyScheduled: { const: true } } },
+		] },
+	] },
 	properties: {
 		visibility: { type: 'string', enum: ['public', 'home', 'followers', 'specified'], default: 'public' },
 		visibleUserIds: { type: 'array', uniqueItems: true, items: {
@@ -142,6 +156,20 @@ export const paramDef = {
 		replyId: { type: 'string', format: 'misskey:id', nullable: true },
 		renoteId: { type: 'string', format: 'misskey:id', nullable: true },
 		channelId: { type: 'string', format: 'misskey:id', nullable: true },
+		includeDefault: { type: 'boolean' },
+		clientRequestId: { type: 'string', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
+		channelIds: { type: 'array', uniqueItems: true, items: { type: 'string', format: 'misskey:id', maxLength: 32 } },
+		channelTargets: {
+			type: 'array', uniqueItems: true,
+			items: {
+				type: 'object', additionalProperties: false,
+				properties: {
+					origin: { type: 'string', maxLength: 512 },
+					channelId: { type: 'string', format: 'misskey:id', maxLength: 32 },
+				},
+				required: ['origin', 'channelId'],
+			},
+		},
 
 		// anyOf内にバリデーションを書いても最初の一つしかチェックされない
 		// See https://github.com/misskey-dev/misskey/pull/10082
@@ -221,7 +249,17 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			try {
+				const usesPlacements = ps.includeDefault !== undefined || ps.channelIds !== undefined || ps.channelTargets !== undefined || ps.clientRequestId !== undefined;
+				if (usesPlacements && !ps.clientRequestId) throw new PlacementError('client-request-id-required');
+				const multiNote = usesPlacements ? {
+					clientRequestId: ps.clientRequestId!.toLowerCase(),
+					includeDefault: ps.includeDefault ?? false,
+					channelIds: ps.channelIds ?? [],
+					channelTargets: ps.channelTargets ?? [],
+					inputHash: createInputHash(Object.fromEntries(Object.entries(ps).filter(([key]) => key !== 'clientRequestId' && Object.hasOwn(paramDef.properties, key)))),
+				} : undefined;
 				const note = await this.noteCreateService.fetchAndCreate(me, {
+					multiNote,
 					createdAt: new Date(),
 					fileIds: ps.fileIds ?? ps.mediaIds ?? [],
 					poll: ps.poll ? {
@@ -247,6 +285,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					createdNote: await this.noteEntityService.pack(note, me),
 				};
 			} catch (err) {
+				if (err instanceof PlacementError || err instanceof GridspaceLinkError) throw new ApiError(meta.errors.invalidPlacement, { reason: err.message });
 				// TODO: 他のErrorもここでキャッチしてエラーメッセージを当てるようにしたい
 				if (err instanceof IdentifiableError) {
 					if (err.id === '689ee33f-f97c-479a-ac49-1b9f8140af99') {

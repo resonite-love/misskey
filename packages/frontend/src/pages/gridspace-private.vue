@@ -24,7 +24,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</div>
 			</template>
 		</template>
-		<MkGridspaceNoteDetail v-else :noteId="noteId" :channelId="channelId" @snapshot="createdAt = $event?.createdAt ?? null"/>
+		<MkGridspaceNoteDetail v-else :noteId="noteId" :channelId="channelId" :conversationUri="conversationUri" @snapshot="createdAt = $event?.createdAt ?? null"/>
 	</div>
 </PageWithHeader>
 </template>
@@ -41,7 +41,7 @@ import { misskeyApi } from '@/utility/misskey-api.js';
 import { pleaseLogin } from '@/utility/please-login.js';
 import { url } from '@@/js/config.js';
 
-const props = defineProps<{ noteId?: string; channelId?: string }>();
+const props = defineProps<{ noteId?: string; channelId?: string; conversationUri?: string }>();
 const createdAt = ref<string | null>(null);
 const visitorLoading = ref(false);
 let visitorGeneration = 0;
@@ -63,7 +63,7 @@ async function openPublicNote() {
 	} catch { /* Unavailable posts never disclose their source or body. */ } finally { if (current === visitorGeneration) visitorLoading.value = false; }
 }
 
-watch(() => [props.noteId, props.channelId], () => { createdAt.value = null; if (!$i) void openPublicNote(); }, { immediate: true });
+watch(() => [props.noteId, props.channelId, props.conversationUri], () => { createdAt.value = null; if (!$i) void openPublicNote(); }, { immediate: true });
 
 function stopVisitorRead() { visitorActive = false; visitorGeneration++; visitorController.abort(); visitorLoading.value = false; }
 

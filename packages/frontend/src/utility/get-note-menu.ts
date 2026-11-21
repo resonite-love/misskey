@@ -4,6 +4,7 @@
  */
 
 import * as Misskey from 'misskey-js';
+import { getPlacementMenu } from '@/utility/multi-note-menu.js';
 import { url } from '@@/js/config.js';
 import { claimAchievement } from './achievements.js';
 import type { Ref, ShallowRef } from 'vue';
@@ -461,6 +462,14 @@ export function getNoteMenu(props: {
 			menuItems.push(getAbuseNoteMenu(appearNote, i18n.ts.reportAbuse));
 		}
 
+		if (appearNote.multiNoteKind === 'root') {
+			const canonicalUri = appearNote.uri ?? `${url}/notes/${appearNote.id}`;
+			menuItems.push(...getPlacementMenu(appearNote.channelPlacements, canonicalUri, async () => {
+				const latest = await misskeyApi('notes/show', { noteId: appearNote.id });
+				appearNote.channelPlacements = latest.channelPlacements;
+				appearNote.channelPlacementsUnavailable = latest.channelPlacementsUnavailable;
+			}));
+		}
 		if (appearNote.channel && (appearNote.channel.userId === $i.id || $i.isModerator || $i.isAdmin)) {
 			menuItems.push({ type: 'divider' });
 			menuItems.push({

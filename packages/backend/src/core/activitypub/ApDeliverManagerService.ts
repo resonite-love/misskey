@@ -104,7 +104,7 @@ class DeliverManager {
 	 * Execute delivers
 	 */
 	@bindThis
-	public async execute(): Promise<void> {
+	public async execute(deliveryKey?: string): Promise<void> {
 		// The value flags whether it is shared or not.
 		// key: inbox URL, value: whether it is sharedInbox
 		const inboxes = new Map<string, boolean>();
@@ -144,7 +144,7 @@ class DeliverManager {
 		}
 
 		// deliver
-		await this.queueService.deliverMany(this.actor, this.activity, inboxes);
+		await this.queueService.deliverMany(this.actor, this.activity, inboxes, deliveryKey);
 	}
 }
 

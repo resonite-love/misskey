@@ -7,6 +7,7 @@ import type { Ref } from 'vue';
 import type { entities } from 'misskey-js';
 import type { MenuItem } from '@/types/menu.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
+import { conversationTarget } from '@/utility/gridspace-conversation.js';
 import { getNoteMenu } from '@/utility/get-note-menu.js';
 import { copyToClipboard } from '@/utility/copy-to-clipboard.js';
 import { i18n } from '@/i18n.js';
@@ -47,7 +48,8 @@ export async function getGridspaceNoteMenu(note: PrivateNote, detailPath: string
  const unclip: MenuItem = { text: i18n.ts.unclip, icon: 'ti ti-backspace', danger: true, action: () => removeFromClip(currentClip!.id) };
  // Public notes can use independently authorized normal note APIs. Keep the
  // delegated clip context separate: source IDs never enter a local note API.
- if (!note.channelId && ['public', 'home'].includes(note.visibility)) {
+ const dedicated = !!conversationTarget(note).conversationUri;
+ if (!dedicated && !note.channelId && ['public', 'home'].includes(note.visibility)) {
   try {
    const local = await misskeyApi('gridspace/renote-target', { noteId: note.id });
    const result = getNoteMenu({ note: local, translation, translating });
@@ -57,7 +59,7 @@ export async function getGridspaceNoteMenu(note: PrivateNote, detailPath: string
   } catch { /* Use the delegated menu if no normal representation is readable. */ }
  }
  const menu: MenuItem[] = [];
- try { state = await misskeyApi('gridspace/note-menu', { action: 'state', noteId: note.id, channelId: note.channelId ?? undefined }); } catch { /* Read-only actions still work during a peer outage. */ }
+ if (!dedicated) try { state = await misskeyApi('gridspace/note-menu', { action: 'state', noteId: note.id, channelId: note.channelId ?? undefined }); } catch { /* Read-only actions still work during a peer outage. */ }
  if (currentClip?.canManage && state?.canWrite) menu.push(unclip, { type: 'divider' });
  menu.push({ text: i18n.ts.details, icon: 'ti ti-info-circle', action: () => os.pageWindow(detailPath) },
   { text: i18n.ts.copyContent, icon: 'ti ti-copy', action: () => copyToClipboard(note.text ?? '') },
@@ -102,6 +104,7 @@ export async function getGridspaceNoteMenu(note: PrivateNote, detailPath: string
     sendHandler: async (comment: string) => {
      const result = await request('report', { comment });
      if (!result) { await os.alert({ type: 'error', text: i18n.ts._gridspace.unavailableNote }); return false; }
+     return undefined;
     },
    }, { closed: () => dispose() });
   } });

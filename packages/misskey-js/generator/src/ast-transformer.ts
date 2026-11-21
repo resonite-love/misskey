@@ -1,4 +1,5 @@
 import * as ts from 'typescript';
+import { astToString } from 'openapi-typescript';
 
 /**
  * TypeScript AST ノードから 'never' 型のプロパティを削除します。
@@ -10,7 +11,7 @@ import * as ts from 'typescript';
  * @param astNodes 処理対象の ts.Node 配列 (例: `openapi-typescript` から出力されたもの)。
  * @returns 'never' 型プロパティが削除された新しい ts.Node 配列。
  */
-export function removeNeverPropertiesFromAST(astNodes: readonly ts.Node[]): ts.Node[] {
+function removeNeverPropertiesFromAST(astNodes: readonly ts.Statement[]): ts.Statement[] {
 	const factory = ts.factory;
 
 	/**
@@ -118,13 +119,22 @@ export function removeNeverPropertiesFromAST(astNodes: readonly ts.Node[]): ts.N
 		return ts.visitEachChild(node, topLevelVisitor, undefined);
 	}
 
-	const transformedNodes: ts.Node[] = [];
+	const transformedNodes: ts.Statement[] = [];
 	for (const astNode of astNodes) {
-		const resultNode = ts.visitNode(astNode, topLevelVisitor);
+		const resultNode = ts.visitNode(astNode, topLevelVisitor, ts.isStatement);
 		if (resultNode) {
 			transformedNodes.push(resultNode);
 		}
 	}
 
 	return transformedNodes;
+}
+
+export function printWithoutNeverProperties(nodes: ts.Node[]): string {
+	// openapi-typescript emits quoted identifiers for string literals. Parse its output before
+	// visiting it so TypeScript receives actual literal type nodes and retains the source comments.
+	const sourceText = astToString(nodes);
+	const sourceFile = ts.createSourceFile('openapi.ts', sourceText, ts.ScriptTarget.Latest, true);
+	const updated = ts.factory.updateSourceFile(sourceFile, removeNeverPropertiesFromAST(sourceFile.statements));
+	return ts.createPrinter({ newLine: ts.NewLineKind.LineFeed }).printFile(updated);
 }

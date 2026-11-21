@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { Inject, Injectable, Scope } from '@nestjs/common';
 import type { MiUserListMembership, UserListMembershipsRepository, UserListsRepository } from '@/models/_.js';
 import type { Packed } from '@/misc/json-schema.js';
@@ -94,7 +95,7 @@ export class UserListChannel extends Channel {
 		const isMe = this.user!.id === note.userId;
 
 		// チャンネル投稿は無視する
-		if (note.channelId) return;
+		if (!includesDefault(note)) return;
 
 		if (this.withFiles && (note.fileIds == null || note.fileIds.length === 0)) return;
 

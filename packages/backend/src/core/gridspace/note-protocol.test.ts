@@ -17,6 +17,12 @@ describe('community note boundary', () => {
 		expect(canShareGridspaceNote({ visibility, channelId: null })).toBe(true);
 		expect(canShareGridspaceNote({ visibility, channelId: 'channel' })).toBe(false);
 	});
+	test('only ordinary roots use automatic peer sharing when channelId is null', () => {
+		const root = { visibility: 'public', channelId: null, multiNoteKind: 'root' } as const;
+		expect(canShareGridspaceNote({ ...root, includeDefault: true })).toBe(true);
+		expect(canShareGridspaceNote({ ...root, includeDefault: false })).toBe(false);
+		expect(canShareGridspaceNote({ ...root, includeDefault: true, multiNoteKind: 'conversation-reply' })).toBe(false);
+	});
 	test.each(['followers', 'specified'])('does not broadcast %s notes', visibility => {
 		expect(canShareGridspaceNote({ visibility, channelId: null })).toBe(false);
 	});

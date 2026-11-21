@@ -47,6 +47,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script setup lang="ts">
 import { onBeforeUnmount, onDeactivated, ref, shallowRef, watch } from 'vue';
 import type { entities } from 'misskey-js';
+import { conversationTarget } from '@/utility/gridspace-conversation.js';
 import MkButton from '@/components/MkButton.vue';
 import MkReactionIcon from '@/components/MkReactionIcon.vue';
 import MkPoll from '@/components/MkPoll.vue';
@@ -88,7 +89,7 @@ async function act(options: Omit<entities.GridspacePrivateActionRequest, 'noteId
 	const current = generation;
 	busy.value = true; error.value = false;
 	try {
-		const result = await misskeyApi('gridspace/private-action', { ...options, noteId: props.note.id, channelId: props.note.channelId ?? undefined,
+		const result = await misskeyApi('gridspace/private-action', { ...options, ...conversationTarget(props.note),
 			expectedActorUri: options.expectedActorUri ?? (['prepare', 'reaction-list'].includes(options.action ?? 'prepare') ? undefined : info.value?.account.uri) }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
 		if (current !== generation) return false;
 		if (options.expectedActorUri && result.account.uri !== options.expectedActorUri) { error.value = true; return false; }
@@ -149,7 +150,7 @@ const reactionTransport: ReactionTransport = {
 	previews: reaction => (props.note.reactionPreviews ?? []).filter(row => row.reaction.replace('@.:', ':') === reaction.replace('@.:', ':')).map(row => row.account),
 	users: async reaction => {
 		const current = generation;
-		const result = await misskeyApi('gridspace/private-action', { action: 'reaction-list', reaction, limit: 10, noteId: props.note.id, channelId: props.note.channelId ?? undefined }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
+		const result = await misskeyApi('gridspace/private-action', { action: 'reaction-list', reaction, limit: 10, ...conversationTarget(props.note) }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
 		if (current !== generation || window.document.hidden) return [];
 		return (result.reactors ?? []).map(row => row.account);
 	},
@@ -169,7 +170,7 @@ function closeActions() { generation++; controller.abort(); controller = new Abo
 function visibility() { if (window.document.hidden) closeActions(); }
 
 window.document.addEventListener('visibilitychange', visibility);
-watch([() => props.note.id, () => props.note.channelId], closeActions);
+watch([() => props.note.uri, () => props.note.channelId, () => props.note.conversationUri], closeActions);
 onDeactivated(closeActions);
 onBeforeUnmount(() => { closeActions(); window.clearInterval(timer); window.document.removeEventListener('visibilitychange', visibility); });
 </script>

@@ -11,7 +11,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 			<MkFoldableSection>
 				<template #header><i class="ti ti-pin ti-fw" style="margin-right: 0.5em;"></i>{{ i18n.ts.pinnedNotes }}</template>
-				<div v-if="channel.pinnedNotes && channel.pinnedNotes.length > 0" class="_gaps">
+				<MkGridspacePrivateNotes v-if="$i && (channel.hasPlacementPins || channel.pinnedNotes?.length)" :params="{ mode: 'channel', channelId }" :channelOrigin="url" pinnedOnly plain alwaysShow>
+					<template #fallback><MkNote v-for="note in channel.pinnedNotes" :key="note.id" class="_panel" :note="note"/></template>
+				</MkGridspacePrivateNotes>
+				<div v-else-if="channel.pinnedNotes && channel.pinnedNotes.length > 0" class="_gaps">
 					<MkNote v-for="note in channel.pinnedNotes" :key="note.id" class="_panel" :note="note"/>
 				</div>
 			</MkFoldableSection>
@@ -22,7 +25,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<!-- スマホ・タブレットの場合、キーボードが表示されると投稿が見づらくなるので、デスクトップ場合のみ自動でフォーカスを当てる -->
 			<MkPostForm v-if="$i && prefer.r.showFixedPostFormInChannel.value" :channel="channel" class="post-form _panel" fixed :autofocus="deviceKind === 'desktop'"/>
 
-			<MkStreamingNotesTimeline :key="channelId" src="channel" :channel="channelId"/>
+			<MkGridspacePrivateNotes v-if="$i" :params="{ mode: 'channel', channelId }" :channelOrigin="url" plain alwaysShow>
+				<template #fallback><MkStreamingNotesTimeline :key="channelId" src="channel" :channel="channelId"/></template>
+			</MkGridspacePrivateNotes>
+			<MkStreamingNotesTimeline v-else :key="channelId" src="channel" :channel="channelId"/>
 		</div>
 		<div v-else-if="tab === 'featured'">
 			<MkNotesTimeline :paginator="featuredPaginator"/>
@@ -60,6 +66,7 @@ import * as Misskey from 'misskey-js';
 import { url } from '@@/js/config.js';
 import { useInterval } from '@@/js/use-interval.js';
 import type { PageHeaderItem } from '@/types/page-header.js';
+import MkGridspacePrivateNotes from '@/components/MkGridspacePrivateNotes.vue';
 import MkChannelOverview from '@/components/MkChannelOverview.vue';
 import MkPostForm from '@/components/MkPostForm.vue';
 import MkStreamingNotesTimeline from '@/components/MkStreamingNotesTimeline.vue';
@@ -113,10 +120,12 @@ useInterval(() => {
 	afterMounted: true,
 });
 
-watch(() => props.channelId, async () => {
-	const _channel = await misskeyApi('channels/show', {
-		channelId: props.channelId,
-	});
+watch(() => props.channelId, async (channelId, _previous, onCleanup) => {
+	let active = true;
+	onCleanup(() => { active = false; });
+	channel.value = null;
+	const _channel = await misskeyApi('channels/show', { channelId });
+	if (!active) return;
 
 	favorited.value = _channel.isFavorited ?? false;
 	if (favorited.value || _channel.isFollowing) {

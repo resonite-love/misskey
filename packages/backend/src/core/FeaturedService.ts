@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { includesDefault } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import * as Redis from 'ioredis';
 import type { MiGalleryPost, MiNote, MiUser } from '@/models/_.js';
@@ -80,10 +81,9 @@ export class FeaturedService {
 	// TODO: find better place?
 	@bindThis
 	public shouldBeIncludedInGlobalOrUserFeatured(note: MiNote): boolean {
-		if (note.visibility !== 'public') return false; // non-public note
+		if (!includesDefault(note) || note.visibility !== 'public') return false;
 		if (note.userHost != null) return false; // remote
 		if (note.replyId != null) return false; // reply
-		// Channels are checked outside
 
 		// In nirila misskey, it was very common to notes with `:ohayo_nirila_misskey:` or `:oyasumi_nirila_misskey:`
 		// Will get many reaction`:ohayo_nirila_misskey:` or `:oyasumi_nirila_misskey:` so exclude them

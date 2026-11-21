@@ -17,6 +17,7 @@ import { NoteCreateService } from '@/core/NoteCreateService.js';
 import { UserEntityService } from '@/core/entities/UserEntityService.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
 import { isRenote, isQuote } from '@/misc/is-renote.js';
+import { GridspacePlacementActionService } from './GridspacePlacementActionService.js';
 import { GridspaceChannelAuthService } from './GridspaceChannelAuthService.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
@@ -33,6 +34,7 @@ export class GridspaceReplyService {
 		private create: NoteCreateService,
 		private users: UserEntityService,
 		private channelAuth: GridspaceChannelAuthService,
+		private placementActions?: GridspacePlacementActionService,
 	) {}
 
 	private actor(user: MiUser) {
@@ -41,12 +43,14 @@ export class GridspaceReplyService {
 	}
 
 	public async peerReply(input: ReplyPeerRequest, rateLimit: (userId: string) => Promise<void>) {
+		const conversation = input.placementActorId || input.conversationUri ? await this.placementActions!.source(input, 'read') : null;
+		if (conversation && (input.renoteId || conversation.note.includeDefault !== false)) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
 		const selfRenote = !!input.renoteId && !input.channelId;
 		if (input.renoteId && input.noteId) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
 		if (selfRenote && (input.text || input.cw != null || input.fileIds?.length || input.poll)) throw new GridspaceLinkError('REPLY_REJECTED');
 		if (input.channelId || selfRenote) this.channelAuth.assertSource();
 		if (input.channelActorId && !input.channelId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-		const guest = input.channelActorId ? await this.channelAuth.source(input.channelActorId) : null;
+		const guest = conversation?.user ?? (input.channelActorId ? await this.channelAuth.source(input.channelActorId) : null);
 		const link = guest ? null : await this.links.authorizePrivate(input);
 		const user = guest ?? await this.db.getRepository(MiUser).findOneBy({ id: link!.localUserId, host: IsNull() });
 		if (!user || user.movedToUri) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
@@ -54,21 +58,33 @@ export class GridspaceReplyService {
 		if ((input.channelId || selfRenote) && link?.initiator) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const channel = input.channelId ? await this.db.getRepository(MiChannel).findOneBy({ id: input.channelId }) : null;
 		const targetId = input.noteId ?? input.renoteId;
-		const parent = targetId ? await this.reader.readableSourceNote(user.id, targetId, undefined, input.channelId) : null;
-		if ((input.channelId && !channel) || (targetId && !parent) || (!channel && !parent) ||
+		const parent = conversation?.note ?? (targetId ? await this.reader.readableSourceNote(user.id, targetId, undefined, input.channelId) : null);
+		if ((!conversation && parent?.multiNoteKind) || (input.channelId && !channel) || (targetId && !parent) || (!channel && !parent) ||
 			(parent && ((parent.channelId ?? null) !== (input.channelId ?? null) || (isRenote(parent) && !isQuote(parent))))) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
 		if (input.renoteId && parent && (selfRenote ? !canSelfRenote(parent, user.id) : !['public', 'home'].includes(parent.visibility))) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
-		const audience = channel ? { visibility: 'public' as const, localOnly: true, visibleUserIds: [] as string[] } : replyAudience(parent!);
-		const authorize = () => input.channelActorId ? this.channelAuth.source(input.channelActorId) : this.links.authorizePrivate(input);
-		const canWrite = async () => guest ? !!await authorize() : channel ? this.links.hasChannelScope(input) : this.links.hasReplyScope(input);
+		const audience = channel || conversation ? { visibility: 'public' as const, localOnly: true, visibleUserIds: [] as string[] } : replyAudience(parent!);
+		const authorize = () => conversation ? this.placementActions!.source(input, 'read') : input.channelActorId ? this.channelAuth.source(input.channelActorId) : this.links.authorizePrivate(input);
+		const canWrite = async (purpose: 'reply' | 'upload' = 'reply') => {
+			if (conversation) {
+				try {
+					await this.placementActions!.source(input, purpose);
+					return true;
+				} catch (error) {
+					if (error instanceof GridspaceLinkError) return false;
+					throw error;
+				}
+			}
+			return guest ? !!await authorize() : channel ? this.links.hasChannelScope(input) : this.links.hasReplyScope(input);
+		};
 		const participants = audience.visibleUserIds.length ? await this.db.getRepository(MiUser).findBy({ id: In(audience.visibleUserIds) }) : [];
-		const result = { account: this.actor(user), canReply: !channel?.isArchived && await canWrite(), canAttach: !!guest || await this.links.hasActionScope(input), visibility: audience.visibility, localOnly: audience.localOnly,
+		const writable = !channel?.isArchived && await canWrite();
+		const result = { account: this.actor(user), canReply: writable, canAttach: conversation ? writable && (input.action !== 'prepare' || await canWrite('upload')) : !!guest || await this.links.hasActionScope(input), visibility: audience.visibility, localOnly: audience.localOnly,
 			recipients: participants.map(person => this.actor(person)), maxTextLength: MAX_NOTE_TEXT_LENGTH, createdNoteId: null as string | null };
 		if (input.action === 'prepare') return result;
 		if (!await canWrite()) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if (!input.requestId) throw new GridspaceLinkError('REPLY_REJECTED');
 		if (input.action === 'send' && ((!input.renoteId && !input.text?.trim() && !input.fileIds?.length && !input.poll) || Array.from(input.text ?? '').length > MAX_NOTE_TEXT_LENGTH || Array.from(input.cw ?? '').length > 100)) throw new GridspaceLinkError('REPLY_REJECTED');
-		const requestHash = gridspaceHash(JSON.stringify([...(channel ? ['channel', channel.id] : []), link?.id ?? `actor:${user.id}`, link?.generation ?? 0, input.noteId, ...(input.renoteId ? ['renote', input.renoteId] : []), input.text, input.cw ?? null, ...(input.fileIds?.length ? [input.fileIds] : []), ...(input.poll ? [{ poll: [input.poll.choices, input.poll.multiple, input.poll.expiresAt] }] : [])]));
+		const requestHash = gridspaceHash(JSON.stringify([...(conversation ? ['conversation', conversation.note.id] : []), ...(channel ? ['channel', channel.id] : []), link?.id ?? `actor:${user.id}`, link?.generation ?? 0, input.noteId, ...(input.renoteId ? ['renote', input.renoteId] : []), input.text, input.cw ?? null, ...(input.fileIds?.length ? [input.fileIds] : []), ...(input.poll ? [{ poll: [input.poll.choices, input.poll.multiple, input.poll.expiresAt] }] : [])]));
 		const receipts = this.db.getRepository(MiGridspaceReplyReceipt);
 		const receiptKey = { userId: user.id, requestId: input.requestId };
 		const previous = await receipts.findOneBy(receiptKey);
@@ -91,12 +107,16 @@ export class GridspaceReplyService {
 				fileIds: input.fileIds ?? [], poll: input.poll ? { choices: input.poll.choices, multiple: input.poll.multiple, expiresAt: input.poll.expiresAt == null ? null : new Date(input.poll.expiresAt) } : null, reactionAcceptance: null, channelId: channel?.id ?? null, ...audience,
 				// A mention typed in a private reply must not add recipients or leak its body.
 				...(channel ? {} : { apMentions: [] }),
+				...(conversation ? { multiNoteConversationRootId: conversation.note.multiNoteRootId ?? conversation.note.id } : {}),
 				gridspaceReply: { requestId: input.requestId, requestHash, beforeInsert: async manager => {
-					if (input.channelActorId) await this.channelAuth.source(input.channelActorId, manager);
+					if (conversation) {
+						await this.placementActions!.source(input, 'reply', manager);
+						if (input.fileIds?.length) await this.placementActions!.source(input, 'upload', manager);
+					} else if (input.channelActorId) await this.channelAuth.source(input.channelActorId, manager);
 					else await this.links.lockReplyAuthorization(input, manager, channel ? GRIDSPACE_CHANNEL_SCOPE : GRIDSPACE_REPLY_SCOPE);
 					if (input.fileIds?.length && ((!guest && !await this.links.hasActionScope(input, manager)) || await manager.getRepository(MiDriveFile).countBy({ id: In(input.fileIds), userId: user.id }) !== input.fileIds.length)) throw new GridspaceLinkError('REPLY_REJECTED');
 					if (channel && !await manager.getRepository(MiChannel).findOne({ where: { id: channel.id, isArchived: false }, lock: { mode: 'pessimistic_read' } })) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
-					if (parent) {
+					if (parent && !conversation) {
 						const fresh = await this.reader.readableSourceNote(user.id, parent.id, manager.queryRunner, channel?.id);
 						if (!fresh || (isRenote(fresh) && !isQuote(fresh)) || (input.renoteId && (selfRenote ? !canSelfRenote(fresh, user.id) : !['public', 'home'].includes(fresh.visibility))) || (channel ? fresh.channelId !== channel.id : fresh.channelId || JSON.stringify(replyAudience(fresh)) !== JSON.stringify(audience))) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
 					}
@@ -117,14 +137,15 @@ export class GridspaceReplyService {
 		if (input.renoteId && (input.noteId || (channelPost && !input.channelId) || (!channelPost && input.channelId))) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
 		// Channel authorship belongs to the signed-in G account, even when an
 		// old R account is linked for reading. Never silently switch that author.
-		const channel = channelPost ? await this.channelAuth.destination(viewer, true) : null;
+		if (input.conversationUri && (channelPost || input.channelId || input.renoteId)) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
+		const channel = input.conversationUri ? await this.placementActions!.destination(viewer, input.conversationUri, input.noteId) : channelPost ? await this.channelAuth.destination(viewer, true) : null;
 		const link = channel ? null : await this.links.privateLink(viewer.id);
 		if (!channelPost && input.renoteId && !link?.initiator) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if (channelPost ? !input.channelId : input.channelId || (!input.noteId && !input.renoteId)) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
 		// Apply destination blocks/mutes as well as source readability before sending.
 		const targetId = input.noteId ?? input.renoteId;
-		if (targetId && !(await this.reader.notes(viewer, { mode: 'show', noteId: targetId, channelId: input.channelId }, 1)).notes.length) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
-		const result = await this.links.json<Awaited<ReturnType<GridspaceReplyService['peerReply']>>>('/gridspace/v1/private/reply', { action: input.action, noteId: input.noteId, renoteId: input.renoteId, channelId: input.channelId, expectedActorUri: input.expectedActorUri, requestId: input.requestId, text: input.text, cw: input.cw, fileIds: input.fileIds, poll: input.poll, ...(channel ? channel.credential : this.links.privateCredential(link!)) });
+		if (targetId && !(await this.reader.notes(viewer, { mode: 'show', noteId: targetId, channelId: input.channelId, conversationUri: input.conversationUri }, 1)).notes.length) throw new GridspaceLinkError('REPLY_UNAVAILABLE');
+		const result = await this.links.json<Awaited<ReturnType<GridspaceReplyService['peerReply']>>>('/gridspace/v1/private/reply', { action: input.action, conversationUri: input.conversationUri, noteId: input.noteId, renoteId: input.renoteId, channelId: input.channelId, expectedActorUri: input.expectedActorUri, requestId: input.requestId, text: input.text, cw: input.cw, fileIds: input.fileIds, poll: input.poll, ...(channel ? channel.credential : this.links.privateCredential(link!)) });
 		if (channel) await channel.check(); else await this.links.checkPrivateUnchanged(link!);
 		return result;
 	}

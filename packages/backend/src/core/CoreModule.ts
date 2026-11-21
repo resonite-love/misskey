@@ -73,6 +73,10 @@ import { InternalStorageService } from './InternalStorageService.js';
 import { MetaService } from './MetaService.js';
 import { MfmService } from './MfmService.js';
 import { ModerationLogService } from './ModerationLogService.js';
+import { GridspacePlacementActionService } from './gridspace/GridspacePlacementActionService.js';
+import { TimelinePlacementSource } from './gridspace/timeline/TimelinePlacementSource.js';
+import { NotePlacementService } from './NotePlacementService.js';
+import { GridspacePlacementService } from './gridspace/GridspacePlacementService.js';
 import { NoteCreateService } from './NoteCreateService.js';
 import { NoteDeleteService } from './NoteDeleteService.js';
 import { NotePiningService } from './NotePiningService.js';
@@ -225,6 +229,9 @@ const $InternalStorageService: Provider = { provide: 'InternalStorageService', u
 const $MetaService: Provider = { provide: 'MetaService', useExisting: MetaService };
 const $MfmService: Provider = { provide: 'MfmService', useExisting: MfmService };
 const $ModerationLogService: Provider = { provide: 'ModerationLogService', useExisting: ModerationLogService };
+const $NotePlacementService: Provider = { provide: 'NotePlacementService', useExisting: NotePlacementService };
+const $GridspaceSearchService: Provider = { provide: 'GridspaceSearchService', useExisting: GridspaceSearchService };
+const $GridspacePlacementService: Provider = { provide: 'GridspacePlacementService', useExisting: GridspacePlacementService };
 const $NoteCreateService: Provider = { provide: 'NoteCreateService', useExisting: NoteCreateService };
 const $NoteDeleteService: Provider = { provide: 'NoteDeleteService', useExisting: NoteDeleteService };
 const $NotePiningService: Provider = { provide: 'NotePiningService', useExisting: NotePiningService };
@@ -412,6 +419,10 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		MetaService,
 		MfmService,
 		ModerationLogService,
+		GridspacePlacementActionService,
+		TimelinePlacementSource,
+		NotePlacementService,
+		GridspacePlacementService,
 		NoteCreateService,
 		NoteDeleteService,
 		NotePiningService,
@@ -569,6 +580,9 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		$MetaService,
 		$MfmService,
 		$ModerationLogService,
+		$NotePlacementService,
+		$GridspaceSearchService,
+		$GridspacePlacementService,
 		$NoteCreateService,
 		$NoteDeleteService,
 		$NotePiningService,
@@ -754,6 +768,10 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		MetaService,
 		MfmService,
 		ModerationLogService,
+		GridspacePlacementActionService,
+		TimelinePlacementSource,
+		NotePlacementService,
+		GridspacePlacementService,
 		NoteCreateService,
 		NoteDeleteService,
 		NotePiningService,
@@ -910,6 +928,9 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		$MetaService,
 		$MfmService,
 		$ModerationLogService,
+		$NotePlacementService,
+		$GridspaceSearchService,
+		$GridspacePlacementService,
 		$NoteCreateService,
 		$NoteDeleteService,
 		$NotePiningService,

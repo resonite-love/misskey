@@ -41,6 +41,18 @@ describe('unified timeline reference merge', () => {
 		expect(result).toHaveLength(3);
 		expect(result[0].source).toBe('local');
 	});
+	test('placement and native paths remain one row even after more than a hundred intervening notes', async () => {
+		const state = emptyTimelineMerge(false);
+		state.localPlacement = { before: null, upper: null, ended: false, pending: [] };
+		const uri = 'https://shared.example/notes/original';
+		const original = ref('local', 'first', 500, uri);
+		const others = Array.from({ length: 110 }, (_, i) => ref('local', String(i), 490 - i));
+		const read = async () => ({ references: [original, ...others], next: null, upper: original, ended: true });
+		const placement = async () => ({ references: [ref('local', 'old', 5, uri)], next: null, upper: null, ended: true });
+		const page: TimelineReference[] = [];
+		for (let i = 0; i < 6; i++) page.push(...await mergeTimeline(state, 20, read, () => true, compareTimelinePosition, placement));
+		expect(page.map(r => r.canonicalUri)).toEqual([original, ...others].map(r => r.canonicalUri));
+	});
 	test('failure never advances the original immutable checkpoint', async () => {
 		const original = emptyTimelineMerge();
 		const working = structuredClone(original);

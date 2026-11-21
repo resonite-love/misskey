@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { ModuleRef } from '@nestjs/core';
+import type { GridspacePlacementService } from '@/core/gridspace/GridspacePlacementService.js';
 import { Brackets } from 'typeorm';
 import { Inject, Injectable } from '@nestjs/common';
 import JSON5 from 'json5';
@@ -28,6 +30,7 @@ export class MetaEntityService {
 		@Inject(DI.adsRepository)
 		private adsRepository: AdsRepository,
 
+		private moduleRef: ModuleRef,
 		private systemAccountService: SystemAccountService,
 	) { }
 
@@ -159,6 +162,8 @@ export class MetaEntityService {
 			requireSetup: this.meta.rootUserId == null,
 			proxyAccountName: proxyAccount.username,
 			features: {
+				multiNote: this.config.multiNote?.enabled === true,
+				multiNotePeer: this.config.multiNote?.enabled === true && await this.moduleRef.get<GridspacePlacementService>('GridspacePlacementService', { strict: false }).peerEnabled(),
 				localTimeline: instance.policies.ltlAvailable,
 				globalTimeline: instance.policies.gtlAvailable,
 				vmimiRelayTimeline: instance.policies.vrtlAvailable,

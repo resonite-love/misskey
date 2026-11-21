@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { ModuleRef } from '@nestjs/core';
+import { GridspacePlacementService } from '@/core/gridspace/GridspacePlacementService.js';
 import { canonicalGridspaceNoteUri } from '@/core/gridspace/note-protocol.js';
 import { randomUUID } from 'node:crypto';
 import type { Config } from '@/config.js';
@@ -50,6 +52,7 @@ export class DeleteAccountProcessorService {
 		private emailService: EmailService,
 		private queueLoggerService: QueueLoggerService,
 		private searchService: SearchService,
+		private modules: ModuleRef,
 	) {
 		this.logger = this.queueLoggerService.logger.createSubLogger('delete-account');
 	}
@@ -89,6 +92,7 @@ export class DeleteAccountProcessorService {
 					const current = await manager.getRepository(MiNote).createQueryBuilder('note')
 						.where({ id: In(ids) }).orderBy('note.id', 'ASC').setLock('pessimistic_write').getMany();
 					for (const note of current) {
+						if (note.multiNoteKind || note.channelId) await this.modules.get(GridspacePlacementService, { strict: false }).stageOriginDelete(manager, note);
 						if (!note.gridspaceShared) continue;
 						if (note.userHost == null && this.config.gridspace?.peerUrl) {
 							await manager.upsert(MiGridspaceNoteDelivery, { noteId: note.id, version: randomUUID(), peerOrigin: new URL(this.config.gridspace.peerUrl).origin, retryAt: new Date(), attempts: 0 }, ['noteId']);

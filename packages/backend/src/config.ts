@@ -36,6 +36,7 @@ type SentryBackendConfig = {
  * 設定ファイルの型
  */
 type Source = {
+	multiNote?: { enabled?: boolean };
 	gridspace?: GridspaceConfigSource;
 	url?: string;
 	port?: number;
@@ -135,6 +136,7 @@ type Source = {
 };
 
 export type Config = {
+	multiNote?: { enabled?: boolean };
 	gridspace?: GridspaceConfigSource;
 	url: string;
 	port: number;
@@ -293,6 +295,7 @@ export function loadConfig(): Config {
 
 	return {
 		version,
+		multiNote: config.multiNote,
 		gridspace: config.gridspace,
 		publishTarballInsteadOfProvideRepositoryUrl: !!config.publishTarballInsteadOfProvideRepositoryUrl,
 		setupPassword: config.setupPassword,

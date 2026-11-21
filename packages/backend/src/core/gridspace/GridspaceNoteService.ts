@@ -9,6 +9,9 @@ import * as Redis from 'ioredis';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { MiNote } from '@/models/Note.js';
+import { MiPoll } from '@/models/Poll.js';
+import { isQuestion } from '@/core/activitypub/type.js';
+import { MiGridspaceTimelineOutbox } from '@/models/GridspaceTimeline.js';
 import { MiUser } from '@/models/User.js';
 import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone } from '@/models/Gridspace.js';
 import { ApRendererService } from '@/core/activitypub/ApRendererService.js';
@@ -127,7 +130,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		}
 		for (let offset = 0; offset < noteIds.length; offset += 4) {
 			await Promise.all(noteIds.slice(offset, offset + 4).map(async id => {
-				if (!await this.importNote(id, new Set(), false, budget, prefetched)) return;
+				if (await this.importNote(id, new Set(), false, budget, prefetched) !== 'imported') return;
 				const note = await this.apNotes.fetchNote(`${this.peer!.peerOrigin}/notes/${id}`);
 				if (note) result.set(id, note);
 			}));
@@ -143,35 +146,45 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 
 	public async historyNote(noteId: string, budget: { remaining: number; deadline: number }): Promise<MiNote | null> {
 		if (!this.peer) throw new Error('GridSpace disabled');
-		if (!await this.importNote(noteId, new Set(), false, budget)) return null;
+		if (await this.importNote(noteId, new Set(), false, budget) !== 'imported') return null;
 		return this.apNotes.fetchNote(`${this.peer.peerOrigin}/notes/${noteId}`);
 	}
 
-	private async importNote(noteId: string, visiting: Set<string>, live: boolean, budget?: { remaining: number; deadline: number }, prefetched?: Map<string, GridspaceNoteBundle>): Promise<boolean> {
+	private async importNote(noteId: string, visiting: Set<string>, live: boolean, budget?: { remaining: number; deadline: number }, prefetched?: Map<string, GridspaceNoteBundle>): Promise<'imported' | 'unavailable' | 'deleted'> {
 		if (!this.peer) throw new Error('GridSpace disabled');
 		if (budget && (--budget.remaining < 0 || Date.now() > budget.deadline)) throw new Error('History import budget exceeded');
 		const uri = `${this.peer.peerOrigin}/notes/${noteId}`;
 		if (visiting.has(uri)) throw new Error('Cyclic note references');
 		visiting.add(uri);
 		const bundle = validateGridspaceBundle(prefetched?.has(noteId) ? structuredClone(prefetched.get(noteId)) : await this.request('read', noteId, budget?.deadline), this.peer.peerOrigin, noteId);
-		if (bundle.unavailable) { visiting.delete(uri); return false; }
+		if (bundle.unavailable) { visiting.delete(uri); return 'unavailable'; }
 		const entry = bundle.notes[0];
 		const resolver = budget ? await this.resolvers.createResolver() : undefined;
 		if (resolver) resolver.historyBudget = budget;
 		// Resolve missing peer references before taking the root lock. Known parents stop the walk,
-		// so each new reply in a long thread costs only one read. Deleted parents do not hide replies.
+		// so each new reply in a long thread costs only one read. Preserve the parent relation of new imports.
 		if (!bundle.deleted) {
 			for (const field of ['inReplyTo', '_misskey_quote', 'quoteUrl'] as const) {
 				const value = entry.object[field];
 				if (typeof value !== 'string') continue;
-				const ref = canonicalGridspaceNoteUri(value, this.peer.peerOrigin);
+				const ref = canonicalGridspaceNoteUri(canonicalGridspaceNoteUri(value, this.peer.peerOrigin), this.peer.origin);
 				entry.object[field] = ref;
 				if (await this.apNotes.fetchNote(ref)) continue;
 				if (ref.startsWith(this.peer.peerOrigin + '/notes/')) {
 					const id = ref.slice((this.peer.peerOrigin + '/notes/').length);
 					if (!gridspaceNoteId(id)) throw new Error('Invalid note reference');
-					if (!await this.importNote(id, visiting, false, budget, prefetched)) delete entry.object[field];
+					const state = await this.importNote(id, visiting, false, budget, prefetched);
+					if (state === 'unavailable') throw new Error('Referenced note unavailable');
+					if (state === 'deleted') {
+						if (field === 'inReplyTo') { visiting.delete(uri); return 'unavailable'; }
+						delete entry.object[field];
+					}
 				} else if (ref.startsWith(this.peer.origin + '/notes/')) {
+					if (field === 'inReplyTo') {
+						if (!await this.db.getRepository(MiGridspaceNoteTombstone).existsBy({ uri: ref })) throw new Error('Local reply target unavailable');
+						visiting.delete(uri);
+						return 'unavailable';
+					}
 					delete entry.object[field];
 				} else if (resolver) {
 					// Resolve genuine external references within the same budget before taking the root lock.
@@ -189,22 +202,39 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 				});
 				const existing = await this.apNotes.fetchNote(uri);
 				if (existing) await this.remove.delete(await this.db.getRepository(MiUser).findOneByOrFail({ id: existing.userId }), existing);
-				return false;
+				return 'deleted';
 			}
-			if (await this.db.getRepository(MiGridspaceNoteTombstone).existsBy(gridspaceNoteUris(uri, this.peer.peerOrigin).map(uri => ({ uri })))) return false;
+			if (await this.db.getRepository(MiGridspaceNoteTombstone).existsBy(gridspaceNoteUris(uri, this.peer.peerOrigin).map(uri => ({ uri })))) return 'deleted';
 			const existing = await this.apNotes.fetchNote(uri);
 			if (existing) {
+				if (!canShareGridspaceNote(existing)) return 'unavailable';
+				if (entry.localOnly && existing.hasPoll && isQuestion(entry.object)) {
+					const choices = entry.object.oneOf ?? entry.object.anyOf;
+					if (choices) await this.db.transaction(async manager => {
+						const poll = await manager.findOne(MiPoll, { where: { noteId: existing.id }, lock: { mode: 'pessimistic_write' } });
+						if (!poll || poll.choices.length !== choices.length) return;
+						const counts = choices.map((option, i) => option.name === poll.choices[i] ? option.replies?.totalItems : undefined);
+						if (!counts.every((n): n is number => n != null && Number.isSafeInteger(n) && n >= 0)) return;
+						const votes = counts.map((count, i) => Math.max(count, poll.votes[i]));
+						if (votes.some((count, i) => count !== poll.votes[i])) await manager.update(MiPoll, { noteId: existing.id }, { votes });
+					});
+				}
 				if (!existing.gridspaceShared) {
-					await this.db.getRepository(MiNote).update(existing.id, { gridspaceShared: true, localOnly: existing.localOnly || entry.localOnly });
+					const changed = await this.db.transaction(async manager => {
+						const promoted = await manager.update(MiNote, { id: existing.id, gridspaceShared: false }, { gridspaceShared: true, localOnly: existing.localOnly || entry.localOnly });
+						if (promoted.affected) await manager.insert(MiGridspaceTimelineOutbox, { kind: 'mirror-ready', noteId: existing.id, canonicalUri: uri });
+						return promoted.affected;
+					});
+					if (!changed) return await this.db.getRepository(MiNote).existsBy({ id: existing.id, gridspaceShared: true }) ? 'imported' : 'unavailable';
 					existing.gridspaceShared = true;
 					existing.localOnly ||= entry.localOnly;
 					await this.create.pushToTl(existing, { id: existing.userId, host: existing.userHost });
 					if (live) this.events.publishNotesStream(await this.packer.pack(existing, undefined, { skipHide: true }));
 				}
-				return true;
+				return 'imported';
 			}
 			await this.apNotes.createNote(entry.object, undefined, resolver, !live, { ...entry, historical: !live });
-			return true;
+			return 'imported';
 		} finally { visiting.delete(uri); await unlock(); }
 	}
 }

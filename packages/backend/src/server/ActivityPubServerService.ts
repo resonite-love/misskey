@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { defaultNoteCondition } from '@/misc/note-distribution.js';
 import * as crypto from 'node:crypto';
 import { IncomingMessage } from 'node:http';
 import { Inject, Injectable } from '@nestjs/common';
@@ -480,6 +481,7 @@ export class ActivityPubServerService {
 				limit: limit,
 				allowPartial: false, // Possibly true? IDK it's OK for ordered collection.
 				me: null,
+				listing: { kind: 'default' },
 				redisTimelines: [
 					`userTimeline:${user.id}`,
 					`userTimelineWithReplies:${user.id}`,
@@ -558,6 +560,7 @@ export class ActivityPubServerService {
 					.orWhere('note.visibility = \'home\'');
 			}))
 			.andWhere('note.localOnly = FALSE')
+			.andWhere(defaultNoteCondition())
 			.limit(ps.limit)
 			.getMany();
 	}

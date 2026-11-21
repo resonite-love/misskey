@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { noteListingCondition, type NoteListing } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { DI } from '@/di-symbols.js';
 import { bindThis } from '@/decorators.js';
@@ -32,6 +33,7 @@ type TimelineOptions = {
 	me?: { id: MiUser['id'] } | undefined | null,
 	useDbFallback: boolean,
 	redisTimelines: FanoutTimelineName[],
+	listing: NoteListing,
 	noteFilter?: NoteFilter,
 	alwaysIncludeMyNotes?: boolean;
 	ignoreAuthorFromBlock?: boolean;
@@ -187,7 +189,7 @@ export class FanoutTimelineEndpointService {
 
 				readFromRedis += noteIds.length;
 
-				const gotFromDb = await this.getAndFilterFromDb(noteIds, filter, idCompare);
+				const gotFromDb = await this.getAndFilterFromDb(noteIds, filter, idCompare, ps.listing);
 				redisTimeline.push(...gotFromDb);
 				lastSuccessfulRate = gotFromDb.length / noteIds.length;
 
@@ -215,9 +217,10 @@ export class FanoutTimelineEndpointService {
 		return await ps.dbFallback(ps.untilId, ps.sinceId, ps.limit);
 	}
 
-	private async getAndFilterFromDb(noteIds: string[], noteFilter: NoteFilter, idCompare: (a: string, b: string) => number): Promise<MiNote[]> {
+	private async getAndFilterFromDb(noteIds: string[], noteFilter: NoteFilter, idCompare: (a: string, b: string) => number, listing: NoteListing): Promise<MiNote[]> {
 		const query = this.notesRepository.createQueryBuilder('note')
 			.where('note.id IN (:...noteIds)', { noteIds: noteIds })
+			.andWhere(...noteListingCondition(listing))
 			.innerJoinAndSelect('note.user', 'user')
 			.leftJoinAndSelect('note.reply', 'reply')
 			.leftJoinAndSelect('note.renote', 'renote')

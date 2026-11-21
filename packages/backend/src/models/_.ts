@@ -46,6 +46,7 @@ import { MiInstance } from '@/models/Instance.js';
 import { MiMeta } from '@/models/Meta.js';
 import { MiModerationLog } from '@/models/ModerationLog.js';
 import { MiMuting } from '@/models/Muting.js';
+import { MiChannelPlacementPin, MiNoteChannelPlacement, MiNoteCreateReceipt } from '@/models/NotePlacement.js';
 import { MiNote } from '@/models/Note.js';
 import { MiNoteDraft } from '@/models/NoteDraft.js';
 import { MiNoteFavorite } from '@/models/NoteFavorite.js';
@@ -128,6 +129,9 @@ export {
 	MiMuting,
 	MiRenoteMuting,
 	MiNote,
+	MiChannelPlacementPin,
+	MiNoteChannelPlacement,
+	MiNoteCreateReceipt,
 	MiNoteDraft,
 	MiNoteFavorite,
 	MiNoteReaction,
@@ -207,6 +211,8 @@ export type MetasRepository = Repository<MiMeta> & MiRepository<MiMeta>;
 export type ModerationLogsRepository = Repository<MiModerationLog> & MiRepository<MiModerationLog>;
 export type MutingsRepository = Repository<MiMuting> & MiRepository<MiMuting>;
 export type RenoteMutingsRepository = Repository<MiRenoteMuting> & MiRepository<MiRenoteMuting>;
+export type NoteChannelPlacementsRepository = Repository<MiNoteChannelPlacement> & MiRepository<MiNoteChannelPlacement>;
+export type NoteCreateReceiptsRepository = Repository<MiNoteCreateReceipt> & MiRepository<MiNoteCreateReceipt>;
 export type NotesRepository = Repository<MiNote> & MiRepository<MiNote>;
 export type NoteDraftsRepository = Repository<MiNoteDraft> & MiRepository<MiNoteDraft>;
 export type NoteFavoritesRepository = Repository<MiNoteFavorite> & MiRepository<MiNoteFavorite>;
