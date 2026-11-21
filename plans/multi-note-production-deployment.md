@@ -44,3 +44,5 @@ The earlier complete integration and color validation remain applicable. Full fr
 The previous binaries must not serve new-format channel-only roots or conversation replies: old code can classify public rows with NULL channelId as ordinary posts. After new-format writes exist, keep upgraded binaries and forward-fix, disabling new creation if necessary. Do not run destructive down migrations or restore an old dump over subsequent real user writes without explicitly handling those writes. The private `ROLLBACK.md` records the guarded recovery procedure.
 
 Changelog candidate: Support one shared note across ordinary posting and multiple channels on both sites, with combined channel selection and up to three channel-color bands.
+
+Subsequent deployment: [paired co-reaction source identity release](paired-reaction-source-deployment.md), G .31.75 / R .31.74, with new backups and the existing Multi Note schema retained.
