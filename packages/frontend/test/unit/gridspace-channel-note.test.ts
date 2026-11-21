@@ -61,10 +61,11 @@ test('an allowed channel quote opens the normal composer outside the source chan
 
 test('the guest card renotes from the displayed placement even when both channels use the same ID', async () => {
 	const origin = 'https://source.example';
-	const local = { origin: new URL(url).origin, canonicalUri: original.uri, channelId: 'same', name: 'Same', color: '#aaa', state: 'active' as const, isArchived: false, allowRenoteToExternal: true };
-	const remote = { ...local, origin, allowRenoteToExternal: false };
+	const local = { origin: new URL(url).origin, canonicalUri: original.uri, channelId: 'same', name: 'Same', color: '#ff0000', state: 'active' as const, isArchived: false, allowRenoteToExternal: true };
+	const remote = { ...local, origin, color: '#0000ff', allowRenoteToExternal: false };
 	const note = { ...original, channelId: null, multiNoteKind: 'root' as const, includeDefault: false, channelPlacements: [local, remote] };
 	const view = render(Note, { props: { note }, global: { ...globals, provide: { [DI.placementChannel as symbol]: computed(() => remote) } } });
+	expect([...view.container.querySelectorAll<HTMLElement>('[data-note-channel-colors] > span')].map(segment => segment.style.backgroundColor)).toEqual(['#ff0000', '#0000ff']);
 	await fireEvent.click(view.getByRole('button', { name: 'Renote' }));
 	const items = menu.mock.calls[0][0];
 	expect(items.map((item: { text?: string }) => item.text)).toEqual(['Channel renote', 'Channel quote']);
@@ -141,7 +142,7 @@ test('a home channel note uses the shared channel name, link and color, without 
 	expect(view.container.querySelector('[data-note-article]')).not.toBeNull();
 	expect(view.container.querySelector('[data-avatar]')?.getAttribute('data-preview')).toBe('false');
 	expect(view.getByRole('link', { name: '#NSFWな話' }).getAttribute('href')).toBe('/gridspace/channels/channel');
-	expect(view.container.querySelector('[aria-hidden="true"]')?.getAttribute('style')).toContain(`background: ${channel.color}`);
+	expect(view.container.querySelector<HTMLElement>('[data-note-channel-colors] > span')?.style.backgroundColor).toBe(channel.color);
 	await view.rerender({ note: { ...original, channelId: null, channel: null } });
 	expect(view.queryByRole('link', { name: '#NSFWな話' })).toBeNull();
 	expect(view.container.querySelector('[aria-hidden="true"]')).toBeNull();

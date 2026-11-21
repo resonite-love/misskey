@@ -49,7 +49,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		{{ i18n.ts.deletedNote }}
 	</div>
 	<template v-else>
-		<MkNoteDetailedArticle :compactTop="isRenote" @contextmenu.stop="onContextmenu">
+		<MkNoteDetailedArticle :channel="appearNote.channel" :placements="!appearNote.isHidden && appearNote.multiNoteKind === 'root' ? appearNote.channelPlacements : undefined" :showChannelLink="false" :compactTop="isRenote" @contextmenu.stop="onContextmenu">
 			<template #header><MkNoteDetailedHeader :user="appearNote.user" :visibility="appearNote.visibility" :localOnly="appearNote.localOnly" :noRelay="appearNote.noRelay"><MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/></MkNoteDetailedHeader></template>
 			<div :class="$style.noteContent">
 				<MkNotePlacements v-if="!appearNote.isHidden && appearNote.multiNoteKind === 'root'" :placements="appearNote.channelPlacements" :unavailable="appearNote.channelPlacementsUnavailable" :includeDefault="appearNote.includeDefault"/>

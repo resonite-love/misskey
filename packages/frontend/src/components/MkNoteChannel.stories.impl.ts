@@ -20,3 +20,11 @@ export const ColorBar = {
 	...Default,
 	args: { ...Default.args, display: 'bar' },
 } satisfies StoryObj<typeof MkNoteChannel>;
+
+export const ThreeChannelColors = {
+	...ColorBar,
+	args: {
+		...ColorBar.args,
+		placements: ['#ff8a8a', '#86b300', '#5b9bd5'].map((color, index) => ({ origin: 'https://example.com', channelId: `channel${index}`, color, state: 'active' as const })),
+	},
+} satisfies StoryObj<typeof MkNoteChannel>;

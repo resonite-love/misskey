@@ -15,7 +15,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		</div>
 		<MkGridspacePrivateNote :note="note.renote" :readOnly="readOnly" :detailed="detailed" compactTop nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
 	</template>
-	<MkGridspaceReferenceRenote v-else-if="!readOnly && !quotePreview && isGridspaceReferenceRenote(note)" :note="{ user: displayAuthor, createdAt: note.createdAt, gridspaceQuote: note.gridspaceQuote, visibility: headerNote.visibility, localOnly: note.localOnly }" :detailed="detailed" @menu="showMenu"/>
+	<MkGridspaceReferenceRenote v-else-if="!readOnly && !quotePreview && isGridspaceReferenceRenote(note)" :note="{ user: displayAuthor, createdAt: note.createdAt, gridspaceQuote: note.gridspaceQuote, visibility: headerNote.visibility, localOnly: note.localOnly, channel, multiNoteKind: note.multiNoteKind, channelPlacements: note.channelPlacements }" :detailed="detailed" @menu="showMenu"/>
 	<MkNoteSimple v-else-if="quotePreview" :note="null">
 		<template #avatar="{ avatarClass }"><MkAvatar :class="avatarClass" :user="displayAuthor" link :preview="false"/></template>
 		<template #header="{ headerClass }"><MkNoteHeader :class="headerClass" :note="headerNote" :mini="true" :noteUrl="readOnly ? note.uri : noteLink(note.id)" :externalNoteUrl="readOnly" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/></template>
@@ -46,7 +46,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<button v-if="quoteLong" class="_button" :class="$style.quoteExpand" @click="quoteCollapsed = !quoteCollapsed">{{ quoteCollapsed ? i18n.ts.showMore : i18n.ts.showLess }}</button>
 		</div>
 	</MkNoteSimple>
-	<component :is="detailed ? MkNoteDetailedArticle : MkNoteArticle" v-else :user="displayAuthor" :channel="channel" :channelTo="channel ? `/gridspace/channels/${channel.id}` : undefined" :showChannelLink="!inChannel" :avatarPreview="false" :stickyAvatar="prefer.s.useStickyIcons" :compactTop="compactTop" :dense="dense" :footerOnHover="prefer.s.showNoteActionsOnlyHover">
+	<component :is="detailed ? MkNoteDetailedArticle : MkNoteArticle" v-else :user="displayAuthor" :channel="channel" :placements="note.multiNoteKind === 'root' ? note.channelPlacements : undefined" :channelTo="channel ? `/gridspace/channels/${channel.id}` : undefined" :showChannelLink="!inChannel" :avatarPreview="false" :stickyAvatar="prefer.s.useStickyIcons" :compactTop="compactTop" :dense="dense" :footerOnHover="prefer.s.showNoteActionsOnlyHover">
 		<template #header>
 			<MkNoteDetailedHeader v-if="detailed" :user="displayAuthor" :visibility="headerNote.visibility" :localOnly="note.localOnly" :noRelay="note.noRelay" :preview="false"><MkInstanceTicker v-if="showTicker" :host="displayAuthor.host" :instance="displayAuthor.instance"/></MkNoteDetailedHeader>
 			<MkNoteHeader v-else :note="headerNote" :noteUrl="readOnly ? note.uri : noteLink(note.id)" :externalNoteUrl="readOnly" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/>

@@ -47,7 +47,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkAvatar :class="$style.collapsedRenoteTargetAvatar" :user="appearNote.user" link preview/>
 		<Mfm :text="getNoteSummary(appearNote)" :plain="true" :nowrap="true" :author="appearNote.user" :nyaize="'respect'" :class="$style.collapsedRenoteTargetText" @click="renoteCollapsed = false"/>
 	</div>
-	<MkNoteArticle v-else :user="appearNote.user" :channel="appearNote.channel" :showChannelLink="!inChannel" :avatarLink="!mock" :avatarPreview="!mock" :stickyAvatar="prefer.s.useStickyIcons" :compactTop="isRenote || pinned" :footerOnHover="prefer.s.showNoteActionsOnlyHover" @contextmenu.stop="onContextmenu">
+	<MkNoteArticle v-else :user="appearNote.user" :channel="appearNote.channel" :placements="!appearNote.isHidden && appearNote.multiNoteKind === 'root' ? appearNote.channelPlacements : undefined" :showChannelLink="!inChannel" :avatarLink="!mock" :avatarPreview="!mock" :stickyAvatar="prefer.s.useStickyIcons" :compactTop="isRenote || pinned" :footerOnHover="prefer.s.showNoteActionsOnlyHover" @contextmenu.stop="onContextmenu">
 		<template #header>
 			<MkNoteHeader :note="appearNote" :mini="true"/>
 			<MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/>

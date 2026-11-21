@@ -5,6 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <article :class="[$style.article, { [$style.compactTop]: compactTop }]" data-note-detailed-article>
+	<MkNoteChannel :channel="channel" :placements="placements" display="bar"/>
 	<slot name="header"/>
 	<div :class="$style.content"><slot/></div>
 	<MkNoteChannel v-if="channel && showChannelLink" :channel="channel" :to="channelTo"/>
@@ -14,7 +15,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 <script setup lang="ts">
 import MkNoteChannel from '@/components/MkNoteChannel.vue';
-withDefaults(defineProps<{ channel?: { id: string; name: string; color: string } | null; channelTo?: string; showChannelLink?: boolean; compactTop?: boolean }>(), { showChannelLink: true });
+import type { NotePlacement } from '@/utility/multi-note.js';
+withDefaults(defineProps<{ channel?: { id: string; name: string; color: string } | null; placements?: readonly NotePlacement[] | null; channelTo?: string; showChannelLink?: boolean; compactTop?: boolean }>(), { showChannelLink: true });
 </script>
 <style lang="scss" module>
 .article { position: relative; padding: 32px; font-size: 1.2em; }

@@ -8,6 +8,12 @@
 - タイムライン・検索・移行の詳細: [multi-note-timeline.md](multi-note-timeline.md)。ぐりすぺ固有の連携は同リポジトリの `plans/multi-note-peer.md`。
 - 双方向の掲載記録・操作・会話の具体案は、ぐりすぺ側 `feat/multi-note:plans/multi-note-placement-protocol.md`。最新版の統合タイムラインを使い、相手原本はURIへの掲載参照として扱う。
 
+## 掲載先の色帯（2026-11-21）
+
+既存の細い左帯に、掲載中のチャンネルの色を最大3色まで縦に分割して表示する。同じ色はまとめ、掲載解除済み・掲載待ちなどは含めない。原文とミラーで色順が変わらないよう、サーバーとチャンネルIDの順にそろえる。従来の単一チャンネルは1色のまま、通常一覧・詳細・連携先・参照リノートに適用した。
+
+両側で関連31テスト、変更ファイルlint、SPDX、locale safety、Vueレビュー、ビルドを確認した。型検査の既存63診断は増えていない。両テスト環境に反映し、1色・2色・4チャンネルから3色への制限、原文・鏡像・ゲストの表示をブラウザで確認した。API・DB変更はない。詳細はぐりすぺ側 `plans/multi-note-validation.md` の色帯の項を参照する。
+
 ## 本番変更との統合（2026-11-21）
 
 本番の `/api/meta` とタグを照合し、れぞらぶ `2026.11.0-resonite-love.31.71`（`bb8fdb38a34a396310c248b88d9daad5d7772045`）を `feat/multi-note` へ取り込む。統合前のHEADは `6c0090d0549776ea21c13baa556bb7f34985336c`。ぐりすぺも本番31.72を同時に取り込む。経緯・機能別監査・両サイトの結果は、ぐりすぺ側の `plans/multi-note-production-integration.md` と `plans/multi-note-production-feature-audit.md` に記録する。

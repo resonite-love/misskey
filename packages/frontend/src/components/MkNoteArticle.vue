@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <article :class="[$style.article, { [$style.compactTop]: compactTop, [$style.hoverOnly]: footerOnHover, [$style.dense]: dense }]" data-note-article>
-	<MkNoteChannel v-if="channel" :channel="channel" display="bar"/>
+	<MkNoteChannel :channel="channel" :placements="placements" display="bar"/>
 	<MkAvatar :class="[$style.avatar, { [$style.sticky]: stickyAvatar }]" :user="user" :link="avatarLink" :preview="avatarPreview"/>
 	<div :class="$style.main">
 		<slot name="header"/>
@@ -19,12 +19,14 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <script setup lang="ts">
 import type { entities } from 'misskey-js';
+import type { NotePlacement } from '@/utility/multi-note.js';
 import MkAvatar from '@/components/global/MkAvatar.vue';
 import MkNoteChannel from '@/components/MkNoteChannel.vue';
 
 withDefaults(defineProps<{
 	user: entities.UserLite;
 	channel?: { id: string; name: string; color: string } | null;
+	placements?: readonly NotePlacement[] | null;
 	channelTo?: string;
 	showChannelLink?: boolean;
 	avatarLink?: boolean;

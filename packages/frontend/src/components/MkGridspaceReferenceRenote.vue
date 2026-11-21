@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <template>
 <div data-gridspace-reference-renote>
 	<div :class="$style.header">
-		<MkNoteChannel v-if="note.channel" :channel="note.channel" display="bar" compact/>
+		<MkNoteChannel :channel="note.channel" :placements="!note.isHidden && note.multiNoteKind === 'root' ? note.channelPlacements : undefined" display="bar" compact/>
 		<MkAvatar :user="note.user" :class="$style.avatar" link/>
 		<i class="ti ti-repeat"></i>
 		<I18n :src="i18n.ts.renotedBy" tag="span"><template #user><MkUserName :user="note.user"/></template></I18n>
@@ -24,12 +24,15 @@ import MkGridspaceNoteLinkPreview from '@/components/MkGridspaceNoteLinkPreview.
 import MkNoteChannel from '@/components/MkNoteChannel.vue';
 import { i18n } from '@/i18n.js';
 
-defineProps<{ note: Pick<entities.Note, 'user' | 'createdAt' | 'gridspaceQuote' | 'channel'> & Partial<Pick<entities.Note, 'visibility' | 'localOnly'>>; detailed?: boolean }>();
+type ReferenceNote = Pick<entities.Note, 'user' | 'createdAt' | 'gridspaceQuote'> &
+	Partial<Pick<entities.Note, 'visibility' | 'localOnly' | 'multiNoteKind' | 'channelPlacements' | 'isHidden'>> &
+	{ channel?: { id: string; name: string; color: string } | null };
+defineProps<{ note: ReferenceNote; detailed?: boolean }>();
 const emit = defineEmits<{ menu: [event: MouseEvent] }>();
 </script>
 
 <style lang="scss" module>
-.header { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 16px 24px 0; color: var(--MI_THEME-renote); }
+.header { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 16px 24px 0; color: var(--MI_THEME-renote); }
 .avatar { width: 28px; height: 28px; }
 .time { margin-left: auto; }
 </style>
