@@ -38,7 +38,7 @@ import { canonicalGridspaceNoteUri, gridspaceNoteId } from './note-protocol.js';
 import { requestGridspacePeer } from './peer-client.js';
 import { resolveGridspaceConfig, GRIDSPACE_HANDSHAKE_PATH, GRIDSPACE_PROTOCOL_VERSION, type GridspacePeerConfig } from './peer-protocol.js';
 import {
-	originPlacementCapability, placementCapability, placementPath, previewHash, signPlacementProof, verifyPlacementProof,
+	linkedChannelFollowsCapability, originPlacementCapability, placementCapability, placementPath, previewHash, signPlacementProof, verifyPlacementProof,
 	type OriginPlacementRoot, type PlacementChannels, type PlacementInputs, type PlacementLookupRow, type PlacementPreview, type PlacementProof, type PlacementPurpose, type PlacementStatus, type PreparedRemotePlacement,
 } from './placement-protocol.js';
 import { recordPlacementChange, refreshPlacementChannel } from './timeline/placement-change.js';
@@ -72,7 +72,7 @@ export class GridspacePlacementService implements OnModuleInit, OnApplicationShu
 	private readonly peer: GridspacePeerConfig | null;
 	private timer?: ReturnType<typeof setInterval>;
 	private working = false;
-	private capability?: { expiresAt: number; value: Promise<{ supported: boolean; enabled: boolean; originLookup: boolean | null }> };
+	private capability?: { expiresAt: number; value: Promise<{ supported: boolean; enabled: boolean; linkedFollows: boolean; originLookup: boolean | null }> };
 
 	constructor(
 		@Inject(DI.db) private db: DataSource,
@@ -102,19 +102,21 @@ export class GridspacePlacementService implements OnModuleInit, OnApplicationShu
 
 	public async hasPeerCapability(): Promise<boolean> { return (await this.capabilities()).supported; }
 
+	public async supportsLinkedChannelFollows(): Promise<boolean> { return (await this.capabilities()).linkedFollows; }
+
 	public async assertConversationEnabled(): Promise<void> {
 		if (!await this.peerEnabled()) throw unavailable();
 	}
 
 	private async capabilities() {
-		if (!this.peer) return { supported: false, enabled: false, originLookup: false };
+		if (!this.peer) return { supported: false, enabled: false, linkedFollows: false, originLookup: false };
 		if (!this.capability || this.capability.expiresAt <= Date.now()) {
 			const value = requestGridspacePeer(this.peer, GRIDSPACE_HANDSHAKE_PATH, { protocolVersion: GRIDSPACE_PROTOCOL_VERSION }, 16384, Date.now() + 3000)
 				.then(r => {
-					if (!r || typeof r !== 'object' || !('features' in r) || !Array.isArray(r.features)) return { supported: false, enabled: false, originLookup: false };
+					if (!r || typeof r !== 'object' || !('features' in r) || !Array.isArray(r.features)) return { supported: false, enabled: false, linkedFollows: false, originLookup: false };
 					const supported = r.features.includes(placementCapability);
-					return { supported, enabled: supported && 'placementEnabled' in r && r.placementEnabled === true, originLookup: supported && r.features.includes(originPlacementCapability) };
-				}).catch(() => ({ supported: false, enabled: false, originLookup: null }));
+					return { supported, linkedFollows: supported && r.features.includes(linkedChannelFollowsCapability), enabled: supported && 'placementEnabled' in r && r.placementEnabled === true, originLookup: supported && r.features.includes(originPlacementCapability) };
+				}).catch(() => ({ supported: false, enabled: false, linkedFollows: false, originLookup: null }));
 			this.capability = { expiresAt: Date.now() + 15000, value };
 		}
 		return this.capability.value;

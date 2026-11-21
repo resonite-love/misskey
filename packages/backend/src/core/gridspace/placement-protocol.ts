@@ -8,6 +8,7 @@ import { channelActionSchema, channelOptionsSchema, channelResultSchema, type Ch
 import type { GridspacePeerConfig } from './peer-protocol.js';
 
 export const placementCapability = 'channel-placement-v1';
+export const linkedChannelFollowsCapability = 'channel-placement-linked-follows-v1';
 export const originPlacementCapability = 'channel-placement-origin-lookup-v1';
 export const placementPath = '/gridspace/v1/placements/';
 export type PlacementPurpose = 'read' | 'reply' | 'upload' | 'action';

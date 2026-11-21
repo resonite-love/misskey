@@ -8,6 +8,9 @@ import { DataSource, type QueryRunner } from 'typeorm';
 import { mockDeep } from 'vitest-mock-extended';
 import { loadConfig, type Config } from '@/config.js';
 import type { MiLocalUser, MiRemoteUser } from '@/models/User.js';
+import * as peerClient from '../peer-client.js';
+import { GridspaceLinkError, type GridspaceLinkService } from '../GridspaceLinkService.js';
+import type { GridspaceChannelAuthService } from '../GridspaceChannelAuthService.js';
 import type { RoleService } from '@/core/RoleService.js';
 import type { GridspacePrivateService } from '../GridspacePrivateService.js';
 import type { GridspacePlacementService } from '../GridspacePlacementService.js';
@@ -39,7 +42,9 @@ function fixture(db: DataSource) {
 	const changes = mockDeep<TimelineReferenceService>(); changes.currentPosition.mockResolvedValue('0');
 	const roles = mockDeep<RoleService>(); roles.isModerator.mockResolvedValue(false);
 	const placements = mockDeep<GridspacePlacementService>();
-	return { local, shared, delegated, placements, source: new TimelinePlacementSource(config, db, local, shared, delegated, changes, placements, roles) };
+	const channelAuth = mockDeep<GridspaceChannelAuthService>();
+	const links = mockDeep<GridspaceLinkService>();
+	return { local, shared, delegated, placements, changes, links, channelAuth, source: new TimelinePlacementSource(config, db, local, shared, delegated, changes, placements, roles, channelAuth, links) };
 }
 
 describe('listing authority and body authority', () => {
@@ -50,6 +55,49 @@ describe('listing authority and body authority', () => {
 		expect(await source.supportHome()).toBe(true);
 		expect(placements.peerEnabled).not.toHaveBeenCalled();
 	});
+	test('binds followed-channel grants to the current caller, source role and read purpose', async () => {
+		const f = fixture(mockDeep<DataSource>());
+		const followedLink = { localUserId: 'caller', accessToken: 'test-token', linkId: 'link', generation: 1 };
+		f.placements.resolveActor.mockResolvedValue({ id: 'remoteCaller' } as MiRemoteUser);
+		const input = { actorId: 'caller', followed: true, followedLink };
+		await expect(f.source.peerPage({ ...input, actorId: 'different' })).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+		await expect(f.source.peerPage({ ...input, followed: false, channelId: 'a' })).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+		f.channelAuth.assertSource.mockImplementationOnce(() => { throw new GridspaceLinkError('AUTHORIZATION_REVOKED'); });
+		await expect(f.source.peerPage(input)).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+		expect(f.links.authorizePrivate).not.toHaveBeenCalled();
+		for (const link of [{ initiator: true, peerUserId: 'caller' }, { initiator: false, peerUserId: 'different' }]) {
+			f.links.authorizePrivate.mockResolvedValueOnce(link as never);
+			await expect(f.source.peerPage(input)).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+		}
+		f.links.authorizePrivate.mockRejectedValueOnce(new GridspaceLinkError('AUTHORIZATION_REVOKED'));
+		await expect(f.source.peerPage(input)).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+	});
+
+	test('rechecks the linked channel context after the peer read and negotiates older peers', async () => {
+		const f = fixture(mockDeep<DataSource>());
+		Object.defineProperty(f.channelAuth, 'isClient', { value: true });
+		f.placements.currentActorCredential.mockResolvedValue({ actorId: viewer.id });
+		const credential = { accessToken: 'test-token', localUserId: viewer.id, linkId: 'link', generation: 1 };
+		const check = vi.fn(async () => { throw new GridspaceLinkError('AUTHORIZATION_REVOKED'); });
+		f.channelAuth.destination.mockResolvedValue({ credential, check } as never);
+		const request = vi.spyOn(peerClient, 'requestGridspacePeer').mockResolvedValue({ references: [], sequence: '1' });
+		try {
+			const read = () => f.source.read(viewer, other, { followed: true }, Date.now() + 1000);
+			f.placements.supportsLinkedChannelFollows.mockResolvedValueOnce(false);
+			await read();
+			expect(f.channelAuth.destination).not.toHaveBeenCalled();
+			f.placements.supportsLinkedChannelFollows.mockResolvedValue(true);
+			await expect(read()).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+			expect(request.mock.lastCall?.[2]).toEqual({ followed: true, followedLink: credential, actorId: viewer.id });
+			expect(check).toHaveBeenCalledOnce();
+			f.channelAuth.destination.mockRejectedValueOnce(new GridspaceLinkError('AUTHORIZATION_REVOKED'));
+			await read();
+			expect(request.mock.lastCall?.[2]).toEqual({ followed: true, actorId: viewer.id, followedLink: undefined });
+		} finally {
+			request.mockRestore();
+		}
+	});
+
 	test.each(['local', 'peer'] as const)('a %s index returns local originals without a peer callback', async index => {
 		const { source, local, delegated } = fixture(mockDeep<DataSource>());
 		const ref: TimelineReference = { source: index, noteId: 'original', canonicalUri: origin + '/notes/original', sortAt: '1', generation: 2, normalized: true,
@@ -164,6 +212,46 @@ describe('channel placement index and legacy projections', () => {
 		expect((await read()).map(ref => ref.placement!.channelIds)).toEqual([['a', 'b']]);
 		await runner.query("INSERT INTO channel_muting VALUES ('viewer','a',NULL)");
 		expect((await read()).map(ref => ref.placement!.channelIds)).toEqual([['b']]);
+	});
+	test('a linked follow selects a dedicated root while retaining the guest ACL and both channel policies', async () => {
+		const channel = 'linkedOnly';
+		const uri = other + '/notes/linkedOriginal';
+		const f = fixture({ query: runner.query.bind(runner) } as unknown as DataSource);
+		const followedLink = { localUserId: 'caller', accessToken: 'test-token', linkId: 'link', generation: 1 };
+		const input = { actorId: 'caller', followed: true, uris: [uri] };
+		const link = { localUserId: 'linkedOwner', peerUserId: 'caller', initiator: false };
+		f.placements.resolveActor.mockResolvedValue({ id: 'guest' } as MiRemoteUser);
+		f.links.authorizePrivate.mockResolvedValue(link as never);
+		await runner.query("INSERT INTO channel VALUES ($1, 'Linked', '#aaa', false, 'linkedOwner', NULL, 0, 0, '{}')", [channel]);
+		await runner.query("INSERT INTO gridspace_channel_placement VALUES ($1, '2026-01-01', 'linkedOriginal', $2, 'active', $3, false, $4)",
+			[uri, channel, other, other + '/users/anotherAuthor']);
+		await runner.query("INSERT INTO channel_following VALUES ('linkedOwner', $1)", [channel]);
+		const read = async () => (await f.source.peerPage({ ...input, followedLink })).references;
+		expect((await f.source.peerPage(input)).references).toEqual([]);
+		expect(await read()).toMatchObject([{ canonicalUri: uri, placement: { chips: [{ canRemove: false }] } }]);
+		for (const id of ['guest', 'linkedOwner', 'unrelated']) {
+			f.changes.changes.mockResolvedValueOnce({ events: [{ kind: 'policy', affectedUserId: id }], cursor: '1', resetRequired: false, hasMore: false } as never);
+			const after = await f.source.peerPage({ ...input, followedLink, uris: [], after: '0' });
+			expect(after.changed).toBe(id !== 'unrelated');
+		}
+		await runner.query('UPDATE gridspace_channel_placement SET "authorUri" = $1 WHERE "canonicalUri" = $2', [other + '/users/caller', uri]);
+		await runner.query('INSERT INTO "user" VALUES ($1, $2)', ['guest', other + '/users/caller']);
+		expect(await read()).toMatchObject([{ canonicalUri: uri, placement: { chips: [{ canRemove: true }] } }]);
+		await runner.query('UPDATE channel_following SET "followerId" = $1 WHERE "followeeId" = $2', ['guest', channel]);
+		expect(await read()).toHaveLength(1);
+		for (const id of ['guest', 'linkedOwner']) {
+			await runner.query('INSERT INTO channel_muting VALUES ($1, $2, NULL)', [id, channel]);
+			expect(await read()).toEqual([]);
+			await runner.query('DELETE FROM channel_muting WHERE "userId" = $1 AND "channelId" = $2', [id, channel]);
+		}
+		await runner.query(`UPDATE channel SET "userId" = 'otherOwner' WHERE id = $1`, [channel]);
+		for (const id of ['guest', 'linkedOwner']) {
+			await runner.query("INSERT INTO blocking VALUES ('otherOwner', $1)", [id]);
+			expect(await read()).toEqual([]);
+			await runner.query('DELETE FROM blocking WHERE "blockeeId" = $1', [id]);
+		}
+		f.links.authorizePrivate.mockResolvedValueOnce(link as never).mockRejectedValueOnce(new GridspaceLinkError('AUTHORIZATION_REVOKED'));
+		await expect(read()).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
 	});
 	test('local and peer readers can open and follow a sensitive channel with the same mute and block rules', async () => {
 		const channelId = 'sensitive';
