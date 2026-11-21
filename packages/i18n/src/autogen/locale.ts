@@ -15163,7 +15163,7 @@ export interface Locale extends ILocale {
          */
         "partnerServer": string;
         /**
-         * 通常の投稿
+         * 通常投稿
          */
         "defaultDestination": string;
         /**
@@ -15183,11 +15183,11 @@ export interface Locale extends ILocale {
          */
         "noDestinations": string;
         /**
-         * 通常の投稿と{count}件のチャンネルに掲載します。通常の投稿の連合はオフです。
+         * 通常投稿と{count}件のチャンネルに掲載します。通常投稿の連合はオフです。
          */
         "mixedLocal": ParameterizedString<"count">;
         /**
-         * 通常の投稿と{count}件のチャンネルに掲載します。通常の投稿の連合はオンです。
+         * 通常投稿と{count}件のチャンネルに掲載します。通常投稿の連合はオンです。
          */
         "mixedFederated": ParameterizedString<"count">;
         /**
@@ -15199,7 +15199,7 @@ export interface Locale extends ILocale {
          */
         "channelOnly": string;
         /**
-         * チャンネル外へのリノートを許可していない投稿先があります。「通常の投稿」か、そのチャンネルの選択を外してください。
+         * チャンネル外へのリノートを許可していない投稿先があります。「通常投稿」か、そのチャンネルの選択を外してください。
          */
         "externalRenoteRestricted": string;
         /**
