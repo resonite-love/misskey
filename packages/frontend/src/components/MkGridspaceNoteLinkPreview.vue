@@ -4,8 +4,16 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div ref="root" :class="$style.root" data-gridspace-link-preview>
-	<template v-if="note">
+<div ref="root" :class="[$style.root, { [$style.quote]: quote || fullNote }]" data-gridspace-link-preview>
+	<template v-if="fullNote && note">
+		<MkGridspacePrivateNote v-if="result?.note" :note="result.note" :detailed="detailed" compactTop/>
+		<MkNote v-else-if="result?.localNote" :note="result.localNote"/>
+	</template>
+	<template v-else-if="quote && note">
+		<MkGridspacePrivateNote v-if="result?.note" :note="result.note" quotePreview/>
+		<MkNoteSimple v-else-if="result?.localNote" :note="result.localNote"/>
+	</template>
+	<template v-else-if="note">
 		<MkNoteHeader :note="header!" :noteUrl="detailUrl" :externalNoteUrl="!!result?.publicUrl" :userPreview="`@${header!.user.username}${header!.user.host ? `@${header!.user.host}` : ''}`"/>
 		<MkNoteCw v-if="note.cw != null" v-model="expanded" :cw="note.cw" :text="note.text" :author="header!.user" :emojiUrls="note.emojis ?? {}" :files="note.files"/>
 		<template v-if="note.cw == null || expanded">
@@ -15,7 +23,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</template>
 	<MkEllipsis v-else-if="loading"/>
 	<span v-else-if="!result?.publicUrl"><i class="ti ti-lock"></i> {{ i18n.ts.invisibleNote }}</span>
-	<div>
+	<div v-if="!quote && !fullNote">
 		<a v-if="result?.publicUrl" class="_link" :href="detailUrl">{{ i18n.ts.details }} <i class="ti ti-chevron-right"></i></a>
 		<MkA v-else class="_link" :to="detailUrl">{{ i18n.ts.details }} <i class="ti ti-chevron-right"></i></MkA>
 	</div>
@@ -23,17 +31,24 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue';
+import { computed, defineAsyncComponent, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue';
 import type { entities } from 'misskey-js';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import MkNoteCw from '@/components/MkNoteCw.vue';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { i18n } from '@/i18n.js';
 import { $i } from '@/i.js';
+import type { ChannelRoute, NotePlacement } from '@/utility/multi-note.js';
+import { sameChannel } from '@/utility/multi-note.js';
+import { parsePlacementReference } from '@/utility/gridspace-note-link.js';
 import { isVisiblePrivateNote } from '@/utility/gridspace-note-suspension.js';
 import { checkTextWordMute } from '@/utility/check-word-mute.js';
 
-const props = defineProps<{ url: string }>();
+const MkNoteSimple = defineAsyncComponent(() => import('@/components/MkNoteSimple.vue').then(module => module.default));
+const MkNote = defineAsyncComponent(() => import('@/components/MkNote.vue').then(module => module.default));
+const MkGridspacePrivateNote = defineAsyncComponent(() => import('@/components/MkGridspacePrivateNote.vue').then(module => module.default));
+
+const props = defineProps<{ url: string; quote?: boolean; fullNote?: boolean; detailed?: boolean; composing?: boolean; quoteDestination?: ChannelRoute | null }>();
 const result = shallowRef<entities.GridspaceNoteLinkResponse | null>(null);
 const root = useTemplateRef('root');
 let visible = true;
@@ -47,7 +62,7 @@ const header = computed(() => {
 	if (value?.localNote) return value.localNote;
 	if (!value?.note) return null;
 	const n = value.note;
-	return { id: n.id, createdAt: n.createdAt, user: { ...n.author, id: n.author.uri }, localOnly: n.localOnly,
+	return { id: n.id, createdAt: n.createdAt, user: { ...n.author, id: n.author.uri }, localOnly: n.localOnly, noRelay: n.noRelay,
 		visibility: n.visibility as entities.Note['visibility'], channel: n.channel };
 });
 let generation = 0;
@@ -62,13 +77,23 @@ async function load() {
 	loading.value = true;
 	try {
 		const value = await misskeyApi('gridspace/note-link', { url: props.url }, undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]));
+		const reference = parsePlacementReference(props.url);
+		const sourceRoutes: readonly NotePlacement[] = (value.note ?? value.localNote)?.channelPlacements ?? [];
+		const source = reference && sourceRoutes.find(route => route.state === 'active' && route.isArchived === false && route.canonicalUri === reference.canonicalUri && sameChannel(route, reference));
+		const sameDestination = source && props.quoteDestination && sameChannel(source, props.quoteDestination);
+		const permitted = reference ? !props.composing || (source && (source.allowRenoteToExternal === true || sameDestination))
+			: value.note ? value.note.canQuoteOutside === true : value.localNote?.channel?.allowRenoteToExternal === true;
+		if ((props.quote || props.fullNote) && !permitted) {
+			if (current === generation) result.value = null;
+			return;
+		}
 		if (current === generation && active && !window.document.hidden) result.value = value.note ? isVisiblePrivateNote(value.note) ? value : null : value.localNote ? (!$i || !checkTextWordMute(`${value.localNote.cw ?? ''}\n${value.localNote.text ?? ''}`, $i.hardMutedWords)) ? value : null : value.publicUrl ? value : null;
 	} catch { if (current === generation) result.value = null; } finally { if (current === generation) loading.value = false; }
 }
 
 function visibility() { if (window.document.hidden) clear(); else void load(); }
 
-watch(() => props.url, () => { clear(); void load(); }, { immediate: true });
+watch([() => props.url, () => props.quoteDestination, () => props.composing], () => { clear(); void load(); }, { immediate: true });
 onMounted(() => { observer = new IntersectionObserver(entries => { visible = entries.some(entry => entry.isIntersecting); if (visible) void load(); else clear(); }); if (root.value) observer.observe(root.value); });
 const timer = window.setInterval(load, 30000);
 window.document.addEventListener('visibilitychange', visibility);
@@ -79,4 +104,5 @@ onBeforeUnmount(() => { active = false; clear(); window.clearInterval(timer); ob
 
 <style lang="scss" module>
 .root { padding: 16px; border: 1px solid var(--MI_THEME-divider); border-radius: var(--MI-radius); overflow-wrap: anywhere; font-size: 0.9em; }
+.quote { padding: 0; border: 0; border-radius: 0; font-size: inherit; }
 </style>

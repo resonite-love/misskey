@@ -98,6 +98,12 @@ export class MiNote {
 	public localOnly: boolean;
 
 	@Column('boolean', { default: false })
+	public noRelay: boolean;
+
+	@Column('boolean', { default: false })
+	public federateAsHome: boolean;
+
+	@Column('boolean', { default: false })
 	public gridspaceShared: boolean;
 
 	@Column('boolean', { nullable: true })
@@ -108,6 +114,10 @@ export class MiNote {
 
 	@Column({ ...id(), nullable: true })
 	public multiNoteRootId: string | null;
+
+	/** A reference to a paired channel quote; the source body remains on its server. */
+	@Column('varchar', { length: 2048, nullable: true })
+	public gridspaceQuote: string | null;
 
 	@Column('varchar', {
 		length: 64, nullable: true,

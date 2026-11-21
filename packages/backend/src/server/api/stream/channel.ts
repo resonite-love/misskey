@@ -10,7 +10,7 @@ import type { NotesRepository } from '@/models/_.js';
 import { bindThis } from '@/decorators.js';
 import { isInstanceMuted } from '@/misc/is-instance-muted.js';
 import { isUserRelated } from '@/misc/is-user-related.js';
-import { isQuotePacked, isRenotePacked } from '@/misc/is-renote.js';
+import { isQuotePacked, isRenotePacked, isReferenceRenotePacked } from '@/misc/is-renote.js';
 import { isChannelRelated } from '@/misc/is-channel-related.js';
 import type { Awaitable } from '@/types.js';
 import type { Packed } from '@/misc/json-schema.js';
@@ -137,7 +137,7 @@ export default abstract class Channel {
 		if (isUserRelated(note, this.userIdsWhoBlockingMe)) return true;
 
 		// 流れてきたNoteがリノートをミュートしてるユーザが行ったもの
-		if (isRenotePacked(note) && !isQuotePacked(note) && this.userIdsWhoMeMutingRenotes.has(note.user.id)) return true;
+		if (((isRenotePacked(note) && !isQuotePacked(note)) || isReferenceRenotePacked(note)) && this.userIdsWhoMeMutingRenotes.has(note.user.id)) return true;
 
 		// 流れてきたNoteがミュートしているチャンネルと関わる
 		if (isChannelRelated(note, this.mutingChannels)) return true;

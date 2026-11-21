@@ -70,6 +70,14 @@ describe('api:notes/create', () => {
 			expect(createInputHash({ poll })).not.toBe(createInputHash({ poll: { ...poll, choices: ['b', 'a'] } }));
 		});
 
+		test('keeps existing receipt hashes for normal delivery and distinguishes relay opt-out', () => {
+			const previous = { text: 'existing request', includeDefault: true };
+			const hash = createInputHash(previous);
+			expect(hash).toBe('6cc7aac9eb2bee4a914c2867104f126e1093cbd17afd081a63e31e1b4e43a137');
+			expect(createInputHash({ ...previous, noRelay: false, gridspaceQuote: null })).toBe(hash);
+			expect(createInputHash({ ...previous, noRelay: true })).not.toBe(hash);
+		});
+
 		describe('cw', () => {
 			test('simple cw', () => {
 				expect(v({ text: 'Hello, world!', cw: 'Hello, world!' }))

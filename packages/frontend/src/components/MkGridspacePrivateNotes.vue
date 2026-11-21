@@ -32,7 +32,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, shallowRef, TransitionGroup, useTemplateRef, watch } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, provide, ref, shallowRef, TransitionGroup, useTemplateRef, watch } from 'vue';
 import { isHeadVisible, onScrollTop, scrollToTop } from '@@/js/scroll.js';
 import type { entities } from 'misskey-js';
 import MkButton from '@/components/MkButton.vue';
@@ -44,12 +44,15 @@ import { prefer } from '@/preferences.js';
 import { TimelineClient } from '@/utility/timeline-client.js';
 import { supportsChannelPlacements, supportsTimelineKind } from '@/utility/timeline-capabilities.js';
 import { subscribeTimeline } from '@/utility/timeline-stream.js';
+import { DI } from '@/di.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { clearLeavingPrivateNote } from '@/utility/gridspace-note-suspension.js';
 import { i18n } from '@/i18n.js';
 import { $i } from '@/i.js';
 
 const props = defineProps<{ params: entities.GridspacePrivateNotesRequest; channelOrigin?: string; pinnedOnly?: boolean; excludeId?: string; alwaysShow?: boolean; plain?: boolean; direction?: 'up' | 'down' }>();
+provide(DI.placementChannel, computed(() => props.params.mode === 'channel' && props.channelOrigin && props.params.channelId
+	? { origin: props.channelOrigin, channelId: props.params.channelId } : null));
 const emit = defineEmits<{ (event: 'loaded'): void; (event: 'replied'): void; (event: 'snapshot', note: entities.GridspacePrivateNotesResponse['notes'][number] | null): void }>();
 const root = useTemplateRef('root');
 const legacy = useTemplateRef('legacy');

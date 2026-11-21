@@ -8,9 +8,11 @@ import { Injectable } from '@nestjs/common';
 import { MAX_NOTE_TEXT_LENGTH } from '@/const.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
-import { GridspaceLinkError } from '@/core/gridspace/GridspaceLinkService.js';
 import { createInputHash, PlacementError } from '@/core/NotePlacementService.js';
 import { NoteCreateService } from '@/core/NoteCreateService.js';
+import { parsePlacementQuote } from '@/core/gridspace/quote-reference.js';
+import { GridspaceQuoteService } from '@/core/gridspace/GridspaceQuoteService.js';
+import { GridspaceLinkError } from '@/core/gridspace/GridspaceLinkService.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
 import { ApiError } from '../../error.js';
 
@@ -149,6 +151,8 @@ export const paramDef = {
 		} },
 		cw: { type: 'string', nullable: true, minLength: 1, maxLength: 100 },
 		localOnly: { type: 'boolean', default: false },
+		gridspaceQuote: { type: 'string', minLength: 1, maxLength: 2048, nullable: true },
+		noRelay: { type: 'boolean', default: false, description: 'Skip direct relay delivery while keeping the selected visibility and normal federation.' },
 		reactionAcceptance: { type: 'string', nullable: true, enum: [null, 'likeOnly', 'likeOnlyForRemote', 'nonSensitiveOnly', 'nonSensitiveOnlyForLocalLikeOnlyForRemote'], default: null },
 		noExtractMentions: { type: 'boolean', default: false },
 		noExtractHashtags: { type: 'boolean', default: false },
@@ -214,6 +218,7 @@ export const paramDef = {
 	// (re)note with text, files and poll are optional
 	if: {
 		properties: {
+			gridspaceQuote: { type: 'null' },
 			renoteId: {
 				type: 'null',
 			},
@@ -246,18 +251,25 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 	constructor(
 		private noteEntityService: NoteEntityService,
 		private noteCreateService: NoteCreateService,
+		private gridspaceQuotes: GridspaceQuoteService,
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			try {
 				const usesPlacements = ps.includeDefault !== undefined || ps.channelIds !== undefined || ps.channelTargets !== undefined || ps.clientRequestId !== undefined;
 				if (usesPlacements && !ps.clientRequestId) throw new PlacementError('client-request-id-required');
+				if (ps.gridspaceQuote && (ps.renoteId || ps.replyId)) throw new GridspaceLinkError('ACTION_REJECTED');
+				const quoteUrl = usesPlacements && ps.gridspaceQuote ? this.placementQuoteUrl(ps.gridspaceQuote) : ps.gridspaceQuote;
 				const multiNote = usesPlacements ? {
 					clientRequestId: ps.clientRequestId!.toLowerCase(),
 					includeDefault: ps.includeDefault ?? false,
 					channelIds: ps.channelIds ?? [],
 					channelTargets: ps.channelTargets ?? [],
-					inputHash: createInputHash(Object.fromEntries(Object.entries(ps).filter(([key]) => key !== 'clientRequestId' && Object.hasOwn(paramDef.properties, key)))),
+					inputHash: createInputHash({
+						...Object.fromEntries(Object.entries(ps).filter(([key]) => key !== 'clientRequestId' && Object.hasOwn(paramDef.properties, key))),
+						gridspaceQuote: quoteUrl,
+					}),
 				} : undefined;
+				const destination = ps.channelId ?? ps.channelIds?.[0] ?? ps.channelTargets?.[0];
 				const note = await this.noteCreateService.fetchAndCreate(me, {
 					multiNote,
 					createdAt: new Date(),
@@ -272,6 +284,8 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					renoteId: ps.renoteId ?? null,
 					cw: ps.cw ?? null,
 					localOnly: ps.localOnly,
+					prepareGridspaceQuote: quoteUrl ? () => this.gridspaceQuotes.prepare(me, quoteUrl, destination) : undefined,
+					noRelay: ps.noRelay,
 					reactionAcceptance: ps.reactionAcceptance,
 					visibility: ps.visibility,
 					visibleUserIds: ps.visibleUserIds ?? [],
@@ -285,7 +299,8 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					createdNote: await this.noteEntityService.pack(note, me),
 				};
 			} catch (err) {
-				if (err instanceof PlacementError || err instanceof GridspaceLinkError) throw new ApiError(meta.errors.invalidPlacement, { reason: err.message });
+				if (err instanceof PlacementError || (err instanceof GridspaceLinkError && !ps.gridspaceQuote)) throw new ApiError(meta.errors.invalidPlacement, { reason: err.message });
+				if (err instanceof GridspaceLinkError) throw new ApiError(meta.errors.cannotRenoteOutsideOfChannel);
 				// TODO: 他のErrorもここでキャッチしてエラーメッセージを当てるようにしたい
 				if (err instanceof IdentifiableError) {
 					if (err.id === '689ee33f-f97c-479a-ac49-1b9f8140af99') {
@@ -327,5 +342,14 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				throw err;
 			}
 		});
+	}
+
+	private placementQuoteUrl(value: string): string {
+		try {
+			// Hash the source tuple without consulting the current pairing. Fresh writes authorize it in prepare().
+			const reference = parsePlacementQuote(value);
+			if (reference) return reference.url;
+		} catch { /* malformed placement reference */ }
+		throw new PlacementError('incompatible-destination');
 	}
 }

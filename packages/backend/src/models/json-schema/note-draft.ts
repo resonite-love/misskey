@@ -40,6 +40,7 @@ export const packedNoteDraftSchema = {
 			optional: false, nullable: true,
 			format: 'id',
 		},
+		gridspaceQuote: { type: 'string', optional: true, nullable: true },
 		renoteId: {
 			type: 'string',
 			optional: false, nullable: true,

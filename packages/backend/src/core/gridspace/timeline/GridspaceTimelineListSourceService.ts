@@ -7,7 +7,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { type DataSource, type SelectQueryBuilder } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
-import { noteListingCondition } from '@/misc/note-distribution.js';
+import { defaultNoteCondition, noteListingCondition } from '@/misc/note-distribution.js';
 import { MiNote } from '@/models/Note.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
 import { QueryService } from '@/core/QueryService.js';
@@ -91,10 +91,10 @@ export class GridspaceTimelineListSourceService {
 		this.queries.generateBaseNoteFilteringQuery(query, viewer, { excludeAuthor: true, excludeUserFromMute: options.userId });
 		filterNoteVisibility(query, this.noteTime, viewer, false);
 		query.andWhere("(note.visibility != 'specified' OR note.userId = :privacyViewer OR :privacyViewer = ANY(note.visibleUserIds))");
-		if (this.peer && !includePeerPublic) query.andWhere("(note.userHost IS NULL OR note.userHost != :profilePeerHost OR note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL)", { profilePeerHost: new URL(this.peer.peerOrigin).host });
+		if (this.peer && !includePeerPublic) query.andWhere(`(note.userHost IS NULL OR note.userHost != :profilePeerHost OR note.visibility IN ('followers', 'specified') OR NOT ${defaultNoteCondition()})`, { profilePeerHost: new URL(this.peer.peerOrigin).host });
 		if (!options.withReplies) query.andWhere('note.replyId IS NULL');
 		if (options.withFiles) query.andWhere('cardinality(note.fileIds) > 0');
-		if (options.withRenotes === false) query.andWhere('(note.renoteId IS NULL OR note.text IS NOT NULL OR cardinality(note.fileIds) > 0 OR note.hasPoll = true)');
+		if (options.withRenotes === false) query.andWhere('((note.renoteId IS NULL AND note.gridspaceQuote IS NULL) OR note.text IS NOT NULL OR cardinality(note.fileIds) > 0 OR note.hasPoll = true)');
 		query.andWhere(...noteListingCondition(options.withChannelNotes ? { kind: 'profile', viewerId: viewer.id } : { kind: 'default' }));
 		query.andWhere(`NOT EXISTS (SELECT 1 FROM channel_muting cm WHERE cm."userId" = :listSelf
 			AND cm."channelId" IN (note."channelId", note."renoteChannelId")
@@ -112,7 +112,7 @@ export class GridspaceTimelineListSourceService {
 		// are not an extra search source introduced by this adapter.
 		if (this.peer) {
 			query.andWhere('(note.userHost IS NULL OR note.userHost = :listPeerHost)', { listPeerHost: new URL(this.peer.peerOrigin).host });
-			if (!includePeerPublic) query.andWhere("(note.userHost IS NULL OR note.visibility IN ('followers', 'specified') OR note.channelId IS NOT NULL)");
+			if (!includePeerPublic) query.andWhere(`(note.userHost IS NULL OR note.visibility IN ('followers', 'specified') OR NOT ${defaultNoteCondition()})`);
 		}
 		if (options.userId) {
 			const link = await this.history.findLink(options.userId);

@@ -203,6 +203,7 @@ export const paramDef = {
 		reactionAcceptance: { type: 'string', nullable: true, enum: [null, 'likeOnly', 'likeOnlyForRemote', 'nonSensitiveOnly', 'nonSensitiveOnlyForLocalLikeOnlyForRemote'] },
 		replyId: { type: 'string', format: 'misskey:id', nullable: true },
 		renoteId: { type: 'string', format: 'misskey:id', nullable: true },
+		gridspaceQuote: { type: 'string', minLength: 1, maxLength: 2048, nullable: true },
 		channelId: { type: 'string', format: 'misskey:id', nullable: true },
 
 		// anyOf内にバリデーションを書いても最初の一つしかチェックされない
@@ -259,6 +260,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				text: ps.text,
 				replyId: ps.replyId,
 				renoteId: ps.renoteId,
+				gridspaceQuote: ps.gridspaceQuote,
 				cw: ps.cw,
 				hashtag: ps.hashtag,
 				localOnly: ps.localOnly,

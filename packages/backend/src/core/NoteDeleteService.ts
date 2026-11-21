@@ -192,7 +192,7 @@ export class NoteDeleteService {
 	@bindThis
 	private async deliverToConcerned(user: { id: MiLocalUser['id']; host: null; }, note: MiNote, content: any) {
 		this.apDeliverManagerService.deliverToFollowers(user, content);
-		this.relayService.deliverToRelays(user, content);
+		if (!note.noRelay) this.relayService.deliverToRelays(user, content);
 		this.apDeliverManagerService.deliverToUsers(user, content, [
 			...await this.getMentionedRemoteUsers(note),
 			...await this.getRenotedOrRepliedRemoteUsers(note),

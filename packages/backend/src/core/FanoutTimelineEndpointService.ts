@@ -23,6 +23,8 @@ import { isInstanceMuted } from '@/misc/is-instance-muted.js';
 import { ChannelMutingService } from '@/core/ChannelMutingService.js';
 import { isChannelRelated } from '@/misc/is-channel-related.js';
 
+const isReferenceRenote = (note: MiNote) => !!note.gridspaceQuote && note.text == null && note.cw == null && !note.replyId && !note.fileIds.length && !note.hasPoll;
+
 type NoteFilter = (note: MiNote) => boolean;
 
 type TimelineOptions = {
@@ -43,6 +45,9 @@ type TimelineOptions = {
 	excludeNoFiles?: boolean;
 	excludeReplies?: boolean;
 	excludePureRenotes: boolean;
+	includeMyRenotes?: boolean;
+	includeRenotedMyNotes?: boolean;
+	includeLocalRenotes?: boolean;
 	ignoreAuthorFromUserSuspension?: boolean;
 	dbFallback: (untilId: string | null, sinceId: string | null, limit: number) => Promise<MiNote[]>,
 };
@@ -105,9 +110,16 @@ export class FanoutTimelineEndpointService {
 				filter = (note) => !isReply(note, ps.me?.id) && parentFilter(note);
 			}
 
-			if (ps.excludePureRenotes) {
+			if (ps.excludePureRenotes || ps.includeMyRenotes === false || ps.includeRenotedMyNotes === false || ps.includeLocalRenotes === false) {
 				const parentFilter = filter;
-				filter = (note) => (!isRenote(note) || isQuote(note)) && parentFilter(note);
+				filter = (note) => {
+					if (isReferenceRenote(note) || (isRenote(note) && !isQuote(note))) {
+						if (ps.excludePureRenotes || (ps.includeMyRenotes === false && note.userId === ps.me?.id)) return false;
+						if (note.renoteId && ((ps.includeRenotedMyNotes === false && note.renoteUserId === ps.me?.id) ||
+							(ps.includeLocalRenotes === false && note.renoteUserHost == null))) return false;
+					}
+					return parentFilter(note);
+				};
 			}
 
 			if (ps.me) {
@@ -132,7 +144,7 @@ export class FanoutTimelineEndpointService {
 					if (isUserRelated(note, userIdsWhoMeMuting, ps.ignoreAuthorFromMute)) return false;
 					if (isUserRelated(note.renote, userIdsWhoBlockingMe, ps.ignoreAuthorFromBlock)) return false;
 					if (isUserRelated(note.renote, userIdsWhoMeMuting, ps.ignoreAuthorFromMute)) return false;
-					if (!ps.ignoreAuthorFromMute && isRenote(note) && !isQuote(note) && userIdsWhoMeMutingRenotes.has(note.userId)) return false;
+					if (!ps.ignoreAuthorFromMute && ((isRenote(note) && !isQuote(note)) || isReferenceRenote(note)) && userIdsWhoMeMutingRenotes.has(note.userId)) return false;
 					if (isInstanceMuted(note, userMutedInstances)) return false;
 					if (isChannelRelated(note, userMutedChannels, ps.ignoreAuthorChannelFromMute)) return false;
 

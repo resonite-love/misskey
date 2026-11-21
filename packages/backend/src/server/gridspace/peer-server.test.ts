@@ -51,8 +51,8 @@ describe('GridSpace channel actions', () => {
 		servers.push(app);
 		await app.register(fastifyRawBody, { global: false, encoding: null, runFirst: true });
 		await app.register(async child => {
-			const handlers = new Array(25).fill(undefined) as Parameters<typeof registerGridspacePeer> extends [unknown, unknown, unknown, ...infer Rest] ? Rest : never;
-			handlers[24] = { enabled: false, routes: [{ name: 'origin-lookup', schema: placementSchemas['origin-lookup'], handle: read }] };
+			const handlers = new Array(27).fill(undefined) as Parameters<typeof registerGridspacePeer> extends [unknown, unknown, unknown, ...infer Rest] ? Rest : never;
+			handlers[26] = { enabled: false, routes: [{ name: 'origin-lookup', schema: placementSchemas['origin-lookup'], handle: read }] };
 			registerGridspacePeer(child, r, async () => true, ...handlers);
 		}, { prefix: '/gridspace/v1' });
 		const handshake = (await app.inject(request())).json();

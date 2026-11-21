@@ -48,8 +48,8 @@ describe('list timeline dispatch preserves scope', () => {
 		await expect(service.timeline(viewer, { kind: 'search', query: 'public' })).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
 		expect(privateLink).not.toHaveBeenCalled();
 	});
-	test('the feature capability enumerates the accepted list adapters', async () => {
-		const service = Object.assign(Object.create(GridspaceTimelineService.prototype), { enabled: true, peer: {} }) as GridspaceTimelineService;
-		expect(await service.capability()).toEqual({ enabled: true, version: 1, kinds: ['home', 'social', 'profile', 'search', 'mentions', 'direct', 'favorites', 'channel', 'antenna', 'clip'] });
+	test.each([false, true])('the feature capability enumerates the accepted list adapters with channel placements=%s', async channelPlacements => {
+		const service = Object.assign(Object.create(GridspaceTimelineService.prototype), { enabled: true, peer: {}, placements: { supportHome: async () => channelPlacements } }) as GridspaceTimelineService;
+		expect(await service.capability()).toEqual({ enabled: true, version: 1, channelPlacements, kinds: ['home', 'social', 'profile', 'search', 'mentions', 'direct', 'favorites', 'channel', 'antenna', 'clip'] });
 	});
 });

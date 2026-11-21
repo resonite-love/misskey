@@ -103,7 +103,8 @@ describe('channel placement index and legacy projections', () => {
 		runner = db.createQueryRunner();
 		await runner.startTransaction();
 		const ddl = [
-			'channel (id text PRIMARY KEY, name text, color text, "isSensitive" boolean, "userId" text, "lastNotedAt" timestamptz, "notesCount" integer, "usersCount" integer, "pinnedNoteIds" varchar[])',
+			'renote_muting ("muterId" text, "muteeId" text)',
+			'channel (id text PRIMARY KEY, name text, color text, "isSensitive" boolean, "userId" text, "lastNotedAt" timestamptz, "notesCount" integer, "usersCount" integer, "pinnedNoteIds" varchar[], "isArchived" boolean DEFAULT false, "allowRenoteToExternal" boolean DEFAULT true)',
 			'"user" (id text PRIMARY KEY, uri text)',
 			'note (id text PRIMARY KEY, uri text, "channelId" text, "userId" text, "includeDefault" boolean, "multiNoteKind" text, "gridspaceShared" boolean, "userHost" text, visibility text, "fileIds" text[] DEFAULT ARRAY[]::text[])',
 			'note_channel_placement ("canonicalUri" text, "sortAt" timestamptz, "noteId" text, "channelId" text, state text)',
@@ -127,6 +128,29 @@ describe('channel placement index and legacy projections', () => {
 	afterAll(async () => {
 		if (runner) { await runner.rollbackTransaction(); await runner.release(); }
 		if (db?.isInitialized) await db.destroy();
+	});
+	test('filters dedicated local and delegated reference renotes using current home mutes and listing options', async () => {
+		const localUri = origin + '/notes/plain';
+		const peerUri = other + '/notes/plain';
+		const reference = (uri: string, server: string): TimelineReference => ({
+			noteId: 'plain', canonicalUri: uri, source: 'local', sortAt: '1', generation: 2, normalized: true,
+			placement: { channelId: 'a', channelOrigin: origin, noteOrigin: server, includeDefault: false, legacy: false },
+		});
+		const refs = [reference(localUri, origin), reference(peerUri, other)];
+		const f = fixture({ query: runner.query.bind(runner) } as unknown as DataSource);
+		const fields = { id: 'plain', text: null as string | null, cw: null, files: [], poll: null, includeDefault: false, multiNoteKind: 'root',
+			gridspaceQuote: origin + '/notes/target?gridspaceChannelOrigin=' + encodeURIComponent(other) + '&gridspaceChannelId=a' };
+		f.local.hydrateQuery.mockImplementation(async () => [{ reference: refs[0], payload: { ...fields, userId: viewer.id }, validForMs: null, nextPolicyCheckAt: null }] as never);
+		f.delegated.notes.mockImplementation(async () => ({ notes: [{ ...fields, origin: other, uri: peerUri, author: { uri: other + '/users/renoter' } }] }) as never);
+		const read = async (options = {}) => [...(await f.source.bodies(viewer, refs, Date.now() + 5000, options)).keys()];
+		expect(await read()).toEqual([localUri, peerUri]);
+		expect(await read({ withRenotes: false })).toEqual([]);
+		expect(await read({ includeMyRenotes: false })).toEqual([peerUri]);
+		await runner.query('INSERT INTO "user" VALUES ($1, $2)', ['cachedRenoter', other + '/users/renoter']);
+		await runner.query('INSERT INTO renote_muting VALUES ($1,$2)', [viewer.id, 'cachedRenoter']);
+		expect(await read()).toEqual([localUri]);
+		fields.text = 'A comment';
+		expect(await read({ withRenotes: false })).toEqual([localUri, peerUri]);
 	});
 	test('page boundaries use original time and canonical URI across legacy and remote rows', async () => {
 		const first = await source.read(viewer, origin, { channelId: 'a', limit: 1 }, Date.now() + 1000);
@@ -158,7 +182,7 @@ describe('channel placement index and legacy projections', () => {
 			expect(peer.references).toEqual(local.references);
 			return peer.references;
 		};
-		expect(await read(false)).toMatchObject([{ canonicalUri: uri, placement: { chips: [{ name: 'Sensitive' }] } }]);
+		expect(await read(false)).toMatchObject([{ canonicalUri: uri, placement: { chips: [{ name: 'Sensitive', isArchived: false, isSensitive: true, allowRenoteToExternal: true }] } }]);
 		expect(await read(false, true)).toHaveLength(1);
 		expect(await read(true)).toHaveLength(1);
 		await runner.query('INSERT INTO channel_muting VALUES ($1, $2, NULL)', [viewer.id, channelId]);

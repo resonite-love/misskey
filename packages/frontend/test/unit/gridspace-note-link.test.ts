@@ -6,11 +6,29 @@
 import { expect, test, vi } from 'vitest';
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: api }));
-import { isGridspaceNoteLink, isConfiguredGridspaceNoteLink } from '@/utility/gridspace-note-link.js';
+import { isGridspaceNoteLink, isConfiguredGridspaceNoteLink, isConfiguredGridspaceOrigin } from '@/utility/gridspace-note-link.js';
 test.each(['https://g.example/gridspace/private?noteId=abc&channelId=channel', 'https://r.example/gridspace/private?noteId=abc'])('recognizes a linked note URL: %s', value => expect(isGridspaceNoteLink(value)).toBe(true));
 test.each(['https://g.example/notes/abc', 'https://g.example/gridspace/private?noteId=a&noteId=b', 'https://g.example/gridspace/private?noteId=a&token=b', 'http://g.example/gridspace/private?noteId=abc', 'https://user@g.example/gridspace/private?noteId=abc', 'https://g.example/gridspace/private?noteId=../abc'])('does not treat malformed URLs as quote targets: %s', value => expect(isGridspaceNoteLink(value)).toBe(false));
 
 test('configuration failure stays unknown instead of exposing a private URL to public preview', async () => {
 	api.mockRejectedValue(new Error('offline'));
 	expect(await isConfiguredGridspaceNoteLink('https://g.example/gridspace/private?noteId=note')).toBeNull();
+});
+
+test('emoji images and note links share one pair lookup and exclude other origins', async () => {
+	api.mockClear();
+	api.mockResolvedValue({ enabled: true, origins: ['https://g.example', 'https://r.example'] });
+	expect(await Promise.all([
+		isConfiguredGridspaceOrigin('https://r.example/emoji/bloborange.webp'),
+		isConfiguredGridspaceNoteLink('https://g.example/gridspace/private?noteId=note'),
+		isConfiguredGridspaceOrigin('https://other.example/emoji/bloborange.webp'),
+	])).toEqual([true, true, false]);
+	expect(api).toHaveBeenCalledExactlyOnceWith('gridspace/search-info', {});
+});
+
+test('a disabled pair does not bypass the ordinary image route', async () => {
+	vi.resetModules();
+	api.mockResolvedValue({ enabled: false, origins: ['https://r.example'] });
+	const { isConfiguredGridspaceOrigin: disabledOrigin } = await import('@/utility/gridspace-note-link.js');
+	expect(await disabledOrigin('https://r.example/emoji/bloborange.webp')).toBe(false);
 });

@@ -21,6 +21,7 @@ import { GridspaceHistoryService } from './gridspace/GridspaceHistoryService.js'
 import { GridspaceSearchService } from './gridspace/GridspaceSearchService.js';
 import { GridspacePrivateService } from './gridspace/GridspacePrivateService.js';
 import { GridspacePublicNoteService } from './gridspace/GridspacePublicNoteService.js';
+import { GridspaceQuoteService } from './gridspace/GridspaceQuoteService.js';
 import { GridspaceNotificationService } from './gridspace/GridspaceNotificationService.js';
 import { GridspaceReplyService } from './gridspace/GridspaceReplyService.js';
 import { GridspaceNoteMenuService } from './gridspace/GridspaceNoteMenuService.js';
@@ -32,6 +33,8 @@ import { GridspaceLinkService } from './gridspace/GridspaceLinkService.js';
 import { GridspaceSharedDriveService } from './gridspace/GridspaceSharedDriveService.js';
 import { GridspaceManagedResourceService } from './gridspace/GridspaceManagedResourceService.js';
 import { GridspaceContentService } from './gridspace/GridspaceContentService.js';
+import { GridspaceNoteClipsService } from './gridspace/GridspaceNoteClipsService.js';
+import { GridspaceEmojiSyncService } from './gridspace/GridspaceEmojiSyncService.js';
 import { GridspaceDriveService } from './gridspace/GridspaceDriveService.js';
 import { GridspaceChannelAuthService } from './gridspace/GridspaceChannelAuthService.js';
 import { GridspaceChannelService } from './gridspace/GridspaceChannelService.js';
@@ -371,6 +374,8 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceNotificationTimelineService,
 		GridspaceDriveService,
 		GridspaceContentService,
+		GridspaceNoteClipsService,
+		GridspaceEmojiSyncService,
 		GridspaceSharedDriveService,
 		GridspaceManagedResourceService,
 		GridspaceLinkService,
@@ -386,6 +391,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceSearchService,
 		GridspacePrivateService,
 		GridspacePublicNoteService,
+		GridspaceQuoteService,
 		GridspaceReplyService,
 	GridspaceActionService,
 	GridspaceNoteMenuService,
@@ -720,6 +726,8 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceDriveService,
 		GridspaceContentService,
 		GridspaceSharedDriveService,
+		GridspaceNoteClipsService,
+		GridspaceEmojiSyncService,
 		GridspaceManagedResourceService,
 		GridspaceLinkService,
 		GridspaceChannelService,
@@ -734,6 +742,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceSearchService,
 		GridspacePrivateService,
 		GridspacePublicNoteService,
+		GridspaceQuoteService,
 		GridspaceReplyService,
 	GridspaceActionService,
 	GridspaceNoteMenuService,

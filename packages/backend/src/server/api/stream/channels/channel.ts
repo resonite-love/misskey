@@ -8,7 +8,7 @@ import type { Packed } from '@/misc/json-schema.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { NoteStreamingHidingService } from '../NoteStreamingHidingService.js';
 import { bindThis } from '@/decorators.js';
-import { isRenotePacked, isQuotePacked } from '@/misc/is-renote.js';
+import { isRenotePacked, isQuotePacked, isReferenceRenotePacked } from '@/misc/is-renote.js';
 import { isInstanceMuted } from '@/misc/is-instance-muted.js';
 import { isUserRelated } from '@/misc/is-user-related.js';
 import type { InternalEventTypes, EventTypesToEventPayload } from '@/core/GlobalEventService.js';
@@ -98,7 +98,7 @@ export class ChannelChannel extends Channel {
 		if (isUserRelated(note, this.userIdsWhoBlockingMe)) return true;
 
 		// 流れてきたNoteがリノートをミュートしてるユーザが行ったもの
-		if (isRenotePacked(note) && !isQuotePacked(note) && this.userIdsWhoMeMutingRenotes.has(note.user.id)) return true;
+		if (((isRenotePacked(note) && !isQuotePacked(note)) || isReferenceRenotePacked(note)) && this.userIdsWhoMeMutingRenotes.has(note.user.id)) return true;
 
 		// このソケットで見ているチャンネルがミュートされていたとしても、チャンネルを直接見ている以上は流すようにしたい
 		// ただし、他のミュートしているチャンネルは流さないようにもしたい

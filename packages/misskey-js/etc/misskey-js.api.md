@@ -263,6 +263,12 @@ type AdminGridspaceDriveRequest = operations['admin___gridspace___drive']['reque
 type AdminGridspaceDriveResponse = operations['admin___gridspace___drive']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
+type AdminGridspaceEmojisRequest = operations['admin___gridspace___emojis']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type AdminGridspaceEmojisResponse = operations['admin___gridspace___emojis']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
 type AdminGridspaceJobsRequest = operations['admin___gridspace___jobs']['requestBody']['content']['application/json'];
 
 // @public (undocumented)
@@ -1778,6 +1784,8 @@ declare namespace entities {
         AdminGetUserIpsResponse,
         AdminGridspaceDriveRequest,
         AdminGridspaceDriveResponse,
+        AdminGridspaceEmojisRequest,
+        AdminGridspaceEmojisResponse,
         AdminGridspaceJobsRequest,
         AdminGridspaceJobsResponse,
         AdminGridspaceLinksRequest,
@@ -2132,6 +2140,7 @@ declare namespace entities {
         GridspaceDriveResponse,
         GridspaceDriveImportRequest,
         GridspaceDriveImportResponse,
+        GridspaceEmojiAliasesResponse,
         GridspaceHistoryRequest,
         GridspaceHistoryResponse,
         GridspaceLayoutReferenceRequest,
@@ -2150,6 +2159,8 @@ declare namespace entities {
         GridspaceMultiNoteChannelsResponse,
         GridspaceMultiNoteRemoveRequest,
         GridspaceMultiNoteRetryRequest,
+        GridspaceNoteClipsRequest,
+        GridspaceNoteClipsResponse,
         GridspaceNoteLinkRequest,
         GridspaceNoteLinkResponse,
         GridspaceNoteMenuRequest,
@@ -2839,6 +2850,9 @@ type GridspaceDriveRequest = operations['gridspace___drive']['requestBody']['con
 type GridspaceDriveResponse = operations['gridspace___drive']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
+type GridspaceEmojiAliasesResponse = operations['gridspace___emoji-aliases']['responses']['200']['content']['application/json'];
+
+// @public (undocumented)
 type GridspaceHistoryRequest = operations['gridspace___history']['requestBody']['content']['application/json'];
 
 // @public (undocumented)
@@ -2891,6 +2905,12 @@ type GridspaceMultiNoteRemoveRequest = operations['gridspace___multi-note___remo
 
 // @public (undocumented)
 type GridspaceMultiNoteRetryRequest = operations['gridspace___multi-note___retry']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceNoteClipsRequest = operations['gridspace___note-clips']['requestBody']['content']['application/json'];
+
+// @public (undocumented)
+type GridspaceNoteClipsResponse = operations['gridspace___note-clips']['responses']['200']['content']['application/json'];
 
 // @public (undocumented)
 type GridspaceNoteLinkRequest = operations['gridspace___note-link']['requestBody']['content']['application/json'];

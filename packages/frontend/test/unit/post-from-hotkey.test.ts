@@ -4,6 +4,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { instance } from '@/instance.js';
 import { mainRouter } from '@/router.js';
 import { makeHotkey } from '@/utility/hotkey.js';
 import { postFromHotkey } from '@/utility/post-from-hotkey.js';
@@ -14,11 +15,14 @@ const mocks = vi.hoisted(() => ({
 	misskeyApi: vi.fn(),
 	alert: vi.fn(),
 	post: vi.fn(),
+	gridspacePost: vi.fn(),
 }));
 
+vi.mock('@/instance.js', () => ({ instance: { features: { multiNote: true, multiNotePeer: true } } }));
 vi.mock('@/i.js', () => ({ get $i() { return mocks.user; } }));
 vi.mock('@/os.js', () => ({ apiWithDialog: mocks.apiWithDialog, alert: mocks.alert, post: mocks.post }));
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: mocks.misskeyApi }));
+vi.mock('@/utility/gridspace-post.js', () => ({ gridspacePost: mocks.gridspacePost }));
 vi.mock('@/router.js', async () => {
 	const { Nirax } = await import('@/lib/nirax.js');
 	return {
@@ -28,6 +32,7 @@ vi.mock('@/router.js', async () => {
 			{ path: '/channels/new', component: {} },
 			{ path: '/channels/:channelId/edit', component: {} },
 			{ path: '/channels/:channelId', component: {} },
+			{ path: '/gridspace/channels/:channelId?', query: { placement: 'placement' }, component: {} },
 		], '/', true, {}),
 	};
 });
@@ -48,6 +53,7 @@ describe('N key post destination', () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
 		mocks.user = { id: 'user' };
+		instance.features!.multiNotePeer = true;
 		mocks.apiWithDialog.mockResolvedValue(channel);
 		mocks.misskeyApi.mockResolvedValue(channel);
 		mainRouter.replaceByPath('/');
@@ -76,13 +82,71 @@ describe('N key post destination', () => {
 		expect(mocks.post).toHaveBeenCalledExactlyOnceWith({ channel });
 	});
 
-	test.each(['/', '/channels', '/channels/new', '/channels/channel-a/edit'])('opens a normal post on %s', async (path) => {
+	test.each(['/', '/channels', '/channels/new', '/channels/channel-a/edit', '/gridspace/channels'])('opens a normal post on %s', async (path) => {
 		mainRouter.replaceByPath(path);
 
 		await pressN();
 
 		expect(mocks.misskeyApi).not.toHaveBeenCalled();
 		expect(mocks.post).toHaveBeenCalledExactlyOnceWith();
+	});
+
+	test('opens the linked channel composer from N without opening a local post', async () => {
+		mainRouter.replaceByPath('/gridspace/channels/channel-a');
+		mocks.misskeyApi.mockResolvedValue({ origin: 'https://peer.test', channels: [channel] });
+		await pressN();
+		expect(mocks.misskeyApi).toHaveBeenCalledWith('gridspace/channels', { channelId: 'channel-a' });
+		expect(mocks.gridspacePost).toHaveBeenCalledExactlyOnceWith({ channelId: 'channel-a', channel, channelOrigin: 'https://peer.test' });
+		expect(mocks.post).not.toHaveBeenCalled();
+	});
+
+	test.each([true, false])('uses the peer placement channel for an explicit or reverse placement account (explicit=%s)', async explicit => {
+		mainRouter.replaceByPath('/gridspace/channels/channel-a' + (explicit ? '?placement=1' : ''));
+		mocks.misskeyApi.mockImplementation(async endpoint => endpoint === 'gridspace/link'
+			? { channelsEnabled: false, timeline: { version: 1, enabled: true, kinds: ['channel'], channelPlacements: true } }
+			: { origin: 'https://peer.test', channels: [channel] });
+		await pressN();
+		expect(mocks.misskeyApi).toHaveBeenCalledWith('gridspace/multi-note/channels', { channelId: 'channel-a' });
+		expect(mocks.gridspacePost).toHaveBeenCalledExactlyOnceWith({ channelId: 'channel-a', channel, channelOrigin: 'https://peer.test' });
+	});
+
+	test('keeps a read-only placement route from opening the legacy composer', async () => {
+		instance.features!.multiNotePeer = false;
+		mainRouter.replaceByPath('/gridspace/channels/channel-a?placement=1');
+		await pressN();
+		expect(mocks.gridspacePost).not.toHaveBeenCalled();
+		expect(mocks.post).not.toHaveBeenCalled();
+		expect(mocks.alert).toHaveBeenCalledOnce();
+	});
+
+	test('does not open a stale linked channel after navigating away', async () => {
+		let resolveChannels!: (value: { channels: typeof channel[] }) => void;
+		mocks.misskeyApi.mockReturnValue(new Promise(resolve => { resolveChannels = resolve; }));
+		mainRouter.replaceByPath('/gridspace/channels/channel-a');
+		const pending = pressN();
+		mainRouter.replaceByPath('/gridspace/channels/channel-b');
+		resolveChannels({ channels: [channel] });
+		await pending;
+		expect(mocks.gridspacePost).not.toHaveBeenCalled();
+		expect(mocks.post).not.toHaveBeenCalled();
+	});
+
+	test.each([{ channels: [] }, { channels: [{ ...channel, isArchived: true }] }, { channels: [{ ...channel, id: 'another-channel' }] }])('does not open an unavailable linked channel: %j', async ({ channels }) => {
+		mainRouter.replaceByPath('/gridspace/channels/channel-a');
+		mocks.misskeyApi.mockResolvedValue({ channels });
+		await pressN();
+		expect(mocks.gridspacePost).not.toHaveBeenCalled();
+		expect(mocks.post).not.toHaveBeenCalled();
+		expect(mocks.alert).toHaveBeenCalledOnce();
+	});
+
+	test('reports a linked channel lookup failure without falling back to a local post', async () => {
+		mainRouter.replaceByPath('/gridspace/channels/channel-a');
+		mocks.misskeyApi.mockRejectedValue(new Error('Peer unavailable'));
+		await pressN();
+		expect(mocks.alert).toHaveBeenCalledExactlyOnceWith({ type: 'error', text: 'Peer unavailable' });
+		expect(mocks.gridspacePost).not.toHaveBeenCalled();
+		expect(mocks.post).not.toHaveBeenCalled();
 	});
 
 	test('uses the newly displayed channel after navigation', async () => {

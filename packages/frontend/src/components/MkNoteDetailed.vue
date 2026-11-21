@@ -41,14 +41,16 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<i v-else-if="note.visibility === 'specified'" ref="specified" class="ti ti-mail"></i>
 			</span>
 			<span v-if="note.localOnly" style="margin-left: 0.5em;" :title="i18n.ts._visibility['disableFederation']"><i class="ti ti-rocket-off"></i></span>
+			<span v-else-if="note.noRelay" :class="$style.noRelay" :title="i18n.ts._visibility.noRelay" role="img" :aria-label="i18n.ts._visibility.noRelay"><i class="ti ti-route-off" aria-hidden="true"></i></span>
 		</div>
 	</div>
-	<div v-if="isRenote && note.renote == null" :class="$style.deleted">
+	<MkGridspaceReferenceRenote v-if="isGridspaceReferenceRenote(appearNote)" :note="appearNote" detailed @menu="showRenoteMenu"/>
+	<div v-else-if="isRenote && note.renote == null" :class="$style.deleted">
 		{{ i18n.ts.deletedNote }}
 	</div>
 	<template v-else>
 		<MkNoteDetailedArticle :compactTop="isRenote" @contextmenu.stop="onContextmenu">
-			<template #header><MkNoteDetailedHeader :user="appearNote.user" :visibility="appearNote.visibility" :localOnly="appearNote.localOnly"><MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/></MkNoteDetailedHeader></template>
+			<template #header><MkNoteDetailedHeader :user="appearNote.user" :visibility="appearNote.visibility" :localOnly="appearNote.localOnly" :noRelay="appearNote.noRelay"><MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/></MkNoteDetailedHeader></template>
 			<div :class="$style.noteContent">
 				<MkNotePlacements v-if="!appearNote.isHidden && appearNote.multiNoteKind === 'root'" :placements="appearNote.channelPlacements" :unavailable="appearNote.channelPlacementsUnavailable" :includeDefault="appearNote.includeDefault"/>
 				<MkNoteCw v-if="appearNote.cw != null" v-model="showContent" :cw="appearNote.cw" :text="appearNote.text" :author="appearNote.user" :emojiUrls="appearNote.emojis" :files="appearNote.files" :poll="appearNote.poll" :renote="appearNote.renote" interactive/>
@@ -94,6 +96,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 						<MkUrlPreview v-for="url in urls" :key="url" :url="url" :compact="true" :detail="true" style="margin-top: 6px;"/>
 					</div>
 					<div v-if="appearNote.renoteId" :class="$style.quote"><MkNoteSimple :note="appearNote?.renote ?? null" :class="$style.quoteNote"/></div>
+					<div v-if="appearNote.gridspaceQuote" :class="$style.quote"><div :class="$style.quoteNote"><MkGridspaceNoteLinkPreview :url="appearNote.gridspaceQuote" quote/></div></div>
 				</div>
 				<MkNoteChannel v-if="appearNote.channel && !inChannel" :channel="appearNote.channel"/>
 			</div>
@@ -204,6 +207,8 @@ import { notePage } from '@@/js/note.js';
 import type { Keymap } from '@/utility/hotkey.js';
 import MkAutoTranslatedNote from '@/components/MkAutoTranslatedNote.vue';
 import { useNote } from '@/composables/use-note.js';
+import MkGridspaceReferenceRenote from '@/components/MkGridspaceReferenceRenote.vue';
+import { isGridspaceReferenceRenote } from '@/utility/is-gridspace-reference-renote.js';
 import { isUnavailableGridspaceNote } from '@/utility/is-unavailable-gridspace-note.js';
 import { prefer } from '@/preferences.js';
 import { i18n } from '@/i18n.js';
@@ -217,6 +222,7 @@ import { DI } from '@/di.js';
 import MkNoteSub from '@/components/MkNoteSub.vue';
 import MkNoteChannel from '@/components/MkNoteChannel.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
+import MkGridspaceNoteLinkPreview from '@/components/MkGridspaceNoteLinkPreview.vue';
 import MkReactionsViewer from '@/components/MkReactionsViewer.vue';
 import MkNoteDetailedArticle from '@/components/MkNoteDetailedArticle.vue';
 import MkNoteDetailedHeader from '@/components/MkNoteDetailedHeader.vue';
@@ -431,6 +437,10 @@ const keymap = {
 
 .renoteName {
 	font-weight: bold;
+}
+
+.noRelay {
+	margin-inline-start: .5em;
 }
 
 .renoteInfo {

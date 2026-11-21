@@ -610,6 +610,18 @@ declare module '../api.js' {
      * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
      * **Credential required**: *Yes*
      */
+    request<E extends 'admin/gridspace/emojis', P extends Endpoints[E]['req']>(
+      endpoint: E,
+      params: P,
+      credential?: string | null,
+    ): Promise<SwitchCaseResponseType<E, P>>;
+
+    /**
+     * No description provided.
+     *
+     * **Internal Endpoint**: This endpoint is an API for the misskey mainframe and is not intended for use by third parties.
+     * **Credential required**: *Yes*
+     */
     request<E extends 'admin/gridspace/jobs', P extends Endpoints[E]['req']>(
       endpoint: E,
       params: P,
@@ -3058,6 +3070,17 @@ declare module '../api.js' {
      *
      * **Credential required**: *No*
      */
+    request<E extends 'gridspace/emoji-aliases', P extends Endpoints[E]['req']>(
+      endpoint: E,
+      params: P,
+      credential?: string | null,
+    ): Promise<SwitchCaseResponseType<E, P>>;
+
+    /**
+     * No description provided.
+     *
+     * **Credential required**: *No*
+     */
     request<E extends 'gridspace/history', P extends Endpoints[E]['req']>(
       endpoint: E,
       params: P,
@@ -3166,6 +3189,17 @@ declare module '../api.js' {
      * **Credential required**: *Yes*
      */
     request<E extends 'gridspace/multi-note/retry', P extends Endpoints[E]['req']>(
+      endpoint: E,
+      params: P,
+      credential?: string | null,
+    ): Promise<SwitchCaseResponseType<E, P>>;
+
+    /**
+     * No description provided.
+     *
+     * **Credential required**: *No*
+     */
+    request<E extends 'gridspace/note-clips', P extends Endpoints[E]['req']>(
       endpoint: E,
       params: P,
       credential?: string | null,

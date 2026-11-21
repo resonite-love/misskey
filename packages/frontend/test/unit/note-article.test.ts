@@ -15,6 +15,7 @@ import NoteDetailedArticle from '@/components/MkNoteDetailedArticle.vue';
 import NotePlacements from '@/components/MkNotePlacements.vue';
 import nativeSource from '@/components/MkNote.vue?raw';
 import detailSource from '@/components/MkNoteDetailed.vue?raw';
+import { isGridspaceReferenceRenote } from '@/utility/is-gridspace-reference-renote.js';
 
 vi.mock('@/components/global/MkAvatar.vue', () => ({ default: { props: ['user', 'preview'], template: '<div data-avatar :data-preview="preview">{{ user.username }}</div>' } }));
 vi.mock('@/i18n.js', () => ({ i18n: { ts: { _multiNote: { placements: 'Destinations', defaultDestination: 'Regular timeline' } } } }));
@@ -39,7 +40,7 @@ test.each([
 		channelPlacements: ['General', 'Music'].map(name => ({ origin, canonicalUri, channelId: name.toLowerCase(), name, color: '#ffaabb', state: 'active' })),
 	} satisfies Partial<entities.Note>;
 	const Native = Vue.defineComponent({ render: new Function('Vue', compiled.code)(Vue), setup: () => ({
-		hardMuted: false, hideByPlugin: false, muted: false, prefer: { s: {} }, keymap: {}, isRenote: false, renoteCollapsed: false,
+		hardMuted: false, hideByPlugin: false, muted: false, prefer: { s: {} }, keymap: {}, isRenote: false, renoteCollapsed: false, isGridspaceReferenceRenote,
 		note, appearNote: note, inChannel: null, notePage: () => '/notes/local-mirror', mock: true, showContent: true, canRenote: true, reply, isUnavailableGridspaceNote: () => false, i18n: { ts: {} },
 	}) });
 	const view = render(Native, { global: {

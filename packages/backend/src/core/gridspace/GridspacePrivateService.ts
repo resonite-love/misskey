@@ -50,6 +50,7 @@ import { gridspaceHash } from './link-crypto.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
 import { searchNoteTimeSql } from './search-visibility.js';
 import { canonicalGridspaceNoteUri, gridspaceNoteId } from './note-protocol.js';
+import { fillPeerEmojiUrls } from './peer-emoji-url.js';
 import { GridspacePeerAuthorizationError, requestGridspacePeer } from './peer-client.js';
 import { PRIVATE_FILE_LIMIT, type PrivateNote, type PrivateWireNote, type PrivateOptions, type PrivatePage, type PrivatePeerRequest } from './private-protocol.js';
 import { TimelineReferenceService } from './timeline/TimelineReferenceService.js';
@@ -169,13 +170,13 @@ export class GridspacePrivateService {
 		if (input.withReplies === false) query.andWhere(mode === 'home'
 			? '(note.replyId IS NULL OR note.replyUserId = note.userId OR note.replyUserId = :homeViewer OR note.replyUserId IN (SELECT id FROM "user" WHERE uri = :homePeerViewer))'
 			: 'note.replyId IS NULL', { homeViewer: viewerId, homePeerViewer: `${this.peer!.peerOrigin}/users/${input.localUserId}` });
-		if (input.withRenotes === false) query.andWhere(mode === 'home' ? '(note.renoteId IS NULL OR note.text IS NOT NULL OR note.cw IS NOT NULL OR note.replyId IS NOT NULL OR cardinality(note.fileIds) > 0 OR note.hasPoll)' : 'note.renoteId IS NULL');
+		if (input.withRenotes === false) query.andWhere(mode === 'home' ? '((note.renoteId IS NULL AND note.gridspaceQuote IS NULL) OR note.text IS NOT NULL OR note.cw IS NOT NULL OR note.replyId IS NOT NULL OR cardinality(note.fileIds) > 0 OR note.hasPoll)' : '(note.renoteId IS NULL AND note.gridspaceQuote IS NULL)');
 		if (input.withFiles) query.andWhere('cardinality(note.fileIds) > 0');
 		if (input.withChannelNotes === false) query.andWhere('note.channelId IS NULL');
-		const pureRenote = '(note.renoteId IS NOT NULL AND note.text IS NULL AND note.cw IS NULL AND note.replyId IS NULL AND cardinality(note.fileIds) = 0 AND NOT note.hasPoll)';
+		const pureRenote = '((note.renoteId IS NOT NULL OR note.gridspaceQuote IS NOT NULL) AND note.text IS NULL AND note.cw IS NULL AND note.replyId IS NULL AND cardinality(note.fileIds) = 0 AND NOT note.hasPoll)';
 		if (input.timelineIncludeMyRenotes === false) query.andWhere(`(NOT ${pureRenote} OR note.userId != :timelineSelf)`, { timelineSelf: viewerId });
 		if (input.timelineIncludeRenotedMyNotes === false) query.andWhere(`(NOT ${pureRenote} OR note.renoteUserId IS DISTINCT FROM :timelineSelf)`, { timelineSelf: viewerId });
-		if (input.timelineIncludeLocalRenotes === false) query.andWhere(`NOT (${pureRenote} AND note.renoteUserHost IS NULL)`);
+		if (input.timelineIncludeLocalRenotes === false) query.andWhere(`NOT (${pureRenote} AND note.renoteId IS NOT NULL AND note.renoteUserHost IS NULL)`);
 		return query;
 	}
 
@@ -560,7 +561,8 @@ export class GridspacePrivateService {
 			const emoji = localName ? local.get(localName) : null;
 			if (emoji) result[name] = emoji.publicUrl || emoji.originalUrl;
 		}
-		return result;
+		// Channel posts may not have passed through the ActivityPub emoji cache.
+		return fillPeerEmojiUrls(this.peer, result, names, host);
 	}
 
 	private async pack(note: MiNote, viewerId: string, readableRelated: Set<string>, reactionState: Awaited<ReturnType<GridspaceReactionService['show']>>[number] | undefined, authors = new Map<string, Promise<Packed<'UserLite'>>>()): Promise<PrivateWireNote> {
@@ -578,12 +580,14 @@ export class GridspacePrivateService {
 		const actors = await this.db.getRepository(MiUser).findBy({ id: In(actorIds) });
 		return {
 			id: note.id, uri: note.uri ?? `${this.peer!.origin}/notes/${note.id}`, origin: this.peer!.origin, createdAt: this.ids.parse(note.id).date.toISOString(), text: note.text, cw: note.cw,
-			visibility: note.visibility, localOnly: note.localOnly, emojis: emojiUrls,
+			visibility: note.visibility, localOnly: note.localOnly, noRelay: note.noRelay, emojis: emojiUrls,
 			...(this.collectionId(note) ? { collectionId: this.collectionId(note), collectionAt: this.ids.parse(this.collectionId(note)!).date.toISOString() } : {}),
 			...(note.multiNoteKind ? { multiNoteKind: note.multiNoteKind, includeDefault: note.includeDefault ?? false, ...(dedicatedOriginal(note) ? { conversationUri: `${this.peer!.origin}/notes/${note.id}` } : {}) } : {}),
 			channelId: note.channelId, canDelete: (!!note.channelId || (dedicatedOriginal(note) && note.multiNoteKind === 'conversation-reply')) && note.userId === viewerId,
 			canSelfRenote: !this.collectionClient && canSelfRenote(note, viewerId),
-			channel: note.channel ? { id: note.channel.id, name: note.channel.name, color: note.channel.color } : null,
+			canQuoteOutside: !!note.channel?.allowRenoteToExternal && ['public', 'home'].includes(note.visibility) && !(note.renoteId && !note.text && !note.fileIds.length && !note.hasPoll),
+			gridspaceQuote: note.gridspaceQuote ?? undefined,
+			channel: note.channel ? { id: note.channel.id, name: note.channel.name, color: note.channel.color, isSensitive: note.channel.isSensitive } : null,
 			reactions, reactionEmojis, myReaction, myReactions, extendedReactions: dedicatedOriginal(note) || !!note.channelId || supportsGridspaceReactions(note, this.peer),
 			reactionPreviews: reactionState.reactionPreviews?.filter(row => Object.keys(reactions).some(reaction => reaction.replace('@.:', ':') === row.reaction.replace('@.:', ':'))),
 			author: { ...this.actor(note.user!), avatarUrl: author.avatarUrl, emojis: await this.emojiUrls(note.user!.emojis, note.user!.host), avatarBlurhash: author.avatarBlurhash, avatarDecorations: author.avatarDecorations, isBot: author.isBot, isCat: author.isCat,

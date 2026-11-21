@@ -19,7 +19,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</button>
 		</template>
 		<template v-if="placementForm || !(targetChannel != null && fixed)">
-			<button v-if="targetChannel == null || placementForm" ref="visibilityButton" v-tooltip="i18n.ts.visibility" :class="['_button', $style.headerRightItem, $style.visibility]" @click="setVisibility">
+			<button v-if="!fixedQuoteDestination && (targetChannel == null || placementForm)" ref="visibilityButton" v-tooltip="i18n.ts.visibility" :class="['_button', $style.headerRightItem, $style.visibility]" @click="setVisibility">
 				<span v-if="visibility === 'public'"><i class="ti ti-world"></i></span>
 				<span v-if="visibility === 'home'"><i class="ti ti-home"></i></span>
 				<span v-if="visibility === 'followers'"><i class="ti ti-lock"></i></span>
@@ -28,12 +28,11 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</button>
 			<button v-else class="_button" :class="[$style.headerRightItem, $style.visibility]" disabled>
 				<span><i class="ti ti-device-tv"></i></span>
-				<span :class="$style.headerRightButtonText">{{ targetChannel.name }}</span>
+				<span :class="$style.headerRightButtonText">{{ fixedQuoteDestination?.name ?? targetChannel?.name }}</span>
 			</button>
 		</template>
-		<button v-if="visibility !== 'specified'" v-tooltip="i18n.ts._visibility.disableFederation" class="_button" :class="[$style.headerRightItem, { [$style.danger]: effectiveLocalOnly }]" :disabled="placementForm ? !destinations.includeDefault : targetChannel != null" @click="toggleLocalOnly">
-			<span v-if="!effectiveLocalOnly"><i class="ti ti-rocket"></i></span>
-			<span v-else><i class="ti ti-rocket-off"></i></span>
+		<button v-if="visibility !== 'specified'" ref="deliveryButton" v-tooltip="deliveryLabel" class="_button" :class="[$style.headerRightItem, { [$style.danger]: delivery === 'local' }]" :disabled="localDeliveryRequired" :aria-label="deliveryLabel" aria-haspopup="menu" :aria-expanded="deliveryMenuOpen" data-testid="post-form-delivery" @click="openDeliveryMenu">
+			<i :class="deliveryOption.icon" aria-hidden="true"></i>
 		</button>
 		<button ref="otherSettingsButton" v-tooltip="i18n.ts.other" class="_button" :class="$style.headerRightItem" @click="showOtherSettings"><i class="ti ti-dots"></i></button>
 		<button ref="submitButtonEl" v-click-anime class="_button" :class="$style.submit" :disabled="!canPost" data-testid="post-form-submit" @click="post">
@@ -50,13 +49,15 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<button type="button" class="_textButton" @click="openPendingDraft(key)">{{ i18n.ts._multiNote.openPendingDraft }}</button>
 	</MkInfo>
 	<MkInfo v-if="missingDraftAccountId && !pendingCreate" warn>{{ i18n.ts._multiNote.chooseAccount }}</MkInfo>
-	<MkInfo v-if="placementsUnavailable" warn>{{ i18n.ts._multiNote.placementsUnavailable }}</MkInfo>
+	<MkInfo v-if="placementsUnavailable || (explicitDestinations && !placementSubmission)" warn>{{ i18n.ts._multiNote.placementsUnavailable }}</MkInfo>
 	<MkInfo v-if="pendingCreate">
 		{{ i18n.ts._multiNote.pendingCreate }}
 		<button type="button" class="_textButton" :disabled="posting || preparing" @click="recoverPending">{{ i18n.ts._multiNote.checkResult }}</button>
 	</MkInfo>
 	<MkNoteSimple v-if="replyTargetNote" :class="$style.targetNote" :note="replyTargetNote"/>
 	<MkNoteSimple v-if="renoteTargetNote" :class="$style.targetNote" :note="renoteTargetNote"/>
+	<MkGridspaceNoteLinkPreview v-if="gridspaceQuote" :class="$style.targetNote" :url="gridspaceQuote" composing :quoteDestination="fixedQuoteDestination" quote/>
+	<div v-if="gridspaceQuote" :class="$style.withQuote"><i class="ti ti-quote"></i> {{ i18n.ts.quoteAttached }}<button v-if="!fixedQuoteDestination" class="_button" :aria-label="i18n.ts.remove" @click="gridspaceQuote = null"><i class="ti ti-x"></i></button></div>
 	<div v-if="quoteId" :class="$style.withQuote"><i class="ti ti-quote"></i> {{ i18n.ts.quoteAttached }}<button @click="quoteId = null; renoteTargetNote = null;"><i class="ti ti-x"></i></button></div>
 	<div v-if="visibility === 'specified'" :class="$style.toSpecified">
 		<span style="margin-right: 8px;">{{ i18n.ts.recipient }}</span>
@@ -114,7 +115,7 @@ import type { PollEditorModelValue } from '@/components/MkPollEditor.vue';
 import type { UploaderItem } from '@/composables/use-uploader.js';
 import MkPostFormActionBar from '@/components/MkPostFormActionBar.vue';
 import MkNoteDestinations from '@/components/MkNoteDestinations.vue';
-import { canUseDestinations, initialDestinations, noteInputHash, placementParams, recoverNoteCreate, startNoteCreate, withDraftLock } from '@/utility/multi-note.js';
+import { sameChannel, canUseDestinations, initialDestinations, noteInputHash, placementParams, recoverNoteCreate, startNoteCreate, withDraftLock } from '@/utility/multi-note.js';
 import type { NoteDestinations, PendingNoteCreate } from '@/utility/multi-note.js';
 import MkPostFormFields from '@/components/MkPostFormFields.vue';
 import MkPostFormHeader from '@/components/MkPostFormHeader.vue';
@@ -123,6 +124,7 @@ import XPostFormAttaches from '@/components/MkPostFormAttaches.vue';
 import XTextCounter from '@/components/MkPostForm.TextCounter.vue';
 import MkPollEditor from '@/components/MkPollEditor.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
+import MkGridspaceNoteLinkPreview from '@/components/MkGridspaceNoteLinkPreview.vue';
 import { erase, unique } from '@/utility/array.js';
 import { extractMentions } from '@/utility/extract-mentions.js';
 import { formatTimeString } from '@/utility/format-time-string.js';
@@ -151,8 +153,10 @@ import { useUploader } from '@/composables/use-uploader.js';
 import { startTour } from '@/utility/tour.js';
 import { closeTip } from '@/tips.js';
 import type { LinkedQuoteAttachment } from '@/utility/gridspace-note-link.js';
-import { isGridspaceNoteLink, isConfiguredGridspaceNoteLink } from '@/utility/gridspace-note-link.js';
+import { isGridspaceNoteLink, isConfiguredGridspaceNoteLink, parsePlacementReference } from '@/utility/gridspace-note-link.js';
 import { gridspacePost } from '@/utility/gridspace-post.js';
+import { getDefaultNoteDelivery, getNoteDelivery, getNoteDeliveryFlags, getNoteDeliveryOptions } from '@/utility/note-delivery.js';
+import type { NoteDelivery } from '@/utility/note-delivery.js';
 
 const $i = ensureSignin();
 
@@ -183,6 +187,7 @@ const textareaEl = useTemplateRef('textareaEl');
 const cwInputEl = useTemplateRef('cwInputEl');
 const hashtagsInputEl = useTemplateRef('hashtagsInputEl');
 const visibilityButton = useTemplateRef('visibilityButton');
+const deliveryButton = useTemplateRef('deliveryButton');
 const otherSettingsButton = useTemplateRef('otherSettingsButton');
 const accountMenuEl = useTemplateRef('accountMenuEl');
 const footerEl = useTemplateRef('footerEl');
@@ -206,7 +211,9 @@ watch(showPreview, () => store.set('showPreview', showPreview.value));
 const showAddMfmFunction = ref(prefer.s.enableQuickAddMfmFunction);
 watch(showAddMfmFunction, () => prefer.commit('enableQuickAddMfmFunction', showAddMfmFunction.value));
 const cw = ref<string | null>(props.initialCw ?? null);
-const localOnly = ref(props.initialLocalOnly ?? (prefer.s.rememberNoteVisibility ? store.s.localOnly : prefer.s.defaultNoteLocalOnly));
+const initialDelivery = prefer.s.rememberNoteVisibility ? store.s : getNoteDeliveryFlags(getDefaultNoteDelivery(prefer.s.defaultNoteLocalOnly));
+const localOnly = ref(props.initialLocalOnly ?? initialDelivery.localOnly);
+const noRelay = ref(props.initialLocalOnly == null && initialDelivery.noRelay);
 const visibility = ref(props.initialVisibility ?? (prefer.s.rememberNoteVisibility ? store.s.visibility : prefer.s.defaultNoteVisibility));
 const visibleUsers = ref<Misskey.entities.UserLite[]>([]);
 if (props.initialVisibleUsers) {
@@ -223,10 +230,12 @@ const showingOptions = ref(false);
 const textAreaReadOnly = ref(false);
 const justEndedComposition = ref(false);
 const renoteTargetNote: ShallowRef<PostFormProps['renote'] | null> = shallowRef(props.renote);
+const gridspaceQuote = ref(props.gridspaceQuote ?? props.initialNote?.gridspaceQuote ?? null);
 const replyTargetNote: ShallowRef<PostFormProps['reply'] | null> = shallowRef(props.reply);
 const targetChannel = shallowRef(props.channel);
 const localOrigin = new URL(url).origin;
-const initialChannel = props.initialChannelDestination ?? (props.channel ? {
+const fixedQuoteDestination = ref(props.fixedQuoteDestination);
+const initialChannel = props.fixedQuoteDestination ?? props.initialChannelDestination ?? (props.channel ? {
 	origin: localOrigin, channelId: props.channel.id, name: props.channel.name, color: props.channel.color,
 	isSensitive: props.channel.isSensitive, allowRenoteToExternal: props.channel.allowRenoteToExternal,
 } : null);
@@ -236,16 +245,20 @@ const preparing = ref(false);
 const otherPendingDrafts = ref<string[]>([]);
 let pauseDraftSaving = false;
 let lastDraftRevision: string | undefined;
-const initiallyPlaced = !props.reply && !props.renote && !props.instant && initialChannel != null &&
+const initiallyPlaced = !props.reply && !props.renote && !props.gridspaceQuote && !props.initialNote?.gridspaceQuote && !props.instant && initialChannel != null &&
 	(props.initialChannelDestination != null || instance.features?.multiNote === true);
 const keepDestinationSelection = ref(initiallyPlaced);
 watch(destinations, value => {
-	if (!props.instant && !replyTargetNote.value && !renoteTargetNote.value && !quoteId.value && !scheduledAt.value && (value.channels.length || !value.includeDefault)) keepDestinationSelection.value = true;
+	if (!props.instant && !replyTargetNote.value && !renoteTargetNote.value && !quoteId.value && !gridspaceQuote.value && !scheduledAt.value && (value.channels.length || !value.includeDefault)) keepDestinationSelection.value = true;
 }, { deep: true, flush: 'sync' });
-const placementForm = computed(() => (instance.features?.multiNote === true || keepDestinationSelection.value) && !props.instant &&
-	!replyTargetNote.value && !renoteTargetNote.value && !quoteId.value && !scheduledAt.value);
-const explicitDestinations = computed(() => keepDestinationSelection.value && (!destinations.value.includeDefault || destinations.value.channels.length > 0));
-const hasPlacements = computed(() => placementForm.value && destinations.value.channels.length > 0);
+const placementForm = computed(() => !fixedQuoteDestination.value && (instance.features?.multiNote === true || keepDestinationSelection.value) && !props.instant &&
+	!replyTargetNote.value && !renoteTargetNote.value && !quoteId.value && !gridspaceQuote.value && !scheduledAt.value);
+const fixedReference = computed(() => !!fixedQuoteDestination.value && !!gridspaceQuote.value && !!parsePlacementReference(gridspaceQuote.value) &&
+	!replyTargetNote.value && !renoteTargetNote.value && !quoteId.value && !scheduledAt.value &&
+	!destinations.value.includeDefault && destinations.value.channels.length === 1 && sameChannel(destinations.value.channels[0], fixedQuoteDestination.value));
+const placementSubmission = computed(() => placementForm.value || fixedReference.value);
+const explicitDestinations = computed(() => !!fixedQuoteDestination.value || (keepDestinationSelection.value && (!destinations.value.includeDefault || destinations.value.channels.length > 0)));
+const hasPlacements = computed(() => placementSubmission.value && destinations.value.channels.length > 0);
 const placementsUnavailable = computed(() => hasPlacements.value && (instance.features?.multiNote !== true ||
 	(destinations.value.channels.some(item => item.origin !== localOrigin) && instance.features?.multiNotePeer !== true)));
 const serverDraftChannel = computed(() => {
@@ -253,10 +266,17 @@ const serverDraftChannel = computed(() => {
 	const [only] = destinations.value.channels;
 	return !destinations.value.includeDefault && destinations.value.channels.length === 1 && only.origin === localOrigin ? only.channelId : null;
 });
-const effectiveLocalOnly = computed(() => (placementForm.value && !destinations.value.includeDefault) || localOnly.value);
 const postAccount = ref<Misskey.entities.UserDetailed | null>(null);
 const missingDraftAccountId = ref<string | null>(null);
 const candidateToken = computed(() => postAccount.value ? store.s.accountTokens[host + '/' + postAccount.value.id] : undefined);
+const localDeliveryRequired = computed(() => gridspaceQuote.value != null || replyTargetNote.value?.localOnly === true || renoteTargetNote.value?.localOnly === true ||
+	(placementForm.value ? !destinations.value.includeDefault : targetChannel.value != null));
+const effectiveLocalOnly = computed(() => localDeliveryRequired.value || localOnly.value);
+const delivery = computed(() => getNoteDelivery({ localOnly: effectiveLocalOnly.value, noRelay: noRelay.value }));
+const deliveryOption = computed(() => getNoteDeliveryOptions()[delivery.value]);
+const deliveryLabel = computed(() => `${i18n.ts._visibility.delivery}：${deliveryOption.value.label}`);
+const deliveryMenuOpen = ref(false);
+const relayDeliveryDisabled = computed(() => delivery.value === 'noRelay' && visibility.value !== 'specified');
 
 const serverDraftId = ref<string | null>(null);
 const postFormActions = getPluginHandlers('post_form_action');
@@ -280,9 +300,12 @@ uploader.events.on('itemUploaded', ctx => {
 
 const draftKey = computed((): string => {
 	if (props.initialPendingDraftKey) return props.initialPendingDraftKey;
-	let key = props.initialChannelDestination ? `channel:${props.initialChannelDestination.origin}:${props.initialChannelDestination.channelId}` : targetChannel.value ? `channel:${targetChannel.value.id}` : '';
+	const initialDestination = props.fixedQuoteDestination ?? props.initialChannelDestination;
+	let key = initialDestination ? `channel:${initialDestination.origin}:${initialDestination.channelId}` : targetChannel.value ? `channel:${targetChannel.value.id}` : '';
 
-	if (renoteTargetNote.value) {
+	if (gridspaceQuote.value) {
+		key += `gridspaceQuote:${gridspaceQuote.value}`;
+	} else if (renoteTargetNote.value) {
 		key += `renote:${renoteTargetNote.value.id}`;
 	} else if (replyTargetNote.value) {
 		key += `reply:${replyTargetNote.value.id}`;
@@ -292,11 +315,14 @@ const draftKey = computed((): string => {
 		else if (props.mention) key += `:mention:${props.mention.id}`;
 	}
 
-	return key;
+	// Old channel/reply drafts used shared keys. Keep the owner's legacy draft usable.
+	const drafts = readDrafts();
+	const accountKey = `account:${$i.id}:${key}`;
+	return fixedQuoteDestination.value || drafts[accountKey] || (drafts[key]?.ownerId && drafts[key].ownerId !== $i.id) ? accountKey : key;
 });
 
 const placeholder = computed((): string => {
-	if (renoteTargetNote.value) {
+	if (renoteTargetNote.value || gridspaceQuote.value) {
 		return i18n.ts._postForm.quotePlaceholder;
 	} else if (replyTargetNote.value) {
 		return i18n.ts._postForm.replyPlaceholder;
@@ -318,7 +344,7 @@ const placeholder = computed((): string => {
 const submitText = computed((): string => {
 	return scheduledAt.value != null
 		? i18n.ts.schedule
-		: renoteTargetNote.value
+		: renoteTargetNote.value || gridspaceQuote.value
 			? i18n.ts.quote
 			: replyTargetNote.value
 				? i18n.ts.reply
@@ -326,7 +352,7 @@ const submitText = computed((): string => {
 });
 
 const submitIcon = computed((): string => {
-	return posted.value ? 'ti ti-check' : scheduledAt.value != null ? 'ti ti-calendar-time' : replyTargetNote.value ? 'ti ti-arrow-back-up' : renoteTargetNote.value ? 'ti ti-quote' : 'ti ti-send';
+	return posted.value ? 'ti ti-check' : scheduledAt.value != null ? 'ti ti-calendar-time' : replyTargetNote.value ? 'ti ti-arrow-back-up' : renoteTargetNote.value || gridspaceQuote.value ? 'ti ti-quote' : 'ti ti-send';
 });
 
 const textLength = computed((): number => {
@@ -344,7 +370,7 @@ const cwTextLength = computed((): number => {
 const maxCwTextLength = 100;
 
 const canPost = computed((): boolean => {
-	return !missingDraftAccountId.value && !placementsUnavailable.value && (!explicitDestinations.value || placementForm.value) && (!placementForm.value || canUseDestinations(destinations.value, visibility.value)) && !preparing.value &&
+	return !missingDraftAccountId.value && !placementsUnavailable.value && (!explicitDestinations.value || placementSubmission.value) && (!placementSubmission.value || canUseDestinations(destinations.value, visibility.value)) && !preparing.value &&
 		!props.mock && !resolvingLinkedQuote.value && !posting.value && !posted.value && !uploader.uploading.value && (uploader.items.value.length === 0 || uploader.readyForUpload.value) &&
 		(
 			1 <= textLength.value ||
@@ -352,7 +378,8 @@ const canPost = computed((): boolean => {
 			1 <= uploader.items.value.length ||
 			poll.value != null ||
 			renoteTargetNote.value != null ||
-			quoteId.value != null
+			quoteId.value != null ||
+			gridspaceQuote.value != null
 		) &&
 		(textLength.value <= maxTextLength.value) &&
 		(
@@ -368,7 +395,7 @@ const canPost = computed((): boolean => {
 
 // cannot save pure renote as draft
 const canSaveAsServerDraft = computed((): boolean => {
-	return (!explicitDestinations.value || serverDraftChannel.value != null) && !pendingCreate.value && canPost.value && (textLength.value > 0 || files.value.length > 0 || poll.value != null);
+	return !fixedQuoteDestination.value && (!explicitDestinations.value || serverDraftChannel.value != null) && !pendingCreate.value && canPost.value && (textLength.value > 0 || files.value.length > 0 || poll.value != null);
 });
 
 const withHashtags = store.model('postFormWithHashtags');
@@ -422,7 +449,7 @@ if ($i.isSilenced && visibility.value === 'public') {
 	visibility.value = 'home';
 }
 
-if (targetChannel.value && !placementForm.value) {
+if (fixedQuoteDestination.value || (targetChannel.value && !placementForm.value)) {
 	visibility.value = 'public';
 	localOnly.value = true; // TODO: チャンネルが連合するようになった折には消す
 }
@@ -474,7 +501,9 @@ function watchForDraft() {
 	watch(files, () => saveDraft(), { deep: true });
 	watch(visibility, () => saveDraft());
 	watch(localOnly, () => saveDraft());
+	watch(noRelay, () => saveDraft());
 	watch(quoteId, () => saveDraft());
+	watch(gridspaceQuote, () => saveDraft());
 	watch(reactionAcceptance, () => saveDraft());
 	watch(scheduledAt, () => saveDraft());
 }
@@ -563,7 +592,7 @@ function updateFileName(file: Misskey.entities.DriveFile, name: Misskey.entities
 }
 
 function setVisibility() {
-	if (targetChannel.value && !placementForm.value) {
+	if (fixedQuoteDestination.value || (targetChannel.value && !placementForm.value)) {
 		visibility.value = 'public';
 		localOnly.value = true; // TODO: チャンネルが連合するようになった折には消す
 		return;
@@ -585,16 +614,26 @@ function setVisibility() {
 	});
 }
 
-async function toggleLocalOnly() {
-	if (targetChannel.value && !placementForm.value) {
-		visibility.value = 'public';
-		localOnly.value = true; // TODO: チャンネルが連合するようになった折には消す
-		return;
-	}
+function openDeliveryMenu() {
+	if (localDeliveryRequired.value || deliveryMenuOpen.value) return;
+	deliveryMenuOpen.value = true;
+	os.popupMenu([
+		{ type: 'label', text: i18n.ts._visibility.delivery },
+		...Object.values(getNoteDeliveryOptions()).map(option => ({
+			text: option.label,
+			caption: option.description,
+			icon: delivery.value === option.value ? 'ti ti-check' : option.icon,
+			active: delivery.value === option.value,
+			action: () => { void setDelivery(option.value); },
+		})),
+	], deliveryButton.value, { onClosed: () => { deliveryMenuOpen.value = false; } });
+}
 
+async function setDelivery(mode: NoteDelivery) {
+	if (localDeliveryRequired.value || visibility.value === 'specified' || mode === delivery.value) return;
 	const neverShowInfo = miLocalStorage.getItem('neverShowLocalOnlyInfo');
 
-	if (!localOnly.value && neverShowInfo !== 'true') {
+	if (mode === 'local' && neverShowInfo !== 'true') {
 		const confirm = await os.actions({
 			type: 'question',
 			title: i18n.ts.disableFederationConfirm,
@@ -624,9 +663,12 @@ async function toggleLocalOnly() {
 		}
 	}
 
-	localOnly.value = !localOnly.value;
+	const flags = getNoteDeliveryFlags(mode);
+	localOnly.value = flags.localOnly;
+	noRelay.value = flags.noRelay;
 	if (prefer.s.rememberNoteVisibility) {
-		store.set('localOnly', localOnly.value);
+		store.set('localOnly', flags.localOnly);
+		store.set('noRelay', flags.noRelay);
 	}
 }
 
@@ -812,12 +854,12 @@ async function onPaste(ev: ClipboardEvent) {
 
 	const paste = ev.clipboardData.getData('text');
 
-	if (!explicitDestinations.value && !pendingCreate.value && !renoteTargetNote.value && !quoteId.value && !replyTargetNote.value && isGridspaceNoteLink(paste.trim())) {
+	if (!explicitDestinations.value && !pendingCreate.value && !gridspaceQuote.value && !renoteTargetNote.value && !quoteId.value && !replyTargetNote.value && isGridspaceNoteLink(paste.trim())) {
 		ev.preventDefault();
 		resolvingLinkedQuote.value = true;
 		textAreaReadOnly.value = true;
 		const current = ++linkedQuoteGeneration;
-		const draftState = () => JSON.stringify([text.value, cw.value, useCw.value, withHashtags.value, hashtags.value, poll.value, postAccount.value?.id, scheduledAt.value, destinations.value, targetChannel.value?.id, visibility.value, localOnly.value, visibleUsers.value.map(u => u.id), files.value.map(f => [f.id, f.name, f.isSensitive, f.comment]), uploader.items.value.map(f => [f.id, f.name, f.caption, f.isSensitive])]);
+		const draftState = () => JSON.stringify([text.value, cw.value, useCw.value, withHashtags.value, hashtags.value, poll.value, postAccount.value?.id, scheduledAt.value, destinations.value, targetChannel.value?.id, visibility.value, localOnly.value, noRelay.value, visibleUsers.value.map(u => u.id), files.value.map(f => [f.id, f.name, f.isSensitive, f.comment]), uploader.items.value.map(f => [f.id, f.name, f.caption, f.isSensitive])]);
 		const initialState = draftState();
 		const unchanged = () => current === linkedQuoteGeneration && !window.document.hidden && !!textareaEl.value?.isConnected && draftState() === initialState;
 		try {
@@ -882,7 +924,7 @@ async function onPaste(ev: ClipboardEvent) {
 		return;
 	}
 
-	if (!explicitDestinations.value && !pendingCreate.value && !renoteTargetNote.value && !quoteId.value && paste.startsWith(url + '/notes/')) {
+	if (!explicitDestinations.value && !pendingCreate.value && !gridspaceQuote.value && !renoteTargetNote.value && !quoteId.value && paste.startsWith(url + '/notes/')) {
 		ev.preventDefault();
 
 		const { canceled } = await os.confirm({
@@ -984,13 +1026,16 @@ type StoredDrafts = {
 			cw: string | null;
 			visibility: 'public' | 'home' | 'followers' | 'specified';
 			localOnly: boolean;
+			noRelay?: boolean;
 			files: Misskey.entities.DriveFile[];
 			poll: PollEditorModelValue | null;
 			visibleUserIds?: string[];
 			quoteId: string | null;
+			gridspaceQuote?: string | null;
 			reactionAcceptance: 'likeOnly' | 'likeOnlyForRemote' | 'nonSensitiveOnly' | 'nonSensitiveOnlyForLocalLikeOnlyForRemote' | null;
 			scheduledAt: number | null;
 			destinations?: NoteDestinations;
+			fixedQuoteDestination?: PostFormProps['fixedQuoteDestination'];
 			pendingCreate?: PendingNoteCreate | null;
 			postAccountId?: string;
 			withHashtags?: boolean;
@@ -1000,7 +1045,7 @@ type StoredDrafts = {
 };
 
 function updatePendingDrafts() {
-	if (props.instant || props.mock || props.initialPendingDraftKey || props.reply || props.renote) return;
+	if (props.instant || props.mock || props.initialPendingDraftKey || props.reply || props.renote || props.gridspaceQuote) return;
 	const drafts = JSON.parse(miLocalStorage.getItem('drafts') ?? '{}') as StoredDrafts;
 	otherPendingDrafts.value = Object.keys(drafts).filter(key => key !== draftKey.value && drafts[key].ownerId === $i.id && drafts[key].data.pendingCreate != null);
 }
@@ -1018,6 +1063,11 @@ function readDrafts(): StoredDrafts {
 	return JSON.parse(miLocalStorage.getItem('drafts') ?? '{}');
 }
 
+function ownedPendingCreate() {
+	const draft = readDrafts()[draftKey.value];
+	return draft?.ownerId === $i.id ? draft.data.pendingCreate ?? null : null;
+}
+
 function writeDrafts(drafts: StoredDrafts) {
 	miLocalStorage.setItem('drafts', JSON.stringify(drafts));
 }
@@ -1025,9 +1075,11 @@ function writeDrafts(drafts: StoredDrafts) {
 function snapshotDraft(): DraftData {
 	return JSON.parse(JSON.stringify({
 		text: text.value, useCw: useCw.value, cw: cw.value, visibility: visibility.value, localOnly: localOnly.value,
+		noRelay: noRelay.value || undefined, gridspaceQuote: gridspaceQuote.value ?? undefined,
 		files: files.value, poll: poll.value, visibleUserIds: visibleUsers.value.map(user => user.id),
 		quoteId: quoteId.value, reactionAcceptance: reactionAcceptance.value, scheduledAt: scheduledAt.value,
-		destinations: placementForm.value ? destinations.value : undefined,
+		destinations: placementSubmission.value || explicitDestinations.value ? destinations.value : undefined,
+		fixedQuoteDestination: fixedQuoteDestination.value,
 		postAccountId: postAccount.value?.id ?? missingDraftAccountId.value ?? undefined,
 		withHashtags: withHashtags.value, hashtags: hashtags.value,
 	}));
@@ -1045,6 +1097,7 @@ async function saveDraft(reserve?: PendingNoteCreate, submitted?: DraftData): Pr
 	return await withDraftLock(() => {
 		const drafts = readDrafts();
 		const previous = drafts[key];
+		if (previous?.ownerId && previous.ownerId !== $i.id) return false;
 		if (reserve && draftContent(snapshotDraft()) !== content) {
 			pendingCreate.value = previous?.data.pendingCreate ?? null;
 			return false;
@@ -1069,7 +1122,7 @@ async function updateRequestDraft(request: PendingNoteCreate, update: (latest: S
 	return await withDraftLock(() => {
 		const drafts = readDrafts();
 		const latest = drafts[key];
-		if (latest?.data.pendingCreate?.clientRequestId !== request.clientRequestId) return false;
+		if (latest?.ownerId !== $i.id || latest.data.pendingCreate?.clientRequestId !== request.clientRequestId) return false;
 		const change = update(latest);
 		if (change === 'skip') return false;
 		if (change === 'delete') delete drafts[key];
@@ -1106,27 +1159,35 @@ async function deleteDraft() {
 	const key = draftKey.value;
 	await withDraftLock(() => {
 		const drafts = readDrafts();
-		if (drafts[key]?.data.pendingCreate) return;
+		if (drafts[key]?.data.pendingCreate || (drafts[key]?.ownerId && drafts[key].ownerId !== $i.id)) return;
 		delete drafts[key];
 		writeDrafts(drafts);
 		lastDraftRevision = undefined;
 	});
 }
 
+function allowServerDraft() {
+	if (!relayDeliveryDisabled.value) return true;
+	void os.alert({ type: 'info', text: i18n.ts._postForm.noRelayServerDraft });
+	return false;
+}
+
 async function saveServerDraft(options: {
 	isActuallyScheduled?: boolean;
 } = {}) {
+	if (!allowServerDraft()) return;
 	return await os.apiWithDialog(serverDraftId.value == null ? 'notes/drafts/create' : 'notes/drafts/update', {
 		...(serverDraftId.value == null ? {} : { draftId: serverDraftId.value }),
 		text: text.value,
 		cw: useCw.value ? cw.value || null : null,
 		visibility: visibility.value,
-		localOnly: localOnly.value,
+		localOnly: effectiveLocalOnly.value,
 		hashtag: hashtags.value,
 		fileIds: files.value.map(f => f.id),
 		poll: poll.value,
 		visibleUserIds: visibleUsers.value.map(x => x.id),
 		renoteId: renoteTargetNote.value ? renoteTargetNote.value.id : quoteId.value ? quoteId.value : null,
+		gridspaceQuote: gridspaceQuote.value,
 		replyId: replyTargetNote.value ? replyTargetNote.value.id : null,
 		channelId: serverDraftChannel.value,
 		reactionAcceptance: reactionAcceptance.value,
@@ -1156,7 +1217,7 @@ async function post(ev?: PointerEvent) {
 	if (preparing.value || posting.value || !canPost.value) return;
 	preparing.value = true;
 	try {
-		pendingCreate.value ??= await withDraftLock(() => readDrafts()[draftKey.value]?.data.pendingCreate ?? null);
+		pendingCreate.value ??= await withDraftLock(ownedPendingCreate);
 		if (pendingCreate.value) {
 			await recoverPendingResult(true);
 		} else {
@@ -1184,6 +1245,7 @@ async function sendPost(ev?: PointerEvent) {
 	}
 
 	if (scheduledAt.value != null) {
+		if (!allowServerDraft()) return;
 		if (uploader.items.value.some(x => x.uploaded == null)) {
 			await uploadFiles();
 
@@ -1193,8 +1255,7 @@ async function sendPost(ev?: PointerEvent) {
 			}
 		}
 
-		await postAsScheduled();
-		clear();
+		if (await postAsScheduled()) clear();
 		return;
 	}
 
@@ -1207,11 +1268,11 @@ async function sendPost(ev?: PointerEvent) {
 		const { canceled, result } = await os.actions({
 			type: 'warning',
 			text: i18n.ts.thisPostMayBeAnnoying,
-			actions: [{
+			actions: [...(fixedQuoteDestination.value ? [] : [{
 				value: 'home',
 				text: i18n.ts.thisPostMayBeAnnoyingHome,
 				primary: true,
-			}, {
+			}]), {
 				value: 'cancel',
 				text: i18n.ts.thisPostMayBeAnnoyingCancel,
 			}, {
@@ -1223,11 +1284,12 @@ async function sendPost(ev?: PointerEvent) {
 		if (canceled) return;
 		if (result === 'cancel') return;
 		if (result === 'home') {
+			if (fixedQuoteDestination.value) return;
 			visibility.value = 'home';
 		}
 	}
 
-	if (placementForm.value && !canUseDestinations(destinations.value, visibility.value)) return;
+	if (placementSubmission.value && !canUseDestinations(destinations.value, visibility.value)) return;
 
 	if (uploader.items.value.some(x => x.uploaded == null)) {
 		await uploadFiles();
@@ -1239,15 +1301,18 @@ async function sendPost(ev?: PointerEvent) {
 	}
 
 	const submittedDraft = hasPlacements.value ? snapshotDraft() : null;
+	const skipRelays = relayDeliveryDisabled.value;
 	let postData = {
 		text: text.value === '' ? null : text.value,
 		fileIds: files.value.length > 0 ? files.value.map(f => f.id) : undefined,
 		replyId: replyTargetNote.value ? replyTargetNote.value.id : undefined,
 		renoteId: renoteTargetNote.value ? renoteTargetNote.value.id : quoteId.value ? quoteId.value : undefined,
-		channelId: !placementForm.value ? targetChannel.value?.id : undefined,
+		gridspaceQuote: gridspaceQuote.value,
+		channelId: !placementSubmission.value ? targetChannel.value?.id : undefined,
 		poll: poll.value,
 		cw: useCw.value ? cw.value ?? '' : null,
 		localOnly: visibility.value === 'specified' ? false : effectiveLocalOnly.value,
+		noRelay: skipRelays,
 		visibility: visibility.value,
 		visibleUserIds: visibility.value === 'specified' ? visibleUsers.value.map(u => u.id) : undefined,
 		reactionAcceptance: reactionAcceptance.value,
@@ -1279,6 +1344,8 @@ async function sendPost(ev?: PointerEvent) {
 			}
 		}
 	}
+
+	if (skipRelays) postData = { ...postData, noRelay: true };
 
 	let token: string | undefined = undefined;
 
@@ -1397,7 +1464,7 @@ async function sendPost(ev?: PointerEvent) {
 async function postAsScheduled() {
 	if (props.mock || explicitDestinations.value || pendingCreate.value) return;
 
-	await saveServerDraft({
+	return await saveServerDraft({
 		isActuallyScheduled: true,
 	});
 }
@@ -1525,7 +1592,7 @@ async function recoverPendingResult(retryMissing = false): Promise<boolean> {
 			return 'keep';
 		});
 		if (!canRetry) {
-			pendingCreate.value = readDrafts()[draftKey.value]?.data.pendingCreate ?? null;
+			pendingCreate.value = ownedPendingCreate();
 			return false;
 		}
 		const { createdNote } = await misskeyApi('notes/create', { ...pending.input, clientRequestId: pending.clientRequestId }, token, AbortSignal.timeout(30000));
@@ -1573,6 +1640,7 @@ async function openAccountMenu(ev: PointerEvent) {
 				cw.value = draft.cw ?? null;
 				visibility.value = draft.visibility;
 				localOnly.value = draft.localOnly ?? false;
+				noRelay.value = false;
 				files.value = draft.files ?? [];
 				hashtags.value = draft.hashtag ?? '';
 				if (draft.hashtag) withHashtags.value = true;
@@ -1595,6 +1663,7 @@ async function openAccountMenu(ev: PointerEvent) {
 					});
 				}
 				quoteId.value = draft.renoteId ?? null;
+				gridspaceQuote.value = draft.gridspaceQuote ?? null;
 				renoteTargetNote.value = draft.renote;
 				replyTargetNote.value = draft.reply;
 				reactionAcceptance.value = draft.reactionAcceptance;
@@ -1657,6 +1726,7 @@ function showPerUploadItemMenuViaContextmenu(item: UploaderItem, ev: PointerEven
 
 async function schedule() {
 	if (explicitDestinations.value || pendingCreate.value) return;
+	if (!allowServerDraft()) return;
 	const { canceled, result } = await os.inputDatetime({
 		title: i18n.ts.schedulePost,
 	});
@@ -1729,13 +1799,14 @@ onMounted(() => {
 		// 書きかけの投稿を復元
 		if (!props.instant && !props.mock) {
 			const draft = JSON.parse(miLocalStorage.getItem('drafts') ?? '{}')[draftKey.value] as StoredDrafts[string] | undefined;
-			if (draft != null && (!props.initialPendingDraftKey || draft.ownerId === $i.id) && ((!props.mention && !props.specified) || draft.data.pendingCreate)) {
+			if (draft != null && (draft.ownerId === $i.id || (!draft.ownerId && !props.initialPendingDraftKey && !draft.data.pendingCreate)) && ((!props.mention && !props.specified) || draft.data.pendingCreate)) {
 				lastDraftRevision = draft.revision;
 				text.value = draft.data.text;
 				useCw.value = draft.data.useCw;
 				cw.value = draft.data.cw;
 				visibility.value = draft.data.visibility;
 				localOnly.value = draft.data.localOnly;
+				noRelay.value = draft.data.noRelay ?? false;
 				files.value = (draft.data.files || []).filter(draftFile => draftFile);
 				if (draft.data.poll) {
 					poll.value = draft.data.poll;
@@ -1746,8 +1817,10 @@ onMounted(() => {
 					});
 				}
 				quoteId.value = draft.data.quoteId;
+				gridspaceQuote.value = draft.data.gridspaceQuote ?? null;
 				reactionAcceptance.value = draft.data.reactionAcceptance;
 				scheduledAt.value = draft.data.scheduledAt ?? null;
+				fixedQuoteDestination.value = draft.data.fixedQuoteDestination ?? props.fixedQuoteDestination;
 				if (draft.data.destinations) {
 					destinations.value = draft.data.destinations;
 					keepDestinationSelection.value = draft.data.destinations.channels.length > 0 || !draft.data.destinations.includeDefault;
@@ -1763,6 +1836,7 @@ onMounted(() => {
 		// 削除して編集
 		if (props.initialNote) {
 			const init = props.initialNote;
+			gridspaceQuote.value = init.gridspaceQuote ?? null;
 			if (init.multiNoteKind === 'root') {
 				keepDestinationSelection.value = true;
 				destinations.value = { includeDefault: init.includeDefault === true, channels: (init.channelPlacements ?? [])
@@ -1774,6 +1848,7 @@ onMounted(() => {
 			cw.value = init.cw ?? null;
 			visibility.value = init.visibility;
 			localOnly.value = init.localOnly ?? false;
+			noRelay.value = init.noRelay ?? false;
 			files.value = init.files ?? [];
 			if (init.poll) {
 				poll.value = {

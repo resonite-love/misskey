@@ -511,5 +511,8 @@ export * as 'gridspace/content' from './endpoints/gridspace/content.js';
 export * as 'admin/gridspace/drive' from './endpoints/admin/gridspace/drive.js';
 
 export * as 'gridspace/managed-resource' from './endpoints/gridspace/managed-resource.js';
+export * as 'gridspace/note-clips' from './endpoints/gridspace/note-clips.js';
 
 export * as 'gridspace/note-link' from './endpoints/gridspace/note-link.js';
+export * as 'admin/gridspace/emojis' from './endpoints/admin/gridspace/emojis.js';
+export * as 'gridspace/emoji-aliases' from './endpoints/gridspace/emoji-aliases.js';

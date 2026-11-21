@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import { NotePlacementService, PlacementError, type PreparedPlacements, type MultiNoteRequest } from '@/core/NotePlacementService.js';
 import { includesDefault } from '@/misc/note-distribution.js';
+import type { GridspaceQuoteService } from '@/core/gridspace/GridspaceQuoteService.js';
 import { MiNoteCreateDispatch } from '@/models/NotePlacement.js';
 import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone, MiGridspaceReplyReceipt } from '@/models/Gridspace.js';
 import { canShareGridspaceNote, canonicalGridspaceNoteUri, gridspaceNoteUris } from '@/core/gridspace/note-protocol.js';
@@ -188,8 +189,12 @@ type Option = {
 	multiNote?: MultiNoteRequest;
 	placements?: PreparedPlacements;
 	multiNoteConversationRootId?: string;
+	noRelay?: boolean;
 	gridspaceShared?: boolean;
 	gridspaceHistorical?: boolean;
+	gridspaceQuote?: string | null;
+	gridspaceQuoteCheck?: (manager?: EntityManager) => Promise<void>;
+	gridspacePlacementQuote?: boolean;
 	gridspaceReply?: { requestId: string; requestHash: string; beforeInsert: (manager: EntityManager) => Promise<void> };
 	reactionAcceptance?: MiNote['reactionAcceptance'];
 	cw?: string | null;
@@ -319,6 +324,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 		visibleUserIds: MiUser['id'][];
 		channelId: MiChannel['id'] | null;
 		localOnly: boolean;
+		noRelay?: boolean;
 		reactionAcceptance: MiNote['reactionAcceptance'];
 		poll: IPoll | null;
 		apMentions?: MinimumUser[] | null;
@@ -327,14 +333,21 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 		multiNote?: MultiNoteRequest;
 		multiNoteConversationRootId?: string;
 		gridspaceReply?: Option['gridspaceReply'];
+		prepareGridspaceQuote?: () => ReturnType<GridspaceQuoteService['prepare']>;
 	}): Promise<MiNote> {
 		if (data.multiNote) {
 			const existing = await this.notePlacementService.status(user.id, data.multiNote.clientRequestId, data.multiNote.inputHash);
 			if (existing.status === 'deleted') throw new PlacementError('request-note-deleted');
 			if (existing.note) return existing.note;
 			if (data.channelId || data.replyId || data.renoteId) throw new PlacementError('incompatible-destination');
+			if (data.prepareGridspaceQuote && (data.multiNote.includeDefault || data.multiNote.channelIds.length + data.multiNote.channelTargets.length !== 1)) {
+				throw new PlacementError('incompatible-destination');
+			}
 			if (data.visibility !== 'public') throw new PlacementError('public-visibility-required');
 		}
+		// Resolve live source permissions only after checking for an already committed request.
+		const quote = await data.prepareGridspaceQuote?.();
+		if (data.multiNote && quote && !quote.placement) throw new PlacementError('incompatible-destination');
 		const visibleUsers = data.visibleUserIds.length > 0 ? await this.usersRepository.findBy({
 			id: In(data.visibleUserIds),
 		}) : [];
@@ -468,6 +481,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 			renote,
 			cw: data.cw,
 			localOnly: data.localOnly,
+			noRelay: data.noRelay,
 			reactionAcceptance: data.reactionAcceptance,
 			visibility: data.visibility,
 			visibleUsers,
@@ -476,7 +490,27 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 			apHashtags: data.apHashtags,
 			apEmojis: data.apEmojis,
 			gridspaceReply: data.gridspaceReply,
+			gridspaceQuote: quote?.url,
+			gridspaceQuoteCheck: quote?.check,
+			gridspacePlacementQuote: quote?.placement,
 		});
+	}
+
+	@bindThis
+	public async canUsePublicVisibility(user: Pick<MiUser, 'id' | 'host'>, note: { channelId: string | null; cw?: string | null; text?: string | null }): Promise<boolean> {
+		return (await this.publicVisibilityRestriction(user, note)) === null;
+	}
+
+	private async publicVisibilityRestriction(user: Pick<MiUser, 'id' | 'host'>, note: { channelId: string | null; cw?: string | null; text?: string | null }) {
+		if (note.channelId == null) {
+			const sensitiveWords = this.meta.sensitiveWords;
+			const target = note.cw ?? note.text ?? '';
+			if (sensitiveWords.length > 0 && this.utilityService.isKeyWordIncluded([target, ...extractUrlsForKeyWordCheck(target)].join('\n'), sensitiveWords)) {
+				return 'sensitive-word-visibility-downgrade';
+			}
+			if ((await this.roleService.getUserPolicies(user.id)).canPublicNote === false) return 'public-post-permission-required';
+		}
+		return user.host != null && this.utilityService.isSilencedHost(this.meta.silencedHosts, user.host) ? 'silenced-host' : null;
 	}
 
 	@bindThis
@@ -515,18 +549,15 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 		if (data.createdAt == null) data.createdAt = new Date();
 		if (data.visibility == null) data.visibility = 'public';
 		if (data.localOnly == null) data.localOnly = false;
+		if (data.gridspaceQuote) data.localOnly = true;
 		if (data.channel != null) data.visibility = 'public';
 		if (data.channel != null) data.visibleUsers = [];
 		if (data.channel != null || data.multiNoteConversationRootId || data.multiNote?.includeDefault === false) data.localOnly = true;
 
-		if (data.visibility === 'public' && data.channel == null) {
-			const sensitiveWords = this.meta.sensitiveWords;
-			const sensitiveWordsTarget = data.cw ?? data.text ?? '';
-			if (sensitiveWords.length > 0 && this.utilityService.isKeyWordIncluded([sensitiveWordsTarget, ...extractUrlsForKeyWordCheck(sensitiveWordsTarget)].join('\n'), sensitiveWords)) {
-				if (data.multiNote) throw new PlacementError('sensitive-word-visibility-downgrade');
-				data.visibility = 'home';
-			} else if ((await this.roleService.getUserPolicies(user.id)).canPublicNote === false) {
-				if (data.multiNote) throw new PlacementError('public-post-permission-required');
+		if (data.visibility === 'public') {
+			const restriction = await this.publicVisibilityRestriction(user, { channelId: data.channel?.id ?? null, cw: data.cw, text: data.text });
+			if (restriction) {
+				if (data.multiNote) throw new PlacementError(restriction);
 				data.visibility = 'home';
 			}
 		}
@@ -539,12 +570,6 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 
 		if (hasProhibitedWords) {
 			throw new IdentifiableError('689ee33f-f97c-479a-ac49-1b9f8140af99', 'Note contains prohibited words');
-		}
-
-		const inSilencedInstance = this.utilityService.isSilencedHost(this.meta.silencedHosts, user.host);
-
-		if (data.visibility === 'public' && inSilencedInstance && user.host !== null) {
-			data.visibility = 'home';
 		}
 
 		if (data.renote) {
@@ -764,7 +789,10 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 			emojis,
 			userId: user.id,
 			localOnly: data.localOnly!,
+			noRelay: !data.localOnly && data.noRelay === true,
+			federateAsHome: user.host == null && !data.localOnly && data.noRelay === true && data.visibility === 'public',
 			gridspaceShared: includeDefault && (data.gridspaceShared === true || (user.host == null && this.config.gridspace?.enabled === true && canShareGridspaceNote({ visibility: data.visibility!, channelId: data.channel?.id ?? null, includeDefault }))),
+			gridspaceQuote: data.gridspaceQuote ?? null,
 			reactionAcceptance: data.reactionAcceptance ?? null,
 			visibility: data.visibility as any,
 			visibleUserIds: data.visibility === 'specified'
@@ -805,7 +833,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 
 		// 投稿を作成
 		try {
-			if (insert.hasPoll || insert.gridspaceShared || insert.uri || data.gridspaceReply || insert.channelId || insert.multiNoteKind) {
+			if (insert.hasPoll || insert.gridspaceShared || insert.uri || data.gridspaceReply || insert.gridspaceQuote || insert.channelId || insert.multiNoteKind) {
 				// Persist delivery with the note; tombstones serialize against late/replayed creates.
 				const replay = await this.db.transaction(async transactionalEntityManager => {
 					if (data.placements) {
@@ -816,6 +844,10 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 						await this.notePlacementService.lockConversation(transactionalEntityManager, data.multiNoteConversationRootId, data.reply!.id);
 						if (!data.gridspaceReply) await this.notePlacementService.authorizeReply(transactionalEntityManager, user.id, data.multiNoteConversationRootId, data.reply!.id);
 					}
+					if (insert.gridspaceQuote) {
+						if (user.host == null && !data.gridspaceHistorical && !data.gridspaceQuoteCheck) throw new Error('Missing channel quote authorization');
+						await data.gridspaceQuoteCheck?.(transactionalEntityManager);
+					}
 					if (data.gridspaceReply) {
 						await data.gridspaceReply.beforeInsert(transactionalEntityManager);
 						await transactionalEntityManager.insert(MiGridspaceReplyReceipt, { userId: user.id, requestId: data.gridspaceReply.requestId, requestHash: data.gridspaceReply.requestHash, noteId: insert.id });
@@ -825,7 +857,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 						if (await transactionalEntityManager.existsBy(MiGridspaceNoteTombstone, gridspaceNoteUris(insert.uri, this.config.gridspace?.peerUrl).map(uri => ({ uri })))) throw new Error('GridSpace note was deleted');
 					}
 					await transactionalEntityManager.insert(MiNote, insert);
-					if (data.placements || insert.channelId) await this.notePlacementService.stage(transactionalEntityManager, insert, data.placements);
+					if (data.placements || insert.channelId) await this.notePlacementService.stage(transactionalEntityManager, insert, data.placements, data.gridspacePlacementQuote);
 					if (insert.multiNoteKind) {
 						await transactionalEntityManager.insert(MiNoteCreateDispatch, { noteId: insert.id, retryAt: new Date(), silent });
 						await transactionalEntityManager.createQueryBuilder().update(this.usersRepository.target).set({ updatedAt: new Date(), notesCount: () => '"notesCount" + 1' }).where('id = :id', { id: user.id }).execute();
@@ -950,7 +982,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 		for (const mention of mentions) if (this.userEntityService.isRemoteUser(mention)) delivery.addDirectRecipe(mention);
 		const key = 'multi-note-' + note.id;
 		await delivery.execute(key);
-		await this.relayService.deliverToRelays(user, activity, key);
+		if (note.visibility === 'public' && !note.noRelay) await this.relayService.deliverToRelays(user, activity, key);
 	}
 
 	@bindThis
@@ -1011,7 +1043,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 				notify: 'normal',
 			}).then(async followings => {
 				if (note.visibility !== 'specified') {
-					const isPureRenote = this.isRenote(data) && !this.isQuote(data) ? true : false;
+					const isPureRenote = (this.isRenote(data) && !this.isQuote(data)) || (!!note.gridspaceQuote && !note.text && note.cw == null && !note.replyId && !note.fileIds.length && !note.hasPoll);
 					for (const following of followings) {
 						// TODO: ワードミュート考慮
 						let isRenoteMuted = false;
@@ -1142,7 +1174,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 						dm.addFollowersRecipe();
 					}
 
-					if (['public'].includes(note.visibility)) {
+					if (note.visibility === 'public' && !note.noRelay) {
 						this.relayService.deliverToRelays(user, noteActivity);
 					}
 

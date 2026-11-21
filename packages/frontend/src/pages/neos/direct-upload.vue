@@ -4,126 +4,100 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div>
-	{{ text }}
+<div role="status">
+	{{ status }}
 </div>
 </template>
 
 <script lang="ts" setup>
-import { nextTick, ref } from 'vue';
-import * as misskey from 'misskey-js';
-import * as os from '@/os.js';
-import { getAccounts } from '@/accounts.js';
+import { nextTick, onUnmounted, ref } from 'vue';
+import { noteVisibilities } from 'misskey-js';
+import { i18n } from '@/i18n.js';
 import { prefer } from '@/preferences.js';
-import { useStream } from "@/stream.js";
-import {misskeyApi} from "@/utility/misskey-api.js";
+import { useStream } from '@/stream.js';
+import { misskeyApi } from '@/utility/misskey-api.js';
 
-const marker = Math.random().toString();
-const connection = useStream().useChannel('main');
+const params = new URLSearchParams(window.location.search);
+const requestedVisibility = params.get('visibility') ?? 'public';
+const visibility = noteVisibilities.find(value => value === requestedVisibility);
+const status = ref(i18n.ts.processing);
 
-const text = ref<string>('direct-upload!!');
+if (visibility === undefined) {
+	status.value = i18n.ts.invalidParamError;
+} else {
+	start(visibility);
+}
 
-let queryString = window.location.search;
-let urlParams = new URLSearchParams(queryString);
-
-let imageUrl = decodeURIComponent(urlParams.get('imageUrl'));
-let noteText = decodeURIComponent(urlParams.get('noteText'));
-let localOnly = urlParams.get('localOnly') === 'true';
-let visibility = urlParams.get('visibility') ?? 'public';
-
-console.log(imageUrl, noteText, localOnly, visibility);
-
-type v = 'public' | 'home' | 'followers';
-
-connection.on('urlUploadFinished', async urlResponse => {
-	console.log('urlUploadFinished');
-	if (urlResponse.marker === marker) {
-		console.log(urlResponse.file);
-		connection.dispose();
-		await post(urlResponse.file.id);
-	}
-});
-
-setTimeout(async () => {
-	console.log('timeout');
-	if (imageUrl == 'null') {
-		console.log('textonly post');
-		await post();
-		return;
-	}
-
-	misskeyApi('drive/files/upload-from-url', {
-		url: imageUrl,
-		folderId: prefer.s.uploadFolder,
-		marker,
-	});
-}, 1000);
-
-const post = async (id = null) => {
-	let postAccount = ref<misskey.entities.UserDetailed | null>(null);
-
-	let token: string | undefined = undefined;
-
-	if (postAccount) {
-		const storedAccounts = await getAccounts();
-		token = storedAccounts.find(x => x.id === postAccount.value?.id)?.token;
-	}
-
-	// let postData = {
-	// 	text: noteText,
-	// 	fileIds: id ? [id] : undefined,
-	// 	replyId: undefined,
-	// 	renoteId: undefined,
-	// 	channelId: undefined,
-	// 	poll: null,
-	// 	cw: undefined,
-	// 	localOnly: localOnly,
-	// 	visibility: 'public',
-	// 	visibleUserIds: undefined,
-	// };
-
-	let postData = {
+function start(visibility: typeof noteVisibilities[number]) {
+	const noteText = readLegacyParameter('noteText');
+	const imageUrl = readLegacyParameter('imageUrl');
+	const uploadUrl = imageUrl === 'null' ? null : imageUrl;
+	const postData = {
 		text: noteText || undefined,
-		fileIds: id ? [id] : undefined,
+		visibility,
+		localOnly: params.get('localOnly') === 'true',
+		noRelay: params.get('noRelay') === 'true',
+		visibleUserIds: visibility === 'specified' ? params.get('visibleUserIds')?.split(',').filter(Boolean) : undefined,
 	};
 
-	misskeyApi('notes/create', postData, token).then(() => {
-		console.log('POST OK');
-		nextTick(() => {
-			console.log('Next Tick');
-			text.value = '投稿完了！このタブを閉じても大丈夫です。';
-			window.close();
-		});
-	}).catch(err => {
-		text.value = 'エラー発生。管理者に問い合わせてください。';
-		console.log('post error');
+	const marker = Math.random().toString();
+	let connection = uploadUrl ? useStream().useChannel('main') : null;
+
+	function disposeUploadConnection() {
+		connection?.dispose();
+		connection = null;
+	}
+
+	connection?.on('urlUploadFinished', response => {
+		if (response.marker !== marker) return;
+		disposeUploadConnection();
+		void post(response.file.id);
 	});
-};
 
-</script>
+	const timer = window.setTimeout(() => {
+		if (!uploadUrl) {
+			void post();
+			return;
+		}
 
-<style lang="scss" scoped>
-.mjndxjch {
-	padding: 32px;
-	text-align: center;
+		void misskeyApi('drive/files/upload-from-url', {
+			url: uploadUrl,
+			folderId: prefer.s.uploadFolder,
+			marker,
+		}).catch(() => {
+			disposeUploadConnection();
+			status.value = i18n.ts.error;
+		});
+	}, 1000);
 
-	> p {
-		margin: 0 0 12px 0;
-	}
+	onUnmounted(() => {
+		window.clearTimeout(timer);
+		disposeUploadConnection();
+	});
 
-	> .button {
-		margin: 8px auto;
-	}
-
-	> img {
-		vertical-align: bottom;
-		height: 128px;
-		margin-bottom: 24px;
-		border-radius: 16px;
-	}
-
-	> .error {
-		opacity: 0.7;
+	async function post(fileId?: string) {
+		try {
+			await misskeyApi('notes/create', {
+				...postData,
+				fileIds: fileId ? [fileId] : undefined,
+			});
+			status.value = i18n.ts.done;
+			await nextTick();
+			window.close();
+		} catch {
+			status.value = i18n.ts.error;
+		}
 	}
 }
-</style>
+
+function readLegacyParameter(name: string): string | null {
+	const value = params.get(name);
+	if (value === null) return null;
+	// Older integrations encode the image URL and text before building the query string.
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return value;
+	}
+}
+</script>

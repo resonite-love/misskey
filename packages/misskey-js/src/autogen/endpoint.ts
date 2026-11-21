@@ -74,6 +74,8 @@ import type {
 	AdminGetUserIpsResponse,
 	AdminGridspaceDriveRequest,
 	AdminGridspaceDriveResponse,
+	AdminGridspaceEmojisRequest,
+	AdminGridspaceEmojisResponse,
 	AdminGridspaceJobsRequest,
 	AdminGridspaceJobsResponse,
 	AdminGridspaceLinksRequest,
@@ -428,6 +430,7 @@ import type {
 	GridspaceDriveResponse,
 	GridspaceDriveImportRequest,
 	GridspaceDriveImportResponse,
+	GridspaceEmojiAliasesResponse,
 	GridspaceHistoryRequest,
 	GridspaceHistoryResponse,
 	GridspaceLayoutReferenceRequest,
@@ -446,6 +449,8 @@ import type {
 	GridspaceMultiNoteChannelsResponse,
 	GridspaceMultiNoteRemoveRequest,
 	GridspaceMultiNoteRetryRequest,
+	GridspaceNoteClipsRequest,
+	GridspaceNoteClipsResponse,
 	GridspaceNoteLinkRequest,
 	GridspaceNoteLinkResponse,
 	GridspaceNoteMenuRequest,
@@ -826,6 +831,7 @@ export type Endpoints = {
 	'admin/get-table-stats': { req: EmptyRequest; res: AdminGetTableStatsResponse };
 	'admin/get-user-ips': { req: AdminGetUserIpsRequest; res: AdminGetUserIpsResponse };
 	'admin/gridspace/drive': { req: AdminGridspaceDriveRequest; res: AdminGridspaceDriveResponse };
+	'admin/gridspace/emojis': { req: AdminGridspaceEmojisRequest; res: AdminGridspaceEmojisResponse };
 	'admin/gridspace/jobs': { req: AdminGridspaceJobsRequest; res: AdminGridspaceJobsResponse };
 	'admin/gridspace/links': { req: AdminGridspaceLinksRequest; res: AdminGridspaceLinksResponse };
 	'admin/gridspace/retry': { req: AdminGridspaceRetryRequest; res: AdminGridspaceRetryResponse };
@@ -1047,6 +1053,7 @@ export type Endpoints = {
 	'gridspace/delete-reply': { req: GridspaceDeleteReplyRequest; res: GridspaceDeleteReplyResponse };
 	'gridspace/drive': { req: GridspaceDriveRequest; res: GridspaceDriveResponse };
 	'gridspace/drive-import': { req: GridspaceDriveImportRequest; res: GridspaceDriveImportResponse };
+	'gridspace/emoji-aliases': { req: EmptyRequest; res: GridspaceEmojiAliasesResponse };
 	'gridspace/history': { req: GridspaceHistoryRequest; res: GridspaceHistoryResponse };
 	'gridspace/layout-reference': { req: GridspaceLayoutReferenceRequest; res: GridspaceLayoutReferenceResponse };
 	'gridspace/link': { req: GridspaceLinkRequest; res: GridspaceLinkResponse };
@@ -1057,6 +1064,7 @@ export type Endpoints = {
 	'gridspace/multi-note/channels': { req: GridspaceMultiNoteChannelsRequest; res: GridspaceMultiNoteChannelsResponse };
 	'gridspace/multi-note/remove': { req: GridspaceMultiNoteRemoveRequest; res: EmptyResponse };
 	'gridspace/multi-note/retry': { req: GridspaceMultiNoteRetryRequest; res: EmptyResponse };
+	'gridspace/note-clips': { req: GridspaceNoteClipsRequest; res: GridspaceNoteClipsResponse };
 	'gridspace/note-link': { req: GridspaceNoteLinkRequest; res: GridspaceNoteLinkResponse };
 	'gridspace/note-menu': { req: GridspaceNoteMenuRequest; res: GridspaceNoteMenuResponse };
 	'gridspace/notifications': { req: GridspaceNotificationsRequest; res: GridspaceNotificationsResponse };

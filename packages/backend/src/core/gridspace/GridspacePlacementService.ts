@@ -205,7 +205,7 @@ export class GridspacePlacementService implements OnModuleInit, OnApplicationShu
 		}
 		const viewer = input.viewerActorUri ? await this.viewerActor(input.viewerActorUri) : null;
 		const items = await this.db.query<PlacementLookupRow[]>(`
-			SELECT p.id AS "placementId", ch.name, ch.color, coalesce(owner.uri, $3 || '/users/' || owner.id) AS "ownerUri"
+			SELECT p.id AS "placementId", ch.name, ch.color, ch."isSensitive", ch."isArchived", ch."allowRenoteToExternal", coalesce(owner.uri, $3 || '/users/' || owner.id) AS "ownerUri"
 			FROM jsonb_to_recordset($1::jsonb) AS k("canonicalUri" text, "placementId" uuid, "channelId" text, "sourceRevision" integer, "targetRevision" integer)
 			JOIN gridspace_channel_placement p ON p.id = k."placementId" AND p."canonicalUri" = k."canonicalUri" AND p."channelId" = k."channelId"
 				AND p."sourceRevision" = k."sourceRevision" AND p."targetRevision" = k."targetRevision"
@@ -304,14 +304,14 @@ export class GridspacePlacementService implements OnModuleInit, OnApplicationShu
 			{ chipViewer: viewer?.id ?? null })
 			.leftJoin(MiUser, 'owner', 'owner.id = dest.userId')
 			.select('note.id', 'noteId').addSelect('dest.id', 'channelId').addSelect('p.id', 'placementId')
-			.addSelect('dest.name', 'name').addSelect('dest.color', 'color')
+			.addSelect('dest.name', 'name').addSelect('dest.color', 'color').addSelect('dest.isSensitive', 'isSensitive').addSelect('dest.isArchived', 'isArchived').addSelect('dest.allowRenoteToExternal', 'allowRenoteToExternal')
 			.addSelect("coalesce(owner.uri, :chipOrigin || '/users/' || owner.id)", 'ownerUri').setParameter('chipOrigin', peer.origin)
 			.orderBy('note.id').addOrderBy('dest.id');
 		const roots = new Map<string, OriginPlacementRoot>();
-		for (const { noteId, channelId, placementId, name, color, ownerUri } of await query.getRawMany<PlacementLookupRow & { noteId: string; channelId: string | null }>()) {
+		for (const { noteId, channelId, placementId, name, color, ownerUri, isSensitive, isArchived, allowRenoteToExternal } of await query.getRawMany<PlacementLookupRow & { noteId: string; channelId: string | null }>()) {
 			let root = roots.get(noteId);
 			if (!root) { root = { noteId, channels: [] }; roots.set(noteId, root); }
-			if (channelId !== null) root.channels.push({ channelId, placementId, name, color, ownerUri });
+			if (channelId !== null) root.channels.push({ channelId, placementId, name, color, ownerUri, isSensitive, isArchived, allowRenoteToExternal });
 		}
 		return { roots: [...roots.values()] };
 	}
@@ -365,7 +365,7 @@ export class GridspacePlacementService implements OnModuleInit, OnApplicationShu
 						for (const c of root.channels) {
 							if (seen.has(c.channelId) || (c.ownerUri && hidden.has(c.ownerUri))) continue;
 							seen.add(c.channelId);
-							placements.push({ origin, channelId: c.channelId, canonicalUri: ref.uri, name: c.name, color: c.color, placementId: c.placementId, state: 'active', canRemove: false });
+							placements.push({ origin, channelId: c.channelId, canonicalUri: ref.uri, name: c.name, color: c.color, isArchived: c.isArchived, isSensitive: c.isSensitive, allowRenoteToExternal: c.allowRenoteToExternal, placementId: c.placementId, state: 'active', canRemove: false });
 						}
 						result.set(ref.id, placements);
 					}
@@ -390,12 +390,13 @@ export class GridspacePlacementService implements OnModuleInit, OnApplicationShu
 			if (r.state === 'active' && !current) continue;
 			const list = result.get(r.noteId) ?? [];
 			list.push({ origin: r.peerOrigin, channelId: r.channelId, canonicalUri: r.canonicalUri, name: current?.name ?? r.name, color: current?.color ?? r.color, state: r.state,
+				allowRenoteToExternal: current?.allowRenoteToExternal, isArchived: current?.isArchived, isSensitive: current?.isSensitive,
 				canRemove: r.authorId === viewer?.id && r.state !== 'removed', canRetry: managesDelivery && !r.permanentFailure && (r.state === 'pending' || r.state === 'failed'),
 				...(r.placementId ? { placementId: r.placementId } : {}) });
 			result.set(r.noteId, list);
 		}
-		const mirrors = await this.db.query<{ noteId: string; placementId: string; canonicalUri: string; channelId: string; name: string; color: string; ownerId: string | null }[]>(
-			`SELECT n.id AS "noteId", p.id AS "placementId", p."canonicalUri", c.id AS "channelId", c.name, c.color, c."userId" AS "ownerId"
+		const mirrors = await this.db.query<{ noteId: string; placementId: string; canonicalUri: string; channelId: string; name: string; color: string; ownerId: string | null; isSensitive: boolean; isArchived: boolean; allowRenoteToExternal: boolean }[]>(
+			`SELECT n.id AS "noteId", p.id AS "placementId", p."canonicalUri", c.id AS "channelId", c.name, c.color, c."isSensitive", c."isArchived", c."allowRenoteToExternal", c."userId" AS "ownerId"
 			FROM note n JOIN gridspace_channel_placement p ON n.uri IN (p."canonicalUri", p."canonicalUri" || '/activity')
 			JOIN channel c ON c.id = p."channelId" LEFT JOIN "user" owner ON owner.id = c."userId"
 			WHERE n.id = ANY($1::varchar[]) AND n."gridspaceShared" AND p.state = 'active'
@@ -406,7 +407,7 @@ export class GridspacePlacementService implements OnModuleInit, OnApplicationShu
 		const moderator = !!viewer && mirrors.length > 0 && await this.roles.isModerator(viewer);
 		for (const row of mirrors) {
 			const placements = result.get(row.noteId) ?? [];
-			placements.push({ origin: this.config.url, channelId: row.channelId, canonicalUri: row.canonicalUri, name: row.name, color: row.color,
+			placements.push({ origin: this.config.url, channelId: row.channelId, canonicalUri: row.canonicalUri, name: row.name, color: row.color, isSensitive: row.isSensitive, isArchived: row.isArchived, allowRenoteToExternal: row.allowRenoteToExternal,
 				state: 'active', placementId: row.placementId, canRemove: viewer != null && (viewer.id === row.ownerId || moderator) });
 			result.set(row.noteId, placements);
 		}

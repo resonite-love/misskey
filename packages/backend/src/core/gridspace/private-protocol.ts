@@ -35,13 +35,15 @@ export type PrivatePeerRequest = ConversationCredential & GridspacePeerLinkReque
 export type PrivateActor = { name: string | null; username: string; host: string; uri: string };
 export type PrivateNote = {
 	id: string; uri: string; createdAt: string; origin: string; text: string | null; cw: string | null;
-	visibility: string; localOnly: boolean; author: PrivateActor & { avatarUrl: string; emojis?: Record<string, string>; instance?: { name?: string | null; faviconUrl?: string | null; themeColor?: string | null } } & Partial<Pick<Packed<'UserLite'>, 'avatarBlurhash' | 'avatarDecorations' | 'isBot' | 'isCat'>>;
+	visibility: string; localOnly: boolean; noRelay?: boolean; author: PrivateActor & { avatarUrl: string; emojis?: Record<string, string>; instance?: { name?: string | null; faviconUrl?: string | null; themeColor?: string | null } } & Partial<Pick<Packed<'UserLite'>, 'avatarBlurhash' | 'avatarDecorations' | 'isBot' | 'isCat'>>;
 	channelId?: string | null;
 	channelPlacements?: PackedChannelPlacement[]; channelPlacementsUnavailable?: boolean;
 	conversationUri?: string; multiNoteKind?: 'root' | 'conversation-reply'; includeDefault?: boolean;
-	channel?: { id: string; name: string; color: string } | null;
+	channel?: { id: string; name: string; color: string; isSensitive?: boolean } | null;
 	canDelete?: boolean;
 	canSelfRenote?: boolean;
+	canQuoteOutside?: boolean;
+	gridspaceQuote?: string;
 	collectionId?: string; collectionAt?: string;
 	emojis?: Record<string, string>; reactions?: Record<string, number>; reactionEmojis?: Record<string, string>; myReaction?: string | null;
 	myReactions?: string[]; extendedReactions?: boolean;
@@ -64,15 +66,17 @@ const integer = { type: 'integer', optional: false, nullable: false } as const;
 // must never be inserted into normal note caches or used for local mutations.
 const privateNoteBaseSchema = {
 	type: 'object', optional: false, nullable: false, properties: {
-		id: text, uri: text, createdAt: text, origin: text, text: nullableText, cw: nullableText, visibility: text, localOnly: flag,
+		id: text, uri: text, createdAt: text, origin: text, text: nullableText, cw: nullableText, visibility: text, localOnly: flag, noRelay: { ...flag, optional: true },
 		channelPlacements: packedNoteSchema.properties.channelPlacements,
 		channelPlacementsUnavailable: packedNoteSchema.properties.channelPlacementsUnavailable,
 		conversationUri: { ...text, optional: true }, multiNoteKind: { ...text, enum: ['root', 'conversation-reply'], optional: true }, includeDefault: { ...flag, optional: true },
 		channelId: { ...nullableText, optional: true },
-		channel: { type: 'object', optional: true, nullable: true, properties: { id: text, name: text, color: text } },
+		channel: { type: 'object', optional: true, nullable: true, properties: { id: text, name: text, color: text, isSensitive: { type: 'boolean', optional: true, nullable: false } } },
 		collectionId: { ...text, optional: true }, collectionAt: { ...text, optional: true },
 		canDelete: { ...flag, optional: true },
 		canSelfRenote: { ...flag, optional: true },
+		canQuoteOutside: { ...flag, optional: true },
+		gridspaceQuote: { ...text, optional: true },
 		author: { type: 'object', optional: false, nullable: false, properties: {
 			name: nullableText, username: text, host: text, uri: text, avatarUrl: text, emojis: { type: 'object', optional: true, nullable: false, additionalProperties: text },
 			avatarBlurhash: { ...nullableText, optional: true }, avatarDecorations: { ...packedUserLiteSchema.properties.avatarDecorations, optional: true },

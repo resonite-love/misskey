@@ -67,10 +67,9 @@ const emit = defineEmits<{
 const modal = useTemplateRef('modal');
 const picker = useTemplateRef('picker');
 
-function chosen(emoji: string) {
-	console.log("chosen Actions");
+function chosen(emoji: string, event?: MouseEvent | KeyboardEvent) {
 	emit('done', emoji);
-	if (props.choseAndClose) {
+	if (props.choseAndClose && !(props.asReactionPicker && event?.shiftKey)) {
 		modal.value?.close();
 	}
 }

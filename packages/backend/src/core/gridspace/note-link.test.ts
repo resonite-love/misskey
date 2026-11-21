@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import type { GridspaceQuoteService } from './GridspaceQuoteService.js';
 import { describe, expect, test } from 'vitest';
 import { mockDeep } from 'vitest-mock-extended';
 import type { Config } from '@/config.js';
@@ -20,7 +21,7 @@ describe('linked note URLs', () => {
 		expect(meta.requireCredential).toBe(false);
 		expect('secure' in meta && meta.secure).toBeFalsy();
 		const reader = mockDeep<GridspacePrivateService>(), publicNotes = mockDeep<GridspacePublicNoteService>();
-		const endpoint = new Endpoint(config, reader, mockDeep<GetterService>(), mockDeep<NoteEntityService>(), publicNotes);
+		const endpoint = new Endpoint(config, reader, mockDeep<GetterService>(), mockDeep<NoteEntityService>(), publicNotes, mockDeep<GridspaceQuoteService>());
 		publicNotes.resolve.mockResolvedValue({ note: { id: 'abc' }, publicUrl: 'https://r.example/notes/abc' } as never);
 		expect(await endpoint.exec({ url: link }, null, null)).toMatchObject({ publicUrl: 'https://r.example/notes/abc', localNote: { id: 'abc' }, note: null });
 		expect(publicNotes.resolve).toHaveBeenCalledWith({ noteId: 'abc', channelId: 'channel' }, false);
@@ -30,7 +31,7 @@ describe('linked note URLs', () => {
 	});
 	test('keeps third-party tokens and suspended users out of the delegated reader', async () => {
 		const reader = mockDeep<GridspacePrivateService>();
-		const endpoint = new Endpoint(config, reader, mockDeep<GetterService>(), mockDeep<NoteEntityService>(), mockDeep<GridspacePublicNoteService>());
+		const endpoint = new Endpoint(config, reader, mockDeep<GetterService>(), mockDeep<NoteEntityService>(), mockDeep<GridspacePublicNoteService>(), mockDeep<GridspaceQuoteService>());
 		await expect(endpoint.exec({ url: link }, { id: 'viewer' }, { id: 'app' })).rejects.toMatchObject({ code: 'GRIDSPACE_NOTE_LINK_UNAVAILABLE' });
 		await expect(endpoint.exec({ url: link }, { id: 'viewer', isSuspended: true }, null)).rejects.toMatchObject({ code: 'GRIDSPACE_NOTE_LINK_UNAVAILABLE' });
 		expect(reader.notes).not.toHaveBeenCalled();
@@ -44,7 +45,7 @@ describe('linked note URLs', () => {
 	});
 	test('uses the authenticated reader and rejects a changed channel or denied note', async () => {
 		const reader = mockDeep<GridspacePrivateService>();
-		const endpoint = new Endpoint(config, reader, mockDeep<GetterService>(), mockDeep<NoteEntityService>(), mockDeep<GridspacePublicNoteService>());
+		const endpoint = new Endpoint(config, reader, mockDeep<GetterService>(), mockDeep<NoteEntityService>(), mockDeep<GridspacePublicNoteService>(), mockDeep<GridspaceQuoteService>());
 		reader.notes.mockResolvedValue({ notes: [{ id: 'abc', channelId: 'channel' }], cursor: null } as never);
 		const me = { id: 'viewer' } as MiLocalUser;
 		expect((await endpoint.exec({ url: link }, me, null)).note.id).toBe('abc');
@@ -56,7 +57,7 @@ describe('linked note URLs', () => {
 	});
 	test('the source uses the normal visibility check and refuses a mismatched channel', async () => {
 		const getter = mockDeep<GetterService>(), packer = mockDeep<NoteEntityService>();
-		const endpoint = new Endpoint({ ...config, url: 'https://r.example', gridspace: { ...config.gridspace!, peerUrl: 'https://g.example', channelRole: 'source' } }, mockDeep<GridspacePrivateService>(), getter, packer, mockDeep<GridspacePublicNoteService>());
+		const endpoint = new Endpoint({ ...config, url: 'https://r.example', gridspace: { ...config.gridspace!, peerUrl: 'https://g.example', channelRole: 'source' } }, mockDeep<GridspacePrivateService>(), getter, packer, mockDeep<GridspacePublicNoteService>(), mockDeep<GridspaceQuoteService>());
 		getter.getNote.mockResolvedValue({ id: 'abc', channelId: 'channel' } as never);
 		packer.pack.mockResolvedValue({ id: 'abc', isHidden: false } as never);
 		expect((await endpoint.exec({ url: link }, { id: 'viewer' } as MiLocalUser, null)).localNote.id).toBe('abc');

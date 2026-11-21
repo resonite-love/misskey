@@ -24,7 +24,7 @@ export const meta = {
 			local: { type: 'object', optional: false, nullable: true, ref: 'Notification' }, remote: { ...peerNotificationSchema, nullable: true },
 		} } },
 		sources: { type: 'array', optional: false, nullable: false, items: { type: 'object', optional: false, nullable: false, properties: {
-			source: { ...text, enum: notificationSources }, status: { ...text, enum: ['ok', 'disabled', 'unavailable', 'unauthorized'] }, unreadCount: { type: 'integer', optional: false, nullable: true },
+			source: { ...text, enum: notificationSources }, status: { ...text, enum: ['ok', 'disabled', 'unavailable', 'unauthorized'] }, retryable: flag, unreadCount: { type: 'integer', optional: false, nullable: true },
 		} } },
 	} },
 } as const;

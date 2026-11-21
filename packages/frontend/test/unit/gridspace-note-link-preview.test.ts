@@ -13,6 +13,8 @@ vi.mock('@/i.js', () => ({ $i: { id: 'viewer', hardMutedWords: [] } }));
 vi.mock('@/i18n.js', () => ({ i18n: { ts: { invisibleNote: 'Not visible', details: 'Details' }, tsx: { withNFiles: ({ n }: { n: number }) => `${n} files` } } }));
 vi.mock('@/components/MkNoteHeader.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkNoteCw.vue', () => ({ default: { template: '<div>Content warning</div>' } }));
+vi.mock('@/components/MkGridspacePrivateNote.vue', () => ({ default: { props: ['note', 'quotePreview'], template: '<div data-quote-preview>{{ note.text }}</div>' } }));
+vi.mock('@/components/MkNoteSimple.vue', () => ({ default: { props: ['note'], template: '<div data-quote-preview>{{ note.text }}</div>' } }));
 const note = { id: 'note', text: 'Protected text', cw: null, files: [], author: { username: 'author', uri: 'https://r.example/users/author' }, visibility: 'public' };
 const globals = { stubs: { MkA: { props: ['to'], template: '<a :href="to"><slot/></a>' }, Mfm: { props: ['text'], template: '<span>{{ text }}</span>' }, MkEllipsis: true } };
 beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal('IntersectionObserver', class { constructor(callback: typeof visibilityCallback) { visibilityCallback = callback; } observe() {} disconnect() {} }); api.mockReset(); api.mockResolvedValue({ note, localNote: null }); Object.defineProperty(document, 'hidden', { configurable: true, value: false }); });
@@ -42,4 +44,30 @@ test('removes an offscreen preview and waits for renewed permission before revea
 	visibilityCallback([{ isIntersecting: true }]);
 	await vi.waitFor(() => expect(view.getByText('Not visible')).toBeTruthy());
 	expect(view.queryByText('Protected text')).toBeNull();
+});
+
+test('requires the same active qualified placement to compose a restricted quote while preserving a readable published reference', async () => {
+	const route = { origin: 'https://r.example', channelId: 'same', canonicalUri: 'https://g.example/notes/root', state: 'active', isArchived: false, allowRenoteToExternal: false };
+	api.mockResolvedValue({ note: { ...note, canQuoteOutside: false, channelPlacements: [route] }, localNote: null });
+	const source = 'https://g.example/notes/root?gridspaceChannelOrigin=https%3A%2F%2Fr.example&gridspaceChannelId=same';
+	const view = render(Preview, { props: { url: source, quote: true, composing: true, quoteDestination: { ...route, origin: 'https://g.example' } }, global: globals });
+	await vi.waitFor(() => expect(view.getByText('Not visible')).toBeTruthy());
+	await view.rerender({ quoteDestination: route });
+	await vi.waitFor(() => expect(view.container.querySelector('[data-quote-preview]')?.textContent).toBe('Protected text'));
+	api.mockResolvedValue({ note: { ...note, canQuoteOutside: false, channelPlacements: [] }, localNote: null });
+	await view.rerender({ composing: false, quoteDestination: null });
+	await vi.waitFor(() => expect(view.container.querySelector('[data-quote-preview]')?.textContent).toBe('Protected text'));
+	api.mockResolvedValue({ note: null, localNote: null });
+	await vi.advanceTimersByTimeAsync(30000);
+	expect(view.getByText('Not visible')).toBeTruthy();
+});
+
+test('outside quotes render a compact card and remove only its source on permission loss', async () => {
+	api.mockResolvedValue({ note: { ...note, canQuoteOutside: true }, localNote: null });
+	const view = render(Preview, { props: { url: 'https://g.example/gridspace/private?noteId=note&channelId=channel', quote: true }, global: globals });
+	await vi.waitFor(() => expect(view.container.querySelector('[data-quote-preview]')?.textContent).toBe('Protected text'));
+	api.mockResolvedValue({ note: { ...note, canQuoteOutside: false }, localNote: null });
+	await vi.advanceTimersByTimeAsync(30000);
+	expect(view.queryByText('Protected text')).toBeNull();
+	expect(view.getByText('Not visible')).toBeTruthy();
 });

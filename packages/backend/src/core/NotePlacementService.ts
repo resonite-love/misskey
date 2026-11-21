@@ -33,6 +33,9 @@ export type PackedChannelPlacement = {
 	placementId?: string;
 	canRemove?: boolean;
 	canRetry?: boolean;
+	allowRenoteToExternal?: boolean;
+	isArchived?: boolean;
+	isSensitive?: boolean;
 };
 
 export type PlacementMap = Map<string, PackedChannelPlacement[]> & {
@@ -58,7 +61,10 @@ export class PlacementError extends Error {}
 
 /** Called on validated API fields before resolving relative times or looking up peer state. */
 export function createInputHash(input: Record<string, unknown>): string {
-	return createHash('sha256').update(JSON.stringify(input, (_key, value: unknown) => {
+	// Requests made before the relay and channel quote options had neither key.
+	const { noRelay, gridspaceQuote, ...fields } = input;
+	const normalized = { ...fields, noRelay: noRelay || undefined, gridspaceQuote: gridspaceQuote ?? undefined };
+	return createHash('sha256').update(JSON.stringify(normalized, (_key, value: unknown) => {
 		if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
 		return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
 	})).digest('hex');
@@ -135,13 +141,14 @@ export class NotePlacementService {
 		await this.peer.authorizeConversationWrite(user, root, 'reply', manager);
 	}
 
-	public async stage(manager: EntityManager, note: MiNote, prepared?: PreparedPlacements) {
+	public async stage(manager: EntityManager, note: MiNote, prepared?: PreparedPlacements, placementQuote = false) {
 		const canonicalUri = note.uri ?? this.origin + '/notes/' + note.id;
 		const ids = prepared?.localIds ?? (note.channelId ? [note.channelId] : []);
+		const checkDestination = prepared != null || placementQuote;
 		for (const channelId of ids) {
 			const channel = await manager.findOne(MiChannel, { where: { id: channelId }, lock: { mode: 'for_no_key_update' } });
-			if (!channel || (prepared && channel.isArchived)) throw new PlacementError('channel-unavailable');
-			if (prepared && channel.userId && await manager.existsBy(MiBlocking, [
+			if (!channel || (checkDestination && channel.isArchived)) throw new PlacementError('channel-unavailable');
+			if (checkDestination && channel.userId && await manager.existsBy(MiBlocking, [
 				{ blockerId: channel.userId, blockeeId: note.userId }, { blockerId: note.userId, blockeeId: channel.userId },
 			])) throw new PlacementError('channel-unavailable');
 			if (prepared?.request.includeDefault && !channel.allowRenoteToExternal) throw new PlacementError('channel-disallows-external-renotes');
@@ -176,8 +183,12 @@ export class NotePlacementService {
 		const result = await this.peer.pack(noteIds, viewer);
 		const query = this.db.getRepository(MiNoteChannelPlacement).createQueryBuilder('placement')
 			.innerJoinAndSelect('placement.channel', 'channel').innerJoinAndSelect('placement.note', 'note')
-			.where('placement.noteId IN (:...noteIds)', { noteIds });
+			.where('placement.noteId IN (:...noteIds)', { noteIds })
+			.andWhere(`NOT EXISTS (SELECT 1 FROM "user" owner WHERE owner.id = channel."userId"
+				AND (owner."isDeleted" OR owner."isSuspended"))`);
 		if (viewer) {
+			query.andWhere(`NOT EXISTS (SELECT 1 FROM muting m WHERE m."muterId" = :viewer AND m."muteeId" = channel."userId"
+				AND (m."expiresAt" IS NULL OR m."expiresAt" > CURRENT_TIMESTAMP))`, { viewer: viewer.id });
 			query.andWhere(`NOT EXISTS (SELECT 1 FROM blocking b WHERE
 				(b."blockerId" = channel."userId" AND b."blockeeId" = :viewer) OR
 				(b."blockerId" = :viewer AND b."blockeeId" = channel."userId"))`, { viewer: viewer.id });
@@ -194,6 +205,7 @@ export class NotePlacementService {
 			placements.push({
 				origin: this.origin, channelId: row.channelId, canonicalUri: row.canonicalUri,
 				name: row.channel.name, color: row.channel.color, state: row.state, placementId: row.id, canRemove,
+				allowRenoteToExternal: row.channel.allowRenoteToExternal, isArchived: row.channel.isArchived, isSensitive: row.channel.isSensitive,
 			});
 			result.set(row.noteId, placements);
 		}

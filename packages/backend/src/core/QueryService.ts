@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { pureRenoteCondition } from '@/misc/is-renote.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Brackets, ObjectLiteral } from 'typeorm';
 import { DI } from '@/di-symbols.js';
@@ -320,17 +321,7 @@ export class QueryService {
 			.select('renote_muting.muteeId')
 			.where('renote_muting.muterId = :muterId', { muterId: me.id });
 
-		q.andWhere(new Brackets(qb => {
-			qb
-				.where(new Brackets(qb => {
-					qb.where('note.renoteId IS NOT NULL');
-					qb.andWhere('note.text IS NULL');
-					qb.andWhere(`note.userId NOT IN (${ mutingQuery.getQuery() })`);
-				}))
-				.orWhere('note.renoteId IS NULL')
-				.orWhere('note.text IS NOT NULL');
-		}));
-
+		q.andWhere(`(NOT ${pureRenoteCondition} OR note.userId NOT IN (${mutingQuery.getQuery()}))`);
 		q.setParameters(mutingQuery.getParameters());
 	}
 

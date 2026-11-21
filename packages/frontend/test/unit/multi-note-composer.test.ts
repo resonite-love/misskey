@@ -8,25 +8,28 @@ import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/vu
 import { nextTick } from 'vue';
 import type { entities } from 'misskey-js';
 import type { PostFormProps } from '@/types/post-form.js';
+import { prefer } from '@/preferences.js';
+import { store } from '@/store.js';
 import { url } from '@@/js/config.js';
 import MkPostForm from '@/components/MkPostForm.vue';
 import { instance } from '@/instance.js';
 import { miLocalStorage } from '@/local-storage.js';
 
+const sessionAccount = vi.hoisted(() => ({ id: 'author' }));
 const { api, alert, confirm, popupMenu, inputDatetime, handlers } = vi.hoisted(() => ({ api: vi.fn(), alert: vi.fn(), confirm: vi.fn(), popupMenu: vi.fn(), inputDatetime: vi.fn(), handlers: vi.fn() }));
 vi.mock('@/instance.js', async () => {
 	const { reactive } = await import('vue');
 	return { instance: { features: reactive({ multiNote: true, multiNotePeer: true }), maxNoteTextLength: 3000 } };
 });
-vi.mock('@/i.js', () => ({ ensureSignin: () => ({ id: 'author', policies: { scheduledNoteLimit: 10 }, username: 'author' }), notesCount: 0, incNotesCount: vi.fn() }));
+vi.mock('@/i.js', () => ({ ensureSignin: () => ({ id: sessionAccount.id, policies: { scheduledNoteLimit: 10 }, username: 'author' }), notesCount: 0, incNotesCount: vi.fn() }));
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: api, getApiErrorStatus: (error: { httpStatus?: number }) => error.httpStatus }));
 vi.mock('@/os.js', () => ({ alert, confirm, popupMenu, inputDatetime }));
 vi.mock('@/preferences.js', () => ({ prefer: { s: { defaultNoteVisibility: 'public', defaultNoteLocalOnly: false } } }));
 vi.mock('@/store.js', async () => {
 	const { ref } = await import('vue');
-	return { store: { s: { reactionAcceptance: null }, r: { tips: ref({ postForm: true }) }, model: (key: string) => ref(key === 'postFormHashtags' ? '' : false) } };
+	return { store: { set: vi.fn(), s: { reactionAcceptance: null, visibility: 'public', localOnly: false, noRelay: false }, r: { tips: ref({ postForm: true }) }, model: (key: string) => ref(key === 'postFormHashtags' ? '' : false) } };
 });
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { schedulePost: 'Schedule', _drafts: {}, _visibility: { public: 'Public' }, _multiNote: { pendingCreate: 'Pending', confirmed: 'Confirmed', checkResult: 'Check' }, _channel: {}, _postForm: { _placeholders: {} } } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { schedulePost: 'Schedule', _drafts: {}, _visibility: { public: 'Public', delivery: 'Delivery', deliveryPublic: 'Federate', noRelay: 'Skip relays', disableFederation: 'Local only' }, _multiNote: { pendingCreate: 'Pending', confirmed: 'Confirmed', checkResult: 'Check' }, _channel: {}, _postForm: { _placeholders: {} } } } }));
 vi.mock('@/plugin.js', () => ({ getPluginHandlers: handlers }));
 vi.mock('@/accounts.js', () => ({ getAccounts: async () => [], getAccountMenu: vi.fn() }));
 vi.mock('@/utility/autocomplete.js', () => ({ Autocomplete: class { detach() {} } }));
@@ -46,6 +49,7 @@ vi.mock('@/components/MkNotePreview.vue', () => ({ default: { template: '<div/>'
 vi.mock('@/components/MkPostFormAttaches.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkPostForm.TextCounter.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkPollEditor.vue', () => ({ default: { template: '<div/>' } }));
+vi.mock('@/components/MkGridspaceNoteLinkPreview.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkNoteSimple.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkRippleEffect.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkPostFormActionBar.vue', () => ({ default: { template: '<div/>' } }));
@@ -70,6 +74,7 @@ function openComposer(channelPage = true, props: Partial<PostFormProps> = {}) {
 }
 
 beforeEach(() => {
+	sessionAccount.id = 'author';
 	handlers.mockReturnValue([]);
 	let active: Promise<unknown> = Promise.resolve();
 	Object.defineProperty(navigator, 'locks', { configurable: true, value: {
@@ -81,7 +86,134 @@ beforeEach(() => {
 	} });
 });
 
-afterEach(() => { cleanup(); Reflect.deleteProperty(navigator, 'locks'); window.localStorage.clear(); vi.clearAllMocks(); instance.features!.multiNotePeer = true; instance.features!.multiNote = true; });
+afterEach(() => { Object.assign(prefer.s, { rememberNoteVisibility: false, defaultNoteLocalOnly: false }); Object.assign(store.s, { localOnly: false, noRelay: false }); cleanup(); Reflect.deleteProperty(navigator, 'locks'); window.localStorage.clear(); vi.clearAllMocks(); instance.features!.multiNotePeer = true; instance.features!.multiNote = true; });
+it('sends a fixed placement reference quote with a single destination and a durable receipt', async () => {
+	const gridspaceQuote = 'https://peer.example/notes/quoted?gridspaceChannelOrigin=https%3A%2F%2Fpeer.example&gridspaceChannelId=talk';
+	api.mockRejectedValueOnce(new TypeError('Response lost'));
+	const form = openComposer(false, { fixedQuoteDestination: channel, gridspaceQuote });
+	await nextTick();
+	await nextTick();
+	expect(form.queryByTestId('channel-only')).toBeNull();
+	await fireEvent.update(form.getByTestId('post-form-text'), 'Quote');
+	await fireEvent.click(form.getByTestId('post-form-submit'));
+	await waitFor(() => expect(alert).toHaveBeenCalledOnce());
+	const request = api.mock.calls[0][1];
+	expect(request).toMatchObject({ gridspaceQuote, includeDefault: false, channelIds: [], channelTargets: [{ origin: channel.origin, channelId: channel.channelId }], localOnly: true, noRelay: false });
+	expect(request.clientRequestId).toBeTruthy();
+	form.unmount();
+	api.mockResolvedValueOnce({ status: 'created', createdNote: { id: 'root' } });
+	const restored = openComposer(false, { fixedQuoteDestination: channel, gridspaceQuote });
+	await waitFor(() => expect(restored.emitted().posted).toHaveLength(1));
+	expect(api.mock.calls[1][1]).toEqual({ clientRequestId: request.clientRequestId });
+});
+
+it('isolates pending fixed quote drafts across signed-in accounts', async () => {
+	const gridspaceQuote = 'https://peer.example/notes/quoted?gridspaceChannelOrigin=https%3A%2F%2Fpeer.example&gridspaceChannelId=talk';
+	api.mockRejectedValueOnce(new TypeError('Response lost'));
+	const form = openComposer(false, { fixedQuoteDestination: channel, gridspaceQuote });
+	await nextTick();
+	await nextTick();
+	await fireEvent.update(form.getByTestId('post-form-text'), 'First account draft');
+	await fireEvent.click(form.getByTestId('post-form-submit'));
+	await waitFor(() => expect(alert).toHaveBeenCalledOnce());
+	const firstRequest = api.mock.calls[0][1].clientRequestId;
+	form.unmount();
+	sessionAccount.id = 'second';
+	const second = openComposer(false, { fixedQuoteDestination: channel, gridspaceQuote });
+	await nextTick();
+	await nextTick();
+	expect((second.getByTestId('post-form-text') as HTMLTextAreaElement).value).toBe('');
+	expect(api).toHaveBeenCalledTimes(1);
+	await fireEvent.update(second.getByTestId('post-form-text'), 'Second account draft');
+	api.mockResolvedValueOnce({ createdNote: { id: 'second' } });
+	await fireEvent.click(second.getByTestId('post-form-submit'));
+	await waitFor(() => expect(second.emitted().posted).toHaveLength(1));
+	expect(api.mock.calls[1][0]).toBe('notes/create');
+	expect(api.mock.calls[1][1].clientRequestId).not.toBe(firstRequest);
+	expect(miLocalStorage.getItem('drafts')).toContain(firstRequest);
+});
+
+it('edits a published fixed quote with its text and one original placement', async () => {
+	const gridspaceQuote = 'https://peer.example/notes/quoted?gridspaceChannelOrigin=https%3A%2F%2Fpeer.example&gridspaceChannelId=talk';
+	const note = { gridspaceQuote, text: 'Old comment', includeDefault: false, multiNoteKind: 'root', channelPlacements: [{ ...channel, state: 'active' }], files: [], visibility: 'public', localOnly: true } as unknown as entities.Note;
+	const form = openComposer(false, { initialNote: note, fixedQuoteDestination: channel });
+	await waitFor(() => expect((form.getByTestId('post-form-text') as HTMLTextAreaElement).value).toBe('Old comment'));
+	expect(form.queryByTestId('channel-only')).toBeNull();
+	await fireEvent.update(form.getByTestId('post-form-text'), 'New comment');
+	api.mockResolvedValueOnce({ createdNote: { id: 'edited' } });
+	await fireEvent.click(form.getByTestId('post-form-submit'));
+	await waitFor(() => expect(form.emitted().posted).toHaveLength(1));
+	expect(api.mock.calls[0][1]).toMatchObject({ gridspaceQuote, includeDefault: false, channelIds: [], channelTargets: [{ origin: channel.origin, channelId: channel.channelId }], text: 'New comment' });
+});
+
+it.each(['', 'Comment'])('submits a peer reference with or without text in a legacy channel (%j)', async text => {
+	const gridspaceQuote = 'https://peer.example/notes/quoted';
+	const channel = { id: 'legacy', name: 'Legacy', color: '#999', isSensitive: false, allowRenoteToExternal: true, userId: 'owner' };
+	api.mockResolvedValueOnce({ createdNote: { id: 'new' } });
+	const form = openComposer(false, { channel, gridspaceQuote });
+	await nextTick();
+	await nextTick();
+	expect(form.queryByTestId('channel-only')).toBeNull();
+	expect((form.getByTestId('post-form-delivery') as HTMLButtonElement).disabled).toBe(true);
+	if (text) await fireEvent.update(form.getByTestId('post-form-text'), text);
+	await fireEvent.click(form.getByTestId('post-form-submit'));
+	await waitFor(() => expect(form.emitted().posted).toHaveLength(1));
+	const [path, payload] = api.mock.calls[0];
+	expect(path).toBe('notes/create');
+	expect(payload).toMatchObject({ gridspaceQuote, channelId: 'legacy', text: text || null, localOnly: true, noRelay: false });
+	expect(payload).not.toHaveProperty('channelIds');
+	expect(payload).not.toHaveProperty('clientRequestId');
+});
+
+it('keeps the chosen noRelay payload on retry when only delivery changed in the draft', async () => {
+	Object.assign(prefer.s, { rememberNoteVisibility: true });
+	Object.assign(store.s, { noRelay: true });
+	api.mockRejectedValueOnce(new TypeError('Response lost'));
+	const form = openComposer(false);
+	await nextTick();
+	await nextTick();
+	await fireEvent.click(form.getByTestId('mixed-destinations'));
+	await fireEvent.update(form.getByTestId('post-form-text'), 'Delivery choice');
+	await fireEvent.click(form.getByTestId('post-form-submit'));
+	await waitFor(() => expect(alert).toHaveBeenCalledOnce());
+	const original = api.mock.calls[0][1];
+	expect(original).toMatchObject({ localOnly: false, noRelay: true, includeDefault: true });
+	await waitFor(() => expect((form.getByTestId('post-form-submit') as HTMLButtonElement).disabled).toBe(false));
+	await fireEvent.click(form.getByTestId('post-form-delivery'));
+	const options = popupMenu.mock.calls[0][0];
+	expect(options.find((item: { text: string }) => item.text === 'Skip relays').active).toBe(true);
+	options.find((item: { text: string }) => item.text === 'Federate').action();
+	await nextTick();
+	expect(store.set).toHaveBeenCalledWith('noRelay', false);
+	confirm.mockResolvedValueOnce({ canceled: false });
+	api.mockResolvedValueOnce({ status: 'missing', createdNote: null }).mockResolvedValueOnce({ createdNote: { id: 'original' } });
+	await fireEvent.click(form.getByTestId('post-form-submit'));
+	await waitFor(() => expect(api).toHaveBeenCalledTimes(3));
+	expect(confirm).toHaveBeenCalledOnce();
+	expect(api.mock.calls[2][1]).toEqual(original);
+	await waitFor(() => expect(miLocalStorage.getItem('drafts')).not.toContain(original.clientRequestId));
+	expect((form.getByTestId('post-form-text') as HTMLTextAreaElement).value).toBe('Delivery choice');
+});
+
+it('suppresses a default noRelay choice for channels-only and restores it for mixed destinations', async () => {
+	Object.assign(prefer.s, { defaultNoteLocalOnly: 'noRelay' });
+	const form = openComposer();
+	await nextTick();
+	await nextTick();
+	const delivery = form.getByTestId('post-form-delivery') as HTMLButtonElement;
+	expect(delivery.disabled).toBe(true);
+	expect(delivery.getAttribute('aria-label')).toContain('Local only');
+	await fireEvent.click(form.getByTestId('mixed-destinations'));
+	expect(delivery.disabled).toBe(false);
+	expect(delivery.getAttribute('aria-label')).toContain('Skip relays');
+	await fireEvent.update(form.getByTestId('post-form-text'), 'Saved locally');
+	await waitFor(() => expect(miLocalStorage.getItem('drafts')).toContain('"noRelay":true'));
+	form.unmount();
+	Object.assign(prefer.s, { defaultNoteLocalOnly: false });
+	const restored = openComposer();
+	await waitFor(() => expect(restored.getByTestId('post-form-delivery').getAttribute('aria-label')).toContain('Skip relays'));
+});
+
 it('recovers the created root from the author receipt on reload while the peer is offline', async () => {
 	api.mockRejectedValueOnce(new TypeError('Response lost'));
 	const form = openComposer();

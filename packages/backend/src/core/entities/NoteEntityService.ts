@@ -9,6 +9,7 @@ import { ModuleRef } from '@nestjs/core';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
+import { fillPeerEmojiUrls } from '@/core/gridspace/peer-emoji-url.js';
 import { supportsGridspaceReactions, supportsGridspaceChannelReactions } from '@/core/gridspace/reaction-protocol.js';
 import type { NotePlacementService, PlacementMap } from '@/core/NotePlacementService.js';
 import { includesDefault } from '@/misc/note-distribution.js';
@@ -203,6 +204,7 @@ export class NoteEntityService implements OnModuleInit {
 		packedNote.fileIds = [];
 		packedNote.files = [];
 		packedNote.text = null;
+		packedNote.gridspaceQuote = undefined;
 		packedNote.poll = undefined;
 		packedNote.cw = null;
 		packedNote.isHidden = true;
@@ -459,7 +461,9 @@ export class NoteEntityService implements OnModuleInit {
 			includeDefault: includesDefault(note),
 			multiNoteKind: note.multiNoteKind ?? undefined,
 			localOnly: note.localOnly,
+			noRelay: note.noRelay,
 			gridspaceShared: note.gridspaceShared,
+			gridspaceQuote: note.gridspaceQuote ?? undefined,
 			gridspaceReactions: supportsGridspaceReactions(note, this.gridspacePeer) || supportsGridspaceChannelReactions(note, this.gridspacePeer),
 			reactionAcceptance: note.reactionAcceptance,
 			visibleUserIds: note.visibility === 'specified' ? note.visibleUserIds : undefined,
@@ -469,7 +473,7 @@ export class NoteEntityService implements OnModuleInit {
 			reactions: reactions,
 			reactionEmojis: this.customEmojiService.populateEmojis(reactionEmojiNames, host),
 			reactionAndUserPairCache: opts.withReactionAndUserPairCache ? reactionAndUserPairCache : undefined,
-			emojis: host != null ? this.customEmojiService.populateEmojis(note.emojis, host) : undefined,
+			emojis: host != null ? this.customEmojiService.populateEmojis(note.emojis, host).then(urls => fillPeerEmojiUrls(this.gridspacePeer, urls, note.emojis, host)) : undefined,
 			tags: note.tags.length > 0 ? note.tags : undefined,
 			fileIds: note.fileIds,
 			files: packedFiles != null ? this.packAttachedFiles(note.fileIds, packedFiles) : this.driveFileEntityService.packManyByIds(note.fileIds),

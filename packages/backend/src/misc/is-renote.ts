@@ -67,3 +67,11 @@ export function isQuotePacked(note: PackedRenote): note is PackedQuote {
 		note.poll != null ||
 		(note.fileIds != null && note.fileIds.length > 0);
 }
+
+export const pureRenoteCondition = `((note."renoteId" IS NOT NULL OR note."gridspaceQuote" IS NOT NULL) AND note.text IS NULL AND note.cw IS NULL
+	AND note."replyId" IS NULL AND cardinality(note."fileIds") = 0 AND note."hasPoll" = false)`;
+
+/** A paired-channel reference has no native renote object to narrow to. */
+export function isReferenceRenotePacked(note: Packed<'Note'>): boolean {
+	return !!note.gridspaceQuote && note.text == null && note.cw == null && !note.replyId && !note.fileIds?.length && !note.poll;
+}

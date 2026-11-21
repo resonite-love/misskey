@@ -32,6 +32,41 @@ describe('community note boundary', () => {
 		value.notes[0].object.cc = [publicAudience];
 		expect(validateGridspaceBundle(value, origin, 'test').notes[0].localOnly).toBe(true);
 	});
+	test('keeps a bounded quote reference on the signed channel and refuses a federated or foreign reference', () => {
+		const value = bundle();
+		value.notes[0].gridspaceQuote = `${origin}/gridspace/private?noteId=original&channelId=channel`;
+		expect(validateGridspaceBundle(value, origin, 'test').notes[0].gridspaceQuote).toBe(value.notes[0].gridspaceQuote);
+		value.notes[0].localOnly = false;
+		expect(() => validateGridspaceBundle(value, origin, 'test')).toThrow();
+		value.notes[0].localOnly = true;
+		value.notes[0].gridspaceQuote = 'https://other.example/gridspace/private?noteId=original&channelId=channel';
+		expect(() => validateGridspaceBundle(value, origin, 'test')).toThrow();
+	});
+	test('accepts the relay preference and keeps older peer messages compatible', () => {
+		const value = bundle();
+		expect(validateGridspaceBundle(value, origin, 'test').notes[0].noRelay).toBeUndefined();
+		value.notes[0].localOnly = false;
+		value.notes[0].noRelay = true;
+		expect(validateGridspaceBundle(value, origin, 'test').notes[0].noRelay).toBe(true);
+
+		const invalid = { ...value, notes: [{ ...value.notes[0], noRelay: 'true' }] };
+		expect(() => validateGridspaceBundle(invalid, origin, 'test')).toThrow('Invalid relay preference');
+	});
+	test('accepts home federation only for a public relay opt-out on the signed channel', () => {
+		const value = bundle();
+		const entry = value.notes[0];
+		entry.localOnly = false;
+		entry.noRelay = true;
+		entry.federateAsHome = true;
+		expect(validateGridspaceBundle(value, origin, 'test').notes[0].federateAsHome).toBe(true);
+
+		entry.noRelay = false;
+		expect(() => validateGridspaceBundle(value, origin, 'test')).toThrow('Inconsistent federation visibility');
+		entry.noRelay = true;
+		entry.object.to = [];
+		entry.object.cc = [publicAudience];
+		expect(() => validateGridspaceBundle(value, origin, 'test')).toThrow('Inconsistent federation visibility');
+	});
 	test('rejects private objects even from the authenticated peer', () => {
 		const value = bundle(); value.notes[0].object.to = [origin + '/users/author/followers'];
 		expect(() => validateGridspaceBundle(value, origin, 'test')).toThrow();

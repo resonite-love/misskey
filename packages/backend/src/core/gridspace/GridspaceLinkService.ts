@@ -4,7 +4,7 @@
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';
-import fetch from 'node-fetch';
+import fetch, { AbortError, FetchError } from 'node-fetch';
 import { Inject, Injectable, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { DataSource, In, IsNull, LessThan, Raw, type EntityManager } from 'typeorm';
@@ -44,7 +44,7 @@ import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH, GRIDSPACE_LINK_SCOPES, 
 const isLinkPurpose = (purpose: MiGridspaceAuthSession['purpose']) => purpose === 'link' || purpose === 'link-all';
 
 export class GridspaceLinkError extends Error {
-	constructor(public code: string) { super(code); }
+	constructor(public code: string, public retryable = false) { super(code); }
 }
 
 export type GridspacePeerLinkRequest = { channelActorId?: string; accessToken?: string; linkId?: string; generation?: number; localUserId?: string; localUsername?: string; pairId?: string; expectedRevision?: number; reverseToken?: string; playId?: string };
@@ -85,6 +85,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 	public async json<T>(path: string, body: object, signed = true, maxBytes = 4 * 1024 * 1024): Promise<T> {
 		const peer = this.enabled();
 		const bytes = Buffer.from(JSON.stringify(body));
+		let status: number | undefined;
 		try {
 			// Keep reciprocal authorization POSTs off native fetch's HTTP/2 connection.
 			const transport = gridspacePeerTransport(peer, path);
@@ -94,17 +95,20 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 				size: maxBytes,
 				headers: { ...(signed ? createGridspaceHeaders(peer, 'POST', path, bytes) : { 'content-type': 'application/json' }), host: transport.host },
 			});
+			status = response.status;
 			// node-fetch bounds streaming bodies, not just Content-Length.
 			const result = await response.json();
 			if (!response.ok) {
-				const known = ['LINK_CONFLICT', 'LINK_REVOKED', 'AUTHORIZATION_REVOKED', 'SNAPSHOT_TOO_LARGE', 'REPLY_UNAVAILABLE', 'REPLY_REJECTED', 'REPLY_CONFLICT', 'REPLY_DELETED', 'RATE_LIMITED', 'ACTION_REJECTED', 'FILE_REJECTED', 'PLAY_UNAVAILABLE', 'CHANNEL_UNAVAILABLE'];
+				const known = ['LINK_CONFLICT', 'LINK_REVOKED', 'AUTHORIZATION_REVOKED', 'SNAPSHOT_TOO_LARGE', 'REPLY_UNAVAILABLE', 'REPLY_REJECTED', 'REPLY_CONFLICT', 'REPLY_DELETED', 'RATE_LIMITED', 'ACTION_REJECTED', 'FILE_REJECTED', 'PLAY_UNAVAILABLE', 'CHANNEL_UNAVAILABLE', 'EMOJI_CONFLICT', 'NAME_CONFLICT', 'ROLE_RESTRICTED', 'IMAGE_CHANGED', 'IMAGE_UNAVAILABLE', 'EMOJI_LIMIT', 'BUSY'];
 				const code = (result as { error?: unknown } | null)?.error;
 				throw new GridspaceLinkError(typeof code === 'string' && known.includes(code) ? code : 'PEER_UNAVAILABLE');
 			}
 			return result as T;
 		} catch (error) {
 			if (error instanceof GridspaceLinkError) throw error;
-			throw new GridspaceLinkError('PEER_UNAVAILABLE');
+			const transport = (status == null || status >= 200 && status < 300) && (error instanceof AbortError ||
+				error instanceof FetchError && error.type === 'system' && ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENETUNREACH', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE', 'ERR_STREAM_PREMATURE_CLOSE'].includes(error.code ?? ''));
+			throw new GridspaceLinkError('PEER_UNAVAILABLE', transport);
 		}
 	}
 

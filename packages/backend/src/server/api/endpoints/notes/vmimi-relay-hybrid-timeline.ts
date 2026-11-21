@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { pureRenoteCondition } from '@/misc/is-renote.js';
 import { noteListingCondition } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Brackets } from 'typeorm';
@@ -104,6 +105,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					sinceId,
 					limit: ps.limit,
 					withFiles: ps.withFiles,
+					withRenotes: ps.withRenotes,
 					withReplies: ps.withReplies,
 					withLocalOnly: ps.withLocalOnly,
 				}, me);
@@ -168,6 +170,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					sinceId,
 					limit,
 					withFiles: ps.withFiles,
+					withRenotes: ps.withRenotes,
 					withReplies: ps.withReplies,
 					withLocalOnly: ps.withLocalOnly,
 				}, me),
@@ -186,6 +189,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		sinceId: string | null,
 		limit: number,
 		withFiles: boolean,
+		withRenotes: boolean,
 		withReplies: boolean,
 		withLocalOnly: boolean,
 	}, me: MiLocalUser) {
@@ -215,6 +219,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		this.queryService.generateBlockedUserQueryForNotes(query, me);
 		this.queryService.generateMutedUserRenotesQueryForNotes(query, me);
 
+		if (ps.withRenotes === false) query.andWhere(`NOT ${pureRenoteCondition}`);
 		if (ps.withFiles) {
 			query.andWhere('note.fileIds != \'{}\'');
 		}

@@ -49,13 +49,12 @@ describe('per-kind unified list dispatch', () => {
 		await list.load();
 		expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ cursor: 'next', kind: 'direct' });
 	});
-	it('discards delegated bodies on hide and revalidates without a legacy read', async () => {
+	it('keeps the hidden snapshot and revalidates without a legacy read on return', async () => {
 		api.mockImplementation((async endpoint => endpoint === 'gridspace/link' ? { timeline: { version: 1, enabled: true, kinds: ['antenna'] } } : page) as typeof misskeyApi);
 		const { list } = mount({ kind: 'antenna', antennaId: 'antenna' }); await flush();
 		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
 		document.dispatchEvent(new Event('visibilitychange'));
-		expect(list.rows.value[0]).toMatchObject({ kind: 'private', note: { suspended: true } });
-		expect(list.rows.value[0]).not.toHaveProperty('note.text');
+		expect(list.rows.value[0]).toHaveProperty('note.text', 'secret');
 		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange')); await flush();
 		expect(api.mock.calls.at(-1)?.[0]).toBe('gridspace/timeline/changes');
 		expect(api.mock.calls.at(-1)?.[1]).toMatchObject({ refs: ['signed-one'] });

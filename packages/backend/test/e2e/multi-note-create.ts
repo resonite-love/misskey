@@ -9,10 +9,14 @@ import type * as misskey from 'misskey-js';
 import { Redis } from 'ioredis';
 import { loadConfig } from '@/config.js';
 import { IdService } from '@/core/IdService.js';
+import { MiChannel } from '@/models/Channel.js';
 import { MiNote } from '@/models/Note.js';
-import { MiNoteCreateDispatch } from '@/models/NotePlacement.js';
+import { MiNoteCreateDispatch, MiNoteCreateReceipt } from '@/models/NotePlacement.js';
+import { createInputHash } from '@/core/NotePlacementService.js';
+import { paramDef } from '@/server/api/endpoints/notes/create.js';
+import { getValidator } from '../prelude/get-api-validator.js';
 import { MiUser } from '@/models/User.js';
-import { api, initTestDb, role, signup } from '../utils.js';
+import { api, initTestDb, origin, role, signup, successfulApiCall } from '../utils.js';
 
 describe('Multi-note creation', () => {
 	let author: misskey.entities.SignupResponse;
@@ -118,6 +122,10 @@ describe('Multi-note creation', () => {
 		expect((await api('notes/create', { ...request, channelIds: [] }, author)).status).toBe(400);
 		expect((await api('notes/create', { ...request, channelId: first }, author)).status).toBe(400);
 		expect((await api('notes/create', { ...request, visibility: 'home' }, author)).status).toBe(400);
+		const quoted = await api('notes/create', { ...request, gridspaceQuote: 'https://peer.example/notes/source' }, author);
+		expect(quoted.status).toBe(400);
+		expect(quoted.body).toMatchObject({ error: { code: 'INVALID_NOTE_PLACEMENT', info: { reason: 'incompatible-destination' } } });
+		expect((await api('notes/create-status', { clientRequestId }, author)).body.status).toBe('missing');
 
 		const dedicated = await api('notes/create', { ...request, includeDefault: false, localOnly: false }, author);
 		expect(dedicated.status).toBe(200);
@@ -125,6 +133,91 @@ describe('Multi-note creation', () => {
 		expect(note).toMatchObject({ includeDefault: false, multiNoteKind: 'root', localOnly: true, gridspaceShared: false });
 		expect((await api('notes/show', { noteId: note.id }, other)).body.text).toBe('hello');
 		expect((await api('notes/create', { renoteId: note.id }, other)).status).toBe(400);
+	});
+
+	test('uses the selected source channel policy for references and replays a committed single destination', async () => {
+		const owner = await signup({ username: 'refowner' });
+		const restricted = (await successfulApiCall({ endpoint: 'channels/create', parameters: { name: 'same channel only', allowRenoteToExternal: false }, user: owner })).id;
+		const source = (await successfulApiCall({ endpoint: 'notes/create', user: author, parameters: {
+			text: 'source', includeDefault: false, channelIds: [first, restricted], clientRequestId: randomUUID(),
+		} })).createdNote;
+		const canonical = origin + '/notes/' + source.id;
+		const reference = (channelId: string) => canonical + '?' + new URLSearchParams({ gridspaceChannelOrigin: origin, gridspaceChannelId: channelId });
+		const quote = reference(restricted);
+		expect((await api('notes/create', { gridspaceQuote: quote }, author)).status).toBe(400);
+		expect((await api('notes/create', { gridspaceQuote: quote, channelId: first }, author)).status).toBe(400);
+		const outside = await api('notes/create', { gridspaceQuote: reference(first) }, author);
+		expect(outside.status).toBe(200);
+		expect(outside.body.createdNote).toMatchObject({ gridspaceQuote: reference(first), includeDefault: true, localOnly: true });
+
+		const request = { gridspaceQuote: quote, includeDefault: false, channelIds: [restricted], clientRequestId: randomUUID() };
+		expect((await api('notes/create', { ...request, includeDefault: true }, author)).status).toBe(400);
+		expect((await api('notes/create', { ...request, channelIds: [restricted, first] }, author)).status).toBe(400);
+		const result = await api('notes/create', request, author);
+		expect(result.status).toBe(200);
+		expect(result.body.createdNote).toMatchObject({ gridspaceQuote: quote, localOnly: true, includeDefault: false, channelPlacements: [{ channelId: restricted }] });
+		expect((await api('mute/create', { userId: owner.id }, other)).status).toBe(204);
+		const muted = await api('notes/show', { noteId: source.id }, other);
+		expect(muted.body.channelPlacements?.map(row => row.channelId)).toEqual([first]);
+		expect((await api('notes/create', { ...request, clientRequestId: randomUUID() }, other)).status).toBe(400);
+		expect((await api('channels/update', { channelId: restricted, isArchived: true }, owner)).status).toBe(200);
+
+		const reordered = canonical + '?' + new URLSearchParams({ gridspaceChannelId: restricted, gridspaceChannelOrigin: origin });
+		const replay = await api('notes/create', { ...request, gridspaceQuote: reordered }, author);
+		expect(replay.status).toBe(200);
+		expect(replay.body.createdNote.id).toBe(result.body.createdNote.id);
+		const mismatch = await api('notes/create', { ...request, gridspaceQuote: reference(first) }, author);
+		expect(mismatch.body).toMatchObject({ error: { info: { reason: 'request-content-conflict' } } });
+		expect((await api('notes/create', { ...request, clientRequestId: randomUUID() }, author)).status).toBe(400);
+	});
+
+	test('recovers a valid receipt after pairing with the source server ends', async () => {
+		const db = await initTestDb(true);
+		try {
+			const request = { text: 'historical quote', includeDefault: false, channelIds: [first], clientRequestId: randomUUID() };
+			const note = (await successfulApiCall({ endpoint: 'notes/create', parameters: request, user: author })).createdNote;
+			const peer = 'https://former-peer.example';
+			const gridspaceQuote = peer + '/notes/old?' + new URLSearchParams({ gridspaceChannelOrigin: peer, gridspaceChannelId: 'oldchannel' });
+			const { clientRequestId, ...input } = { ...request, gridspaceQuote };
+			// Reconstruct an already committed receipt with the same validated defaults used at creation.
+			expect(getValidator(paramDef)(input)).toBe(true);
+			await db.transaction(async manager => {
+				await manager.update(MiNote, note.id, { gridspaceQuote });
+				await manager.update(MiNoteCreateReceipt, { userId: author.id, clientRequestId }, { inputHash: createInputHash(input) });
+			});
+			const replay = await successfulApiCall({ endpoint: 'notes/create', parameters: { ...request, gridspaceQuote }, user: author });
+			expect(replay.createdNote).toMatchObject({ id: note.id, gridspaceQuote });
+			expect((await api('notes/create', { ...request, gridspaceQuote, clientRequestId: randomUUID() }, author)).status).toBe(400);
+		} finally {
+			await db.destroy();
+		}
+	});
+
+	test('rechecks a legacy single-channel destination before committing a scoped reference', async () => {
+		const source = (await successfulApiCall({ endpoint: 'notes/create', user: author, parameters: {
+			text: 'single channel source', includeDefault: false, channelIds: [first], clientRequestId: randomUUID(),
+		} })).createdNote;
+		const destination = await successfulApiCall({ endpoint: 'channels/create', parameters: { name: 'closing channel' }, user: author });
+		const gridspaceQuote = origin + '/notes/' + source.id + '?' + new URLSearchParams({ gridspaceChannelOrigin: origin, gridspaceChannelId: first });
+		const db = await initTestDb(true);
+		const gate = db.createQueryRunner();
+		try {
+			await gate.startTransaction();
+			await gate.manager.update(MiChannel, destination.id, { isArchived: true });
+			const pending = api('notes/create', { gridspaceQuote, channelId: destination.id }, author);
+			// The initial destination lookup can still see the old version. Wait for the insert to reach the locked channel.
+			await expect.poll(async () => {
+				const [row] = await gate.query('SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))) AS waiting');
+				return row.waiting;
+			}).toBe(true);
+			await gate.commitTransaction();
+			expect((await pending).status).toBe(400);
+			expect(await db.getRepository(MiNote).countBy({ channelId: destination.id })).toBe(0);
+		} finally {
+			if (gate.isTransactionActive) await gate.rollbackTransaction();
+			await gate.release();
+			await db.destroy();
+		}
 	});
 
 	test('keeps the public original visible when the viewer blocks a placement owner', async () => {

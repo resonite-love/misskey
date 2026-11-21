@@ -14,6 +14,8 @@ vi.mock('@/preferences.js', () => ({ prefer: { s: { enablePullToRefresh: false, 
 vi.mock('@@/js/scroll.js', () => ({ isHeadVisible: () => false, onScrollTop: () => () => {}, scrollToTop: vi.fn() }));
 vi.mock('@/components/MkGridspacePrivateNoteRow.vue', () => ({ default: { props: ['note', 'detailed'], template: '<div data-row>{{ note.text ?? "suspended" }}<span v-if="detailed">detail</span></div>' } }));
 vi.mock('@/components/MkButton.vue', () => ({ default: { props: ['disabled'], template: '<button :disabled="disabled"><slot/></button>' } }));
+vi.mock('@/components/MkNoteClips.vue', () => ({ default: { template: '<div/>' } }));
+vi.mock('@/components/MkTimelineNoteRow.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkPullToRefresh.vue', () => ({ default: { template: '<div><slot/></div>' } }));
 vi.mock('@/i18n.js', () => ({ i18n: { ts: { channel: 'Channel', loadMore: 'More', noNotes: 'None', retry: 'Retry', newNote: 'New', _gridspace: { newerChannelNotes: 'Later in channel', olderChannelNotes: 'Earlier in channel', newerUserNotes: 'Later by user', olderUserNotes: 'Earlier by user', privateTitle: 'Linked notes', privateUnavailable: 'Unavailable', channelNotesUnavailable: 'Unavailable' } } } }));
 

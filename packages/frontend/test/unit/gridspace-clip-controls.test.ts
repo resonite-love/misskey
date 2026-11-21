@@ -16,6 +16,7 @@ vi.mock('@/composables/use-note.js', () => ({ checkNoteWordMute: () => false }))
 vi.mock('@/components/MkButton.vue', () => ({ default: { template: '<button><slot/></button>' } }));
 vi.mock('@/components/MkPullToRefresh.vue', () => ({ default: { template: '<div><slot/></div>' } }));
 vi.mock('@/components/MkNote.vue', () => ({ default: { template: '<div/>' } }));
+vi.mock('@/components/MkTimelineNoteRow.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkGridspacePrivateNoteRow.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkTimelineLoadMore.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkPaginationControl.vue', () => ({ default: {

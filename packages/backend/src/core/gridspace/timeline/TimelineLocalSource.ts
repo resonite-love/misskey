@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { pureRenoteCondition } from '@/misc/is-renote.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { noteListingCondition } from '@/misc/note-distribution.js';
 import { type DataSource, type SelectQueryBuilder } from 'typeorm';
@@ -55,7 +56,7 @@ function bodyVersion(note: MiNote): string {
 	// Changes to reactions/counters are harmless, but never return a body packed
 	// before an edit to its audience, attachments, relations or author policy.
 	return JSON.stringify([note.userId, note.visibility, note.visibleUserIds, note.text, note.cw, note.fileIds,
-		note.replyId, note.renoteId, note.hasPoll, note.user?.isDeleted, note.user?.isSuspended,
+		note.replyId, note.renoteId, note.gridspaceQuote, note.hasPoll, note.user?.isDeleted, note.user?.isSuspended,
 		note.user?.makeNotesHiddenBefore, note.user?.makeNotesFollowersOnlyBefore]);
 }
 
@@ -93,12 +94,11 @@ export class TimelineLocalSource {
 			: `EXISTS (SELECT 1 FROM following trf WHERE trf."followerId" = :timelineViewer AND trf."followeeId" = note."userId" AND trf."withReplies" = true)`;
 		const readableReply = `(reply.visibility IS DISTINCT FROM 'followers' OR reply."userId" = :timelineViewer OR ${followed('reply."userId"')})`;
 		query.andWhere(`(note."replyId" IS NULL OR ((${expandedReplies}) AND ${readableReply}) OR (NOT (${expandedReplies}) AND (${self} OR note."replyUserId" = :timelineViewer OR note."replyUserId" = note."userId")))`);
-		const pureRenote = `(note."renoteId" IS NOT NULL AND note.text IS NULL AND note.cw IS NULL AND note."replyId" IS NULL AND cardinality(note."fileIds") = 0 AND note."hasPoll" = false)`;
-		query.andWhere(`(NOT ${pureRenote} OR NOT EXISTS (SELECT 1 FROM note trn INNER JOIN note trr ON trr.id = trn."replyId" WHERE trn.id = note."renoteId" AND trr.visibility = 'followers' AND trr."userId" <> :timelineViewer AND NOT ${followed('trr."userId"')}))`);
-		if (options.withRenotes === false) query.andWhere(`NOT ${pureRenote}`);
-		if (options.includeMyRenotes === false) query.andWhere(`(NOT ${pureRenote} OR note."userId" IS DISTINCT FROM :timelineViewer)`);
-		if (options.includeRenotedMyNotes === false) query.andWhere(`(NOT ${pureRenote} OR note."renoteUserId" IS DISTINCT FROM :timelineViewer)`);
-		if (options.includeLocalRenotes === false) query.andWhere(`NOT (${pureRenote} AND note."renoteUserHost" IS NULL)`);
+		query.andWhere(`(NOT ${pureRenoteCondition} OR NOT EXISTS (SELECT 1 FROM note trn INNER JOIN note trr ON trr.id = trn."replyId" WHERE trn.id = note."renoteId" AND trr.visibility = 'followers' AND trr."userId" <> :timelineViewer AND NOT ${followed('trr."userId"')}))`);
+		if (options.withRenotes === false) query.andWhere(`NOT ${pureRenoteCondition}`);
+		if (options.includeMyRenotes === false) query.andWhere(`(NOT ${pureRenoteCondition} OR note."userId" IS DISTINCT FROM :timelineViewer)`);
+		if (options.includeRenotedMyNotes === false) query.andWhere(`(NOT ${pureRenoteCondition} OR note."renoteUserId" IS DISTINCT FROM :timelineViewer)`);
+		if (options.includeLocalRenotes === false) query.andWhere(`NOT (${pureRenoteCondition} AND note."renoteId" IS NOT NULL AND note."renoteUserHost" IS NULL)`);
 		if (options.withFiles) query.andWhere('cardinality(note."fileIds") > 0');
 		this.queries.generateMutedNoteThreadQuery(query, viewer);
 		this.queries.generateMutedUserRenotesQueryForNotes(query, viewer);
@@ -215,7 +215,7 @@ export class TimelineLocalSource {
 		const freshQuery = (await buildQuery()).andWhere('note.id IN (:...timelineIds)', { timelineIds: requested });
 		if (compact) freshQuery.select([
 			'note.id', 'note.uri', 'note.userId', 'note.name', 'note.url', 'note.text', 'note.cw', 'note.fileIds',
-			'note.visibility', 'note.visibleUserIds', 'note.replyId', 'note.renoteId', 'note.hasPoll',
+			'note.visibility', 'note.visibleUserIds', 'note.replyId', 'note.renoteId', 'note.gridspaceQuote', 'note.hasPoll',
 			'user.id', 'user.isDeleted', 'user.isSuspended', 'user.makeNotesFollowersOnlyBefore', 'user.makeNotesHiddenBefore',
 		]);
 		// Rebuild after packing: actor/link/subscription changes must not reuse the
@@ -237,7 +237,7 @@ export class TimelineLocalSource {
 			const expectedText = row.name && (row.url ?? row.uri) ? `【${row.name}】\n${(row.text ?? '').trim()}\n\n${row.url ?? row.uri}` : row.text;
 			const expectedVisibility = (row.visibility === 'public' || row.visibility === 'home') && shouldHideNoteByTime(row.user.makeNotesFollowersOnlyBefore, note.createdAt) ? 'followers' : row.visibility;
 			if (expectedText !== note.text || row.cw !== note.cw || JSON.stringify(row.fileIds) !== JSON.stringify(note.fileIds) ||
-				row.replyId !== note.replyId || row.renoteId !== note.renoteId || expectedVisibility !== note.visibility ||
+				row.replyId !== note.replyId || row.renoteId !== note.renoteId || (row.gridspaceQuote ?? null) !== (note.gridspaceQuote ?? null) || expectedVisibility !== note.visibility ||
 				(row.user.makeNotesFollowersOnlyBefore ?? null) !== (note.user.makeNotesFollowersOnlyBefore ?? null) || (row.user.makeNotesHiddenBefore ?? null) !== (note.user.makeNotesHiddenBefore ?? null) ||
 				(row.userId !== viewer.id && shouldHideNoteByTime(row.user.makeNotesHiddenBefore, note.createdAt))) return false;
 			for (const relation of ['reply', 'renote'] as const) {

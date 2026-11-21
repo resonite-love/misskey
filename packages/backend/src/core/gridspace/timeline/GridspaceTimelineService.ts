@@ -123,7 +123,7 @@ export class GridspaceTimelineService {
 		const read = async () => (await Promise.all(origins.map(origin => this.placements!.read(viewer, origin, request, deadline)))).flatMap(page => page.references);
 		const active = await read();
 		const unique = new Map(active.map(ref => [ref.canonicalUri, ref]));
-		const bodies = await this.placements!.bodies(viewer, [...unique.values()], deadline);
+		const bodies = await this.placements!.bodies(viewer, [...unique.values()], deadline, checkpoint.options);
 		if (!bodies.size) return [];
 		const recheckStarted = Date.now();
 		const fresh = await read();
@@ -197,7 +197,7 @@ export class GridspaceTimelineService {
 		let items: TimelineItem[] = [];
 		const options = checkpoint.options;
 		if (options.channelOrigin === this.peer!.origin) {
-			const request = { channelId: options.channelId, pinnedOnly: options.pinnedOnly, limit };
+			const request = { channelId: options.channelId, pinnedOnly: options.pinnedOnly, upper: checkpoint.merge.local.upper ?? undefined, limit };
 			const page = await this.placements!.read(viewer, this.peer!.origin, request, deadline);
 			const localRefs = page.references.filter(ref => ref.placement?.noteOrigin === this.peer!.origin);
 			items = await this.hydratePlacements(viewer, checkpoint, localRefs, deadline);
@@ -364,22 +364,34 @@ export class GridspaceTimelineService {
 				checkpoint.merge.peerPlacement = { before: null, upper: null, ended: mode !== 'unified', pending: [] };
 			}
 			checkpoint.nextPolicyCheckAt = await this.local.nextViewerPolicyCheck(viewer.id);
+			let ref: TimelineReference | undefined;
 			if (retained?.anchorRef) {
-				let ref: TimelineReference;
 				try { ref = JSON.parse(openGridspaceSecret(this.peer, retained.anchorRef, `timeline-ref:${viewer.id}:${retained.previousSession}:${retained.previousRevision}`)); } catch { throw new GridspaceLinkError('INVALID_CURSOR'); }
-				if (!['home', 'social'].includes(options.kind) || ref.canonicalUri !== anchor || !/^\d+$/.test(ref.sortAt)) throw new GridspaceLinkError('INVALID_CURSOR');
-				const untilAt = Number(BigInt(ref.sortAt) / 1000n);
-				if (!Number.isSafeInteger(untilAt) || untilAt < 0 || untilAt >= 4102444800000) throw new GridspaceLinkError('INVALID_CURSOR');
-				// The old signed position survives deletion or revocation of the anchor.
-				// It grants no body access: every page still runs the current ACL checks.
-				checkpoint.untilAt = untilAt;
+				if (!ref || ref.canonicalUri !== anchor || !/^\d+$/.test(ref.sortAt)) throw new GridspaceLinkError('INVALID_CURSOR');
+				const previous = await this.sessions.getSession(retained.previousSession);
+				if (previous) {
+					const prior = JSON.parse(previous) as Checkpoint;
+					const orderedOptions = (value: TimelineOptions) => JSON.stringify(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)));
+					if (prior.viewerId !== viewer.id || prior.revision !== retained.previousRevision || prior.mode !== mode || orderedOptions(prior.options) !== orderedOptions(options)) throw new GridspaceLinkError('INVALID_CURSOR');
+				}
+			} else if (anchor && options.channelOrigin) {
+				const page = await this.placements!.read(viewer, options.channelOrigin, { channelId: options.channelId, pinnedOnly: options.pinnedOnly, uris: [anchor], limit: 1 }, deadline);
+				ref = page.references.find(row => row.canonicalUri === anchor);
 			} else if (anchor) {
 				const own = await this.localSource(options).ownerReferences(viewer, [anchor]);
-				const ref = own[0] ?? (mode === 'unified' ? (await this.delegated.timeline(viewer, { anchor, ...options, deadline })).references[0] : undefined);
-				if (ref) {
-					if (options.kind === 'clip' && options.order === 'oldest') checkpoint.fromAt = Number(BigInt(ref.sortAt) / 1000n);
-					else checkpoint.untilAt = Number(BigInt(ref.sortAt) / 1000n);
-				}
+				ref = own[0] ?? (mode === 'unified' ? (await this.delegated.timeline(viewer, { anchor, ...options, deadline })).references[0] : undefined);
+			}
+			// Retain only the listing position. Every page rechecks access to each body.
+			if (ref && options.channelOrigin) {
+				if (ref.placement?.channelOrigin !== options.channelOrigin || ref.placement.channelId !== options.channelId ||
+					(options.pinnedOnly && ref.pinRank == null)) throw new GridspaceLinkError('INVALID_CURSOR');
+				const lane = options.channelOrigin === this.peer.origin ? checkpoint.merge.local : checkpoint.merge.peer;
+				lane.upper = { sortAt: ref.sortAt, canonicalUri: ref.canonicalUri, pinRank: ref.pinRank };
+			} else if (ref) {
+				const anchorAt = Number(BigInt(ref.sortAt) / 1000n);
+				if (!Number.isSafeInteger(anchorAt) || anchorAt < 0 || anchorAt >= 4102444800000) throw new GridspaceLinkError('INVALID_CURSOR');
+				if (options.kind === 'clip' && options.order === 'oldest') checkpoint.fromAt = anchorAt;
+				else checkpoint.untilAt = anchorAt;
 			}
 			await this.sessions.start(viewer.id, checkpoint.session, JSON.stringify(checkpoint), checkpoint.expires);
 			await this.store(checkpoint, position.id, true);

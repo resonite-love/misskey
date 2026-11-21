@@ -15,6 +15,11 @@ export function getApiErrorStatus(error: unknown): number | undefined {
 	return typeof error === 'object' && error !== null ? responseStatus.get(error) : undefined;
 }
 
+const networkErrors = new WeakSet<object>();
+export function isMisskeyApiNetworkError(error: unknown): boolean {
+	return error != null && typeof error === 'object' && networkErrors.has(error);
+}
+
 // Implements Misskey.api.ApiClient.request
 export function misskeyApi<
 	ResT = void,
@@ -57,6 +62,10 @@ function rawMisskeyApi<ResT = void, E extends keyof Misskey.Endpoints = keyof Mi
 				'Content-Type': 'application/json',
 			},
 			signal,
+		}).catch(error => {
+			// Mark only fetch rejection, never response parsing or HTTP API errors.
+			if (error != null && typeof error === 'object') networkErrors.add(error);
+			throw error;
 		}).then(async (res) => {
 			const body = res.status === 204 ? null : await res.json();
 

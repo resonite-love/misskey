@@ -37,7 +37,7 @@ export type PlacementStatus = {
 	state: 'active' | 'removed' | 'origin-deleted';
 };
 export type PlacementLookupKey = Pick<PlacementStatus, 'canonicalUri' | 'channelId' | 'placementId' | 'sourceRevision' | 'targetRevision'>;
-export type PlacementLookupRow = { placementId: string; ownerUri: string | null; name: string; color: string };
+export type PlacementLookupRow = { isSensitive?: boolean; isArchived?: boolean; allowRenoteToExternal?: boolean; placementId: string; ownerUri: string | null; name: string; color: string };
 export type OriginPlacementRoot = { noteId: string; channels: (PlacementLookupRow & { channelId: string })[] };
 export type PlacementProof = {
 	actorUri: string; canonicalUri: string; channelOrigin: string; channelId: string; placementId: string;

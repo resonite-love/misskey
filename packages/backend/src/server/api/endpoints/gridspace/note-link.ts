@@ -13,6 +13,7 @@ import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { GridspacePrivateService } from '@/core/gridspace/GridspacePrivateService.js';
 import { GridspaceLinkError } from '@/core/gridspace/GridspaceLinkService.js';
 import { privateNoteSchema } from '@/core/gridspace/private-protocol.js';
+import { GridspaceQuoteService } from '@/core/gridspace/GridspaceQuoteService.js';
 import { GridspacePublicNoteService } from '@/core/gridspace/GridspacePublicNoteService.js';
 
 export function parseNoteLink(value: string, config: Pick<Config, 'url' | 'gridspace'>) {
@@ -44,12 +45,14 @@ export const paramDef = { type: 'object', properties: { url: { type: 'string', m
 
 @Injectable()
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
-	constructor(@Inject(DI.config) config: Config, reader: GridspacePrivateService, getter: GetterService, packer: NoteEntityService, publicNotes: GridspacePublicNoteService) {
+	constructor(@Inject(DI.config) config: Config, reader: GridspacePrivateService, getter: GetterService, packer: NoteEntityService, publicNotes: GridspacePublicNoteService, quotes: GridspaceQuoteService) {
 		super(meta, paramDef, async (ps, me, token) => {
 			try {
 				// Preserve the internal-client restriction for authenticated reads.
 				// `secure: true` also denies anonymous requests in ApiCallService.
 				if (token != null || me?.isSuspended) throw new GridspaceLinkError('UNAVAILABLE');
+				const placement = quotes.placementReference(ps.url);
+				if (placement) return await quotes.resolvePlacement(me, placement);
 				const target = parseNoteLink(ps.url, config);
 				if (!me) {
 					const result = await publicNotes.resolve({ noteId: target.noteId, channelId: target.channelId }, target.local);

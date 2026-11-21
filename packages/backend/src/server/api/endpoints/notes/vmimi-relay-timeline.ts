@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { pureRenoteCondition } from '@/misc/is-renote.js';
 import { defaultNoteCondition } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Brackets } from 'typeorm';
@@ -197,19 +198,11 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			this.queryService.generateMutedUserRenotesQueryForNotes(query, me);
 		}
 
+		if (ps.withRenotes === false) query.andWhere(`NOT ${pureRenoteCondition}`);
 		if (ps.withFiles) {
 			query.andWhere('note.fileIds != \'{}\'');
 		}
 
-		if (!ps.withRenotes) {
-			query.andWhere(new Brackets(qb => {
-				qb.where('note.renoteId IS NULL');
-				qb.orWhere(new Brackets(qb => {
-					qb.where('note.text IS NOT NULL');
-					qb.orWhere('note.fileIds != \'{}\'');
-				}));
-			}));
-		}
 		//#endregion
 
 		return await query.limit(ps.limit).getMany();

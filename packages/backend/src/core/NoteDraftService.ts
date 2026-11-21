@@ -15,8 +15,9 @@ import { IdentifiableError } from '@/misc/identifiable-error.js';
 import { isRenote, isQuote } from '@/misc/is-renote.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { QueueService } from '@/core/QueueService.js';
+import { GridspaceQuoteService } from '@/core/gridspace/GridspaceQuoteService.js';
 
-export type NoteDraftOptions = Omit<MiNoteDraft, 'id' | 'userId' | 'user' | 'reply' | 'renote' | 'channel'>;
+export type NoteDraftOptions = Omit<MiNoteDraft, 'id' | 'userId' | 'user' | 'reply' | 'renote' | 'channel' | 'gridspaceQuote'> & { gridspaceQuote?: string | null };
 
 @Injectable()
 export class NoteDraftService {
@@ -43,6 +44,7 @@ export class NoteDraftService {
 		private idService: IdService,
 		private noteEntityService: NoteEntityService,
 		private queueService: QueueService,
+		private gridspaceQuotes: GridspaceQuoteService,
 	) {
 	}
 
@@ -119,7 +121,11 @@ export class NoteDraftService {
 		}
 		//#endregion
 
-		await this.validate(me, data);
+		const quoteDraft = draft.gridspaceQuote || data.gridspaceQuote
+			? { ...draft, ...Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)) }
+			: data;
+		await this.validate(me, quoteDraft);
+		if (quoteDraft.gridspaceQuote) data.localOnly = true;
 
 		const updatedDraft = await this.noteDraftsRepository.createQueryBuilder().update()
 			.set(data)
@@ -172,6 +178,11 @@ export class NoteDraftService {
 		me: MiLocalUser,
 		data: Partial<NoteDraftOptions>,
 	): Promise<void> {
+		if (data.gridspaceQuote) {
+			if (data.renoteId || data.replyId) throw new IdentifiableError('ed1952ac-2d26-4957-8b30-2deda76bedf7', 'Incompatible quote targets');
+			try { await this.gridspaceQuotes.prepare(me, data.gridspaceQuote, data.channelId); } catch { throw new IdentifiableError('ed1952ac-2d26-4957-8b30-2deda76bedf7', 'Channel does not allow an outside quote'); }
+			data.localOnly = true;
+		}
 		if (data.isActuallyScheduled) {
 			if (data.scheduledAt == null) {
 				throw new IdentifiableError('94a89a43-3591-400a-9c17-dd166e71fdfa', 'scheduledAt is required when isActuallyScheduled is true');

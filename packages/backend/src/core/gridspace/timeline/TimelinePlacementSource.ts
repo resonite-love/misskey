@@ -21,7 +21,7 @@ import { resolveGridspaceConfig, type GridspacePeerConfig } from '../peer-protoc
 import { TimelineLocalSource } from './TimelineLocalSource.js';
 import { TimelineReferenceService, validTimelinePosition } from './TimelineReferenceService.js';
 import { activeChannelEntries } from './placement-change.js';
-import { TIMELINE_AUTHORIZATION_TTL_MS, type TimelineItem, type TimelinePosition, type TimelineReference } from './timeline-protocol.js';
+import { TIMELINE_AUTHORIZATION_TTL_MS, type TimelineItem, type TimelineOptions, type TimelinePosition, type TimelineReference } from './timeline-protocol.js';
 
 type Position = Pick<TimelinePosition, 'sortAt' | 'canonicalUri' | 'pinRank'>;
 export type PlacementTimelineRequest = { channelId?: string; followed?: boolean; untilAt?: number; after?: string; actorId?: string; pinnedOnly?: boolean; before?: Position; upper?: Position; uris?: string[]; limit?: number };
@@ -122,6 +122,7 @@ export class TimelinePlacementSource {
 		const rows = await this.db.query<{ pinRank: number | null; chips: PackedChannelPlacement[]; channelIds: string[]; sortAt: string; canonicalUri: string; originNoteId: string; noteOrigin: string; includeDefault: boolean; legacy: boolean }[]>(
 			`${watched} SELECT ${input.pinnedOnly ? 'min(pins.rank)' : 'NULL::int'} AS "pinRank", array_agg(DISTINCT a."channelId" ORDER BY a."channelId") AS "channelIds",
 				jsonb_agg(DISTINCT jsonb_build_object('origin', $2::text, 'channelId', c.id, 'name', c.name, 'color', c.color,
+					'isArchived', c."isArchived", 'isSensitive', c."isSensitive", 'allowRenoteToExternal', c."allowRenoteToExternal",
 					'canonicalUri', a."canonicalUri" COLLATE "C", 'state', 'active', 'canRemove',
 					(NOT a.legacy AND ($${params.length - 1}::boolean OR c."userId" = $3 OR a."authorUri" IN
 					(SELECT coalesce(u.uri, $2 || '/users/' || u.id) FROM "user" u WHERE u.id = $3))))) AS chips,
@@ -153,14 +154,15 @@ export class TimelinePlacementSource {
 				!validTimelinePosition(ref) || ![origin, this.peer.origin].includes(p.noteOrigin) ||
 				typeof p.legacy !== 'boolean' || typeof p.includeDefault !== 'boolean' ||
 				(!p.legacy && (!Array.isArray(p.chips) || p.chips.some(chip => chip.origin !== origin || chip.canonicalUri !== ref.canonicalUri ||
-					!gridspaceNoteId(chip.channelId) || typeof chip.name !== 'string' || typeof chip.color !== 'string' || chip.state !== 'active'))) ||
+					!gridspaceNoteId(chip.channelId) || typeof chip.name !== 'string' || typeof chip.color !== 'string' || chip.state !== 'active' ||
+					[chip.isArchived, chip.isSensitive, chip.allowRenoteToExternal].some(flag => flag !== undefined && typeof flag !== 'boolean')))) ||
 				(!p.legacy && ref.canonicalUri !== `${p.noteOrigin}/notes/${ref.noteId}`)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 			ref.source = 'peer';
 		}
 		return result;
 	}
 
-	public async bodies(viewer: MiLocalUser, refs: TimelineReference[], deadline: number): Promise<Map<string, PlacementBody>> {
+	public async bodies(viewer: MiLocalUser, refs: TimelineReference[], deadline: number, filters: Pick<TimelineOptions, 'withRenotes' | 'includeMyRenotes'> = {}): Promise<Map<string, PlacementBody>> {
 		const result = new Map<string, PlacementBody>();
 		if (!this.peer || !refs.length) return result;
 		const started = Date.now();
@@ -229,6 +231,30 @@ export class TimelinePlacementSource {
 					result.set(ref.canonicalUri, { representation: 'delegated', payload: note, readOnly, validForMs: TIMELINE_AUTHORIZATION_TTL_MS, nextPolicyCheckAt: null });
 				}
 			}));
+		}
+		// A dedicated peer original has no local note ID. Resolve its author URI
+		// against the viewer's renote mutes in the same batch as native authors.
+		const native = new Map<string, string>();
+		const delegated = new Map<string, string>();
+		for (const [uri, { payload }] of result) {
+			if ((!payload.gridspaceQuote && !payload.renoteId) || payload.text != null || payload.cw != null || payload.replyId || payload.files?.length || payload.poll) continue;
+			if (filters.withRenotes === false) {
+				result.delete(uri);
+				continue;
+			}
+			if ('userId' in payload) native.set(uri, payload.userId);
+			else delegated.set(uri, payload.author.uri);
+		}
+		if (native.size || delegated.size) {
+			const muted = await this.db.query<{ id: string; uri: string | null }[]>(`SELECT u.id, coalesce(u.uri, $2 || '/users/' || u.id) AS uri
+				FROM renote_muting m INNER JOIN "user" u ON u.id = m."muteeId" WHERE m."muterId" = $1
+				AND (u.id = ANY($3::varchar[]) OR coalesce(u.uri, $2 || '/users/' || u.id) = ANY($4::varchar[]))`,
+			[viewer.id, this.peer.origin, [...new Set(native.values())], [...new Set(delegated.values())]]);
+			const mutedIds = new Set(muted.map(row => row.id));
+			const mutedUris = new Set(muted.map(row => row.uri));
+			const viewerUri = `${this.peer.origin}/users/${viewer.id}`;
+			for (const [uri, id] of native) if (mutedIds.has(id) || (filters.includeMyRenotes === false && id === viewer.id)) result.delete(uri);
+			for (const [uri, authorUri] of delegated) if (mutedUris.has(authorUri) || (filters.includeMyRenotes === false && authorUri === viewerUri)) result.delete(uri);
 		}
 		for (const body of result.values()) body.validForMs = Math.max(0, Math.min(body.validForMs ?? TIMELINE_AUTHORIZATION_TTL_MS, TIMELINE_AUTHORIZATION_TTL_MS) - (Date.now() - started));
 		return result;

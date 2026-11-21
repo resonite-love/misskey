@@ -80,6 +80,9 @@ export const packedNoteSchema = {
 					name: { type: 'string', optional: false, nullable: false },
 					color: { type: 'string', optional: false, nullable: false },
 					placementId: { type: 'string', optional: true, nullable: false },
+					isSensitive: { type: 'boolean', optional: true, nullable: false },
+					allowRenoteToExternal: { type: 'boolean', optional: true, nullable: false },
+					isArchived: { type: 'boolean', optional: true, nullable: false },
 					canRemove: { type: 'boolean', optional: true, nullable: false },
 					canRetry: { type: 'boolean', optional: true, nullable: false },
 					state: { type: 'string', enum: ['active', 'pending', 'failed', 'removed'], optional: false, nullable: false },
@@ -218,10 +221,12 @@ export const packedNoteSchema = {
 			},
 		},
 		gridspaceReactions: { type: 'boolean', optional: true, nullable: false },
+		gridspaceQuote: { type: 'string', optional: true, nullable: false },
 		gridspaceShared: {
 			type: 'boolean',
 			optional: true, nullable: false,
 		},
+		noRelay: { type: 'boolean', optional: true, nullable: false },
 		localOnly: {
 			type: 'boolean',
 			optional: true, nullable: false,

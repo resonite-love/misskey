@@ -25,6 +25,8 @@ import type { SearchPeerRequest } from '@/core/gridspace/search-protocol.js';
 import type { ReactionPeerRequest, ReactionUpdate, ReactionNotification } from '@/core/gridspace/reaction-protocol.js';
 import type { PublicNoteTarget } from '@/core/gridspace/GridspacePublicNoteService.js';
 import type { TimelinePeerHint } from '@/core/gridspace/timeline/TimelinePeerService.js';
+import { noteClipsPeerSchema, type NoteClipsPeerRequest } from '@/core/gridspace/note-clips-protocol.js';
+import { emojiPeerSchema, type EmojiPeerRequest } from '@/core/gridspace/emoji-sync-protocol.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 export type ClaimGridspaceNonce = (key: string, ttlMs: number) => Promise<boolean>;
@@ -32,7 +34,7 @@ export type PlacementRoute = { name: string; schema: object; handle(input: unkno
 export type PlacementRoutes = { enabled: boolean; routes: PlacementRoute[] };
 
 /** Mounted under /gridspace/v1; independent from user-authorized /api endpoints. */
-export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>, channels?: (input: ChannelPeerRequest) => Promise<object>, channelDelete?: (input: GridspacePeerLinkRequest & { noteId: string; channelId: string }) => Promise<object>, drive?: (input: DrivePeerRequest) => Promise<object>, content?: (input: ContentOptions) => Promise<object>, sharedDrive?: (input: SharedDriveRequest) => Promise<object>, managed?: (input: ManagedPeerInput) => Promise<object>, channelUpdate?: (input: ChannelUpdatePeerRequest) => Promise<object>, noteMenu?: (input: NoteMenuPeerRequest) => Promise<object>, publicNote?: (input: PublicNoteTarget) => Promise<object>, reactionNotification?: (input: ReactionNotification) => Promise<object>, timelineNotification?: (input: TimelinePeerHint) => Promise<object>, timelineInvalidation?: () => object, placements?: PlacementRoutes): void {
+export function registerGridspacePeer(fastify: FastifyInstance, config: GridspacePeerConfig | null, claimNonce: ClaimGridspaceNonce, action?: (name: string, body: GridspacePeerLinkRequest) => Promise<object>, notes?: (name: string, noteId: string) => Promise<object>, history?: (input: HistoryPeerRequest) => Promise<object>, search?: (input: SearchPeerRequest) => Promise<object>, privateAction?: (name: string, input: PrivatePeerRequest) => Promise<object>, replyAction?: (input: ReplyPeerRequest) => Promise<object>, notifications?: (action: string, input: NotificationPeerRequest) => Promise<object>, interact?: (input: ActionPeerRequest) => Promise<object>, upload?: (input: UploadPeerRequest) => Promise<object>, reactions?: (input: ReactionPeerRequest) => Promise<object>, reactionUpdates?: (input: ReactionUpdate) => Promise<object>, readNotes?: (noteIds: string[]) => Promise<object>, channels?: (input: ChannelPeerRequest) => Promise<object>, channelDelete?: (input: GridspacePeerLinkRequest & { noteId: string; channelId: string }) => Promise<object>, drive?: (input: DrivePeerRequest) => Promise<object>, content?: (input: ContentOptions) => Promise<object>, sharedDrive?: (input: SharedDriveRequest) => Promise<object>, managed?: (input: ManagedPeerInput) => Promise<object>, channelUpdate?: (input: ChannelUpdatePeerRequest) => Promise<object>, noteMenu?: (input: NoteMenuPeerRequest) => Promise<object>, publicNote?: (input: PublicNoteTarget) => Promise<object>, reactionNotification?: (input: ReactionNotification) => Promise<object>, timelineNotification?: (input: TimelinePeerHint) => Promise<object>, timelineInvalidation?: () => object, noteClips?: (input: NoteClipsPeerRequest) => Promise<object>, emojiSync?: (input: EmojiPeerRequest) => Promise<object>, placements?: PlacementRoutes): void {
 	if (config === null) return;
 	// Preserve wire bytes for the signature without changing other server plugins' parsers.
 	const parseJson = fastify.getDefaultJsonParser('error', 'error');
@@ -90,6 +92,23 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 				if (code === 'RATE_LIMITED') return reply.code(429).send({ error: code });
 				return reply.code(503).send({ error: 'PEER_UNAVAILABLE' });
 			}
+		});
+	}
+	if (emojiSync) {
+		fastify.post<{ Body: EmojiPeerRequest }>('/emojis', {
+			bodyLimit: 262144, config: { rawBody: true }, preHandler: authenticate, schema: { body: emojiPeerSchema },
+		}, async (request, reply) => {
+			try { return await emojiSync(request.body); } catch (error) {
+				const reason = error instanceof Error && 'code' in error ? error.code : 'PEER_UNAVAILABLE';
+				return reply.code(409).send({ error: reason });
+			}
+		});
+	}
+	if (noteClips) {
+		fastify.post<{ Body: NoteClipsPeerRequest }>('/notes/clips', {
+			bodyLimit: 16384, config: { rawBody: true }, preHandler: authenticate, schema: { body: noteClipsPeerSchema },
+		}, async (request, reply) => {
+			try { return await noteClips(request.body); } catch { return reply.code(403).send({ error: 'NOTE_CLIPS_UNAVAILABLE' }); }
 		});
 	}
 	if (timelineInvalidation) {

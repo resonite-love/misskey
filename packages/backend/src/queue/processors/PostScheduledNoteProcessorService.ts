@@ -6,10 +6,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DI } from '@/di-symbols.js';
 import type { NoteDraftsRepository } from '@/models/_.js';
+import type { MiLocalUser } from '@/models/User.js';
 import type Logger from '@/logger.js';
 import { NotificationService } from '@/core/NotificationService.js';
 import { bindThis } from '@/decorators.js';
 import { NoteCreateService } from '@/core/NoteCreateService.js';
+import { GridspaceQuoteService } from '@/core/gridspace/GridspaceQuoteService.js';
 import { QueueLoggerService } from '../QueueLoggerService.js';
 import type * as Bull from 'bullmq';
 import type { PostScheduledNoteJobData } from '../types.js';
@@ -25,6 +27,7 @@ export class PostScheduledNoteProcessorService {
 		private noteCreateService: NoteCreateService,
 		private notificationService: NotificationService,
 		private queueLoggerService: QueueLoggerService,
+		private gridspaceQuotes: GridspaceQuoteService,
 	) {
 		this.logger = this.queueLoggerService.logger.createSubLogger('post-scheduled-note');
 	}
@@ -35,11 +38,12 @@ export class PostScheduledNoteProcessorService {
 			where: { id: job.data.noteDraftId },
 			relations: { user: true },
 		});
-		if (draft == null || draft.user == null || draft.scheduledAt == null || !draft.isActuallyScheduled) {
+		if (draft == null || draft.user == null || draft.user.host != null || draft.scheduledAt == null || !draft.isActuallyScheduled) {
 			return;
 		}
 
 		try {
+			const quoteUrl = draft.gridspaceQuote;
 			const note = await this.noteCreateService.fetchAndCreate(draft.user, {
 				createdAt: new Date(),
 				fileIds: draft.fileIds,
@@ -53,6 +57,7 @@ export class PostScheduledNoteProcessorService {
 				renoteId: draft.renoteId,
 				cw: draft.cw,
 				localOnly: draft.localOnly,
+				prepareGridspaceQuote: quoteUrl ? () => this.gridspaceQuotes.prepare(draft.user as MiLocalUser, quoteUrl, draft.channelId) : undefined,
 				reactionAcceptance: draft.reactionAcceptance,
 				visibility: draft.visibility,
 				visibleUserIds: draft.visibleUserIds,

@@ -11,7 +11,7 @@ import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { NoteStreamingHidingService } from '../NoteStreamingHidingService.js';
 import { bindThis } from '@/decorators.js';
 import { RoleService } from '@/core/RoleService.js';
-import { isQuotePacked, isRenotePacked } from '@/misc/is-renote.js';
+import { isQuotePacked, isRenotePacked, isReferenceRenotePacked } from '@/misc/is-renote.js';
 import type { JsonObject } from '@/misc/json-value.js';
 import Channel, { type ChannelRequest } from '../channel.js';
 import { REQUEST } from '@nestjs/core';
@@ -69,6 +69,7 @@ export class LocalTimelineChannel extends Channel {
 			if (reply.userId !== this.user?.id && note.userId !== this.user?.id && reply.userId !== note.userId) return;
 		}
 
+		if (!this.withRenotes && isReferenceRenotePacked(note)) return;
 		if (isRenotePacked(note) && !isQuotePacked(note) && !this.withRenotes) return;
 
 		if (this.isNoteMutedOrBlocked(note)) return;

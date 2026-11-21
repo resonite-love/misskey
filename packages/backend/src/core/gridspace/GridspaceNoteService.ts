@@ -4,7 +4,7 @@
  */
 
 import { Inject, Injectable, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
-import { DataSource, LessThanOrEqual } from 'typeorm';
+import { DataSource, In, LessThanOrEqual } from 'typeorm';
 import * as Redis from 'ioredis';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
@@ -99,7 +99,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		});
 		if (note === null) return { deleted: true, notes: [] };
 		if (note === false) return { deleted: false, unavailable: true, notes: [] };
-		const result = { deleted: false, notes: [{ object: await this.renderer.renderNote(note, false), localOnly: note.localOnly, reactionAcceptance: note.reactionAcceptance }] };
+		const result = { deleted: false, notes: [{ object: await this.renderer.renderNote(note, false, note.visibility), localOnly: note.localOnly, noRelay: note.noRelay, federateAsHome: note.federateAsHome, gridspaceQuote: note.gridspaceQuote ?? undefined, reactionAcceptance: note.reactionAcceptance }] };
 		if (Buffer.byteLength(JSON.stringify(result)) > GRIDSPACE_NOTE_BODY_LIMIT) throw new Error('Note too large');
 		return result;
 	}
@@ -122,7 +122,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		if (noteIds.length > GRIDSPACE_NOTE_BATCH_LIMIT || new Set(noteIds).size !== noteIds.length) throw new Error('Invalid note batch');
 		let prefetched: Map<string, GridspaceNoteBundle> | undefined;
 		try {
-			prefetched = validateGridspaceNoteBatch(await requestGridspacePeer(this.peer, GRIDSPACE_NOTE_PATH + 'read-many', { noteIds }, GRIDSPACE_NOTE_BATCH_BODY_LIMIT, budget.deadline), this.peer.peerOrigin, noteIds);
+			prefetched = validateGridspaceNoteBatch(await requestGridspacePeer(this.peer, GRIDSPACE_NOTE_PATH + 'read-many', { noteIds }, GRIDSPACE_NOTE_BATCH_BODY_LIMIT, budget.deadline), this.peer.peerOrigin, noteIds, this.peer.origin);
 		} catch (error) {
 			// Rolling updates may temporarily pair with an older server. Other failures
 			// must fail the page rather than multiply an outage into per-note retries.
@@ -150,13 +150,22 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		return this.apNotes.fetchNote(`${this.peer.peerOrigin}/notes/${noteId}`);
 	}
 
+	private async canRestorePublicVisibility(note: MiNote): Promise<boolean> {
+		if (note.channelId != null) return false;
+		const parents = [...new Set([note.replyId, note.renoteId].filter((id): id is string => id != null))];
+		if (parents.length && await this.db.getRepository(MiNote).countBy({ id: In(parents), visibility: 'public' }) !== parents.length) return false;
+
+		const user = await this.db.getRepository(MiUser).findOneBy({ id: note.userId });
+		return user != null && !user.isSuspended && !user.isDeleted && await this.create.canUsePublicVisibility(user, note);
+	}
+
 	private async importNote(noteId: string, visiting: Set<string>, live: boolean, budget?: { remaining: number; deadline: number }, prefetched?: Map<string, GridspaceNoteBundle>): Promise<'imported' | 'unavailable' | 'deleted'> {
 		if (!this.peer) throw new Error('GridSpace disabled');
 		if (budget && (--budget.remaining < 0 || Date.now() > budget.deadline)) throw new Error('History import budget exceeded');
 		const uri = `${this.peer.peerOrigin}/notes/${noteId}`;
 		if (visiting.has(uri)) throw new Error('Cyclic note references');
 		visiting.add(uri);
-		const bundle = validateGridspaceBundle(prefetched?.has(noteId) ? structuredClone(prefetched.get(noteId)) : await this.request('read', noteId, budget?.deadline), this.peer.peerOrigin, noteId);
+		const bundle = validateGridspaceBundle(prefetched?.has(noteId) ? structuredClone(prefetched.get(noteId)) : await this.request('read', noteId, budget?.deadline), this.peer.peerOrigin, noteId, this.peer.origin);
 		if (bundle.unavailable) { visiting.delete(uri); return 'unavailable'; }
 		const entry = bundle.notes[0];
 		const resolver = budget ? await this.resolvers.createResolver() : undefined;
@@ -169,8 +178,11 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 				if (typeof value !== 'string') continue;
 				const ref = canonicalGridspaceNoteUri(canonicalGridspaceNoteUri(value, this.peer.peerOrigin), this.peer.origin);
 				entry.object[field] = ref;
-				if (await this.apNotes.fetchNote(ref)) continue;
-				if (ref.startsWith(this.peer.peerOrigin + '/notes/')) {
+				const known = await this.apNotes.fetchNote(ref);
+				const fromPeer = ref.startsWith(this.peer.peerOrigin + '/notes/');
+				// A reference may have been fetched as home through ActivityPub before either peer copy arrived.
+				if (known && (!entry.federateAsHome || !fromPeer || known.visibility !== 'home' || visiting.has(ref))) continue;
+				if (fromPeer) {
 					const id = ref.slice((this.peer.peerOrigin + '/notes/').length);
 					if (!gridspaceNoteId(id)) throw new Error('Invalid note reference');
 					const state = await this.importNote(id, visiting, false, budget, prefetched);
@@ -219,17 +231,26 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 						if (votes.some((count, i) => count !== poll.votes[i])) await manager.update(MiPoll, { noteId: existing.id }, { votes });
 					});
 				}
-				if (!existing.gridspaceShared) {
-					const changed = await this.db.transaction(async manager => {
-						const promoted = await manager.update(MiNote, { id: existing.id, gridspaceShared: false }, { gridspaceShared: true, localOnly: existing.localOnly || entry.localOnly });
-						if (promoted.affected) await manager.insert(MiGridspaceTimelineOutbox, { kind: 'mirror-ready', noteId: existing.id, canonicalUri: uri });
-						return promoted.affected;
-					});
-					if (!changed) return await this.db.getRepository(MiNote).existsBy({ id: existing.id, gridspaceShared: true }) ? 'imported' : 'unavailable';
-					existing.gridspaceShared = true;
-					existing.localOnly ||= entry.localOnly;
+				const localOnly = existing.localOnly || entry.localOnly;
+				const noRelay = !localOnly && (existing.noRelay || entry.noRelay === true);
+				const restorePublic = entry.federateAsHome === true && !localOnly && existing.visibility === 'home' && await this.canRestorePublicVisibility(existing);
+				if (!existing.gridspaceShared || restorePublic) {
+					const update = { gridspaceShared: true, localOnly, noRelay, ...(restorePublic ? { visibility: 'public' as const } : {}) };
+					if (!existing.gridspaceShared) {
+						const changed = await this.db.transaction(async manager => {
+							const promoted = await manager.update(MiNote, { id: existing.id, gridspaceShared: false }, update);
+							if (promoted.affected) await manager.insert(MiGridspaceTimelineOutbox, { kind: 'mirror-ready', noteId: existing.id, canonicalUri: uri });
+							return promoted.affected;
+						});
+						if (!changed) return await this.db.getRepository(MiNote).existsBy({ id: existing.id, gridspaceShared: true }) ? 'imported' : 'unavailable';
+					} else {
+						await this.db.getRepository(MiNote).update(existing.id, update);
+					}
+					Object.assign(existing, update);
 					await this.create.pushToTl(existing, { id: existing.userId, host: existing.userHost });
 					if (live) this.events.publishNotesStream(await this.packer.pack(existing, undefined, { skipHide: true }));
+				} else if (noRelay !== (existing.noRelay ?? false)) {
+					await this.db.getRepository(MiNote).update(existing.id, { noRelay });
 				}
 				return 'imported';
 			}

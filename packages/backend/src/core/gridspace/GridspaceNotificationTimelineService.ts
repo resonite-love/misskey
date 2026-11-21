@@ -16,10 +16,10 @@ export const notificationSources = ['local', 'peer', 'channel'] as const;
 export type NotificationSource = typeof notificationSources[number];
 type Status = 'ok' | 'disabled' | 'unavailable' | 'unauthorized';
 type Reference = { key: string; source: NotificationSource; origin: string; recipientId: string; id: string; createdAt: string };
-type Snapshot = { userId: string; filter: string; secret: string; expiresAt: number; bindings: Record<NotificationSource, string | null>; sources: Record<NotificationSource, Status>; refs: Reference[] };
+type Snapshot = { userId: string; filter: string; secret: string; expiresAt: number; bindings: Record<NotificationSource, string | null>; sources: Record<NotificationSource, Status>; retryable?: Partial<Record<NotificationSource, boolean>>; refs: Reference[] };
 export type NotificationTimelineInput = { cursor?: string; mode?: 'page' | 'refresh' | 'validate'; limit?: number; count?: number; excludeTypes?: string[] };
 export type NotificationTimelineRow = Reference & { isRead: boolean; local: LocalNotification['notification'] | null; remote: PeerNotification | null };
-export type NotificationTimelinePage = { version: number; cursor: string; nextCursor: string | null; scannedCount: number; items: NotificationTimelineRow[]; complete: boolean; sources: { source: NotificationSource; status: Status; unreadCount: number | null }[]; revalidateAfterMs: number };
+export type NotificationTimelinePage = { version: number; cursor: string; nextCursor: string | null; scannedCount: number; items: NotificationTimelineRow[]; complete: boolean; sources: { source: NotificationSource; status: Status; retryable: boolean; unreadCount: number | null }[]; revalidateAfterMs: number };
 
 const prefix = 'gridspace:notification-timeline:';
 const ttl = 30 * 60;
@@ -48,7 +48,7 @@ export class GridspaceNotificationTimelineService {
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		try {
 			return await Promise.race([promise, new Promise<never>((_, reject) => {
-				timer = setTimeout(() => reject(new GridspaceLinkError('PEER_UNAVAILABLE')), Math.max(0, deadline - Date.now()));
+				timer = setTimeout(() => reject(new GridspaceLinkError('PEER_UNAVAILABLE', true)), Math.max(0, deadline - Date.now()));
 			})]);
 		} finally { clearTimeout(timer); }
 	}
@@ -71,9 +71,13 @@ export class GridspaceNotificationTimelineService {
 	}
 	private cursor(snapshot: Snapshot, id: string, offset: number, limit: number) { return `${id}.${offset}.${limit}.${this.signature(snapshot, id, offset, limit)}`; }
 
-	private async create(user: MiLocalUser, input: NotificationTimelineInput, deadline: number) {
+	private async mayRetry(user: MiLocalUser, source: NotificationSource, binding: string | null, error: unknown) {
+		if (!binding || !(error instanceof GridspaceLinkError) || !error.retryable) return false;
+		try { return await this.within(this.binding(user, source), Date.now() + 250) === binding; } catch { return false; }
+	}
+	private async create(user: MiLocalUser, input: NotificationTimelineInput, deadline: number, previous?: Snapshot) {
 		const snapshot: Snapshot = { userId: user.id, filter: this.filter(input), secret: randomBytes(32).toString('hex'), expiresAt: Date.now() + ttl * 1000,
-																															bindings: { local: null, peer: null, channel: null }, sources: { local: 'ok', peer: 'disabled', channel: 'disabled' }, refs: [] };
+																															bindings: { local: null, peer: null, channel: null }, sources: { local: 'ok', peer: 'disabled', channel: 'disabled' }, retryable: {}, refs: [] };
 		await Promise.all(notificationSources.map(async source => {
 			try {
 				const binding = await this.within(this.binding(user, source), deadline);
@@ -84,10 +88,24 @@ export class GridspaceNotificationTimelineService {
 				snapshot.bindings[source] = binding;
 				snapshot.sources[source] = 'ok';
 				snapshot.refs.push(...page.items.map(item => ({ id: item.id, createdAt: item.createdAt, source, origin: page.origin, recipientId: page.recipientId, key: JSON.stringify([page.origin, page.recipientId, item.id]) })));
-			} catch (error) { snapshot.sources[source] = this.status(error); }
+			} catch (error) {
+				snapshot.sources[source] = this.status(error);
+				const oldBinding = previous?.bindings[source] ?? null;
+				if (await this.mayRetry(user, source, oldBinding, error)) {
+					snapshot.bindings[source] = oldBinding;
+					snapshot.retryable![source] = true;
+					snapshot.refs.push(...previous!.refs.filter(ref => ref.source === source));
+				}
+			}
 		}));
 		// Source IDs are never compared with each other. Ties use the full identity.
-		snapshot.refs = [...new Map(snapshot.refs.map(ref => [ref.key, ref])).values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || (a.key < b.key ? 1 : a.key > b.key ? -1 : 0));
+		const unique = new Map<string, Reference>();
+		for (const ref of snapshot.refs) {
+			const key = JSON.stringify([ref.origin, ref.recipientId, ref.id]);
+			const current = unique.get(key);
+			if (!current || (snapshot.sources[current.source] !== 'ok' && snapshot.sources[ref.source] === 'ok')) unique.set(key, { ...ref, key });
+		}
+		snapshot.refs = [...unique.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || (a.key < b.key ? 1 : a.key > b.key ? -1 : 0));
 		const id = randomUUID();
 		await this.redis.eval(saveNotificationSnapshotScript, 2, prefix + id, prefix + 'user:' + user.id, JSON.stringify(snapshot), ttl, Date.now());
 		return { snapshot, id };
@@ -111,21 +129,27 @@ export class GridspaceNotificationTimelineService {
 		const startedAt = Date.now(); const deadline = startedAt + 8000;
 		const mode = input.mode ?? 'page';
 		let anchor: string | undefined;
+		let previous: Snapshot | undefined;
 		if (mode === 'refresh' && input.cursor) {
-			try { anchor = (await this.load(user, input)).snapshot.refs[(input.count ?? 20) - 1]?.key; } catch (error) {
+			try { previous = (await this.load(user, input)).snapshot; anchor = previous.refs[(input.count ?? 20) - 1]?.key; } catch (error) {
 				if (!(error instanceof GridspaceLinkError) || error.code !== 'CURSOR_EXPIRED') throw error;
 			}
 		}
-		const loaded = mode === 'refresh' || !input.cursor ? { ...await this.create(user, input, deadline), offset: 0, limit: input.limit ?? 20 } : await this.load(user, input);
+		const loaded = mode === 'refresh' || !input.cursor ? { ...await this.create(user, input, deadline, previous), offset: 0, limit: input.limit ?? 20 } : await this.load(user, input);
 		const { snapshot, id, offset, limit } = loaded;
 		const start = mode === 'validate' ? 0 : offset;
 		const end = Math.min(snapshot.refs.length, mode !== 'page' ? Math.max(input.count ?? limit, anchor ? snapshot.refs.findIndex(ref => ref.key === anchor) + 1 : 0) : start + limit);
 		const refs = snapshot.refs.slice(start, end);
 		const statuses = { ...snapshot.sources };
+		const retryable = { ...snapshot.retryable };
 		const items = new Map<string, NotificationTimelineRow>();
 		const counts: Record<NotificationSource, number | null> = { local: null, peer: null, channel: null };
 		await Promise.all(notificationSources.map(async source => {
 			if (!snapshot.bindings[source]) return;
+			if (snapshot.sources[source] === 'unavailable') {
+				retryable[source] = await this.mayRetry(user, source, snapshot.bindings[source], new GridspaceLinkError('PEER_UNAVAILABLE', retryable[source] === true));
+				return;
+			}
 			try {
 				if (await this.within(this.binding(user, source), deadline) !== snapshot.bindings[source]) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 				const selected = refs.filter(ref => ref.source === source);
@@ -147,11 +171,12 @@ export class GridspaceNotificationTimelineService {
 				statuses[source] = 'ok';
 			} catch (error) {
 				statuses[source] = this.status(error); counts[source] = null;
+				retryable[source] = await this.mayRetry(user, source, snapshot.bindings[source], error);
 				for (const ref of refs.filter(ref => ref.source === source)) items.delete(ref.key);
 			}
 		}));
 		return { version: 1, cursor: this.cursor(snapshot, id, 0, limit), nextCursor: end < snapshot.refs.length ? this.cursor(snapshot, id, end, limit) : null, scannedCount: end,
 											items: refs.flatMap(ref => items.has(ref.key) ? [items.get(ref.key)!] : []), complete: notificationSources.every(source => statuses[source] === 'ok' || statuses[source] === 'disabled'),
-			sources: notificationSources.map(source => ({ source, status: statuses[source], unreadCount: counts[source] })), revalidateAfterMs: Math.max(0, 10000 - (Date.now() - startedAt)) };
+			sources: notificationSources.map(source => ({ source, status: statuses[source], retryable: retryable[source] === true, unreadCount: counts[source] })), revalidateAfterMs: Math.max(0, 10000 - (Date.now() - startedAt)) };
 	}
 }

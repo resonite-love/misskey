@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { pureRenoteCondition } from '@/misc/is-renote.js';
 import { noteListingCondition } from '@/misc/note-distribution.js';
 import { Brackets } from 'typeorm';
 import { Inject, Injectable } from '@nestjs/common';
@@ -116,6 +117,9 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				],
 				alwaysIncludeMyNotes: true,
 				excludePureRenotes: !ps.withRenotes,
+				includeMyRenotes: ps.includeMyRenotes,
+				includeRenotedMyNotes: ps.includeRenotedMyNotes,
+				includeLocalRenotes: ps.includeLocalRenotes,
 				noteFilter: note => {
 					if (note.userId === linkedUserId && note.visibility !== 'public' && note.visibility !== 'home' && !Object.hasOwn(followings, note.userId)) return false;
 					if (note.reply && note.reply.visibility === 'followers') {
@@ -178,50 +182,14 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		this.queryService.generateBaseNoteFilteringQuery(query, me);
 		this.queryService.generateMutedUserRenotesQueryForNotes(query, me);
 
-		if (ps.includeMyRenotes === false) {
-			query.andWhere(new Brackets(qb => {
-				qb.orWhere('note.userId != :meId', { meId: me.id });
-				qb.orWhere('note.renoteId IS NULL');
-				qb.orWhere('note.text IS NOT NULL');
-				qb.orWhere('note.fileIds != \'{}\'');
-				qb.orWhere('0 < (SELECT COUNT(*) FROM poll WHERE poll."noteId" = note.id)');
-			}));
-		}
-
-		if (ps.includeRenotedMyNotes === false) {
-			query.andWhere(new Brackets(qb => {
-				qb.orWhere('note.renoteUserId != :meId', { meId: me.id });
-				qb.orWhere('note.renoteId IS NULL');
-				qb.orWhere('note.text IS NOT NULL');
-				qb.orWhere('note.fileIds != \'{}\'');
-				qb.orWhere('0 < (SELECT COUNT(*) FROM poll WHERE poll."noteId" = note.id)');
-			}));
-		}
-
-		if (ps.includeLocalRenotes === false) {
-			query.andWhere(new Brackets(qb => {
-				qb.orWhere('note.renoteUserHost IS NOT NULL');
-				qb.orWhere('note.renoteId IS NULL');
-				qb.orWhere('note.text IS NOT NULL');
-				qb.orWhere('note.fileIds != \'{}\'');
-				qb.orWhere('0 < (SELECT COUNT(*) FROM poll WHERE poll."noteId" = note.id)');
-			}));
-		}
-
+		if (ps.includeMyRenotes === false) query.andWhere(`(NOT ${pureRenoteCondition} OR note.userId != :meId)`, { meId: me.id });
+		if (ps.includeRenotedMyNotes === false) query.andWhere(`(NOT ${pureRenoteCondition} OR note.renoteUserId IS DISTINCT FROM :meId)`, { meId: me.id });
+		if (ps.includeLocalRenotes === false) query.andWhere(`NOT (${pureRenoteCondition} AND note.renoteId IS NOT NULL AND note.renoteUserHost IS NULL)`);
+		if (ps.withRenotes === false) query.andWhere(`NOT ${pureRenoteCondition}`);
 		if (ps.withFiles) {
 			query.andWhere('note.fileIds != \'{}\'');
 		}
 
-		if (ps.withRenotes === false) {
-			query.andWhere(new Brackets(qb => {
-				qb.orWhere('note.renoteId IS NULL');
-				qb.orWhere(new Brackets(qb => {
-					qb.orWhere('note.text IS NOT NULL');
-					qb.orWhere('note.fileIds != \'{}\'');
-					qb.orWhere('0 < (SELECT COUNT(*) FROM poll WHERE poll."noteId" = note.id)');
-				}));
-			}));
-		}
 		//#endregion
 
 		return await query.limit(ps.limit).getMany();

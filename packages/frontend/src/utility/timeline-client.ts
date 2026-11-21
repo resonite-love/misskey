@@ -252,7 +252,7 @@ export class TimelineClient {
 			if (current !== this.generation) return;
 			let reason = (error as { info?: { reason?: string } } | null)?.info?.reason;
 			if (reason === 'INVALID_CURSOR' || reason === 'CURSOR_EXPIRED') {
-				try { await this.readWindow(current, true); return; } catch (recoveryError) {
+				try { await this.readWindow(current, 'restore'); return; } catch (recoveryError) {
 					reason = (recoveryError as { info?: { reason?: string } } | null)?.info?.reason;
 				}
 			}
@@ -277,16 +277,20 @@ export class TimelineClient {
 		this.pending = pending;
 		return pending;
 	}
-	private async readWindow(current: number, preserve: boolean, mode: 'unified' | 'local-fallback' = 'unified') {
+	private async readWindow(current: number, action: 'reload' | 'restore' | 'reset', mode: 'unified' | 'local-fallback' = 'unified') {
+		const preserve = action !== 'reload';
 		if (preserve && this.queueOverflow && (this.queuedRelease || (this.options.isTop?.() ?? true))) {
-			await this.readWindow(current, false, mode); return;
+			await this.readWindow(current, 'reload', mode); return;
 		}
 		const previous = new Set(this.visibleItems.map(item => item.key));
 		const windowStreamVersion = this.streamVersion;
-		const restoreHistory = preserve && mode === 'unified' && ['home', 'social'].includes(this.query.kind) && this.visibleItems.length > 1;
-		const historyStart = restoreHistory ? this.visibleItems[0] : undefined;
+		const restoreHistory = preserve && mode === 'unified' && (action === 'reset' ? this.visibleItems.length > 0 : this.visibleItems.length > 1);
+		const historyStart = action === 'restore' && restoreHistory ? this.visibleItems[0] : undefined;
 		const historyEnd = restoreHistory ? this.visibleItems.at(-1) : undefined;
-		let anchor = historyStart?.key ?? this.options.anchor?.() ?? this.visibleItems[0]?.key;
+		// A signed anchor is an upper bound. On reset the server may report no
+		// individual additions, so start at its current head and reauthorize
+		// pages through the old tail. Cursor recovery keeps its signed position.
+		let anchor = action === 'restore' ? historyStart?.key ?? this.options.anchor?.() ?? this.visibleItems[0]?.key : undefined;
 		const retained = preserve && this.session && this.revision && (this.queuedItems.length || historyStart) ? {
 			previousSession: this.session, previousRevision: this.revision, retainedRefs: this.queuedItems.slice(0, 100).map(item => item.ref),
 			...(historyStart ? { anchorRef: historyStart.ref } : {}),
@@ -302,8 +306,9 @@ export class TimelineClient {
 			};
 			requireComplete();
 			const cursors = new Set<string>();
+			const ascending = this.query.kind === 'clip' && this.query.order === 'oldest';
 			const complete = () => windowRows.some(row => row.item.key === historyEnd.key) ||
-				windowRows.some(row => BigInt(row.item.sortKey.sortAt) < BigInt(historyEnd.sortKey.sortAt));
+				(this.query.pinnedOnly !== true && windowRows.some(row => ascending ? BigInt(row.item.sortKey.sortAt) > BigInt(historyEnd.sortKey.sortAt) : BigInt(row.item.sortKey.sortAt) < BigInt(historyEnd.sortKey.sortAt)));
 			while (response.result.nextCursor && !complete()) {
 				if (current !== this.generation || !this.usable()) return;
 				if (cursors.size >= 64 || cursors.has(response.result.nextCursor)) throw new Error('Incomplete history restoration');
@@ -321,7 +326,7 @@ export class TimelineClient {
 		}
 		// Do not replace the window the user scrolled into while the request was
 		// pending. Re-anchor once; continued scrolling keeps the old window intact.
-		if (preserve && !restoreHistory && current === this.generation && this.usable()) {
+		if (action === 'restore' && !restoreHistory && current === this.generation && this.usable()) {
 			const liveAnchor = this.options.anchor?.();
 			if (liveAnchor && liveAnchor !== anchor && !response.result.items.some(item => item.key === liveAnchor)) {
 				anchor = liveAnchor;
@@ -357,8 +362,9 @@ export class TimelineClient {
 			this.visibleItems = items; this.queuedItems = [];
 			this.queueOverflow = false; this.queuedRelease = false;
 		}
-		if (preserve && !restoreHistory) {
-			const incoming = items.filter(item => !previous.has(item.key));
+		if (preserve && (!restoreHistory || action === 'reset')) {
+			const head = action === 'reset' && firstKnown >= 0 ? items.slice(0, firstKnown) : items;
+			const incoming = head.filter(item => !previous.has(item.key) && !reboundKeys.has(item.key));
 			if (incoming.length) this.options.onNewItems?.(this.displayItems(incoming));
 		}
 		this.nextCursor = result.nextCursor; this.hasMore.value = this.nextCursor !== null;
@@ -381,16 +387,16 @@ export class TimelineClient {
 		this.visibleItems = []; this.queuedItems = []; this.session = null; this.revision = null;
 		this.nextCursor = null; this.updatesCursor = null; this.error.value = false; this.failed.value = false; this.hasMore.value = false;
 		this.publish(); this.loading.value = true;
-		await this.run(current => this.readWindow(current, false));
+		await this.run(current => this.readWindow(current, 'reload'));
 	};
 	public load = async () => {
 		if (!this.nextCursor) return;
 		await this.run(async current => {
-			if (this.degraded && this.mode === 'unified') { await this.readWindow(current, true, 'local-fallback'); return; }
+			if (this.degraded && this.mode === 'unified') { await this.readWindow(current, 'restore', 'local-fallback'); return; }
 			const { result, startedAt } = await this.fetch('gridspace/timeline', { ...this.query, mode: this.mode, cursor: this.nextCursor, limit: 30 });
 			if (current !== this.generation || !this.usable()) return;
 			if (result.session !== this.session || result.revision !== this.revision || result.resetRequired) {
-				await this.readWindow(current, true); return;
+				await this.readWindow(current, 'reset'); return;
 			}
 			const retained = new Set([...this.visibleItems, ...this.queuedItems].map(item => item.key));
 			this.visibleItems.push(...result.items.filter(item => !retained.has(item.key)).map(item => this.retain(item, startedAt)));
@@ -401,8 +407,8 @@ export class TimelineClient {
 	public refresh = async () => {
 		if (!this.session || !this.updatesCursor) { await this.reload(); return; }
 		await this.run(async current => {
-			if (this.queueOverflow && this.queuedRelease) { await this.readWindow(current, false); return; }
-			if (this.degraded) { await this.readWindow(current, true); return; }
+			if (this.queueOverflow && this.queuedRelease) { await this.readWindow(current, 'reload'); return; }
+			if (this.degraded) { await this.readWindow(current, 'reset'); return; }
 			const retained = [...this.visibleItems, ...this.queuedItems].map(item => item.ref);
 			for (let offset = 0; offset < Math.max(1, retained.length); offset += 100) {
 				const final = offset + 100 >= retained.length;
@@ -412,7 +418,7 @@ export class TimelineClient {
 				});
 				if (current !== this.generation || !this.usable()) return;
 				if (result.session !== this.session || result.revision !== this.revision) {
-					await this.readWindow(current, true); return;
+					await this.readWindow(current, 'reset'); return;
 				}
 				const replacements = new Map(result.items.map(item => [item.key, this.retain(item, startedAt)]));
 				const removed = new Set(result.removed ?? []);
@@ -425,7 +431,7 @@ export class TimelineClient {
 				// removals and renewed leases before waiting for the replacement window.
 				if (result.resetRequired) {
 					this.publish();
-					await this.readWindow(current, true); return;
+					await this.readWindow(current, 'reset'); return;
 				}
 				if (final) {
 					const known = new Set([...this.visibleItems, ...this.queuedItems].map(item => item.key));
@@ -433,7 +439,7 @@ export class TimelineClient {
 					if (incoming.length && this.streamVersion > streamVersion) {
 						// HTTP rows and later stream rows do not carry a shared insertion
 						// position. Let a fresh server window establish their order.
-						await this.readWindow(current, true); return;
+						await this.readWindow(current, 'reset'); return;
 					}
 					if (incoming.length) this.options.onNewItems?.(this.displayItems(incoming));
 					if (this.options.isTop?.() ?? true) this.visibleItems = [...incoming, ...this.visibleItems];
@@ -487,7 +493,7 @@ export class TimelineClient {
 			this.queuedRelease = true;
 			if (this.pending) await this.pending;
 			if (!this.usable() || !this.queueOverflow) return;
-			await this.run(current => this.readWindow(current, false));
+			await this.run(current => this.readWindow(current, 'reload'));
 			return;
 		}
 		this.expire();

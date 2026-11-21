@@ -11,6 +11,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkA v-if="note.replyId" :class="$style.reply" :to="`/notes/${note.replyId}`"><i class="ti ti-arrow-back-up"></i></MkA>
 		<Mfm v-if="note.text" :text="note.text" :author="note.user" :nyaize="'respect'" :emojiUrls="note.emojis"/>
 		<MkA v-if="note.renoteId" :class="$style.rp" :to="`/notes/${note.renoteId}`">RN: ...</MkA>
+		<a v-if="note.gridspaceQuote && !note.isHidden" :href="note.gridspaceQuote" class="_link">{{ i18n.ts.quoteAttached }}</a>
 	</div>
 	<details v-if="note.files && note.files.length > 0">
 		<summary>({{ i18n.tsx.withNFiles({ n: note.files.length }) }})</summary>

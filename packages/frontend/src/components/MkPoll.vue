@@ -45,7 +45,7 @@ const props = defineProps<{
 	choices: NonNullable<Misskey.entities.Note['poll']>['choices'];
 	readOnly?: boolean;
 	emojiUrls?: Record<string, string>;
-	author?: Misskey.entities.UserLite;
+	author?: Pick<Misskey.entities.UserLite, 'host' | 'isCat'>;
 	voteHandler?: (choice: number) => Promise<boolean>;
 }>();
 

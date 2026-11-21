@@ -23,8 +23,9 @@ const notifications: string[] = [];
 
 beforeAll(async () => {
 	await db.initialize(); await db.query(`CREATE SCHEMA "${schema}"`);
-	await db.query('CREATE TABLE gridspace_timeline_outbox (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), "canonicalUri" varchar(1024), "noteId" varchar(32), kind varchar(16) NOT NULL, "affectedUserId" varchar(32), "createdAt" timestamptz NOT NULL DEFAULT clock_timestamp())');
-	await db.query('CREATE TABLE gridspace_timeline_change (sequence bigint PRIMARY KEY, "canonicalUri" varchar(1024), "noteId" varchar(32), kind varchar(16), "affectedUserId" varchar(32), "createdAt" timestamptz)');
+	const placementColumns = '"channelOrigin" varchar(512), "channelId" varchar(32), "sourceRevision" bigint, "targetRevision" bigint, "eventId" uuid UNIQUE';
+	await db.query(`CREATE TABLE gridspace_timeline_outbox (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), "canonicalUri" varchar(1024), "noteId" varchar(32), kind varchar(16) NOT NULL, "affectedUserId" varchar(32), "createdAt" timestamptz NOT NULL DEFAULT clock_timestamp(), ${placementColumns})`);
+	await db.query(`CREATE TABLE gridspace_timeline_change (sequence bigint PRIMARY KEY, "canonicalUri" varchar(1024), "noteId" varchar(32), kind varchar(16), "affectedUserId" varchar(32), "createdAt" timestamptz, ${placementColumns})`);
 	await db.query('CREATE TABLE gridspace_timeline_state (key varchar(32) PRIMARY KEY, generation integer NOT NULL DEFAULT 1, "nextSequence" bigint NOT NULL DEFAULT 0, "trimmedThrough" bigint NOT NULL DEFAULT 0)');
 	await db.query("INSERT INTO gridspace_timeline_state (key) VALUES ('changes')");
 	await db.query('CREATE TABLE access_token ("userId" text, permission text[])');

@@ -37,7 +37,7 @@ describe('private timeline final authorization and leases', () => {
 		await expect(f.service.peerTimeline(input)).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
 	});
 
-	test('a relative author deadline shortens the ten second lease', async () => {
+	test('a relative author deadline shortens the one-minute lease', async () => {
 		const now = Date.now(); vi.spyOn(Date, 'now').mockReturnValue(now);
 		const f = fixture(now, { hidden: -10 });
 		const page = await f.service.peerTimeline(input);
@@ -56,6 +56,6 @@ describe('private timeline final authorization and leases', () => {
 		const now = Date.now(); vi.spyOn(Date, 'now').mockReturnValue(now);
 		const f = fixture(now, { followers: -1 });
 		const page = await f.service.peerTimeline(input);
-		expect(page).toMatchObject({ validForMs: 10000 });
+		expect(page).toMatchObject({ validForMs: 60_000 });
 	});
 });

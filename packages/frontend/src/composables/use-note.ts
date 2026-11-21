@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { ref } from 'vue';
+import { computed, inject, reactive, ref } from 'vue';
 import * as mfm from 'mfm-js';
 import * as Misskey from 'misskey-js';
 import { isLink } from '@@/js/is-link.js';
@@ -11,7 +11,8 @@ import { shouldCollapsed } from '@@/js/collapsed.js';
 import { host } from '@@/js/config.js';
 import type { Ref } from 'vue';
 import type { OpenOnRemoteOptions } from '@/utility/please-login.js';
-import type { DI as DIType } from '@/di.js';
+import { DI } from '@/di.js';
+import { placementRenoteMenu, placementSources } from '@/utility/placement-renote-menu.js';
 import type { ExtractInjectedType } from '@/types/misc.js';
 import { addExtendedReaction } from '@/utility/extended-reactions.js';
 import { pleaseLogin } from '@/utility/please-login.js';
@@ -59,7 +60,7 @@ export interface UseNoteElements {
 export interface UseNoteOptions {
 	inTimeline?: boolean;
 	tl_withSensitive?: Ref<boolean>;
-	inChannel?: ExtractInjectedType<typeof DIType['inChannel']>;
+	inChannel?: ExtractInjectedType<typeof DI['inChannel']>;
 	currentClip?: Ref<Misskey.entities.Clip | null> | null;
 	currentAntenna?: Ref<Misskey.entities.Antenna | null> | null;
 }
@@ -108,7 +109,8 @@ export function useNote(
 
 	// プラグインの割り込み処理
 	const result = applyNoteViewPlugins(props.note);
-	const rawNote = result ?? deepClone(props.note);
+	const viewedNote = result ?? deepClone(props.note);
+	const rawNote = (getAppearNote(viewedNote) ?? viewedNote).multiNoteKind === 'root' ? reactive(viewedNote) : viewedNote;
 	const hideByPlugin = result == null;
 
 	// 基本状態
@@ -140,7 +142,9 @@ export function useNote(
 	const urls = parsed ? extractUrlFromMfm(parsed).filter((url) => appearNote.renote?.url !== url && appearNote.renote?.uri !== url) : null;
 	const isLong = shouldCollapsed(appearNote, urls ?? []);
 	const collapsed = ref(appearNote.cw == null && isLong);
-	const canRenote = ['public', 'home'].includes(appearNote.visibility) || (appearNote.visibility === 'followers' && appearNote.userId === $i?.id);
+	const placementChannel = inject(DI.placementChannel, null);
+	const dedicated = appearNote.multiNoteKind != null && appearNote.includeDefault === false;
+	const canRenote = computed(() => dedicated ? appearNote.multiNoteKind === 'root' && placementSources(appearNote, placementChannel?.value).length > 0 : ['public', 'home'].includes(appearNote.visibility) || (appearNote.visibility === 'followers' && appearNote.userId === $i?.id));
 	const showTicker = (prefer.s.instanceTicker === 'always') || (prefer.s.instanceTicker === 'remote' && appearNote.user.instance);
 	const renoteCollapsed = ref(prefer.s.collapseRenotes && isRenote && (($i && ($i.id === rawNote.userId || $i.id === appearNote.userId)) || ($appearNote.myReaction != null)));
 
@@ -205,6 +209,13 @@ export function useNote(
 		if (!isLoggedIn) return;
 		showMovedDialog();
 		if (els.renoteButton == null) return;
+		if (dedicated && $i) {
+			const button = els.renoteButton;
+			const source = placementChannel?.value;
+			const active = () => !!button.value?.isConnected && !isDeleted.value && source === placementChannel?.value;
+			await os.popupMenu(placementRenoteMenu(appearNote, $i.id, source ?? null, active, subscribeManuallyToNoteCapture), button.value);
+			return;
+		}
 		const { menu } = getRenoteMenu({
 			note: rawNote,
 			renoteButton: els.renoteButton,

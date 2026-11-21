@@ -106,7 +106,7 @@ export class GridspaceHistoryService {
 			.leftJoinAndSelect('note.reply', 'reply').leftJoinAndSelect('reply.user', 'replyUser')
 			.leftJoinAndSelect('note.renote', 'renote').leftJoinAndSelect('renote.user', 'renoteUser');
 		if (!options.withReplies) query.andWhere('note.replyId IS NULL');
-		if (!options.withRenotes) query.andWhere('(note.renoteId IS NULL OR note.text IS NOT NULL OR note.fileIds != \'{}\' OR note.hasPoll = true)');
+		if (!options.withRenotes) query.andWhere('((note.renoteId IS NULL AND note.gridspaceQuote IS NULL) OR note.text IS NOT NULL OR note.fileIds != \'{}\' OR note.hasPoll = true)');
 		if (options.withFiles) query.andWhere('note.fileIds != \'{}\'');
 		this.queries.generateBaseNoteFilteringQuery(query, viewer);
 		if (viewer) {

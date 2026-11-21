@@ -15,7 +15,13 @@ export type PostingChannel = {
 	allowRenoteToExternal?: boolean;
 };
 
+export type ChannelRoute = Pick<PostingChannel, 'origin' | 'channelId'>;
+
 export type NotePlacement = {
+	canonicalUri?: string;
+	isArchived?: boolean;
+	isSensitive?: boolean;
+	allowRenoteToExternal?: boolean;
 	origin: string;
 	channelId: string;
 	name?: string | null;
@@ -62,7 +68,7 @@ export function initialDestinations(channel?: PostingChannel | null): NoteDestin
 	return { includeDefault: channel == null, channels: channel ? [channel] : [] };
 }
 
-export function sameChannel(a: PostingChannel, b: PostingChannel): boolean {
+export function sameChannel(a: ChannelRoute, b: ChannelRoute): boolean {
 	return a.origin === b.origin && a.channelId === b.channelId;
 }
 

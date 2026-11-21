@@ -177,9 +177,9 @@ export class PollService {
 		if (user == null) throw new Error('note not found');
 
 		if (this.userEntityService.isLocalUser(user)) {
-			const content = this.apRendererService.addContext(this.apRendererService.renderUpdate(await this.apRendererService.renderNote(note, false), user));
+			const content = this.apRendererService.addContext(this.apRendererService.renderUpdate(await this.apRendererService.renderNote(note, false), user, note.federateAsHome));
 			this.apDeliverManagerService.deliverToFollowers(user, content);
-			this.relayService.deliverToRelays(user, content);
+			if (!note.noRelay) this.relayService.deliverToRelays(user, content);
 		}
 	}
 }

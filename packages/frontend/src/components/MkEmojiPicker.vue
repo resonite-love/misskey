@@ -196,7 +196,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-	(ev: 'chosen', v: string): void;
+	(ev: 'chosen', v: string, event?: MouseEvent | KeyboardEvent): void;
 	(ev: 'esc'): void;
 }>();
 
@@ -456,8 +456,8 @@ function computeButtonTitle(ev: PointerEvent): void {
 	elm.title = getEmojiName(emoji);
 }
 
-function chosen(emoji: string | Misskey.entities.EmojiSimple | UnicodeEmojiDef, ev?: PointerEvent) {
-	const el = ev && (ev.currentTarget ?? ev.target) as HTMLElement | null | undefined;
+function chosen(emoji: string | Misskey.entities.EmojiSimple | UnicodeEmojiDef, ev?: MouseEvent | KeyboardEvent) {
+	const el = ev instanceof MouseEvent ? (ev.currentTarget ?? ev.target) as HTMLElement | null : null;
 	if (el && prefer.s.animation) {
 		const rect = el.getBoundingClientRect();
 		const x = rect.left + (el.offsetWidth / 2);
@@ -468,8 +468,7 @@ function chosen(emoji: string | Misskey.entities.EmojiSimple | UnicodeEmojiDef, 
 	}
 
 	const key = getKey(emoji);
-	console.log('chosen! 2');
-	emit('chosen', key);
+	emit('chosen', key, ev);
 
 	haptic();
 
@@ -501,7 +500,7 @@ function onKeydown(ev: KeyboardEvent) {
 	if (ev.key === 'Enter') {
 		ev.preventDefault();
 		ev.stopPropagation();
-		done();
+		done(undefined, ev);
 	}
 	if (ev.key === 'Escape') {
 		ev.preventDefault();
@@ -510,27 +509,27 @@ function onKeydown(ev: KeyboardEvent) {
 	}
 }
 
-function done(query?: string): boolean | void {
+function done(query?: string, ev?: KeyboardEvent): boolean | void {
 	if (query == null) query = q.value;
 	if (query == null || typeof query !== 'string') return;
 
 	const q2 = query.replace(/:/g, '');
 	const exactMatchCustom = customEmojisMap.get(q2);
 	if (exactMatchCustom) {
-		chosen(exactMatchCustom);
+		chosen(exactMatchCustom, ev);
 		return true;
 	}
 	const exactMatchUnicode = emojilist.find(emoji => emoji.char === q2 || emoji.name === q2);
 	if (exactMatchUnicode) {
-		chosen(exactMatchUnicode);
+		chosen(exactMatchUnicode, ev);
 		return true;
 	}
 	if (searchResultCustom.value.length > 0) {
-		chosen(searchResultCustom.value[0]);
+		chosen(searchResultCustom.value[0], ev);
 		return true;
 	}
 	if (searchResultUnicode.value.length > 0) {
-		chosen(searchResultUnicode.value[0]);
+		chosen(searchResultUnicode.value[0], ev);
 		return true;
 	}
 }

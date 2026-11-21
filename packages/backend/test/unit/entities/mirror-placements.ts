@@ -48,7 +48,7 @@ test('packs prior shared mirrors from one viewer-specific placement lookup per p
 		idService: { gen: () => '0', parse: () => ({ date: new Date(1) }) },
 		userEntityService: { packMany: async () => [user], pack: async () => user },
 		driveFileEntityService: { packManyByIds: async () => [] },
-		customEmojiService: { populateEmojis: () => ({}), prefetchEmojis: async () => {} },
+		customEmojiService: { populateEmojis: async () => ({}), prefetchEmojis: async () => {} },
 		reactionsBufferingService: { mergeReactions: () => ({}) },
 		reactionService: { convertLegacyReactions: () => ({}) },
 	});

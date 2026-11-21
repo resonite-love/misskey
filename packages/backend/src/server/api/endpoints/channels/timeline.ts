@@ -131,6 +131,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		if (me == null) this.queryService.generateUgcVisibilityQueryForVisitor(query);
 
 		if (me) {
+			this.queryService.generateMutedUserRenotesQueryForNotes(query, me);
 			const mutingChannelIds = await this.channelMutingService
 				.list({ requestUserId: me.id }, { idOnly: true })
 				.then(x => x.map(x => x.id).filter(x => x !== ps.channelId));

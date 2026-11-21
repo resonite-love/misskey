@@ -74,3 +74,11 @@ test.each(['none', 'local'] as const)('returns only the verified source link und
 	links.json.mockResolvedValue(packed);
 	expect(await service.resolve({ noteId: 'note', channelId: 'channel' }, false)).toEqual({ note: null, publicUrl: 'https://g.example/notes/note' });
 });
+
+test('standalone placement previews retain the public reader moderation check', async () => {
+	const standalone = new GridspacePublicNoteService({ ...config, gridspace: undefined }, meta, notes, packer, links);
+	Object.assign(source, { channelId: null, uri: null, userHost: null, multiNoteKind: 'root', includeDefault: false });
+	source.user!.isSuspended = true;
+	await expect(standalone.local({ noteId: 'note' }, true)).rejects.toThrow('UNAVAILABLE');
+	expect(packer.pack).not.toHaveBeenCalled();
+});

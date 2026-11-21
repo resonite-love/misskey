@@ -35,10 +35,12 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<i v-else-if="note.visibility === 'specified'" ref="specified" class="ti ti-mail"></i>
 			</span>
 			<span v-if="note.localOnly" style="margin-left: 0.5em;" :title="i18n.ts._visibility['disableFederation']"><i class="ti ti-rocket-off"></i></span>
+			<span v-else-if="note.noRelay" :class="$style.noRelay" :title="i18n.ts._visibility.noRelay" role="img" :aria-label="i18n.ts._visibility.noRelay"><i class="ti ti-route-off" aria-hidden="true"></i></span>
 			<span v-if="note.channel" style="margin-left: 0.5em;" :title="note.channel.name"><i class="ti ti-device-tv"></i></span>
 		</div>
 	</div>
-	<div v-if="isRenote && note.renote == null" :class="$style.deleted">
+	<MkGridspaceReferenceRenote v-if="isGridspaceReferenceRenote(appearNote)" :note="appearNote" @menu="showRenoteMenu"/>
+	<div v-else-if="isRenote && note.renote == null" :class="$style.deleted">
 		{{ i18n.ts.deletedNote }}
 	</div>
 	<div v-else-if="renoteCollapsed" :class="$style.collapsedRenoteTarget">
@@ -95,6 +97,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<MkUrlPreview v-for="url in urls" :key="url" :url="url" :compact="true" :detail="false" :class="$style.urlPreview"/>
 			</div>
 			<div v-if="appearNote.renoteId" :class="$style.quote"><MkNoteSimple :note="appearNote?.renote ?? null" :class="$style.quoteNote"/></div>
+			<div v-if="appearNote.gridspaceQuote" :class="$style.quote"><div :class="$style.quoteNote"><MkGridspaceNoteLinkPreview :url="appearNote.gridspaceQuote" quote/></div></div>
 			<button v-if="isLong && collapsed" :class="$style.collapsed" class="_button" @click="collapsed = false">
 				<span :class="$style.collapsedLabel">{{ i18n.ts.showMore }}</span>
 			</button>
@@ -197,6 +200,8 @@ import type { Ref } from 'vue';
 import type { Keymap } from '@/utility/hotkey.js';
 import MkAutoTranslatedNote from '@/components/MkAutoTranslatedNote.vue';
 import { useNote } from '@/composables/use-note.js';
+import MkGridspaceReferenceRenote from '@/components/MkGridspaceReferenceRenote.vue';
+import { isGridspaceReferenceRenote } from '@/utility/is-gridspace-reference-renote.js';
 import { isUnavailableGridspaceNote } from '@/utility/is-unavailable-gridspace-note.js';
 import { prefer } from '@/preferences.js';
 import { i18n } from '@/i18n.js';
@@ -212,6 +217,7 @@ import MkNoteChannel from '@/components/MkNoteChannel.vue';
 import MkNoteArticle from '@/components/MkNoteArticle.vue';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import MkNoteSimple from '@/components/MkNoteSimple.vue';
+import MkGridspaceNoteLinkPreview from '@/components/MkGridspaceNoteLinkPreview.vue';
 import MkReactionsViewer from '@/components/MkReactionsViewer.vue';
 import MkNoteText from '@/components/MkNoteText.vue';
 import MkNotePlacements from '@/components/MkNotePlacements.vue';
@@ -462,6 +468,10 @@ const keymap = {
 
 .renoteUserName {
 	font-weight: bold;
+}
+
+.noRelay {
+	margin-inline-start: .5em;
 }
 
 .renoteInfo {

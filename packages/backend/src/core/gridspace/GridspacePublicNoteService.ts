@@ -25,11 +25,13 @@ export class GridspacePublicNoteService {
 	) {}
 
 	/** No account or delegated credentials: apply the source's visitor policy. */
-	public async local(target: PublicNoteTarget): Promise<Packed<'Note'>> {
+	public async local(target: PublicNoteTarget, standaloneRoot = false): Promise<Packed<'Note'>> {
 		const source = await this.notes.findOne({ where: { id: target.noteId }, relations: { user: true, reply: { user: true }, renote: { user: true } } });
-		if (!source || !source.user || !this.config.gridspace?.enabled || !['source', 'client'].includes(this.config.gridspace.channelRole ?? '') ||
+		const enabled = this.config.gridspace?.enabled && ['source', 'client'].includes(this.config.gridspace.channelRole ?? '');
+		const standalone = standaloneRoot && !target.channelId && source?.multiNoteKind === 'root' && source.includeDefault === false && !source.uri && !source.userHost;
+		if (!source || !source.user || (!enabled && !standalone) ||
 			(source.channelId ?? undefined) !== target.channelId ||
-			(target.channelId && this.config.gridspace.channelRole !== 'source') ||
+			(target.channelId && this.config.gridspace?.channelRole !== 'source') ||
 			!['public', 'home'].includes(source.visibility) || source.user?.requireSigninToViewContents ||
 			source.user?.isSuspended || source.user?.isDeleted || this.meta.ugcVisibilityForVisitor === 'none' ||
 			(this.meta.ugcVisibilityForVisitor === 'local' && source.userHost != null)) throw new GridspaceLinkError('UNAVAILABLE');

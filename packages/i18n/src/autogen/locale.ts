@@ -4369,7 +4369,7 @@ export interface Locale extends ILocale {
      */
     "disableFederationConfirm": string;
     /**
-     * 連合なしにしても投稿は非公開になりません。ほとんどの場合、連合なしにする必要はありません。
+     * 連合なしにしても投稿は非公開になりません。ぐりすぺ・れぞらぶ間の共有は続きます。
      */
     "disableFederationConfirmWarn": string;
     /**
@@ -10573,8 +10573,36 @@ export interface Locale extends ILocale {
          * 他サーバーへの配信を行いません
          */
         "disableFederationDescription": string;
+        /**
+         * 配信方法
+         */
+        "delivery": string;
+        /**
+         * 公開
+         */
+        "deliveryPublic": string;
+        /**
+         * 公開範囲に従って通常どおり配信します
+         */
+        "deliveryPublicDescription": string;
+        /**
+         * リレーなし
+         */
+        "noRelay": string;
+        /**
+         * 登録済みリレーに直接送信しません。パブリック投稿は外部にホームとして届けます
+         */
+        "noRelayDescription": string;
+        /**
+         * 通常の連合配信を止めます。ぐりすぺ・れぞらぶ間の共有は続きます
+         */
+        "deliveryLocalDescription": string;
     };
     "_postForm": {
+        /**
+         * リレーなしで投稿する場合は、予約投稿やサーバーへの下書き保存はできません。すぐに投稿するか、配信方法を変更してください。
+         */
+        "noRelayServerDraft": string;
         /**
          * アップロードされていないファイルがありますが、破棄してフォームを閉じますか？
          */
@@ -15290,5 +15318,107 @@ export interface Locale extends ILocale {
          * 下書きに保存したアカウントを確認できません。投稿に使うアカウントを選んでください。
          */
         "chooseAccount": string;
+    };
+    "_gridspaceEmojiSync": {
+        /**
+         * 連携先との絵文字同期
+         */
+        "title": string;
+        /**
+         * 絵文字の追加・変更を両サーバーに反映します。削除や内容の食い違いは自動反映せず、ここで確認できます。
+         */
+        "description": string;
+        /**
+         * 同期済み {synced}件・処理待ち {pending}件・確認待ち {conflict}件・失敗 {failed}件・除外 {ignored}件
+         */
+        "counts": ParameterizedString<"synced" | "pending" | "conflict" | "failed" | "ignored">;
+        /**
+         * 最終確認
+         */
+        "lastChecked": string;
+        /**
+         * 同期状況を取得できませんでした。表示済みの情報を残しています。時間をおいて再読み込みしてください。
+         */
+        "failedToLoad": string;
+        /**
+         * 失敗した同期を再試行
+         */
+        "retry": string;
+        /**
+         * 通常の絵文字管理を開く
+         */
+        "manage": string;
+        /**
+         * サーバー間連携が無効です。
+         */
+        "disabled": string;
+        /**
+         * 確認が必要な絵文字はありません。
+         */
+        "noIssues": string;
+        /**
+         * 処理待ち
+         */
+        "pending": string;
+        /**
+         * 同期済み
+         */
+        "synced": string;
+        /**
+         * 確認待ち
+         */
+        "conflict": string;
+        /**
+         * 失敗
+         */
+        "failed": string;
+        /**
+         * 同期対象外
+         */
+        "ignored": string;
+        /**
+         * 片側で削除されています。削除は自動反映しません。
+         */
+        "removed": string;
+        /**
+         * ロール制限があります。両サーバーの通常の絵文字管理で確認してください。
+         */
+        "restricted": string;
+        /**
+         * 両サーバーの内容が異なります。
+         */
+        "different": string;
+        /**
+         * 画像を取得できないか、取得中に画像が変わりました。
+         */
+        "imageFailed": string;
+        /**
+         * 連携先との通信または画像の保存に失敗しました。
+         */
+        "connectionFailed": string;
+        /**
+         * 登録されていません
+         */
+        "notPresent": string;
+        /**
+         * {host} の内容を採用
+         */
+        "adopt": ParameterizedString<"host">;
+        /**
+         * この絵文字を同期対象から外す
+         */
+        "ignore": string;
+        /**
+         * 同期対象に戻す
+         */
+        "resume": string;
+        /**
+         * {host} の「{name}」を採用し、もう片方の内容を上書きします。よろしいですか？
+         */
+        "confirm": ParameterizedString<"host" | "name">;
+        /**
+         * 別名
+         */
+        "aliases": string;
     };
 }

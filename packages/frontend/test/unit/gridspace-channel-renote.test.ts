@@ -56,3 +56,9 @@ test('does not send when the source channel cannot be written', async () => {
 	await expect(renoteGridspaceChannel('current', 'channel', 'parent')).rejects.toThrow();
 	expect(api).toHaveBeenCalledTimes(1);
 });
+
+test('cross-channel requests preserve separate source and destination IDs through prepare and send', async () => {
+	api.mockResolvedValueOnce(prepared).mockResolvedValueOnce({ createdNoteId: 'created' });
+	await renoteGridspaceChannel('current', 'destination', 'parent', undefined, 'source');
+	for (const call of api.mock.calls) expect(call[1]).toMatchObject({ channelId: 'destination', sourceChannelId: 'source', renoteId: 'parent' });
+});
