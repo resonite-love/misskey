@@ -20,7 +20,8 @@ export function activeChannelEntries(idMethod: string, followed = false): string
 		SELECT peer_placement."canonicalUri", peer_placement."sortAt", mirror.id, peer_placement."originNoteId",
 			peer_placement."noteOrigin", peer_placement."includeDefault", false, peer_placement."authorUri", peer_placement."channelId"
 		FROM gridspace_channel_placement peer_placement LEFT JOIN note mirror ON
-			mirror.uri IN (peer_placement."canonicalUri", peer_placement."canonicalUri" || '/activity') AND ${mirrorPlacementCondition('mirror')}
+			mirror.uri IN (peer_placement."canonicalUri" COLLATE "default", (peer_placement."canonicalUri" || '/activity') COLLATE "default")
+			AND ${mirrorPlacementCondition('mirror')}
 		WHERE peer_placement."channelId" ${channels} AND peer_placement.state = 'active'
 		UNION ALL
 		SELECT coalesce(note.uri, $2 || '/notes/' || note.id), to_timestamp(${searchNoteTimeSql(idMethod)} / 1000.0),

@@ -27,7 +27,7 @@ export function mirrorPlacementCondition(alias: string): string {
 	return `${defaultNoteCondition(alias)} AND ${alias}."gridspaceShared" AND ${alias}."userHost" IS NOT NULL AND peer_placement."includeDefault"
 		AND ${alias}.visibility IN ('public', 'home') AND peer_placement.state = 'active'
 		AND peer_placement."canonicalUri" = CASE WHEN right(${alias}.uri, 9) = '/activity' THEN left(${alias}.uri, -9) ELSE ${alias}.uri END
-		AND (${alias}.uri = peer_placement."canonicalUri" OR NOT EXISTS (SELECT 1 FROM note canonical_note WHERE canonical_note.uri = peer_placement."canonicalUri"))`;
+		AND (${alias}.uri = peer_placement."canonicalUri" OR NOT EXISTS (SELECT 1 FROM note canonical_note WHERE canonical_note.uri = peer_placement."canonicalUri" COLLATE "default"))`;
 }
 
 /** The argument and alias must be trusted SQL expressions. Bind channel IDs with query parameters. */

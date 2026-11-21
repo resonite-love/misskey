@@ -192,14 +192,23 @@ export class TimelineReferenceService implements OnModuleInit, OnApplicationShut
 				.limit(1000).getRawMany<{ sequence: string }>();
 			const until = scanned.at(-1)?.sequence;
 			if (!until) return;
+			// Each event can identify one note by ID and a place-add can also identify two URI aliases.
+			// Keep the unique index lookups inside the batch even while the new placement table has no statistics.
 			const matches: { noteId: string; channelId: string; placementId: string; withFiles: boolean; pinned: boolean }[] = await manager.query(`
 				SELECT DISTINCT note.id AS "noteId", peer_placement.id AS "placementId", peer_placement."channelId", cardinality(note."fileIds") > 0 AS "withFiles",
 					EXISTS (SELECT 1 FROM channel_placement_pin pin WHERE pin."channelId" = peer_placement."channelId"
 						AND pin."canonicalUri" = peer_placement."canonicalUri") AS pinned
 				FROM gridspace_timeline_change event
-				JOIN note ON note.id = event."noteId" OR (event.kind = 'place-add' AND note.uri IN (event."canonicalUri", event."canonicalUri" || '/activity'))
+				CROSS JOIN LATERAL (
+					SELECT n.* FROM note n WHERE n.id = event."noteId"
+					UNION ALL
+					SELECT n.* FROM note n WHERE event.kind = 'place-add'
+						AND n.uri IN (event."canonicalUri" COLLATE "default", (event."canonicalUri" || '/activity') COLLATE "default")
+					LIMIT 3
+				) note
 				JOIN gridspace_channel_placement peer_placement ON ${mirrorPlacementCondition('note')}
-				WHERE event.sequence > $1 AND event.sequence <= $2 AND (event.kind IN ('insert', 'mirror-ready') OR
+				WHERE EXISTS (SELECT 1 FROM gridspace_channel_placement WHERE state = 'active' AND "includeDefault")
+					AND event.sequence > $1 AND event.sequence <= $2 AND (event.kind IN ('insert', 'mirror-ready') OR
 					(event.kind = 'place-add' AND event."channelOrigin" = $3 AND event."channelId" = peer_placement."channelId"
 						AND event."canonicalUri" = peer_placement."canonicalUri"))
 				ORDER BY "channelId", "noteId"`, [checkpoint.nextSequence, until, new URL(this.config.url).origin]);
