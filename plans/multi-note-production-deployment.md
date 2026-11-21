@@ -46,3 +46,5 @@ The previous binaries must not serve new-format channel-only roots or conversati
 Changelog candidate: Support one shared note across ordinary posting and multiple channels on both sites, with combined channel selection and up to three channel-color bands.
 
 Subsequent deployment: [paired co-reaction source identity release](paired-reaction-source-deployment.md), G .31.75 / R .31.74, with new backups and the existing Multi Note schema retained.
+
+Latest follow-up: [linked channel follows in Home](linked-channel-home-fix.md), G .31.76 / R .31.75. The existing linked channel read context now supplies Home's followed placements; subscriptions, write actors and ActivityPub are unchanged.
