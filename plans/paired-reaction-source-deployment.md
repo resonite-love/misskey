@@ -40,4 +40,3 @@ Both kokopi G/R labs run the same release versions. Private release/build manife
 The immediate previous images, G `.31.74` and R `.31.73`, already understand Multi Note storage. Their archived bytes and checksums were verified, with remote rollback tags and copies of the pre-release compose/config files retained. If this reaction change requires rollback, coordinate both web services and revert only to this immediate Multi Note-aware pair, retaining the database and configuration. Do not revert to pre-Multi Note binaries, run down migrations or overwrite subsequent real user writes with a backup.
 
 Changelog candidate: Preserve original custom emojis when adding or removing reactions on paired-server notes, including unlinked Multi Note guests.
-
