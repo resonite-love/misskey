@@ -62,7 +62,7 @@ export class ChannelChannel extends Channel {
 	}
 
 	private async deliverNote(note: Packed<'Note'>) {
-		if (!await this.hasLocalChannelPlacement(note, [this.channelId])) return;
+		if (!await this.hasLocalChannelPlacement(note, [this.channelId], true)) return;
 
 		if (note.user.requireSigninToViewContents && this.user == null) return;
 		if (note.renote && note.renote.user.requireSigninToViewContents && this.user == null) return;

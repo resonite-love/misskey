@@ -621,14 +621,14 @@ export class GridspacePrivateService {
 			(!link.initiator && !this.collectionClient && canSelfRenote(note, link.localUserId))
 		)));
 		const reactionIds = [...new Set([...selected, ...previewTargets].map(note => note.id))];
-		const rootIds = selected.filter(note => note.multiNoteKind === 'root').map(note => note.id);
-		const placements = rootIds.length ? await this.notePlacements!.pack(rootIds, { id: link.localUserId }) : null;
+		const placedIds = selected.filter(note => note.multiNoteKind != null).map(note => note.id);
+		const placements = placedIds.length ? await this.notePlacements!.pack(placedIds, { id: link.localUserId }) : null;
 		const reactionStates = new Map((reactionIds.length ? await this.extendedReactions.show(reactionIds, { id: link.localUserId }, true) : []).map(state => [state.noteId, state]));
 		const authors = new Map<string, Promise<Packed<'UserLite'>>>();
 		const packed = await Promise.all(selected.map(note => this.pack(note, link.localUserId, new Set(related.map(item => item.id)), reactionStates.get(note.id), authors)));
 		const previews = new Map(await Promise.all(previewTargets.map(async note => [note.id, await this.pack(note, link.localUserId, new Set(), reactionStates.get(note.id), authors)] as const)));
 		for (const note of packed) {
-			if (note.multiNoteKind !== 'root') continue;
+			if (!note.multiNoteKind) continue;
 			note.channelPlacements = placements?.get(note.id) ?? [];
 			if (placements?.unavailableNoteIds?.has(note.id)) note.channelPlacementsUnavailable = true;
 		}

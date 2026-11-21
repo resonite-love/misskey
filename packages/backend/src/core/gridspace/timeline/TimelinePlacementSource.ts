@@ -7,12 +7,13 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
 import type { Config } from '@/config.js';
 import { DI } from '@/di-symbols.js';
-import type { PackedChannelPlacement } from '@/core/NotePlacementService.js';
+import { NotePlacementService, type PackedChannelPlacement } from '@/core/NotePlacementService.js';
 import { RoleService } from '@/core/RoleService.js';
 import { MiNote } from '@/models/Note.js';
 import type { MiLocalUser } from '@/models/User.js';
 import { GridspaceChannelAuthService } from '../GridspaceChannelAuthService.js';
 import { GridspaceLinkError, GridspaceLinkService, type GridspacePeerLinkRequest } from '../GridspaceLinkService.js';
+import { GridspaceSearchService } from '../GridspaceSearchService.js';
 import { GridspaceNoteService } from '../GridspaceNoteService.js';
 import { GridspacePlacementService } from '../GridspacePlacementService.js';
 import { GridspacePrivateService } from '../GridspacePrivateService.js';
@@ -21,11 +22,12 @@ import { requestGridspacePeer } from '../peer-client.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from '../peer-protocol.js';
 import { TimelineLocalSource } from './TimelineLocalSource.js';
 import { TimelineReferenceService, validTimelinePosition } from './TimelineReferenceService.js';
+import { searchNoteTimeSql } from '../search-visibility.js';
 import { activeChannelEntries } from './placement-change.js';
 import { TIMELINE_AUTHORIZATION_TTL_MS, type TimelineItem, type TimelineOptions, type TimelinePosition, type TimelineReference } from './timeline-protocol.js';
 
 type Position = Pick<TimelinePosition, 'sortAt' | 'canonicalUri' | 'pinRank'>;
-export type PlacementTimelineRequest = { channelId?: string; followed?: boolean; untilAt?: number; after?: string; actorId?: string; followedLink?: Pick<GridspacePeerLinkRequest, 'linkId' | 'generation' | 'localUserId' | 'pairId' | 'accessToken'>; pinnedOnly?: boolean; before?: Position; upper?: Position; uris?: string[]; limit?: number };
+export type PlacementTimelineRequest = { channelId?: string; replyChannelOrigin?: string; includeReplies?: boolean; followed?: boolean; untilAt?: number; after?: string; actorId?: string; followedLink?: Pick<GridspacePeerLinkRequest, 'linkId' | 'generation' | 'localUserId' | 'pairId' | 'accessToken'>; pinnedOnly?: boolean; before?: Position; upper?: Position; uris?: string[]; limit?: number };
 type PlacementPage = { references: TimelineReference[]; next: Position | null; upper: Position | null; sequence: string; changed?: boolean };
 const uri = { type: 'string', pattern: '^https?://', maxLength: 1024 } as const;
 const position = { type: 'object', additionalProperties: false,
@@ -36,7 +38,7 @@ export const placementTimelineRequestSchema = { type: 'object', additionalProper
 		accessToken: { type: 'string', minLength: 1, maxLength: 512 }, linkId: { type: 'string', format: 'uuid' }, pairId: { type: 'string', format: 'uuid' },
 		localUserId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, generation: { type: 'integer', minimum: 1, maximum: 2147483647 },
 	} },
-	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, before: position, upper: position,
+	replyChannelOrigin: uri, includeReplies: { type: 'boolean' }, channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, before: position, upper: position,
 	pinnedOnly: { type: 'boolean' }, uris: { type: 'array', maxItems: 100, items: uri }, limit: { type: 'integer', minimum: 1, maximum: 100 },
 }, required: ['actorId'] } as const;
 
@@ -62,6 +64,8 @@ export class TimelinePlacementSource {
 		private roles: RoleService,
 		private channelAuth: GridspaceChannelAuthService,
 		private links: GridspaceLinkService,
+		private notePlacements: NotePlacementService,
+		private search: GridspaceSearchService,
 	) {
 		this.peer = resolveGridspaceConfig(config.gridspace, config.url, process.env);
 	}
@@ -70,7 +74,8 @@ export class TimelinePlacementSource {
 	public async peerPage(input: PlacementTimelineRequest): Promise<PlacementPage> {
 		if (!this.peer || !input.actorId || !this.config.gridspace?.timelineEnabled) throw new GridspaceLinkError('UNAVAILABLE');
 		const actor = await this.placementService.resolveActor(input.actorId);
-		if (!input.followedLink) return this.query(input, actor.id, true);
+		if (!input.followedLink) return this.readIndex(input, actor.id, true, Date.now() + 8000);
+		if (input.replyChannelOrigin || input.includeReplies) throw new GridspaceLinkError('INVALID_REQUEST');
 		const grant = input.followedLink;
 		if (!input.followed || input.channelId || grant.localUserId !== input.actorId) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		this.channelAuth.assertSource();
@@ -96,6 +101,110 @@ export class TimelinePlacementSource {
 			AND NOT EXISTS (SELECT 1 FROM channel_muting cm WHERE cm."userId" = ANY($1::varchar[]) AND cm."channelId" = f."followeeId"
 				AND (cm."expiresAt" IS NULL OR cm."expiresAt" > CURRENT_TIMESTAMP)) LIMIT 1`, [linkedId ? [viewerId, linkedId] : [viewerId], channelIds]);
 		return rows.length > 0;
+	}
+
+	/** Candidate children live with the original, including when their channel belongs to the peer. */
+	private async replyPage(input: PlacementTimelineRequest, viewerId: string, deadline: number): Promise<Pick<PlacementPage, 'references' | 'next'>> {
+		const channelOrigin = input.replyChannelOrigin ?? this.peer!.origin;
+		const opposite = channelOrigin !== this.peer!.origin;
+		const limit = input.limit ?? 50;
+		if (!gridspaceNoteId(input.channelId) || limit < 1 || limit > 100 || !Number.isInteger(limit) ||
+			(input.uris?.length ?? 0) > 100) throw new GridspaceLinkError('INVALID_REQUEST');
+		if (input.uris?.length === 0) return { references: [], next: null };
+		const result: TimelineReference[] = [];
+		let before = input.before;
+		while (result.length <= limit) {
+			if (Date.now() >= deadline) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+			const params: unknown[] = [input.channelId, this.peer!.origin];
+			const conditions: string[] = [];
+			const table = opposite ? 'gridspace_placement_target' : 'note_channel_placement';
+			if (opposite) {
+				params.push(channelOrigin);
+				conditions.push('route."peerOrigin" = $3');
+			}
+			for (const [op, value] of [['<', before], ['<=', input.upper]] as const) {
+				if (!value) continue;
+				if (!validTimelinePosition(value)) throw new GridspaceLinkError('INVALID_CURSOR');
+				params.push(value.sortAt, value.canonicalUri);
+				conditions.push(`(t.us, ($2 || '/notes/' || note.id) COLLATE "C") ${op} ($${params.length - 1}::bigint, $${params.length} COLLATE "C")`);
+			}
+			if (input.untilAt !== undefined) {
+				params.push(input.untilAt);
+				conditions.push(`t.us < ($${params.length}::bigint + 1) * 1000`);
+			}
+			if (input.uris) {
+				params.push(input.uris.flatMap(uri => {
+					const prefix = this.peer!.origin + '/notes/';
+					return uri.startsWith(prefix) && gridspaceNoteId(uri.slice(prefix.length)) ? [uri.slice(prefix.length)] : [];
+				}));
+				conditions.push(`note.id = ANY($${params.length}::varchar[])`);
+			}
+			const rows = await this.db.query<{ id: string; rootId: string; sortAt: string; canonicalUri: string }[]>(
+				`SELECT note.id, root.id AS "rootId", t.us::text AS "sortAt", ($2 || '/notes/' || note.id) COLLATE "C" AS "canonicalUri"
+				FROM ${table} route JOIN note root ON root.id = route."noteId"
+				JOIN note ON note."threadId" = root.id AND note."multiNoteRootId" = root.id
+				CROSS JOIN LATERAL (SELECT (${searchNoteTimeSql(this.config.id)}) * 1000 AS us) t
+				WHERE route."channelId" = $1 AND route.state = 'active' AND root."multiNoteKind" = 'root'
+					AND root."includeDefault" IS FALSE AND root.uri IS NULL AND note."multiNoteKind" = 'conversation-reply'
+					AND note.uri IS NULL AND note."includeDefault" IS FALSE ${conditions.length ? 'AND ' + conditions.join(' AND ') : ''}
+				ORDER BY t.us DESC, "canonicalUri" DESC LIMIT 100`, params);
+			if (rows.length) {
+				const roots = [...new Set(rows.map(row => row.rootId))];
+				const ids = [...new Set([...roots, ...rows.map(row => row.id)])];
+				const allowed = await this.search.noteQuery({ id: viewerId }, { query: '' }, false, true, undefined, false, true)
+					.select('note.id', 'id').andWhere('note.id IN (:...ids)', { ids }).getRawMany<{ id: string }>();
+				const readable = new Set(allowed.map(row => row.id));
+				const chips = await this.notePlacements.pack(roots.filter(id => readable.has(id)), { id: viewerId });
+				for (const row of rows) {
+					if (!readable.has(row.id) || !readable.has(row.rootId)) continue;
+					if (opposite && chips.unavailableNoteIds?.has(row.rootId)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+					const rootChip = chips.get(row.rootId)?.find(chip => chip.origin === channelOrigin && chip.channelId === input.channelId && chip.state === 'active');
+					if (!rootChip) continue;
+					const chip: PackedChannelPlacement = { origin: channelOrigin, channelId: rootChip.channelId, canonicalUri: row.canonicalUri,
+						name: rootChip.name, color: rootChip.color, isArchived: rootChip.isArchived, isSensitive: rootChip.isSensitive,
+						allowRenoteToExternal: rootChip.allowRenoteToExternal, state: 'active', canRemove: false, canRetry: false };
+					result.push({ source: 'local', normalized: true, generation: 2, noteId: row.id, sortAt: row.sortAt, canonicalUri: row.canonicalUri,
+						placement: { channelId: chip.channelId, channelIds: [chip.channelId], channelOrigin, noteOrigin: this.peer!.origin,
+							includeDefault: false, legacy: false, chips: [chip] } });
+				}
+			}
+			if (rows.length < 100) break;
+			before = rows.at(-1)!;
+		}
+		const references = result.slice(0, limit);
+		const last = references.at(-1);
+		return { references, next: result.length > limit && last ? { sortAt: last.sortAt, canonicalUri: last.canonicalUri } : null };
+	}
+
+	public async changedReplies(channelOrigin: string, channelId: string, ids: string[], viewerId: string): Promise<boolean> {
+		if (!this.peer || !ids.length) return false;
+		for (let offset = 0; offset < ids.length; offset += 100) {
+			const uris = ids.slice(offset, offset + 100).map(id => this.peer!.origin + '/notes/' + id);
+			const page = await this.replyPage({ channelId, replyChannelOrigin: channelOrigin, uris, limit: 1 }, viewerId, Date.now() + 8000);
+			if (page.references.length) return true;
+		}
+		return false;
+	}
+
+	private async readIndex(input: PlacementTimelineRequest, viewerId: string, remote: boolean, deadline: number): Promise<PlacementPage> {
+		if (!input.includeReplies && !input.replyChannelOrigin) return this.query(input, viewerId, remote);
+		if (!input.includeReplies || !input.channelId || input.followed || input.pinnedOnly ||
+			(input.replyChannelOrigin && input.replyChannelOrigin !== this.peer!.peerOrigin)) throw new GridspaceLinkError('INVALID_REQUEST');
+		const updates = input.after ? await this.changes.changes(input.after) : null;
+		const sequence = updates?.cursor ?? await this.changes.currentPosition();
+		const roots = input.replyChannelOrigin ? null : await this.query({ ...input, after: undefined }, viewerId, remote);
+		const replies = await this.replyPage(input, viewerId, deadline);
+		const sorted = [...roots?.references ?? [], ...replies.references].sort(comparePlacementPosition);
+		const limit = input.limit ?? 50;
+		const references = sorted.slice(0, limit);
+		const key = (r: TimelineReference) => ({ sortAt: r.sortAt, canonicalUri: r.canonicalUri });
+		const channelOrigin = input.replyChannelOrigin ?? this.peer!.origin;
+		const changed = updates ? updates.resetRequired || updates.hasMore || updates.events.some(e =>
+			(e.channelId === input.channelId && e.channelOrigin === channelOrigin) ||
+			(e.kind === 'policy' && (!e.affectedUserId || e.affectedUserId === viewerId))) ||
+			await this.changedReplies(channelOrigin, input.channelId, updates.events.flatMap(e => !e.channelId && e.noteId ? [e.noteId] : []), viewerId) : undefined;
+		return { references, upper: input.upper ?? (references[0] ? key(references[0]) : null),
+			next: references.length && (roots?.next || replies.next || sorted.length > limit) ? key(references.at(-1)!) : null, sequence, changed };
 	}
 
 	private async query(input: PlacementTimelineRequest, viewerId: string, remote: boolean, linkedId?: string): Promise<PlacementPage> {
@@ -164,9 +273,14 @@ export class TimelinePlacementSource {
 
 	public async read(viewer: MiLocalUser, origin: string, input: PlacementTimelineRequest, deadline: number): Promise<PlacementPage> {
 		if (!this.peer) throw new GridspaceLinkError('UNAVAILABLE');
-		if (origin === this.peer.origin) return this.query(input, viewer.id, false);
+		const explicit = !!input.channelId && !input.followed && !input.pinnedOnly;
+		if (input.replyChannelOrigin && (!explicit || !await this.placementService.supportsChannelReplies())) {
+			return { references: [], next: null, upper: null, sequence: '0' };
+		}
+		if (origin === this.peer.origin) return this.readIndex({ ...input, includeReplies: explicit }, viewer.id, false, deadline);
 		if (origin !== this.peer.peerOrigin) throw new GridspaceLinkError('INVALID_REQUEST');
 		const actor = await this.placementService.currentActorCredential(viewer);
+		const includeReplies = explicit && await this.placementService.supportsChannelReplies();
 		let channel: Awaited<ReturnType<GridspaceChannelAuthService['destination']>> | undefined;
 		if (input.followed && this.channelAuth.isClient && await this.placementService.supportsLinkedChannelFollows()) {
 			try {
@@ -179,17 +293,18 @@ export class TimelinePlacementSource {
 		const followedLink = channel && 'accessToken' in channel.credential ? channel.credential : undefined;
 		let result: PlacementPage;
 		try {
-			result = await requestGridspacePeer(this.peer, '/gridspace/v1/placements/timeline', { ...input, ...actor, followedLink }, 512 * 1024, deadline) as PlacementPage;
+			result = await requestGridspacePeer(this.peer, '/gridspace/v1/placements/timeline', { ...input, ...actor, followedLink, ...(includeReplies ? { includeReplies: true } : {}) }, 512 * 1024, deadline) as PlacementPage;
 		} catch { throw new GridspaceLinkError('PEER_UNAVAILABLE'); }
 		if (channel) await channel.check();
 		if (!Array.isArray(result?.references) || result.references.length > (input.limit ?? 50) || !/^\d+$/.test(result.sequence) ||
 			(result.next && !validTimelinePosition(result.next)) || (result.upper && !validTimelinePosition(result.upper))) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		for (const ref of result.references) {
 			const p = ref.placement;
-			if (!p || p.channelOrigin !== origin || (input.channelId ? p.channelId !== input.channelId : !gridspaceNoteId(p.channelId)) || !gridspaceNoteId(ref.noteId) ||
+			if (!p || p.channelOrigin !== (input.replyChannelOrigin ?? origin) || (input.channelId ? p.channelId !== input.channelId : !gridspaceNoteId(p.channelId)) || !gridspaceNoteId(ref.noteId) ||
 				!validTimelinePosition(ref) || ![origin, this.peer.origin].includes(p.noteOrigin) ||
-				typeof p.legacy !== 'boolean' || typeof p.includeDefault !== 'boolean' ||
-				(!p.legacy && (!Array.isArray(p.chips) || p.chips.some(chip => chip.origin !== origin || chip.canonicalUri !== ref.canonicalUri ||
+				typeof p.legacy !== 'boolean' || (input.replyChannelOrigin && (p.noteOrigin !== origin || p.legacy || p.includeDefault)) || typeof p.includeDefault !== 'boolean' ||
+				(!p.legacy && (!Array.isArray(p.chips) || p.chips.some(chip => chip.origin !== p.channelOrigin || chip.canonicalUri !== ref.canonicalUri ||
+					(input.replyChannelOrigin && (chip.channelId !== input.channelId || chip.canRemove !== false || chip.canRetry || chip.placementId)) ||
 					!gridspaceNoteId(chip.channelId) || typeof chip.name !== 'string' || typeof chip.color !== 'string' || chip.state !== 'active' ||
 					[chip.isArchived, chip.isSensitive, chip.allowRenoteToExternal].some(flag => flag !== undefined && typeof flag !== 'boolean')))) ||
 				(!p.legacy && ref.canonicalUri !== `${p.noteOrigin}/notes/${ref.noteId}`)) throw new GridspaceLinkError('PEER_UNAVAILABLE');

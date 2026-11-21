@@ -6,6 +6,7 @@
 import { channelPlacementCondition, isConversationOnly } from '@/misc/note-distribution.js';
 import { Inject } from '@nestjs/common';
 import { DI } from '@/di-symbols.js';
+import type { NotePlacementService } from '@/core/NotePlacementService.js';
 import type { NotesRepository } from '@/models/_.js';
 import { bindThis } from '@/decorators.js';
 import { isInstanceMuted } from '@/misc/is-instance-muted.js';
@@ -25,16 +26,20 @@ export default abstract class Channel {
 	protected connection: Connection;
 	@Inject(DI.notesRepository)
 	protected readonly placementNotes: NotesRepository;
+	@Inject('NotePlacementService')
+	protected readonly conversationPlacements: NotePlacementService;
 
 	/** Verify an active local route before sending a cached event, including delayed events after removal. */
-	protected async hasLocalChannelPlacement(note: Packed<'Note'>, channelIds: string[]): Promise<boolean> {
-		if (!channelIds.length || isConversationOnly(note)) return false;
+	protected async hasLocalChannelPlacement(note: Packed<'Note'>, channelIds: string[], includeConversation = false): Promise<boolean> {
+		if (!channelIds.length || (isConversationOnly(note) && !includeConversation)) return false;
 		// Older stream producers do not include the distribution fields.
 		if (!note.uri && note.includeDefault == null && !note.channelPlacements) return !!note.channelId && channelIds.includes(note.channelId);
-		if (!note.uri && !(note.channelId && channelIds.includes(note.channelId)) &&
+		if (!isConversationOnly(note) && !note.uri && !(note.channelId && channelIds.includes(note.channelId)) &&
 			!note.channelPlacements?.some(p => p.state === 'active' && channelIds.includes(p.channelId))) return false;
-		return this.placementNotes.createQueryBuilder('note').where('note.id = :id', { id: note.id })
-			.andWhere(channelPlacementCondition('ANY(:routeChannels)'), { routeChannels: channelIds }).getExists();
+		const query = this.placementNotes.createQueryBuilder('note').where('note.id = :id', { id: note.id })
+			.andWhere(channelPlacementCondition('ANY(:routeChannels)', 'note', includeConversation), { routeChannels: channelIds });
+		if (includeConversation && isConversationOnly(note)) this.conversationPlacements.filterConversationRoot(query, this.user);
+		return query.getExists();
 	}
 
 	protected hasFollowedChannelPlacement(note: Packed<'Note'>): Promise<boolean> {

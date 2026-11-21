@@ -86,6 +86,36 @@ export class FanoutTimelineService {
 			return 1`, 1, 'list:' + tl, id, Math.max(1, Math.floor(maxlen)), this.idService.parse(id).date.getTime() > Date.now() - 180000 ? '1' : '0');
 	}
 
+	/** Repair an existing channel list atomically with other fanout writers. */
+	public async mergeChannelReplies(channelId: string, ids: string[], maxlen: number) {
+		if (!ids.length || maxlen < 1) return;
+		await this.redisForTimelines.eval(`
+			local current = redis.call('LRANGE', KEYS[1], 0, -1)
+			if #current == 0 then return end
+			local seen, merged = {}, {}
+			local function add(id)
+				if not seen[id] then
+					seen[id] = true
+					merged[#merged + 1] = id
+				end
+			end
+			for _, id in ipairs(current) do add(id) end
+			for i = 2, #ARGV do add(ARGV[i]) end
+			table.sort(merged, function(a, b) return a > b end)
+			local count = math.min(tonumber(ARGV[1]), #merged)
+			if #current == count then
+				local same = true
+				for i = 1, count do
+					if current[i] ~= merged[i] then same = false; break end
+				end
+				if same then return end
+			end
+			redis.call('DEL', KEYS[1])
+			for i = 1, count, 512 do
+				redis.call('RPUSH', KEYS[1], unpack(merged, i, math.min(i + 511, count)))
+			end`, 1, 'list:channelTimeline:' + channelId, maxlen, ...ids);
+	}
+
 	/** A peer placement may become active after its ordinary mirror was already delivered. */
 	public async cachePlacedMirror(noteId: string, channelId: string, maxlen: number, followers: string[], homeMax: number, withFiles: boolean) {
 		const batch = this.redisForTimelines.pipeline();

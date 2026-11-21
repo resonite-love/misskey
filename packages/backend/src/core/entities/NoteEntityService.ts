@@ -32,7 +32,7 @@ import type { UserEntityService } from './UserEntityService.js';
 import type { DriveFileEntityService } from './DriveFileEntityService.js';
 
 function needsPlacementLookup(note: MiNote): boolean {
-	return note.multiNoteKind === 'root' || (note.gridspaceShared && note.uri != null);
+	return note.multiNoteKind != null || (note.gridspaceShared && note.uri != null);
 }
 
 // is-renote.tsとよしなにリンク
@@ -537,7 +537,7 @@ export class NoteEntityService implements OnModuleInit {
 			const placements = routes.get(note.id) ?? [];
 			if (routes.rootNoteIds?.has(note.id)) packed.multiNoteKind = 'root';
 			if (routes.unavailableNoteIds?.has(note.id)) packed.channelPlacementsUnavailable = true;
-			if (placements.length > 0 || packed.multiNoteKind === 'root') packed.channelPlacements = placements;
+			if (placements.length > 0 || packed.multiNoteKind != null) packed.channelPlacements = placements;
 		}
 		return packed;
 	}

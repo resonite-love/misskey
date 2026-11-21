@@ -13,6 +13,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<MkAvatar :class="$style.avatar" :user="note.user" link preview/>
 		<div :class="$style.body">
 			<MkNoteHeader :class="$style.header" :note="note" :mini="true"/>
+			<MkNotePlacements v-if="!note.isHidden && note.multiNoteKind" :placements="note.channelPlacements" :unavailable="note.channelPlacementsUnavailable" :includeDefault="note.includeDefault"/>
 			<div>
 				<p v-if="note.cw != null" :class="$style.cw">
 					<Mfm v-if="note.cw != ''" style="margin-right: 8px;" :text="note.cw" :author="note.user" :nyaize="'respect'"/>
@@ -48,6 +49,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 import { ref } from 'vue';
 import * as Misskey from 'misskey-js';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
+import MkNotePlacements from '@/components/MkNotePlacements.vue';
 import MkAutoTranslatedNote from '@/components/MkAutoTranslatedNote.vue';
 import MkSubNoteContent from '@/components/MkSubNoteContent.vue';
 import MkCwButton from '@/components/MkCwButton.vue';

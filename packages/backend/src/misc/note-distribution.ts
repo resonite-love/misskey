@@ -31,14 +31,20 @@ export function mirrorPlacementCondition(alias: string): string {
 }
 
 /** The argument and alias must be trusted SQL expressions. Bind channel IDs with query parameters. */
-export function channelPlacementCondition(channelSQL: string, alias = 'note'): string {
-	return `(${alias}."multiNoteKind" IS DISTINCT FROM 'conversation-reply' AND (
+export function channelPlacementCondition(channelSQL: string, alias = 'note', includeConversation = false): string {
+	const direct = `(${alias}."multiNoteKind" IS DISTINCT FROM 'conversation-reply' AND (
 		EXISTS (SELECT 1 FROM note_channel_placement placement WHERE placement."noteId" = ${alias}.id
 			AND placement."channelId" = ${channelSQL} AND placement.state = 'active')
 		OR EXISTS (SELECT 1 FROM gridspace_channel_placement peer_placement WHERE peer_placement."channelId" = ${channelSQL} AND ${mirrorPlacementCondition(alias)})
 		OR (${alias}."channelId" = ${channelSQL} AND NOT EXISTS (
 			SELECT 1 FROM note_channel_placement placement WHERE placement."noteId" = ${alias}.id
 				AND placement."channelId" = ${alias}."channelId" AND placement.state <> 'active'))))`;
+	if (!includeConversation) return direct;
+	return `(${direct} OR (${alias}."multiNoteKind" = 'conversation-reply' AND ${alias}."includeDefault" = false AND ${alias}.uri IS NULL AND EXISTS (
+		SELECT 1 FROM note conversation_root JOIN note_channel_placement conversation_placement ON conversation_placement."noteId" = conversation_root.id
+		WHERE conversation_root.id = ${alias}."multiNoteRootId" AND ${alias}."threadId" = conversation_root.id
+			AND conversation_root."multiNoteKind" = 'root' AND conversation_root."includeDefault" = false
+			AND conversation_placement."channelId" = ${channelSQL} AND conversation_placement.state = 'active')))`;
 }
 
 export function activeChannelIdsQuery(alias = 'note'): string {
@@ -61,7 +67,7 @@ export type NoteListing =
 export function noteListingCondition(list: NoteListing): [string, Record<string, unknown>] {
 	const ordinary = defaultNoteCondition();
 	if (list.kind === 'default') return [ordinary, {}];
-	if (list.kind === 'channel') return [channelPlacementCondition(':routeChannel'), { routeChannel: list.channelId }];
+	if (list.kind === 'channel') return [channelPlacementCondition(':routeChannel', 'note', true), { routeChannel: list.channelId }];
 
 	const placed = `note."multiNoteKind" IS DISTINCT FROM 'conversation-reply' AND route.id IN (${activeChannelIdsQuery()})`;
 	const unmuted = `NOT EXISTS (SELECT 1 FROM channel_muting cm

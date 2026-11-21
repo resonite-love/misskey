@@ -61,7 +61,7 @@ export class GridspaceTimelineChannel extends Channel {
 			if (!ordinary && !await this.hasFollowedChannelPlacement(note)) return;
 			if (!this.isNoteVisibleForMe(note) || this.isNoteMutedOrBlocked(note)) return;
 		} else if (options.kind === 'channel') {
-			if (!await this.hasLocalChannelPlacement(note, options.channelId ? [options.channelId] : [])) return;
+			if (!await this.hasLocalChannelPlacement(note, options.channelId ? [options.channelId] : [], true)) return;
 		} else if (options.kind === 'mentions' || options.kind === 'direct') {
 			if (!note.mentions?.includes(this.user!.id) && !note.visibleUserIds?.includes(this.user!.id)) return;
 			if (options.kind === 'direct' && note.visibility !== 'specified') return;

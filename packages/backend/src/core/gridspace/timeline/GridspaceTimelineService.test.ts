@@ -130,6 +130,34 @@ describe('unified timeline coordinator with real Redis checkpoints', () => {
 			previousSession: first.session, previousRevision: first.revision, refs: [], anchorRef: first.items[0].ref,
 		})).rejects.toMatchObject({ code: 'INVALID_CURSOR' });
 	});
+	test.each(['local', 'peer'] as const)('merges both child origins for a %s channel and invalidates an unscoped insert', async owner => {
+		const channelOrigin = 'https://' + owner + '.example';
+		const query = { kind: 'channel', channelId: 'route', channelOrigin } as const;
+		const placements = mockDeep<TimelinePlacementSource>();
+		const f = fixture([], [], placements);
+		const child = (source: 'local' | 'peer', time: number) => {
+			const row = ref(source, time);
+			return { ...row, placement: { channelId: 'route', channelOrigin, noteOrigin: 'https://' + source + '.example',
+				includeDefault: false, legacy: false, chips: [{ name: 'Route', origin: channelOrigin, channelId: 'route',
+					canonicalUri: row.canonicalUri, color: '#fff', state: 'active' as const, canRemove: false }] } };
+		};
+		const rows = [child('local', 95), child('peer', 100)];
+		placements.read.mockImplementation(async (_viewer, origin, request) => {
+			expect(request.replyChannelOrigin).toBe(channelOrigin === origin ? undefined : channelOrigin);
+			const references = rows.filter(row => row.placement.noteOrigin === origin && (!request.uris || request.uris.includes(row.canonicalUri)));
+			return { references, upper: references[0] ?? null, next: null, sequence: '0' };
+		});
+		placements.bodies.mockImplementation(async (_viewer, refs) => new Map(refs.map(row => [row.canonicalUri,
+			{ representation: row.source === 'peer' ? 'delegated' : 'normal', payload: { id: row.noteId, multiNoteKind: 'conversation-reply' }, validForMs: 60000 }])) as never);
+		const first = await f.service.page(viewer, query, 2);
+		expect(first.items.map(item => item.key)).toEqual([rows[1].canonicalUri, rows[0].canonicalUri]);
+		expect(first.items.map(item => item.payload.multiNoteKind)).toEqual(['conversation-reply', 'conversation-reply']);
+		const fresh = ref('local', 101);
+		f.add(fresh);
+		placements.changedReplies.mockResolvedValueOnce(true);
+		expect((await f.changes(first, first.items)).resetRequired).toBe(true);
+		expect(placements.changedReplies).toHaveBeenCalledWith(channelOrigin, 'route', [fresh.noteId], viewer.id);
+	});
 	test.each([false, true])('retains the exact placement position after a channel anchor is removed (pinned=%s)', async pinnedOnly => {
 		const channelOrigin = 'https://peer.example';
 		const query = { kind: 'channel', channelId: 'channel', channelOrigin, pinnedOnly } as const;

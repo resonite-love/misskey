@@ -49,10 +49,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 		{{ i18n.ts.deletedNote }}
 	</div>
 	<template v-else>
-		<MkNoteDetailedArticle :channel="appearNote.channel" :placements="!appearNote.isHidden && appearNote.multiNoteKind === 'root' ? appearNote.channelPlacements : undefined" :showChannelLink="false" :compactTop="isRenote" @contextmenu.stop="onContextmenu">
+		<MkNoteDetailedArticle :channel="appearNote.channel" :placements="!appearNote.isHidden && appearNote.multiNoteKind ? appearNote.channelPlacements : undefined" :showChannelLink="false" :compactTop="isRenote" @contextmenu.stop="onContextmenu">
 			<template #header><MkNoteDetailedHeader :user="appearNote.user" :visibility="appearNote.visibility" :localOnly="appearNote.localOnly" :noRelay="appearNote.noRelay"><MkInstanceTicker v-if="showTicker" :host="appearNote.user.host" :instance="appearNote.user.instance"/></MkNoteDetailedHeader></template>
 			<div :class="$style.noteContent">
-				<MkNotePlacements v-if="!appearNote.isHidden && appearNote.multiNoteKind === 'root'" :placements="appearNote.channelPlacements" :unavailable="appearNote.channelPlacementsUnavailable" :includeDefault="appearNote.includeDefault"/>
+				<MkNotePlacements v-if="!appearNote.isHidden && appearNote.multiNoteKind" :placements="appearNote.channelPlacements" :unavailable="appearNote.channelPlacementsUnavailable" :includeDefault="appearNote.includeDefault"/>
 				<MkNoteCw v-if="appearNote.cw != null" v-model="showContent" :cw="appearNote.cw" :text="appearNote.text" :author="appearNote.user" :emojiUrls="appearNote.emojis" :files="appearNote.files" :poll="appearNote.poll" :renote="appearNote.renote" interactive/>
 				<div v-show="appearNote.cw == null || showContent">
 					<span v-if="appearNote.isHidden" style="opacity: 0.5">({{ i18n.ts.private }})</span>

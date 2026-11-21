@@ -46,13 +46,13 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<button v-if="quoteLong" class="_button" :class="$style.quoteExpand" @click="quoteCollapsed = !quoteCollapsed">{{ quoteCollapsed ? i18n.ts.showMore : i18n.ts.showLess }}</button>
 		</div>
 	</MkNoteSimple>
-	<component :is="detailed ? MkNoteDetailedArticle : MkNoteArticle" v-else :user="displayAuthor" :channel="channel" :placements="note.multiNoteKind === 'root' ? note.channelPlacements : undefined" :channelTo="channel ? `/gridspace/channels/${channel.id}` : undefined" :showChannelLink="!inChannel" :avatarPreview="false" :stickyAvatar="prefer.s.useStickyIcons" :compactTop="compactTop" :dense="dense" :footerOnHover="prefer.s.showNoteActionsOnlyHover">
+	<component :is="detailed ? MkNoteDetailedArticle : MkNoteArticle" v-else :user="displayAuthor" :channel="channel" :placements="note.multiNoteKind ? note.channelPlacements : undefined" :channelTo="channel ? `/gridspace/channels/${channel.id}` : undefined" :showChannelLink="!inChannel" :avatarPreview="false" :stickyAvatar="prefer.s.useStickyIcons" :compactTop="compactTop" :dense="dense" :footerOnHover="prefer.s.showNoteActionsOnlyHover">
 		<template #header>
 			<MkNoteDetailedHeader v-if="detailed" :user="displayAuthor" :visibility="headerNote.visibility" :localOnly="note.localOnly" :noRelay="note.noRelay" :preview="false"><MkInstanceTicker v-if="showTicker" :host="displayAuthor.host" :instance="displayAuthor.instance"/></MkNoteDetailedHeader>
 			<MkNoteHeader v-else :note="headerNote" :noteUrl="readOnly ? note.uri : noteLink(note.id)" :externalNoteUrl="readOnly" :userPreview="`@${displayAuthor.username}${displayAuthor.host ? `@${displayAuthor.host}` : ''}`"/>
 			<MkInstanceTicker v-if="showTicker && !detailed" :host="displayAuthor.host" :instance="displayAuthor.instance"/>
 		</template>
-		<MkNotePlacements v-if="note.multiNoteKind === 'root'" :placements="note.channelPlacements" :unavailable="note.channelPlacementsUnavailable" :includeDefault="note.includeDefault"/>
+		<MkNotePlacements v-if="note.multiNoteKind" :placements="note.channelPlacements" :unavailable="note.channelPlacementsUnavailable" :includeDefault="note.includeDefault"/>
 		<div v-if="!readOnly && note.replyId" :class="$style.parentLinks"><MkA :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA></div>
 		<MkNoteCw v-if="displayNote.cw != null" v-model="expanded" :cw="displayNote.cw" :text="displayNote.text" :author="displayNote.author" :emojiUrls="displayNote.emojis ?? {}" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/>
 		<div v-if="displayNote.cw == null || expanded" :class="$style.body"><span v-if="isUnavailableGridspaceNote(note, true)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span><MkNoteText v-else :text="translation?.text ?? displayNote.text ?? ''" :author="displayNote.author" :emojiUrls="displayNote.emojis ?? {}"/></div>

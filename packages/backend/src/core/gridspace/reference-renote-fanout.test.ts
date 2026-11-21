@@ -11,6 +11,8 @@ import type { FanoutTimelineService } from '@/core/FanoutTimelineService.js';
 import type { ChannelMutingService } from '@/core/ChannelMutingService.js';
 import type { UtilityService } from '@/core/UtilityService.js';
 import type { NoteEntityService } from '@/core/entities/NoteEntityService.js';
+import type { NotePlacementService } from '@/core/NotePlacementService.js';
+import type { QueryService } from '@/core/QueryService.js';
 import type { MiMeta } from '@/models/Meta.js';
 import type { MiNote } from '@/models/Note.js';
 import type { NotesRepository } from '@/models/_.js';
@@ -26,10 +28,14 @@ test.each(['exclude', 'mute', 'own'] as const)('cached reference-only renotes re
 	const channels = mockDeep<ChannelMutingService>(); channels.mutingChannelsCache.fetch.mockResolvedValue(new Set());
 	const fanout = mockDeep<FanoutTimelineService>(); fanout.getMulti.mockResolvedValue([['note']]);
 	const utility = mockDeep<UtilityService>(); utility.isBlockedHost.mockReturnValue(false);
+	const queries = mockDeep<QueryService>();
+	const placements = mockDeep<NotePlacementService>();
 	const service = new FanoutTimelineEndpointService({ createQueryBuilder: () => query } as unknown as NotesRepository,
-		{ blockedHosts: [], ugcVisibilityForVisitor: 'all' } as unknown as MiMeta, {} as NoteEntityService, cache, fanout, utility, channels);
+		{ blockedHosts: [], ugcVisibilityForVisitor: 'all' } as unknown as MiMeta, {} as NoteEntityService, cache, fanout, utility, channels, queries, placements);
 	const options = { me: { id: mode === 'own' ? 'author' : 'viewer' }, untilId: null, sinceId: null, limit: 20, allowPartial: true, useDbFallback: false, redisTimelines: [], listing: { kind: 'channel' as const, channelId: 'c' }, includeMyRenotes: mode !== 'own', excludePureRenotes: mode === 'exclude', dbFallback: async () => [] };
 	expect(await service.getMiNotes(options)).toEqual([]);
 	note.text = 'A comment';
 	expect(await service.getMiNotes(options)).toEqual([note]);
+	expect(queries.generateVisibilityQuery).toHaveBeenCalledWith(query, options.me);
+	expect(placements.filterConversationRoot).toHaveBeenCalledWith(query, options.me);
 });

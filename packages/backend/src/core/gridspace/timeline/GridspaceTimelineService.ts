@@ -118,9 +118,9 @@ export class GridspaceTimelineService {
 	private async hydratePlacements(viewer: MiLocalUser, checkpoint: Checkpoint, selected: TimelineReference[], deadline: number): Promise<TimelineItem[]> {
 		if (!selected.length) return [];
 		const { channelOrigin, channelId, pinnedOnly, withFiles } = checkpoint.options;
-		const origins = channelOrigin ? [channelOrigin] : [this.peer!.origin, ...(checkpoint.mode === 'unified' ? [this.peer!.peerOrigin] : [])];
+		const origins = channelOrigin ? [...new Set(selected.map(ref => ref.source === 'peer' ? this.peer!.peerOrigin : this.peer!.origin))] : [this.peer!.origin, ...(checkpoint.mode === 'unified' ? [this.peer!.peerOrigin] : [])];
 		const request = { channelId, pinnedOnly, followed: !channelOrigin, uris: selected.map(ref => ref.canonicalUri), limit: selected.length };
-		const read = async () => (await Promise.all(origins.map(origin => this.placements!.read(viewer, origin, request, deadline)))).flatMap(page => page.references);
+		const read = async () => (await Promise.all(origins.map(origin => this.placements!.read(viewer, origin, channelOrigin && origin !== channelOrigin ? { ...request, replyChannelOrigin: channelOrigin } : request, deadline)))).flatMap(page => page.references);
 		const active = await read();
 		const unique = new Map(active.map(ref => [ref.canonicalUri, ref]));
 		const bodies = await this.placements!.bodies(viewer, [...unique.values()], deadline, checkpoint.options);
@@ -142,7 +142,7 @@ export class GridspaceTimelineService {
 			if (chips.size) {
 				body.payload.channelPlacements = [...chips.values()];
 				body.payload.includeDefault = paths[0].placement!.includeDefault;
-				body.payload.multiNoteKind = 'root';
+				if (body.payload.multiNoteKind !== 'conversation-reply') body.payload.multiNoteKind = 'root';
 			}
 			const routes = paths.map(r => ({ origin: r.placement!.channelOrigin, channelIds: r.placement!.channelIds ?? [r.placement!.channelId] }));
 			return [{ key: ref.canonicalUri, sortKey: { sortAt: ref.sortAt, uri: ref.canonicalUri },
@@ -300,7 +300,9 @@ export class GridspaceTimelineService {
 			const relevant = changes.events.some(event => event.channelId ?
 				(event.channelId === checkpoint.options.channelId && event.channelOrigin === checkpoint.options.channelOrigin) :
 				(event.canonicalUri ? selected.has(event.canonicalUri) : !event.affectedUserId || event.affectedUserId === viewer.id));
-			return { ...changes, resetRequired: changes.resetRequired || relevant, inserts: [] as TimelineReference[] };
+			return { ...changes, resetRequired: changes.resetRequired || relevant || (!checkpoint.options.pinnedOnly &&
+				await this.placements!.changedReplies(checkpoint.options.channelOrigin, checkpoint.options.channelId!,
+					changes.events.flatMap(e => !e.channelId && e.noteId ? [e.noteId] : []), viewer.id)), inserts: [] as TimelineReference[] };
 		}
 		const channels = changes.events.flatMap(event => event.channelId && event.channelOrigin === this.peer?.origin ? [event.channelId] : []);
 		const placementChanged = (checkpoint.options.kind === 'home' || checkpoint.options.kind === 'social') && channels.length > 0 &&
@@ -377,6 +379,11 @@ export class GridspaceTimelineService {
 			} else if (anchor && options.channelOrigin) {
 				const page = await this.placements!.read(viewer, options.channelOrigin, { channelId: options.channelId, pinnedOnly: options.pinnedOnly, uris: [anchor], limit: 1 }, deadline);
 				ref = page.references.find(row => row.canonicalUri === anchor);
+				if (!ref && !options.pinnedOnly && mode === 'unified') {
+					const other = options.channelOrigin === this.peer.origin ? this.peer.peerOrigin : this.peer.origin;
+					const replies = await this.placements!.read(viewer, other, { channelId: options.channelId, replyChannelOrigin: options.channelOrigin, uris: [anchor], limit: 1 }, deadline);
+					ref = replies.references.find(row => row.canonicalUri === anchor);
+				}
 			} else if (anchor) {
 				const own = await this.localSource(options).ownerReferences(viewer, [anchor]);
 				ref = own[0] ?? (mode === 'unified' ? (await this.delegated.timeline(viewer, { anchor, ...options, deadline })).references[0] : undefined);
@@ -385,8 +392,9 @@ export class GridspaceTimelineService {
 			if (ref && options.channelOrigin) {
 				if (ref.placement?.channelOrigin !== options.channelOrigin || ref.placement.channelId !== options.channelId ||
 					(options.pinnedOnly && ref.pinRank == null)) throw new GridspaceLinkError('INVALID_CURSOR');
-				const lane = options.channelOrigin === this.peer.origin ? checkpoint.merge.local : checkpoint.merge.peer;
-				lane.upper = { sortAt: ref.sortAt, canonicalUri: ref.canonicalUri, pinRank: ref.pinRank };
+				const upper = { sortAt: ref.sortAt, canonicalUri: ref.canonicalUri, pinRank: ref.pinRank };
+				checkpoint.merge.local.upper = upper;
+				checkpoint.merge.peer.upper = upper;
 			} else if (ref) {
 				const anchorAt = Number(BigInt(ref.sortAt) / 1000n);
 				if (!Number.isSafeInteger(anchorAt) || anchorAt < 0 || anchorAt >= 4102444800000) throw new GridspaceLinkError('INVALID_CURSOR');
@@ -403,8 +411,10 @@ export class GridspaceTimelineService {
 				working.selected = await mergeTimeline(working.merge, limit, async (source, state) => {
 					if (options.channelOrigin) {
 						const expected = options.channelOrigin === this.peer!.origin ? 'local' : 'peer';
-						if (source !== expected) return { references: [], next: null, upper: null, ended: true };
-						const page = await this.placements!.read(viewer, options.channelOrigin, { channelId: options.channelId!, pinnedOnly: options.pinnedOnly,
+						if (source !== expected && (options.pinnedOnly || mode !== 'unified')) return { references: [], next: null, upper: null, ended: true };
+						const origin = source === 'local' ? this.peer!.origin : this.peer!.peerOrigin;
+						const page = await this.placements!.read(viewer, origin, { channelId: options.channelId!, pinnedOnly: options.pinnedOnly,
+							...(source === expected ? {} : { replyChannelOrigin: options.channelOrigin }),
 							before: state.before ?? undefined, upper: state.upper ?? undefined, limit: 50 }, deadline);
 						if (source === 'peer') working.placementSequence ??= page.sequence;
 						return { ...page, ended: !page.next };
@@ -493,7 +503,8 @@ export class GridspaceTimelineService {
 		let peerInserts: TimelineReference[] = [];
 		if (update.placementSequence && input.phase === 'changes') {
 			const peer = await this.placements!.read(viewer, this.peer.peerOrigin, { channelId: checkpoint.options.channelId,
-				followed: !checkpoint.options.channelOrigin, pinnedOnly: checkpoint.options.pinnedOnly, uris: [], limit: 1, after: update.placementSequence }, deadline);
+				followed: !checkpoint.options.channelOrigin, pinnedOnly: checkpoint.options.pinnedOnly,
+				...(checkpoint.options.channelOrigin === this.peer.origin ? { replyChannelOrigin: this.peer.origin } : {}), uris: [], limit: 1, after: update.placementSequence }, deadline);
 			peerChanged = peer.changed === true;
 			checkpoint.placementSequence = peer.sequence;
 		}

@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { NotePlacementService, PlacementError, type PreparedPlacements, type MultiNoteRequest } from '@/core/NotePlacementService.js';
-import { includesDefault } from '@/misc/note-distribution.js';
+import { includesDefault, isConversationOnly } from '@/misc/note-distribution.js';
 import type { GridspaceQuoteService } from '@/core/gridspace/GridspaceQuoteService.js';
 import { MiNoteCreateDispatch } from '@/models/NotePlacement.js';
 import { MiGridspaceNoteDelivery, MiGridspaceNoteTombstone, MiGridspaceReplyReceipt } from '@/models/Gridspace.js';
@@ -1315,11 +1315,10 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 
 		const channels = await this.notePlacementService.activeLocalChannelIds(note);
 		const channelFollowers = new Set<string>();
-		if (channels.length > 0) {
-			for (const channelId of channels) {
-				push(`channelTimeline:${channelId}`, note.id, this.config.perChannelMaxNoteCacheCount, r);
-			}
-
+		for (const channelId of channels) {
+			push(`channelTimeline:${channelId}`, note.id, this.config.perChannelMaxNoteCacheCount, r);
+		}
+		if (channels.length > 0 && !isConversationOnly(note)) {
 			push(`userTimelineWithChannel:${user.id}`, note.id, note.userHost == null ? this.meta.perLocalUserUserTimelineCacheMax : this.meta.perRemoteUserUserTimelineCacheMax, r);
 
 			const channelFollowings = await this.channelFollowingsRepository.find({

@@ -6,7 +6,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { DataSource, In, type EntityManager } from 'typeorm';
+import { DataSource, In, type EntityManager, type SelectQueryBuilder } from 'typeorm';
 import type { Config } from '@/config.js';
 import { DI } from '@/di-symbols.js';
 import { canonicalGridspaceNoteUri } from '@/core/gridspace/note-protocol.js';
@@ -133,6 +133,20 @@ export class NotePlacementService {
 		return query.getOne();
 	}
 
+	private readableConversationRoots(viewer?: Pick<MiUser, 'id'> | null) {
+		const search = this.moduleRef.get<GridspaceSearchService>('GridspaceSearchService', { strict: false });
+		return search.noteQuery(viewer ?? null, { query: '' }, false, viewer != null, undefined, true, true)
+			.select('note.id', 'id').orderBy();
+	}
+
+	public filterConversationRoot(query: SelectQueryBuilder<MiNote>, viewer?: Pick<MiUser, 'id'> | null) {
+		const readable = this.readableConversationRoots(viewer).andWhere('note.id = conversation_target.id');
+		// Bind the outer note before entering the readability query, which has its own note alias.
+		query.andWhere(`(note."multiNoteKind" IS DISTINCT FROM 'conversation-reply' OR EXISTS (
+			SELECT 1 FROM note conversation_target WHERE conversation_target.id = note."multiNoteRootId"
+				AND EXISTS (${readable.getQuery()})))`, readable.getParameters());
+	}
+
 	public async authorizeReply(manager: EntityManager, userId: string, rootId: string, parentId: string) {
 		const root = await this.readable(userId, rootId, manager);
 		if (parentId !== rootId && !await this.readable(userId, parentId, manager)) throw new PlacementError('invalid-conversation-parent');
@@ -165,7 +179,29 @@ export class NotePlacementService {
 		if (prepared.remote.length > 0) await this.peer.stage(manager, note, prepared.remote);
 	}
 
+	/** Backfill replies from placed threads without scanning the global note timeline. */
+	public async recentChannelReplyIds(channelId: string, limit: number): Promise<string[]> {
+		const rows = await this.db.query<{ id: string }[]>(`
+			SELECT reply.id FROM note_channel_placement placement
+			JOIN note root ON root.id = placement."noteId" AND root."multiNoteKind" = 'root' AND NOT root."includeDefault"
+			CROSS JOIN LATERAL (
+				SELECT child.id FROM note child
+				WHERE child."threadId" = root.id AND child."multiNoteRootId" = root.id AND child.uri IS NULL
+					AND child."multiNoteKind" = 'conversation-reply' AND NOT child."includeDefault"
+				ORDER BY child.id DESC LIMIT $2
+			) reply
+			WHERE placement."channelId" = $1 AND placement.state = 'active'
+			ORDER BY reply.id DESC LIMIT $2`, [channelId, limit]);
+		return rows.map(row => row.id);
+	}
+
 	public async activeLocalChannelIds(note: Pick<MiNote, 'id' | 'channelId' | 'multiNoteKind'> & Partial<Pick<MiNote, 'uri' | 'gridspaceShared' | 'includeDefault'>>): Promise<string[]> {
+		if (note.multiNoteKind === 'conversation-reply') {
+			const [reply] = await this.conversationRoots([note.id]);
+			if (!reply) return [];
+			const rows = await this.db.manager.find(MiNoteChannelPlacement, { where: { noteId: reply.rootId, state: 'active' }, select: { channelId: true } });
+			return rows.map(row => row.channelId);
+		}
 		if (note.gridspaceShared && note.uri && note.includeDefault !== false && this.config.gridspace?.peerUrl) {
 			const canonicalUri = canonicalGridspaceNoteUri(note.uri, this.config.gridspace.peerUrl);
 			const rows = await this.db.manager.find(MiGridspacePlacement, { where: { canonicalUri, state: 'active', includeDefault: true }, select: { channelId: true } });
@@ -179,6 +215,40 @@ export class NotePlacementService {
 	}
 
 	public async pack(noteIds: string[], viewer?: Pick<MiUser, 'id'> | null): Promise<PlacementMap> {
+		if (!noteIds.length) return new Map();
+		const replies = await this.conversationRoots(noteIds);
+		const replyIds = new Set(replies.map(reply => reply.id));
+		const rootIds = [...new Set(replies.map(reply => reply.rootId))];
+		const readable = rootIds.length ? await this.readableConversationRoots(viewer)
+			.andWhere('note.id IN (:...rootIds)', { rootIds }).getRawMany<{ id: string }>() : [];
+		const readableIds = new Set(readable.map(root => root.id));
+		const result = await this.packDirect([...new Set([...noteIds.filter(id => !replyIds.has(id)), ...readableIds])], viewer);
+		for (const reply of replies) {
+			if (!readableIds.has(reply.rootId)) {
+				result.set(reply.id, []);
+				continue;
+			}
+			result.set(reply.id, (result.get(reply.rootId) ?? []).filter(chip => chip.state === 'active').map(chip => ({
+				...chip, canonicalUri: this.origin + '/notes/' + reply.id, placementId: undefined, canRemove: false, canRetry: false,
+			})));
+			if (result.unavailableNoteIds?.has(reply.rootId)) result.unavailableNoteIds.add(reply.id);
+		}
+		const requested = new Set(noteIds);
+		for (const id of result.keys()) if (!requested.has(id)) result.delete(id);
+		if (result.rootNoteIds) result.rootNoteIds = new Set([...result.rootNoteIds].filter(id => requested.has(id) && !replyIds.has(id)));
+		return result;
+	}
+
+	/** Children keep their own identity; channel membership is derived from a live dedicated root. */
+	private async conversationRoots(noteIds: string[]): Promise<{ id: string; rootId: string }[]> {
+		return this.db.getRepository(MiNote).createQueryBuilder('child')
+			.innerJoin(MiNote, 'root', "root.id = child.multiNoteRootId AND child.threadId = root.id AND root.multiNoteKind = 'root' AND root.includeDefault = false")
+			.select('child.id', 'id').addSelect('root.id', 'rootId')
+			.where("child.id IN (:...noteIds) AND child.multiNoteKind = 'conversation-reply' AND child.includeDefault = false AND child.uri IS NULL", { noteIds })
+			.getRawMany();
+	}
+
+	private async packDirect(noteIds: string[], viewer?: Pick<MiUser, 'id'> | null): Promise<PlacementMap> {
 		if (!noteIds.length) return new Map();
 		const result = await this.peer.pack(noteIds, viewer);
 		const query = this.db.getRepository(MiNoteChannelPlacement).createQueryBuilder('placement')

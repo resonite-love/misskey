@@ -37,7 +37,7 @@ export class NoteStreamingHidingService {
 	}
 
 	private collectPlacementNotes(note: Packed<'Note'>, result: Packed<'Note'>[] = []): Packed<'Note'>[] {
-		if (note.multiNoteKind === 'root' || (note.gridspaceShared && note.uri) || note.channelPlacements || note.channelPlacementsUnavailable) {
+		if (note.multiNoteKind != null || (note.gridspaceShared && note.uri) || note.channelPlacements || note.channelPlacementsUnavailable) {
 			result.push(note);
 		}
 		if (note.reply) this.collectPlacementNotes(note.reply, result);
@@ -104,7 +104,7 @@ export class NoteStreamingHidingService {
 			}
 			if (n.isHidden) continue;
 			const placements = routes?.get(n.id) ?? [];
-			if (placements.length > 0 || n.multiNoteKind === 'root') n.channelPlacements = placements;
+			if (placements.length > 0 || n.multiNoteKind != null) n.channelPlacements = placements;
 			if (routes?.unavailableNoteIds?.has(n.id)) n.channelPlacementsUnavailable = true;
 		}
 

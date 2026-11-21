@@ -7,11 +7,14 @@ import { channelPlacementCondition } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import type { ChannelsRepository, MiMeta, NotesRepository } from '@/models/_.js';
+import { NotePlacementService } from '@/core/NotePlacementService.js';
 import { QueryService } from '@/core/QueryService.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import ActiveUsersChart from '@/core/chart/charts/active-users.js';
 import { DI } from '@/di-symbols.js';
 import { IdService } from '@/core/IdService.js';
+import type { Config } from '@/config.js';
+import { FanoutTimelineService } from '@/core/FanoutTimelineService.js';
 import { FanoutTimelineEndpointService } from '@/core/FanoutTimelineEndpointService.js';
 import { MiLocalUser } from '@/models/User.js';
 import { ChannelMutingService } from '@/core/ChannelMutingService.js';
@@ -71,9 +74,12 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 		private idService: IdService,
 		private noteEntityService: NoteEntityService,
 		private queryService: QueryService,
+		private notePlacements: NotePlacementService,
 		private fanoutTimelineEndpointService: FanoutTimelineEndpointService,
 		private activeUsersChart: ActiveUsersChart,
 		private channelMutingService: ChannelMutingService,
+		@Inject(DI.config) private config: Config,
+		private fanoutTimelineService: FanoutTimelineService,
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			const untilId = ps.untilId ?? (ps.untilDate ? this.idService.gen(ps.untilDate!) : null);
@@ -93,6 +99,9 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 				return await this.noteEntityService.packMany(await this.getFromDb({ untilId, sinceId, limit: ps.limit, channelId: channel.id }, me), me);
 			}
 
+			const maxlen = this.config.perChannelMaxNoteCacheCount;
+			const replyIds = await this.notePlacements.recentChannelReplyIds(channel.id, maxlen);
+			await this.fanoutTimelineService.mergeChannelReplies(channel.id, replyIds, maxlen);
 			return await this.fanoutTimelineEndpointService.timeline({
 				untilId,
 				sinceId,
@@ -119,7 +128,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 	}, me: MiLocalUser | null) {
 		//#region fallback to database
 		const query = this.queryService.makePaginationQuery(this.notesRepository.createQueryBuilder('note'), ps.sinceId, ps.untilId)
-			.andWhere(channelPlacementCondition(':channelId'), { channelId: ps.channelId })
+			.andWhere(channelPlacementCondition(':channelId', 'note', true), { channelId: ps.channelId })
 			.innerJoinAndSelect('note.user', 'user')
 			.leftJoinAndSelect('note.reply', 'reply')
 			.leftJoinAndSelect('note.renote', 'renote')
@@ -128,6 +137,8 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			.leftJoinAndSelect('note.channel', 'channel');
 
 		this.queryService.generateBaseNoteFilteringQuery(query, me);
+		this.queryService.generateVisibilityQuery(query, me);
+		this.notePlacements.filterConversationRoot(query, me);
 		if (me == null) this.queryService.generateUgcVisibilityQueryForVisitor(query);
 
 		if (me) {

@@ -6,12 +6,14 @@
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import { DataSource, type QueryRunner } from 'typeorm';
 import { loadConfig } from '@/config.js';
-import { MiGridspaceTimelineState, MiGridspaceTimelineChange } from '@/models/GridspaceTimeline.js';
+import { entities } from '@/postgres.js';
+import { MiFollowing } from '@/models/Following.js';
+import { QueryService } from '@/core/QueryService.js';
 import { TimelineReferenceService } from '@/core/gridspace/timeline/TimelineReferenceService.js';
 import { includesDefault, noteListingCondition, type NoteListing } from './note-distribution.js';
 
 const { db: config } = loadConfig();
-const db = new DataSource({ type: 'postgres', host: config.host, port: config.port, username: config.user, password: config.pass, database: config.db, entities: [MiGridspaceTimelineState, MiGridspaceTimelineChange] });
+const db = new DataSource({ type: 'postgres', host: config.host, port: config.port, username: config.user, password: config.pass, database: config.db, entities });
 let runner: QueryRunner;
 
 beforeAll(async () => {
@@ -19,7 +21,8 @@ beforeAll(async () => {
 	runner = db.createQueryRunner();
 	await runner.connect();
 	await runner.query(`
-		CREATE TEMP TABLE note (id text PRIMARY KEY, uri text UNIQUE, "fileIds" text[] DEFAULT ARRAY[]::text[], "includeDefault" boolean, "multiNoteKind" text, "channelId" text, "userId" text, "userHost" text, visibility text, "gridspaceShared" boolean, "localOnly" boolean);
+		CREATE TEMP TABLE note (id text PRIMARY KEY, uri text UNIQUE, "fileIds" text[] DEFAULT ARRAY[]::text[], "includeDefault" boolean, "multiNoteKind" text, "multiNoteRootId" text, "threadId" text, "channelId" text, "userId" text, "userHost" text, visibility text, "gridspaceShared" boolean, "localOnly" boolean,
+			"visibleUserIds" text[] DEFAULT '{}', mentions text[] DEFAULT '{}', "replyUserId" text);
 		CREATE TEMP TABLE note_channel_placement ("noteId" text, "channelId" text, state text);
 		CREATE TEMP TABLE gridspace_channel_placement ("channelId" text, "canonicalUri" text COLLATE "C", state text, "includeDefault" boolean, id uuid DEFAULT gen_random_uuid());
 		CREATE TEMP TABLE channel_placement_pin ("channelId" text, "canonicalUri" text, rank integer);
@@ -75,6 +78,53 @@ test('packed notes without new fields retain the old single-channel fallback', (
 	expect(includesDefault({ channelId: null, includeDefault: true, multiNoteKind: 'conversation-reply' })).toBe(false);
 });
 
+test('dedicated replies inherit all live root channels only in explicit channel lists', async () => {
+	await runner.query(`INSERT INTO note (id, "includeDefault", "multiNoteKind", "multiNoteRootId", "threadId", "userId", visibility) VALUES
+		('threadRoot', false, 'root', null, null, 'other', 'public'),
+		('threadChild', false, 'conversation-reply', 'threadRoot', 'threadRoot', 'viewer', 'public'),
+		('threadNested', false, 'conversation-reply', 'threadRoot', 'threadRoot', 'viewer', 'public'),
+		('threadWrong', false, 'conversation-reply', 'threadRoot', 'different', 'viewer', 'public'),
+		('mixedRoot', true, 'root', null, null, 'viewer', 'public'),
+		('mixedChild', false, 'conversation-reply', 'mixedRoot', 'mixedRoot', 'viewer', 'public')`);
+	await runner.query(`INSERT INTO note_channel_placement VALUES ('threadRoot','a','active'), ('threadRoot','b','active'), ('mixedRoot','a','active')`);
+	const children = async (list: NoteListing) => (await notes(list)).filter(id => ['threadChild', 'threadNested', 'threadWrong', 'mixedChild'].includes(id));
+	expect(await children({ kind: 'channel', channelId: 'a' })).toEqual(['threadChild', 'threadNested']);
+	expect(await children({ kind: 'channel', channelId: 'b' })).toEqual(['threadChild', 'threadNested']);
+	for (const list of [{ kind: 'default' }, { kind: 'home', viewerId: 'viewer', linkedUserId: null }, { kind: 'profile', viewerId: 'viewer' }] as NoteListing[]) {
+		expect(await children(list)).toEqual([]);
+	}
+	await runner.query("UPDATE note_channel_placement SET state = 'removed' WHERE \"noteId\" = 'threadRoot' AND \"channelId\" = 'a'");
+	expect(await children({ kind: 'channel', channelId: 'a' })).toEqual([]);
+	expect(await children({ kind: 'channel', channelId: 'b' })).toEqual(['threadChild', 'threadNested']);
+	await runner.query("DELETE FROM note WHERE id = 'threadRoot'");
+	expect(await children({ kind: 'channel', channelId: 'b' })).toEqual([]);
+});
+
+test('inherited channel replies retain their own audience before pagination, including cached IDs', async () => {
+	await runner.query(`INSERT INTO note (id, "includeDefault", "multiNoteKind", "multiNoteRootId", "threadId", "userId", visibility, "visibleUserIds") VALUES
+		('audienceRoot', false, 'root', null, null, 'parentAuthor', 'public', '{}'),
+		('audiencePublic', false, 'conversation-reply', 'audienceRoot', 'audienceRoot', 'replyAuthor', 'public', '{}'),
+		('audienceFollowers', false, 'conversation-reply', 'audienceRoot', 'audienceRoot', 'replyAuthor', 'followers', '{}'),
+		('audienceSpecified', false, 'conversation-reply', 'audienceRoot', 'audienceRoot', 'replyAuthor', 'specified', '{recipient}')`);
+	await runner.query("INSERT INTO note_channel_placement VALUES ('audienceRoot','audience','active')");
+	await runner.query("INSERT INTO following VALUES ('replyAuthor','follower')");
+	const queries = Object.assign(Object.create(QueryService.prototype), { meta: { ugcVisibilityForVisitor: 'all' }, followingsRepository: runner.manager.getRepository(MiFollowing) }) as QueryService;
+	const listed = async (viewer: string | null, cached: boolean) => {
+		const query = runner.manager.createQueryBuilder().select('note.id', 'id').from('note', 'note')
+			.where(...noteListingCondition({ kind: 'channel', channelId: 'audience' }));
+		if (cached) query.andWhere('note.id IN (:...ids)', { ids: ['audiencePublic', 'audienceFollowers', 'audienceSpecified'] });
+		queries.generateVisibilityQuery(query, viewer ? { id: viewer } : null);
+		return (await query.orderBy('note.id').limit(50).getRawMany<{ id: string }>()).map(row => row.id).filter(id => id !== 'audienceRoot');
+	};
+	for (const cached of [false, true]) {
+		expect(await listed(null, cached)).toEqual(['audiencePublic']);
+		expect(await listed('unrelated', cached)).toEqual(['audiencePublic']);
+		expect(await listed('follower', cached)).toEqual(['audienceFollowers', 'audiencePublic']);
+		expect(await listed('recipient', cached)).toEqual(['audiencePublic', 'audienceSpecified']);
+		expect(await listed('replyAuthor', cached)).toEqual(['audienceFollowers', 'audiencePublic', 'audienceSpecified']);
+	}
+});
+
 test('sensitive channel placement keeps the existing profile discovery policy and the independent ordinary route', async () => {
 	await runner.query("INSERT INTO channel VALUES ('sensitive', true)");
 	await runner.query(`INSERT INTO note (id, "includeDefault", "multiNoteKind", "userId", visibility) VALUES
@@ -125,7 +175,7 @@ test('projects a placed ordinary mirror in either arrival order without rerunnin
 	const second = 'https://peer.example/notes/second';
 	await runner.query("INSERT INTO gridspace_timeline_change VALUES (1,'insert','first',$1,null,null)", [first]);
 	await service.projectPlacedMirrors();
-	expect(await runner.query('SELECT "nextSequence" FROM gridspace_timeline_state WHERE key = $1', ['channel-mirror-projection'])).toEqual([{ nextSequence: '1' }]);
+	expect(String((await runner.query('SELECT "nextSequence" FROM gridspace_timeline_state WHERE key = $1', ['channel-mirror-projection']))[0].nextSequence)).toBe('1');
 	await place(first, 'one');
 	await mirror('activity', second + '/activity');
 	await runner.query("INSERT INTO gridspace_timeline_change VALUES (2,'place-add',null,$1,'one',$2), (3,'insert','activity',$3,null,null)", [first, config.url, second]);

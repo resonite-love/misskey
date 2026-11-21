@@ -21,6 +21,8 @@ import { CacheService } from '@/core/CacheService.js';
 import { isReply } from '@/misc/is-reply.js';
 import { isInstanceMuted } from '@/misc/is-instance-muted.js';
 import { ChannelMutingService } from '@/core/ChannelMutingService.js';
+import { NotePlacementService } from '@/core/NotePlacementService.js';
+import { QueryService } from '@/core/QueryService.js';
 import { isChannelRelated } from '@/misc/is-channel-related.js';
 
 const isReferenceRenote = (note: MiNote) => !!note.gridspaceQuote && note.text == null && note.cw == null && !note.replyId && !note.fileIds.length && !note.hasPoll;
@@ -66,6 +68,8 @@ export class FanoutTimelineEndpointService {
 		private fanoutTimelineService: FanoutTimelineService,
 		private utilityService: UtilityService,
 		private channelMutingService: ChannelMutingService,
+		private queryService: QueryService,
+		private notePlacements: NotePlacementService,
 	) {
 	}
 
@@ -201,7 +205,7 @@ export class FanoutTimelineEndpointService {
 
 				readFromRedis += noteIds.length;
 
-				const gotFromDb = await this.getAndFilterFromDb(noteIds, filter, idCompare, ps.listing);
+				const gotFromDb = await this.getAndFilterFromDb(noteIds, filter, idCompare, ps.listing, ps.me);
 				redisTimeline.push(...gotFromDb);
 				lastSuccessfulRate = gotFromDb.length / noteIds.length;
 
@@ -229,7 +233,7 @@ export class FanoutTimelineEndpointService {
 		return await ps.dbFallback(ps.untilId, ps.sinceId, ps.limit);
 	}
 
-	private async getAndFilterFromDb(noteIds: string[], noteFilter: NoteFilter, idCompare: (a: string, b: string) => number, listing: NoteListing): Promise<MiNote[]> {
+	private async getAndFilterFromDb(noteIds: string[], noteFilter: NoteFilter, idCompare: (a: string, b: string) => number, listing: NoteListing, viewer?: Pick<MiUser, 'id'> | null): Promise<MiNote[]> {
 		const query = this.notesRepository.createQueryBuilder('note')
 			.where('note.id IN (:...noteIds)', { noteIds: noteIds })
 			.andWhere(...noteListingCondition(listing))
@@ -239,6 +243,10 @@ export class FanoutTimelineEndpointService {
 			.leftJoinAndSelect('reply.user', 'replyUser')
 			.leftJoinAndSelect('renote.user', 'renoteUser')
 			.leftJoinAndSelect('note.channel', 'channel');
+		if (listing.kind === 'channel') {
+			this.queryService.generateVisibilityQuery(query, viewer);
+			this.notePlacements.filterConversationRoot(query, viewer);
+		}
 
 		const notes = (await query.getMany()).filter(noteFilter);
 

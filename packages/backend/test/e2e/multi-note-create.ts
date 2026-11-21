@@ -270,12 +270,32 @@ describe('Multi-note creation', () => {
 		await reject(blocked);
 	});
 
-	test('checks descendant writes against the root and keeps the reply out of listings', async () => {
+	test('checks descendant writes and inherits active channels without ordinary distribution', async () => {
 		const root = (await api('notes/create', { text: 'root', channelIds: [first], includeDefault: false, clientRequestId: randomUUID() }, author)).body.createdNote;
 		const reply = await api('notes/create', { replyId: root.id, text: 'child' }, other);
 		expect(reply.status).toBe(200);
 		expect(reply.body.createdNote).toMatchObject({ replyId: root.id, multiNoteKind: 'conversation-reply', includeDefault: false, localOnly: true });
-		expect((await api('channels/timeline', { channelId: first }, author)).body.some(n => n.id === reply.body.createdNote.id)).toBe(false);
+		expect(reply.body.createdNote.channelPlacements).toMatchObject([{ channelId: first, canRemove: false }]);
+		const db = await initTestDb(true);
+		const redis = new Redis(loadConfig().redisForTimelines);
+		const key = 'list:channelTimeline:' + first;
+		const childId = reply.body.createdNote.id;
+		try {
+			await expect.poll(() => db.getRepository(MiNoteCreateDispatch).existsBy({ noteId: childId }), { timeout: 15000 }).toBe(false);
+			await expect.poll(() => redis.lpos(key, childId), { timeout: 15000 }).not.toBeNull();
+			for (const allowPartial of [true, false]) {
+				expect(await redis.lrem(key, 0, childId)).toBe(1);
+				expect(await redis.lpos(key, root.id)).not.toBeNull();
+				const channel = await api('channels/timeline', { channelId: first, limit: 1, allowPartial }, author);
+				expect(channel.body.map(n => n.id)).toEqual([childId]);
+				expect(await redis.lpos(key, childId)).toBe(0);
+			}
+		} finally {
+			await redis.quit();
+			await db.destroy();
+		}
+		expect((await api('notes/timeline', {}, author)).body.some(n => n.id === reply.body.createdNote.id)).toBe(false);
+		expect((await api('notes/local-timeline', {}, author)).body.some(n => n.id === reply.body.createdNote.id)).toBe(false);
 		const unrelated = await signup({ username: 'descendant' });
 		await api('blocking/create', { userId: unrelated.id }, author);
 		expect((await api('notes/create', { replyId: reply.body.createdNote.id, text: 'child of child' }, unrelated)).status).toBe(400);

@@ -9,7 +9,7 @@ import { channelActionSchema, channelOptionsSchema, type ChannelPeerRequest, typ
 import { contentOptionsSchema, type ContentOptions } from '@/core/gridspace/content-protocol.js';
 import { driveOptionsSchema, type DrivePeerRequest } from '@/core/gridspace/drive-protocol.js';
 import { GRIDSPACE_NOTE_BATCH_LIMIT } from '@/core/gridspace/note-protocol.js';
-import { linkedChannelFollowsCapability, originPlacementCapability } from '@/core/gridspace/placement-protocol.js';
+import { channelRepliesCapability, linkedChannelFollowsCapability, originPlacementCapability } from '@/core/gridspace/placement-protocol.js';
 import { GRIDSPACE_NONCE_TTL_MS, GRIDSPACE_PROTOCOL_VERSION, verifyGridspaceRequest } from '@/core/gridspace/peer-protocol.js';
 import type { GridspacePeerConfig } from '@/core/gridspace/peer-protocol.js';
 import { GRIDSPACE_CALLBACK_PATH, GRIDSPACE_CLIENT_PATH, GRIDSPACE_PRIVATE_CLIENT_PATH } from '@/core/gridspace/link-crypto.js';
@@ -78,7 +78,7 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			origin: config.origin,
 			peerOrigin: config.peerOrigin,
 			// Only advertise features once their authorization and persistence are implemented.
-			features: [...(placements ? ['channel-placement-v1'] : []), ...(placements?.routes.some(r => r.name === 'timeline') ? [linkedChannelFollowsCapability] : []), ...(placements?.routes.some(r => r.name === 'origin-lookup') ? [originPlacementCapability] : []), ...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : []), ...(readNotes ? ['community-note-batch'] : []), ...(history ? ['member-history'] : []), ...(search ? ['community-search'] : []), ...(privateAction ? ['private-note-read'] : []), ...(notifications ? ['linked-notifications'] : []), ...(reactions ? ['community-reactions'] : []), ...(reactionUpdates ? ['community-reaction-updates'] : [])],
+			features: [...(placements ? ['channel-placement-v1'] : []), ...(placements?.routes.some(r => r.name === 'timeline') ? [linkedChannelFollowsCapability, channelRepliesCapability] : []), ...(placements?.routes.some(r => r.name === 'origin-lookup') ? [originPlacementCapability] : []), ...(action ? ['account-link-follow-copy'] : []), ...(notes ? ['community-notes'] : []), ...(readNotes ? ['community-note-batch'] : []), ...(history ? ['member-history'] : []), ...(search ? ['community-search'] : []), ...(privateAction ? ['private-note-read'] : []), ...(notifications ? ['linked-notifications'] : []), ...(reactions ? ['community-reactions'] : []), ...(reactionUpdates ? ['community-reaction-updates'] : [])],
 			...(placements ? { placementEnabled: placements.enabled } : {}),
 		};
 	});

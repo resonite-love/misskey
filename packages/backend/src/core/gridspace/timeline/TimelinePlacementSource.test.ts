@@ -11,6 +11,8 @@ import type { MiLocalUser, MiRemoteUser } from '@/models/User.js';
 import * as peerClient from '../peer-client.js';
 import { GridspaceLinkError, type GridspaceLinkService } from '../GridspaceLinkService.js';
 import type { GridspaceChannelAuthService } from '../GridspaceChannelAuthService.js';
+import type { GridspaceSearchService } from '../GridspaceSearchService.js';
+import type { NotePlacementService } from '@/core/NotePlacementService.js';
 import type { RoleService } from '@/core/RoleService.js';
 import type { GridspacePrivateService } from '../GridspacePrivateService.js';
 import type { GridspacePlacementService } from '../GridspacePlacementService.js';
@@ -44,7 +46,9 @@ function fixture(db: DataSource) {
 	const placements = mockDeep<GridspacePlacementService>();
 	const channelAuth = mockDeep<GridspaceChannelAuthService>();
 	const links = mockDeep<GridspaceLinkService>();
-	return { local, shared, delegated, placements, changes, links, channelAuth, source: new TimelinePlacementSource(config, db, local, shared, delegated, changes, placements, roles, channelAuth, links) };
+	const notePlacements = mockDeep<NotePlacementService>();
+	const search = mockDeep<GridspaceSearchService>();
+	return { local, shared, delegated, placements, changes, links, channelAuth, search, notePlacements, source: new TimelinePlacementSource(config, db, local, shared, delegated, changes, placements, roles, channelAuth, links, notePlacements, search) };
 }
 
 describe('listing authority and body authority', () => {
@@ -154,8 +158,9 @@ describe('channel placement index and legacy projections', () => {
 			'renote_muting ("muterId" text, "muteeId" text)',
 			'channel (id text PRIMARY KEY, name text, color text, "isSensitive" boolean, "userId" text, "lastNotedAt" timestamptz, "notesCount" integer, "usersCount" integer, "pinnedNoteIds" varchar[], "isArchived" boolean DEFAULT false, "allowRenoteToExternal" boolean DEFAULT true)',
 			'"user" (id text PRIMARY KEY, uri text)',
-			'note (id text PRIMARY KEY, uri text, "channelId" text, "userId" text, "includeDefault" boolean, "multiNoteKind" text, "gridspaceShared" boolean, "userHost" text, visibility text, "fileIds" text[] DEFAULT ARRAY[]::text[])',
+			'note (id text PRIMARY KEY, uri text, "channelId" text, "userId" text, "includeDefault" boolean, "multiNoteKind" text, "gridspaceShared" boolean, "userHost" text, visibility text, "fileIds" text[] DEFAULT ARRAY[]::text[], "threadId" text, "multiNoteRootId" text)',
 			'note_channel_placement ("canonicalUri" text, "sortAt" timestamptz, "noteId" text, "channelId" text, state text)',
+			'gridspace_placement_target ("noteId" text, "channelId" text, "peerOrigin" text, state text)',
 			'gridspace_channel_placement ("canonicalUri" text, "sortAt" timestamptz, "originNoteId" text, "channelId" text, state text, "noteOrigin" text, "includeDefault" boolean, "authorUri" text, id uuid DEFAULT gen_random_uuid())',
 			'gridspace_timeline_state (key text PRIMARY KEY, generation int DEFAULT 1, "nextSequence" bigint DEFAULT 0, "trimmedThrough" bigint DEFAULT 0)',
 			'gridspace_timeline_change (sequence bigint PRIMARY KEY, kind text, "noteId" text, "channelId" text, "canonicalUri" text, "channelOrigin" text)',
@@ -206,6 +211,54 @@ describe('channel placement index and legacy projections', () => {
 		const second = await source.read(viewer, origin, { channelId: 'a', limit: 1, before: first.next! }, Date.now() + 1000);
 		expect(second.references.map(ref => ref.noteId)).toEqual(['00000001']);
 		expect(second.next).toBeNull();
+	});
+	test('lists historical dedicated descendants by child time in both explicit channel lanes and rechecks each active route', async () => {
+		const rootId = '00010000';
+		const children = ['00010001', '00010002'];
+		const channelId = 'replyChannel';
+		await runner.query("INSERT INTO channel VALUES ($1, 'Replies', '#fff', false, 'owner', NULL, 0, 0, '{}')", [channelId]);
+		await runner.query('INSERT INTO note (id, "userId", "includeDefault", "multiNoteKind") VALUES ($1, $2, false, $3)', [rootId, 'owner', 'root']);
+		for (const id of children) await runner.query('INSERT INTO note (id, "userId", "includeDefault", "multiNoteKind", "threadId", "multiNoteRootId") VALUES ($1, $2, false, $3, $4, $4)', [id, 'viewer', 'conversation-reply', rootId]);
+		await runner.query("INSERT INTO note_channel_placement VALUES ($1, '1999-01-01', $2, $3, 'active')", [origin + '/notes/' + rootId, rootId, channelId]);
+		await runner.query("INSERT INTO gridspace_placement_target VALUES ($1,$2,$3,'active')", [rootId, channelId, other]);
+		const f = fixture({ query: runner.query.bind(runner) } as unknown as DataSource);
+		f.placements.supportsChannelReplies.mockResolvedValue(true);
+		const visible = new Set([rootId, ...children]);
+		const builder = { select() { return this; }, andWhere() { return this; }, getRawMany: async () => [...visible].map(id => ({ id })) };
+		f.search.noteQuery.mockReturnValue(builder as never);
+		let active = true;
+		f.notePlacements.pack.mockImplementation(async () => new Map([[rootId, active ? [origin, other].map(site => ({
+			origin: site, channelId, canonicalUri: site + '/notes/' + rootId, name: 'Replies', color: '#fff', state: 'active' as const, canRemove: true,
+		})) : []]]));
+		for (const listing of [origin, other]) {
+			const params = { channelId, ...(listing === other ? { replyChannelOrigin: other } : {}) };
+			const read = (options = {}) => f.source.read(viewer, origin, { ...params, ...options }, Date.now() + 5000);
+			const page = await read({ limit: 1 });
+			expect(page.references.map(ref => ref.noteId)).toEqual([children[1]]);
+			expect(page.references[0].placement!.chips).toMatchObject([{ canonicalUri: origin + '/notes/' + children[1], origin: listing, canRemove: false }]);
+			expect((await read({ before: page.next, limit: 1 })).references.map(ref => ref.noteId)).toEqual([children[0]]);
+			expect(await f.source.changedReplies(listing, channelId, [children[1]], viewer.id)).toBe(true);
+			visible.delete(children[1]);
+			expect((await read({ uris: [origin + '/notes/' + children[1]] })).references).toEqual([]);
+			visible.add(children[1]);
+			visible.delete(rootId);
+			expect((await read({ uris: [origin + '/notes/' + children[1]] })).references).toEqual([]);
+			visible.add(rootId);
+			f.changes.changes.mockResolvedValueOnce({ cursor: '2', resetRequired: false, hasMore: false,
+				events: [{ kind: 'insert', noteId: children[1] }] } as never);
+			expect((await read({ uris: [], after: '1' })).changed).toBe(true);
+			active = false;
+			expect((await read({ uris: [origin + '/notes/' + children[1]] })).references).toEqual([]);
+			active = true;
+		}
+		await runner.query('INSERT INTO channel_following VALUES ($1, $2)', [viewer.id, channelId]);
+		const retained = children.map(id => origin + '/notes/' + id);
+		expect((await f.source.read(viewer, origin, { followed: true, uris: retained }, Date.now() + 5000)).references).toEqual([]);
+		await runner.query('UPDATE note_channel_placement SET state = $1 WHERE "channelId" = $2', ['removed', channelId]);
+		await runner.query('UPDATE gridspace_placement_target SET state = $1 WHERE "channelId" = $2', ['removed', channelId]);
+		expect((await f.source.read(viewer, origin, { channelId, uris: retained }, Date.now() + 5000)).references).toEqual([]);
+		expect((await f.source.read(viewer, origin, { channelId, replyChannelOrigin: other, uris: retained }, Date.now() + 5000)).references).toEqual([]);
+		expect((await f.source.read(viewer, origin, { channelId, pinnedOnly: true }, Date.now() + 5000)).references).toEqual([]);
 	});
 	test('one URI retains all followed routes and a mute removes only its own route', async () => {
 		const read = async () => (await source.read(viewer, origin, { followed: true }, Date.now() + 1000)).references;

@@ -8,7 +8,7 @@ import Fastify from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createGridspaceHeaders, GRIDSPACE_HANDSHAKE_PATH, GRIDSPACE_NONCE_TTL_MS, resolveGridspaceConfig } from '@/core/gridspace/peer-protocol.js';
-import { originPlacementCapability, placementSchemas } from '@/core/gridspace/placement-protocol.js';
+import { channelRepliesCapability, originPlacementCapability, placementSchemas } from '@/core/gridspace/placement-protocol.js';
 import { registerGridspacePeer } from './peer-server.js';
 import type { FastifyInstance } from 'fastify';
 import type { ClaimGridspaceNonce } from './peer-server.js';
@@ -52,11 +52,15 @@ describe('GridSpace channel actions', () => {
 		await app.register(fastifyRawBody, { global: false, encoding: null, runFirst: true });
 		await app.register(async child => {
 			const handlers = new Array(27).fill(undefined) as Parameters<typeof registerGridspacePeer> extends [unknown, unknown, unknown, ...infer Rest] ? Rest : never;
-			handlers[26] = { enabled: false, routes: [{ name: 'origin-lookup', schema: placementSchemas['origin-lookup'], handle: read }] };
+			handlers[26] = { enabled: false, routes: [
+				{ name: 'origin-lookup', schema: placementSchemas['origin-lookup'], handle: read },
+				{ name: 'timeline', schema: { type: 'object' }, handle: async () => ({ references: [] }) },
+			] };
 			registerGridspacePeer(child, r, async () => true, ...handlers);
 		}, { prefix: '/gridspace/v1' });
 		const handshake = (await app.inject(request())).json();
 		expect(handshake.features).toContain(originPlacementCapability);
+		expect(handshake.features).toContain(channelRepliesCapability);
 		expect(handshake.placementEnabled).toBe(false);
 		const url = '/gridspace/v1/placements/origin-lookup';
 		const send = (ids: string[], signed = true) => {
