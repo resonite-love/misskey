@@ -10,7 +10,7 @@ import { MiExtendedNoteReaction } from '@/models/ExtendedNoteReaction.js';
 import { MiNoteReaction } from '@/models/NoteReaction.js';
 import { MiNote } from '@/models/Note.js';
 import type { MiUser } from '@/models/User.js';
-import { ReactionService } from '@/core/ReactionService.js';
+import { ReactionService, type PeerReactionSource } from '@/core/ReactionService.js';
 import { GridspaceReactionDeliveryService } from '@/core/gridspace/GridspaceReactionDeliveryService.js';
 import { IdService } from '@/core/IdService.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
@@ -46,10 +46,10 @@ export class ExtendedReactionService {
 	}
 
 	/** The caller must hold the ordinary reaction lock; peer access is checked by GridspaceReactionService. */
-	public async createUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false, allowChannelActor: boolean | 'conversation' = false) {
+	public async createUnlocked(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, input: string, allowPeerNote = false, allowChannelActor: boolean | 'conversation' = false, source?: PeerReactionSource) {
 		const allowGuest = allowChannelActor === 'conversation' ? dedicatedOriginal(note) : allowChannelActor && note.channelId;
 		if ((user.host !== null && !allowGuest) || (note.userHost !== null && !allowPeerNote && !allowGuest)) throw new IdentifiableError('extended-local-only');
-		const reaction = await this.reactionService.resolveReaction(user, note, input);
+		const { reaction, create } = await this.reactionService.prepareReaction(user, note, input, source);
 		const primary = await this.db.getRepository(MiNoteReaction).findOneBy({ userId: user.id, noteId: note.id });
 		const repository = this.db.getRepository(MiExtendedNoteReaction);
 		const extras = await repository.findBy({ userId: user.id, noteId: note.id });
@@ -59,7 +59,7 @@ export class ExtendedReactionService {
 		if (extras.length + (primary ? 1 : 0) >= 16) throw new IdentifiableError('extended-reaction-limit');
 		if (!primary && extras.length === 0) {
 			// Only the first reaction uses the legacy path and federates.
-			await this.reactionService.createUnlocked(user, note, reaction);
+			await create();
 		} else {
 			const record = { id: this.idService.gen(), userId: user.id, noteId: note.id, reaction };
 			await this.reactionDelivery.mutate(note, manager => manager.insert(MiExtendedNoteReaction, record), user.host === null ? record : undefined);

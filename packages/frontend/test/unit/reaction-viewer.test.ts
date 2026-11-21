@@ -54,13 +54,17 @@ test('selected grouped reactions remove the original keys after one confirmation
 	expect(mocks.confirm).toHaveBeenCalledTimes(1);
 });
 
-test('delegated actions add the viewing server emoji, while lists keep both source keys', async () => {
+test('delegated additions qualify the source emoji, while lists and removals keep both original keys', async () => {
 	const transport = { canToggle: () => true, toggle: vi.fn(), previews: () => [], users: vi.fn(async () => []), showUsers: vi.fn() };
 	const view = render(Viewer, { props: { ...base, reactions: { ':cat@.:': 1, ':cat@g.test:': 1 }, reactionHost: 'r.test', transport }, global });
 	expect(view.getAllByRole('button')).toHaveLength(1);
 	await fireEvent.click(view.getByRole('button'));
-	expect(transport.toggle).toHaveBeenCalledWith(':cat@g.test:');
+	expect(transport.toggle).toHaveBeenCalledWith(':cat@r.test:');
 	await fireEvent.contextMenu(view.getByRole('button'));
 	mocks.menu.mock.calls[0][0].find((item: { text: string }) => item.text === 'More').action();
 	expect(transport.showUsers).toHaveBeenCalledWith([':cat@.:', ':cat@g.test:']);
+	await view.rerender({ myReactions: [':cat@.:', ':cat@g.test:'] });
+	transport.toggle.mockClear();
+	await fireEvent.click(view.getByRole('button'));
+	await vi.waitFor(() => expect(transport.toggle.mock.calls).toEqual([[':cat@.:'], [':cat@g.test:']]));
 });

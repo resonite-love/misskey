@@ -24,12 +24,12 @@ afterEach(cleanup);
 const note = { id: 'source-note', uri: 'https://source.example/notes/source-note', origin: 'https://source.example', channelId: 'source-channel', extendedReactions: true, reactions: {}, myReactions: [] } as unknown as entities.GridspacePrivateNotesResponse['notes'][number];
 const result = { note, canInteract: true, account: { uri: 'https://source.example/users/self' } };
 
-async function openPicker() {
+async function openPicker(target = note) {
 	const view = render(defineComponent({
 		setup() {
 			const actions = ref<InstanceType<typeof NoteActions>>();
 			return () => h('div', [
-				h(NoteActions, { ref: actions, note, compact: true }),
+				h(NoteActions, { ref: actions, note: target, compact: true }),
 				h('button', { onClick: (event: MouseEvent) => actions.value?.react(event) }, 'React'),
 			]);
 		},
@@ -54,6 +54,15 @@ test('sends rapid linked reactions in order and checks permissions for each', as
 	expect(api.mock.calls.filter(([, request]) => request.action === 'add-reaction').map(([, request]) => [request.reaction, request.expectedActorUri])).toEqual([
 		['👍', result.account.uri], ['🎉', result.account.uri],
 	]);
+});
+
+test('a picker choice keeps the actor-home key when the note already has a same-name source emoji', async () => {
+	const target = { ...note, reactions: { ':cat@.:': 1 } };
+	api.mockResolvedValue({ ...result, note: target });
+	const { choose } = await openPicker(target);
+	choose(':cat:');
+	await vi.waitFor(() => expect(api).toHaveBeenCalledWith('gridspace/private-action',
+		expect.objectContaining({ action: 'add-reaction', reaction: ':cat:' }), undefined, expect.any(AbortSignal)));
 });
 
 test('does not send queued reactions after leaving the note', async () => {

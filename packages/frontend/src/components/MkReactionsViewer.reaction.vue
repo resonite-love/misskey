@@ -34,6 +34,7 @@ import { getEmojiNameFromReaction, isLocalCustomEmojiReaction } from '@@/js/emoj
 import MkCustomEmojiDetailedDialog from './MkCustomEmojiDetailedDialog.vue';
 import type { MenuItem } from '@/types/menu';
 import type { ReactionActor, ReactionTransport } from '@/utility/reaction-transport.js';
+import { sourceReactionForTransport } from '@/utility/reaction-groups.js';
 import type { ReactionSource } from '@/utility/reaction-groups.js';
 import XDetails from '@/components/MkReactionsViewer.details.vue';
 import MkReactionIcon from '@/components/MkReactionIcon.vue';
@@ -60,6 +61,7 @@ const props = defineProps<{
 	noteId: Misskey.entities.Note['id'];
 	reaction: string;
 	actionReaction?: string;
+	reactionHost?: string;
 	reactionSources?: ReactionSource[];
 	reactionEmojis: Misskey.entities.Note['reactionEmojis'];
 	myReaction: Misskey.entities.Note['myReaction'];
@@ -102,7 +104,10 @@ const actorAvatar = (actor: ReactionActor) => prefer.s.disableShowingAnimatedIma
 async function toggleReaction() {
 	if (!canToggle.value) return;
 	if (props.transport) {
-		for (const reaction of ownReactions.value.length ? [...ownReactions.value] : [props.actionReaction ?? props.reaction]) await props.transport.toggle(reaction);
+		const actions = ownReactions.value.length ? [...ownReactions.value] : [
+			sourceReactionForTransport(props.reactionSources ?? [], props.reactionHost, props.actionReaction ?? props.reaction),
+		];
+		for (const reaction of actions) await props.transport.toggle(reaction);
 		return;
 	}
 	if ($i == null) return;

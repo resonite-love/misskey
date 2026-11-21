@@ -97,7 +97,7 @@ export class GridspaceActionService {
 					const fresh = await recheck(manager);
 					const authorized = placement || fresh.channelId ? fresh : await this.pairedReactions.prepareMutation(user as MiLocalUser, fresh);
 					try {
-						if (input.action === 'add-reaction') await this.extended.createUnlocked(user, authorized, input.reaction!, authorized.userHost !== null, placement ? 'conversation' : !!input.channelActorId);
+						if (input.action === 'add-reaction') await this.extended.createUnlocked(user, authorized, input.reaction!, authorized.userHost !== null, placement ? 'conversation' : !!input.channelActorId, { host: new URL(this.config.url).host, manager });
 						else await this.extended.deleteUnlocked(user, authorized, input.reaction!, authorized.userHost !== null, placement ? 'conversation' : !!input.channelActorId);
 					} catch (error) {
 						// Retrying a desired membership state never toggles it back.
@@ -110,11 +110,11 @@ export class GridspaceActionService {
 				if (input.reaction === undefined) throw new GridspaceLinkError('ACTION_REJECTED');
 				await this.reactions.withReactionLock(user.id, note.id, () => this.db.transaction(async manager => {
 					const fresh = await recheck(manager);
-					const wanted = input.reaction === null ? null : await this.reactions.resolveReaction(user, fresh, input.reaction);
+					const wanted = input.reaction === null ? null : await this.reactions.prepareReaction(user, fresh, input.reaction, { host: new URL(this.config.url).host, manager });
 					const previous = await manager.getRepository(MiNoteReaction).findOneBy({ userId: user.id, noteId: note.id });
-					if ((previous?.reaction ?? null) === wanted) return;
+					if ((previous?.reaction ?? null) === (wanted?.reaction ?? null)) return;
 					if (previous) await this.reactions.deleteUnlocked(user, fresh);
-					if (wanted !== null) await this.reactions.createUnlocked(user, fresh, wanted);
+					if (wanted !== null) await wanted.create();
 				}));
 			}
 			if (input.action === 'vote') {

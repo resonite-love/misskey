@@ -6,6 +6,7 @@
 import { includesDefault } from '@/misc/note-distribution.js';
 import * as Redis from 'ioredis';
 import { Inject, Injectable } from '@nestjs/common';
+import { In, type EntityManager } from 'typeorm';
 import { acquireDistributedLock } from '@/misc/distributed-lock.js';
 import { DI } from '@/di-symbols.js';
 import type { EmojisRepository, NoteReactionsRepository, UsersRepository, NotesRepository, MiMeta } from '@/models/_.js';
@@ -14,6 +15,7 @@ import type { MiRemoteUser, MiUser } from '@/models/User.js';
 import type { MiNote } from '@/models/Note.js';
 import { IdService } from '@/core/IdService.js';
 import { MiNoteReaction } from '@/models/NoteReaction.js';
+import { MiExtendedNoteReaction } from '@/models/ExtendedNoteReaction.js';
 import { GridspaceReactionDeliveryService } from '@/core/gridspace/GridspaceReactionDeliveryService.js';
 import { isDuplicateKeyValueError } from '@/misc/is-duplicate-key-value-error.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
@@ -73,6 +75,9 @@ type DecodedReaction = {
 
 const isCustomEmojiRegexp = /^:([\w+-]+)(?:@\.)?:$/;
 const decodeCustomEmojiRegexp = /^:([\w+-]+)(?:@([\w.-]+))?:$/;
+
+/** Supplied by the authenticated peer action after rechecking access to this note. */
+export type PeerReactionSource = { host: string; manager: EntityManager };
 
 @Injectable()
 export class ReactionService {
@@ -135,9 +140,18 @@ export class ReactionService {
 		return this.withReactionLock(user.id, note.id, () => this.deleteUnlocked(user, note));
 	}
 
-	/** Shared visibility, blocking, emoji permission and acceptance checks. */
+	private async existingSourceEmoji(noteId: string, input: string, source: PeerReactionSource): Promise<string | undefined> {
+		const qualified = /^:([\w+-]+)@([^@]+):$/.exec(input);
+		if (!qualified || qualified[2] !== source.host) return;
+		const name = qualified[1];
+		const where = { noteId, reaction: In([`:${name}:`, `:${name}@.:`]) };
+		const exists = await source.manager.existsBy(MiNoteReaction, where) || await source.manager.existsBy(MiExtendedNoteReaction, where);
+		return exists ? name : undefined;
+	}
+
+	/** Resolve with the acting user's policies. The prepared write retains this user, note and reaction. */
 	@bindThis
-	public async resolveReaction(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, _reaction?: string | null): Promise<string> {
+	public async prepareReaction(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, _reaction?: string | null, source?: PeerReactionSource) {
 		// Check blocking
 		if (note.userId !== user.id) {
 			const blocked = await this.userBlockingService.checkBlocked(note.userId, user.id);
@@ -161,23 +175,23 @@ export class ReactionService {
 		if (note.reactionAcceptance === 'likeOnly' || ((note.reactionAcceptance === 'likeOnlyForRemote' || note.reactionAcceptance === 'nonSensitiveOnlyForLocalLikeOnlyForRemote') && (user.host != null))) {
 			reaction = '\u2764';
 		} else if (_reaction != null) {
-			const custom = reaction.match(isCustomEmojiRegexp);
-			if (custom) {
+			const sourceName = source && await this.existingSourceEmoji(note.id, reaction, source);
+			const name = sourceName ?? reaction.match(isCustomEmojiRegexp)?.[1];
+			if (name) {
 				const reacterHost = this.utilityService.toPunyNullable(user.host);
-
-				const name = custom[1];
-				const emoji = reacterHost == null
+				const emojiHost = sourceName ? null : reacterHost;
+				const emoji = emojiHost == null
 					? (await this.customEmojiService.localEmojisCache.fetch()).get(name)
 					: await this.emojisRepository.findOneBy({
-						host: reacterHost,
+						host: emojiHost,
 						name,
 					});
 
 				if (emoji) {
-					const canUseLocalOnlyEmoji = note.userHost === reacterHost && (note.renoteUserHost == null || note.renoteUserHost === reacterHost);
+					const canUseLocalOnlyEmoji = emojiHost === reacterHost && note.userHost === reacterHost && (note.renoteUserHost == null || note.renoteUserHost === reacterHost);
 
 					if ((!emoji.localOnly || canUseLocalOnlyEmoji) && (emoji.roleIdsThatCanBeUsedThisEmojiAsReaction.length === 0 || (await this.roleService.getUserRoles(user.id)).some(r => emoji.roleIdsThatCanBeUsedThisEmojiAsReaction.includes(r.id)))) {
-						reaction = reacterHost ? `:${name}@${reacterHost}:` : `:${name}:`;
+						reaction = emojiHost ? `:${name}@${emojiHost}:` : `:${name}:`;
 
 						// センシティブ
 						if ((note.reactionAcceptance === 'nonSensitiveOnly' || note.reactionAcceptance === 'nonSensitiveOnlyForLocalLikeOnlyForRemote') && emoji.isSensitive) {
@@ -200,13 +214,16 @@ export class ReactionService {
 			}
 		}
 
-		return reaction;
+		return { reaction, create: () => this.persistReaction(user, note, reaction) };
 	}
 
 	@bindThis
 	public async createUnlocked(user: { id: MiUser['id']; host: MiUser['host']; isBot: MiUser['isBot'] }, note: MiNote, _reaction?: string | null) {
-		const reaction = await this.resolveReaction(user, note, _reaction);
+		const prepared = await this.prepareReaction(user, note, _reaction);
+		await prepared.create();
+	}
 
+	private async persistReaction(user: Pick<MiUser, 'id' | 'host' | 'isBot'>, note: MiNote, reaction: string) {
 		const record: MiNoteReaction = {
 			id: this.idService.gen(),
 			noteId: note.id,

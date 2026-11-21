@@ -18,6 +18,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		:key="reaction"
 		:reaction="reaction"
 		:actionReaction="groups.get(reaction)?.action"
+		:reactionHost="props.reactionHost"
 		:reactionSources="groups.get(reaction)?.sources"
 		:reactionEmojis="props.reactionEmojis"
 		:count="count"

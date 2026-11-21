@@ -6,12 +6,25 @@
 export type ReactionSource = { reaction: string; count: number; version?: string | number };
 export type ReactionGroup = { reaction: string; action: string; count: number; sources: ReactionSource[] };
 
+const localEmoji = /^:([\w+-]+)(?:@\.)?:$/;
+
+/** Bind an existing source-local reaction to its server when a peer adds it. */
+export function sourceReactionForTransport(sources: readonly ReactionSource[], sourceHost: string | undefined, fallback: string): string {
+	if (sourceHost) {
+		for (const source of sources) {
+			const match = localEmoji.exec(source.reaction);
+			if (match) return `:${match[1]}@${sourceHost}:`;
+		}
+	}
+	return fallback;
+}
+
 /** Raw keys remain available for removal and reactor lists; only the button is grouped. */
 export function groupReactions(reactions: Record<string, number>, aliases: Readonly<Record<string, string>>, localHost: string, sourceHost = localHost, versions?: number | Record<string, string>): ReactionGroup[] {
 	const groups = new Map<string, ReactionGroup>();
 	for (const [raw, count] of Object.entries(reactions)) {
 		if (!count) continue;
-		const qualified = raw.replace(/^:([\w+-]+)(?:@\.)?:$/, `:$1@${sourceHost}:`);
+		const qualified = raw.replace(localEmoji, `:$1@${sourceHost}:`);
 		const local = qualified.endsWith(`@${localHost}:`) ? qualified.slice(0, -localHost.length - 2) + '@.:' : undefined;
 		const reaction = aliases[qualified] ?? local ?? qualified;
 		const action = sourceHost === localHost ? reaction : reaction.replace(/^:([\w+-]+)@\.:$/, `:$1@${localHost}:`);

@@ -92,7 +92,7 @@ describe('delegated actions', () => {
 		const f = fixture();
 		f.extended.createUnlocked.mockRejectedValue(new IdentifiableError('51c42bb4-931a-456b-bff7-e5a8a70dd298'));
 		await f.service.peerAction({ action: 'add-reaction', noteId: 'note', reaction: '👍' }, async () => {});
-		expect(f.extended.createUnlocked).toHaveBeenCalledWith(f.user, expect.objectContaining({ id: 'note' }), '👍', false, false);
+		expect(f.extended.createUnlocked).toHaveBeenCalledWith(f.user, expect.objectContaining({ id: 'note' }), '👍', false, false, { host: 'r.example', manager: f.db.manager });
 		f.extended.deleteUnlocked.mockRejectedValue(new IdentifiableError('60527ec9-b4cb-4a88-a6bd-32d3ad26817d'));
 		await f.service.peerAction({ action: 'remove-reaction', noteId: 'note', reaction: '👍' }, async () => {});
 		expect(f.extended.deleteUnlocked).toHaveBeenCalledWith(f.user, expect.objectContaining({ id: 'note' }), '👍', false, false);
