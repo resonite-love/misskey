@@ -6,13 +6,17 @@
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { DataSource, type QueryRunner } from 'typeorm';
 import { mockDeep } from 'vitest-mock-extended';
+import Fastify from 'fastify';
+import fastifyRawBody from 'fastify-raw-body';
 import { loadConfig, type Config } from '@/config.js';
+import { registerGridspacePeer } from '@/server/gridspace/peer-server.js';
 import type { MiLocalUser, MiRemoteUser } from '@/models/User.js';
 import type { NotePlacementService } from '@/core/NotePlacementService.js';
 import type { RoleService } from '@/core/RoleService.js';
 import { MiGridspaceTimelineChange, MiGridspaceTimelineState } from '@/models/GridspaceTimeline.js';
 import { ChannelEntityService } from '@/core/entities/ChannelEntityService.js';
 import * as peerClient from '../peer-client.js';
+import { createGridspaceHeaders, resolveGridspaceConfig } from '../peer-protocol.js';
 import { GridspaceLinkError, type GridspaceLinkService } from '../GridspaceLinkService.js';
 import { TimelineReferenceService } from './TimelineReferenceService.js';
 import { refreshPlacementChannel, replacePlacementPins } from './placement-change.js';
@@ -52,6 +56,39 @@ function fixture(db: DataSource) {
 }
 
 describe('listing authority and body authority', () => {
+	test.each([{ count: 30, revoked: false }, { count: 50, revoked: false }, { count: 100, revoked: false }, { count: 50, revoked: true }])(
+		'loads $count legacy channel notes through the signed peer API; revoked=$revoked', async ({ count, revoked }) => {
+			const { source, local, delegated } = fixture(mockDeep<DataSource>());
+			local.hydrateQuery.mockResolvedValue([]);
+			const caller = resolveGridspaceConfig(config.gridspace, origin, process.env)!;
+			const receiver = resolveGridspaceConfig({ ...config.gridspace!, peerUrl: origin }, other, process.env)!;
+			const app = Fastify();
+			await app.register(fastifyRawBody, { global: false, encoding: null, runFirst: true });
+			await app.register(async child => {
+				registerGridspacePeer(child, receiver, async () => true, undefined, undefined, undefined, undefined, async (_name, request) => {
+					if (revoked) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+					return { notes: request.ids!.map(id => ({ id, origin: other, uri: `${other}/notes/${id}` })) };
+				});
+			}, { prefix: '/gridspace/v1' });
+			delegated.notes.mockImplementation(async (_viewer, options, limit) => {
+				const url = '/gridspace/v1/private/notes';
+				const payload = Buffer.from(JSON.stringify({ ...options, limit, channelActorId: viewer.id }));
+				const response = await app.inject({ method: 'POST', url, payload, headers: createGridspaceHeaders(caller, 'POST', url, payload) });
+				if (response.statusCode !== 200) throw new GridspaceLinkError(response.json().error === 'AUTHORIZATION_REVOKED' ? 'AUTHORIZATION_REVOKED' : 'PEER_UNAVAILABLE');
+				return response.json();
+			});
+			const refs = Array.from({ length: count }, (_, index): TimelineReference => ({
+				source: 'peer', noteId: `note${index}`, canonicalUri: `${other}/notes/note${index}`, sortAt: String(count - index), generation: 2, normalized: true,
+				placement: { channelId: 'channel', channelOrigin: other, noteOrigin: other, includeDefault: false, legacy: true },
+			}));
+			try {
+				const result = await source.bodies(viewer, refs, Date.now() + 5000);
+				expect([...result.keys()].sort()).toEqual(revoked ? [] : refs.map(ref => ref.canonicalUri).sort());
+				expect(delegated.notes).toHaveBeenCalledTimes(Math.ceil(count / 20));
+			} finally { await app.close(); }
+		},
+	);
+
 	test.each([false, true])('batches only legacy notes in the same channel; revoked batch=%s', async revoked => {
 		const { source, local, delegated } = fixture(mockDeep<DataSource>());
 		local.hydrateQuery.mockResolvedValue([]);

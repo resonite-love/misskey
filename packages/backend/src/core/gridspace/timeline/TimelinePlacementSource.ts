@@ -357,7 +357,8 @@ export class TimelinePlacementSource {
 			}
 			const channelId = ref.placement!.channelId;
 			let batch = legacyChannels.get(channelId);
-			if (!batch || batch.length >= 100) {
+			// The signed /private/notes endpoint accepts at most 20 per request.
+			if (!batch || batch.length >= 20) {
 				batch = [];
 				legacyChannels.set(channelId, batch);
 				batches.push(batch);
