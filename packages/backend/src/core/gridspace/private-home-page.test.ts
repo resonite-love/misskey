@@ -9,6 +9,7 @@ import type { DataSource, SelectQueryBuilder } from 'typeorm';
 import type { MiNote } from '@/models/Note.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
 import type { PrivatePeerRequest } from './private-protocol.js';
+import { TIMELINE_AUTHORIZATION_TTL_MS } from './timeline/timeline-protocol.js';
 
 const id = (n: number) => String(n).padStart(8, '0');
 const input = { mode: 'home', limit: 2 } as PrivatePeerRequest;
@@ -99,7 +100,62 @@ describe('bounded delegated home pages', () => {
 		const page = await service.peerNotes(input);
 		expect(page.notes).toEqual([]); expect(page.next).toBe(id(10)); expect(page.head).toBe(id(30));
 		expect(page.scannedThrough).toBe(new Date(10).toISOString());
-		expect(service['authorizeRead']).toHaveBeenCalledTimes(3);
+		expect(service['authorizeRead']).toHaveBeenCalledTimes(2);
+	});
+
+	test.each([false, true])('revocation during packing rejects the whole page (timeline=%s)', async timeline => {
+		const { service } = fixture([], [id(20)]);
+		const note = { id: id(20), replyId: null, renoteId: null };
+		let revoked = false;
+		const authorizeRead = vi.fn(async () => {
+			if (revoked) throw new Error('revoked');
+			return { localUserId: 'viewer', initiator: false };
+		});
+		Object.assign(service, {
+			authorizeRead,
+			peer: { origin: 'https://source.example', peerOrigin: 'https://reader.example' },
+			sourceNotes: async () => [note],
+			sourceHomePage: async () => ({ rows: [note], next: null, head: note.id, scannedThrough: new Date(20).toISOString() }),
+			extendedReactions: { show: async () => [{ noteId: note.id }] },
+			pack: async () => { revoked = true; return note; },
+			timelineReferences: { status: async () => ({ generation: 1 }), currentPosition: async () => '10' },
+		});
+		const request = timeline ? service.peerTimeline({ mode: 'validate', contextMode: 'home', ids: [note.id], timelineValidate: true }) : service.peerNotes(input);
+		await expect(request).rejects.toThrow('revoked');
+		expect(authorizeRead).toHaveBeenCalledTimes(2);
+	});
+
+	test('one timeline validation shares its initial grant and rechecks it before returning', async () => {
+		const { service } = fixture([], []);
+		const authorizeRead = vi.fn(async () => ({ localUserId: 'viewer', initiator: false }));
+		Object.assign(service, {
+			authorizeRead, sourceNotes: async () => [],
+			peer: { origin: 'https://source.example', peerOrigin: 'https://reader.example' },
+			timelineReferences: { status: async () => ({ generation: 1 }), currentPosition: async () => '10' },
+		});
+		const page = await service.peerTimeline({ mode: 'validate', contextMode: 'home', ids: [id(20)], timelineValidate: true });
+		expect(page.notes).toEqual([]);
+		expect(authorizeRead).toHaveBeenCalledTimes(2);
+	});
+
+	test.each([false, true])('the final authorization round trip consumes the lease (timeline=%s)', async timeline => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		try {
+			const { service } = fixture([], []);
+			let calls = 0;
+			Object.assign(service, {
+				authorizeRead: async () => {
+					if (++calls === 2) vi.setSystemTime(Date.now() + 3000);
+					return { localUserId: 'viewer', initiator: false };
+				},
+				sourceNotes: async () => [],
+				sourceHomePage: async () => ({ rows: [], next: null, head: null, scannedThrough: null }),
+				peer: { origin: 'https://source.example', peerOrigin: 'https://reader.example' },
+				timelineReferences: { status: async () => ({ generation: 1 }), currentPosition: async () => '10' },
+			});
+			const page = await (timeline ? service.peerTimeline({ mode: 'validate', contextMode: 'home', ids: [id(20)], timelineValidate: true }) : service.peerNotes(input));
+			expect(page.validForMs).toBe(TIMELINE_AUTHORIZATION_TTL_MS - 3000);
+		} finally { vi.useRealTimers(); }
 	});
 
 	test('the post-pack permission check removes a note, and revocation rejects the whole page', async () => {

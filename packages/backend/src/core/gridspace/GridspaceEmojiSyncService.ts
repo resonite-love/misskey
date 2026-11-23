@@ -30,6 +30,8 @@ export class GridspaceEmojiSyncService implements OnModuleInit, OnApplicationShu
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private working = false;
 	private cache: { stamp: string; at: number; value: EmojiManifest } | undefined;
+	private manifestPending: { stamp: string; promise: Promise<EmojiManifest> } | undefined;
+	private manifestRevision = 0;
 	private remoteCache: EmojiManifest | undefined;
 	private reactionPairsCache: { until: number; value: EmojiReactionPairs } | undefined;
 	private reactionPairsPending: Promise<EmojiReactionPairs> | undefined;
@@ -68,6 +70,17 @@ export class GridspaceEmojiSyncService implements OnModuleInit, OnApplicationShu
 		const [stamp] = await this.db.query<{ count: string; changed: string | null }[]>('SELECT count(*)::text AS count, max("updatedAt")::text AS changed FROM emoji WHERE host IS NULL');
 		const key = JSON.stringify(stamp);
 		if (!force && this.cache?.stamp === key && Date.now() - this.cache.at < 600_000) return this.cache.value;
+		if (!force && this.manifestPending?.stamp === key) return this.manifestPending.promise;
+		const pending = this.readManifest(key, ++this.manifestRevision);
+		// A forced read after a mutation must never reuse a snapshot already in flight.
+		if (force) return pending;
+		this.manifestPending = { stamp: key, promise: pending };
+		try { return await pending; } finally {
+			if (this.manifestPending?.promise === pending) this.manifestPending = undefined;
+		}
+	}
+
+	private async readManifest(key: string, revision: number): Promise<EmojiManifest> {
 		const rows = await this.db.getRepository(MiEmoji).find({ where: { host: IsNull() }, order: { id: 'ASC' }, take: maxItems + 1 });
 		if (rows.length > maxItems) throw new GridspaceLinkError('EMOJI_LIMIT');
 		const urls = rows.map(row => row.originalUrl);
@@ -75,7 +88,7 @@ export class GridspaceEmojiSyncService implements OnModuleInit, OnApplicationShu
 		const hashes = new Map(files.map(file => [file.url, file.md5]));
 		const emojis = rows.map(row => this.describe(row, hashes));
 		const value = { origin: this.origin, revision: emojiDigest(emojis.map(emoji => emoji.hash)), emojis };
-		this.cache = { stamp: key, at: Date.now(), value };
+		if (revision === this.manifestRevision) this.cache = { stamp: key, at: Date.now(), value };
 		return value;
 	}
 
@@ -142,6 +155,8 @@ export class GridspaceEmojiSyncService implements OnModuleInit, OnApplicationShu
 			return packed;
 		});
 		this.cache = undefined;
+		this.manifestRevision++;
+		this.manifestPending = undefined;
 		await receiptRepo.delete({ createdAt: LessThan(new Date(Date.now() - 7 * 86400_000)) });
 		this.emojis.localEmojisCache.refresh();
 		if (before && before.name !== result.name) this.events.publishBroadcastStream('emojiDeleted', { emojis: [await this.packer.packDetailed(before)] });

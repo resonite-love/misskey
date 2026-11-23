@@ -297,7 +297,7 @@ export class GridspacePrivateService {
 		const authorizationStarted = Date.now();
 		const changes = input.timelineSequence != null ? await this.timelineReferences.changes(input.timelineSequence, 100) : null;
 		if (input.timelineValidate) {
-			const page = input.ids?.length ? await this.peerNotes({ ...sourceInput, mode: 'validate', contextMode: mode }) : { notes: [] as PrivateWireNote[], next: null, head: null, scannedThrough: null, observedAt: new Date().toISOString() };
+			const page = input.ids?.length ? await this.readAuthorizedNotes({ ...sourceInput, mode: 'validate', contextMode: mode }, link, new Date(authorizationStarted).toISOString()) : { notes: [] as PrivateWireNote[], next: null, head: null, scannedThrough: null, observedAt: new Date().toISOString() };
 			const ids = [...new Set(changes?.events.flatMap(event => event.noteId ? [event.noteId] : []) ?? [])];
 			const visible = ids.length ? await this.search.read(this.query(link.localUserId, { ...sourceInput, mode, contextMode: undefined }).andWhere('note.id IN (:...changedTimelineIds)', { changedTimelineIds: ids })) : [];
 			const reference = (note: Pick<MiNote, 'id' | 'uri'>) => ({ noteId: note.id, canonicalUri: canonicalGridspaceNoteUri(note.uri ?? `${this.peer!.origin}/notes/${note.id}`, this.peer!.peerOrigin), sortAt: (BigInt(this.ids.parse(note.id).date.getTime()) * 1000n).toString(), normalized: true, generation: 1 });
@@ -309,6 +309,8 @@ export class GridspacePrivateService {
 			const finalAllowed = new Set(policies.map(note => note.id));
 			page.notes = page.notes.filter(note => finalAllowed.has(note.id));
 			for (const note of page.notes) if (note.renote && !finalAllowed.has(note.renote.id)) { delete note.renote; note.renoteId = null; }
+			const nextSequence = changes?.cursor ?? await this.timelineReferences.currentPosition();
+			await this.authorizeRead(input);
 			let validForMs = Math.max(0, TIMELINE_AUTHORIZATION_TTL_MS - (Date.now() - authorizationStarted));
 			for (const note of policies) {
 				if (note.userId === link.localUserId) continue;
@@ -321,8 +323,6 @@ export class GridspacePrivateService {
 					}
 				}
 			}
-			const nextSequence = changes?.cursor ?? await this.timelineReferences.currentPosition();
-			await this.authorizeRead(input);
 			return { ...page, references: page.notes.map(note => reference({ id: note.id, uri: note.uri })), newReferences: visible.filter(note => changes?.events.some(event => event.noteId === note.id && event.kind === 'insert')).map(reference), sequence: nextSequence, changed: changes ? changes.resetRequired || !!policyChanged || changes.events.some(event => event.noteId && (visibleIds.has(event.noteId) || retainedIds.has(event.noteId)) && event.kind !== 'insert') : false, generation: status.generation, validForMs };
 		}
 		const sequence = await this.timelineReferences.currentPosition();
@@ -403,13 +403,12 @@ export class GridspacePrivateService {
 			const sequence = changes?.cursor ?? initialSequence;
 			const eligible = await readIds(input.ids ?? []);
 			const privateIds = eligible.rows.filter(note => !eligible.publicIds.has(note.id)).map(note => note.id);
-			const packed = link && privateIds.length ? await this.peerNotes({ ...sourceInput, mode: 'validate', contextMode: mode, ids: privateIds }) : { notes: [] as PrivateWireNote[] };
+			const packed = link && privateIds.length ? await this.readAuthorizedNotes({ ...sourceInput, mode: 'validate', contextMode: mode, ids: privateIds }, link, new Date(started).toISOString()) : { notes: [] as PrivateWireNote[] };
 			// A public root whose nested target cannot be mirrored is still readable.
 			// Send only that root, with no nested bodies, under the public list ACL.
 			const publicRows = input.timelinePublicBodies ? eligible.rows.filter(note => eligible.publicIds.has(note.id)) : [];
 			const states = new Map((publicRows.length ? await this.extendedReactions.show(publicRows.map(note => note.id), null, true) : []).map(state => [state.noteId, state]));
 			const publicNotes = await Promise.all(publicRows.map(note => this.pack(note, '', new Set(), states.get(note.id))));
-			if (link) await this.authorizeRead(input);
 			const fresh = await readIds(input.ids ?? []);
 			const freshIds = new Set(fresh.rows.map(note => note.id));
 			const refs = fresh.rows.map(note => reference(note, fresh.publicIds.has(note.id)));
@@ -422,6 +421,7 @@ export class GridspacePrivateService {
 			const policyAllowed = new Set(policyNotes.map(note => note.id));
 			packed.notes = packed.notes.filter(note => policyAllowed.has(note.id));
 			for (const note of packed.notes) if (note.renote && !policyAllowed.has(note.renote.id)) { delete note.renote; note.renoteId = null; }
+			if (link) await this.authorizeRead(input);
 			let lease = Math.max(0, TIMELINE_AUTHORIZATION_TTL_MS - (Date.now() - started));
 			const publicPolicyIds = new Set(publicNotes.map(note => note.id));
 			for (const note of [...policyNotes, ...fresh.rows.filter(note => publicPolicyIds.has(note.id))]) {
@@ -435,7 +435,6 @@ export class GridspacePrivateService {
 					}
 				}
 			}
-			if (link) await this.authorizeRead(input);
 			return { references: retained, notes: [...packed.notes, ...publicNotes.filter(note => fresh.publicIds.has(note.id))].filter(note => freshIds.has(note.id) && allowed.has(note.id)), newReferences: newer.rows.filter(note => changes?.events.some(event => event.noteId === note.id && event.kind === 'insert')).map(note => reference(note, newer.publicIds.has(note.id))),
 				sequence, generation: status.generation, validForMs: lease,
 				changed: changes ? changes.resetRequired || changes.events.some(event => !event.noteId && (!event.affectedUserId || event.affectedUserId === link?.localUserId)) || changes.events.some(event => event.kind !== 'insert' && event.noteId && [...freshIds, ...newer.rows.map(note => note.id), ...(input.ids ?? [])].includes(event.noteId)) || (mode === 'clip' && newer.rows.length > 0) : false };
@@ -625,6 +624,16 @@ export class GridspacePrivateService {
 		if (input.mode !== 'validate' && input.contextMode) throw new GridspaceLinkError('INVALID_REQUEST');
 		const observedAt = new Date().toISOString();
 		const link = await this.authorizeRead(input);
+		const page = await this.readAuthorizedNotes(input, link, observedAt);
+		const packedAt = Date.now();
+		await this.authorizeRead(input);
+		page.validForMs = Math.max(0, page.validForMs! - (Date.now() - packedAt));
+		return page;
+	}
+
+	/** Only callers that check the grant before and after this read may return its bodies. */
+	private async readAuthorizedNotes(input: PrivatePeerRequest, link: Awaited<ReturnType<GridspacePrivateService['authorizeRead']>>, observedAt: string): Promise<PrivatePage> {
+		if (input.mode !== 'validate' && input.contextMode) throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((input.contextMode ?? input.mode) === 'context' && link.initiator) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		if (input.channelId && link.initiator) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const sourceInput = link.initiator ? { ...input, withChannelNotes: false } : input;
@@ -655,8 +664,8 @@ export class GridspacePrivateService {
 		}
 		for (const note of packed) if (note.renoteId && previews.has(note.renoteId)) note.renote = previews.get(note.renoteId);
 		if (link.initiator) for (const note of [...packed, ...previews.values()]) note.canSelfRenote = false;
-		// Recheck after packing attachments/polls, not just before the asynchronous work.
-		await this.authorizeRead(input);
+		// Recheck each note after packing attachments/polls. The caller also rechecks
+		// the account grant before returning, without repeating that peer round trip here.
 		const freshQuery = (input.contextMode ?? input.mode) === 'context' ? await this.contextQuery(link.localUserId, sourceInput) : this.query(link.localUserId, sourceInput);
 		const fresh = selected.length ? await this.search.read(freshQuery.andWhere('note.id IN (:...selected)', { selected: selected.map(note => note.id) })) : [];
 		const allowed = new Set(fresh.map(note => note.id));
@@ -666,7 +675,6 @@ export class GridspacePrivateService {
 			if (note.replyId && !relatedAllowed.has(note.replyId)) note.replyId = null;
 			if (note.renoteId && !relatedAllowed.has(note.renoteId)) { note.renoteId = null; delete note.renote; }
 		}
-		await this.authorizeRead(input);
 		let validForMs = Math.max(0, TIMELINE_AUTHORIZATION_TTL_MS - (Date.now() - Date.parse(observedAt)));
 		for (const note of [...fresh, ...freshRelated]) {
 			if (note.userId === link.localUserId) continue;

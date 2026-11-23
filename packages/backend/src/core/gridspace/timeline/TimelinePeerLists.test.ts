@@ -31,7 +31,7 @@ function fixture(rows: Row[], publicIds: string[] = []) {
 	const privateBuild = vi.fn(async () => makeQuery('private'));
 	const peerNotes = vi.fn(async (input: PrivatePeerRequest) => ({ notes: rows.filter(note => input.ids?.includes(note.id)).map(note => ({ id: note.id, uri: `https://source.test/notes/${note.id}`, origin: 'https://source.test', text: note.id, files: [] })) }));
 	const service = Object.assign(Object.create(GridspacePrivateService.prototype), {
-		authorizeRead, listQuery: privateBuild, publicLists: { buildQuery: publicBuild }, peerNotes,
+		authorizeRead, listQuery: privateBuild, publicLists: { buildQuery: publicBuild }, readAuthorizedNotes: peerNotes,
 		db: { getRepository: () => ({ createQueryBuilder: () => scan, find: async () => [{ id: 'author' }] }) },
 		peer: { origin: 'https://source.test', peerOrigin: 'https://reader.test' },
 		ids: { parse: (id: string) => ({ date: new Date(Number(id.replace(/\D/g, '')) || 1) }), gen: (at: number) => String(at) },

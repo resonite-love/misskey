@@ -5,7 +5,7 @@
 
 import { defaultNoteCondition, noteListingCondition } from '@/misc/note-distribution.js';
 import { Inject, Injectable } from '@nestjs/common';
-import { Brackets, DataSource } from 'typeorm';
+import { Brackets, DataSource, type SelectQueryBuilder } from 'typeorm';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import type { MiLocalUser } from '@/models/User.js';
@@ -168,6 +168,22 @@ export class GridspaceHistoryService {
 		return { active: true, items: notes.map(note => ({ id: note.id, date: this.ids.parse(note.id).date.getTime() })) };
 	}
 
+	private async readPageIds(query: SelectQueryBuilder<MiNote>): Promise<{ id: string }[]> {
+		const runner = this.db.createQueryRunner();
+		try {
+			await runner.startTransaction();
+			// Preserve the ordered author keyset instead of scanning and sorting a bitmap
+			// of the entire history. Scope the planner setting to this one transaction.
+			await runner.query('SET LOCAL enable_bitmapscan = off');
+			const rows = await query.clone().setQueryRunner(runner).getRawMany<{ id: string }>();
+			await runner.commitTransaction();
+			return rows;
+		} finally {
+			if (runner.isTransactionActive) await runner.rollbackTransaction();
+			await runner.release();
+		}
+	}
+
 	public async history(userId: string, viewer: MiLocalUser | null, options: HistoryViewOptions, limit: number, cursor?: string) {
 		const link = await this.findLink(userId);
 		if (!link || !this.peer) throw new GridspaceHistoryError('LINK_UNAVAILABLE');
@@ -183,7 +199,7 @@ export class GridspaceHistoryService {
 		// Both sources start together. A failed peer never advances either keyset.
 		const [remote, local] = await Promise.all([
 			this.remote({ ...this.input(link, viewer, options, cursor && position.remoteHead == null ? 0 : limit, position.remote ?? undefined), head: position.remoteHead ?? undefined }),
-			localQuery.select('note.id', 'id').limit(limit).getRawMany<{ id: string }>(),
+			this.readPageIds(localQuery.select('note.id', 'id').limit(limit)),
 		]);
 		if (!remote.active) throw new GridspaceHistoryError('LINK_UNAVAILABLE');
 		const remoteItems = !viewer && this.meta.ugcVisibilityForVisitor !== 'all' ? [] : remote.items;

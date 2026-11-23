@@ -16,6 +16,61 @@ function emoji(changes: Partial<SyncEmoji> = {}): SyncEmoji {
 
 const a = emoji(), b = emoji({ id: 'emojiB', originalUrl: 'https://b.test/copied.png' });
 
+function manifestFixture() {
+	const find = vi.fn(async () => []);
+	const query = vi.fn(async () => [{ count: '0', changed: null }]);
+	const service = Object.assign(Object.create(GridspaceEmojiSyncService.prototype), {
+		origin: 'https://a.test', manifestRevision: 0, db: { query, getRepository: () => ({ find }) },
+	}) as GridspaceEmojiSyncService;
+	return { service, find, query };
+}
+
+test('concurrent unchanged manifests build one snapshot, including the first load', async () => {
+	const { service, find } = manifestFixture();
+	let release!: () => void;
+	find.mockImplementationOnce(() => new Promise(resolve => { release = () => resolve([]); }));
+	const first = service.manifest();
+	await vi.waitFor(() => expect(find).toHaveBeenCalledOnce());
+	const second = service.manifest();
+	await Promise.resolve();
+	release();
+	const [left, right] = await Promise.all([first, second]);
+	expect(left).toBe(right);
+	expect(find).toHaveBeenCalledOnce();
+	expect(await service.manifest()).toBe(left);
+});
+
+test('forced manifests bypass pending snapshots and an older completion cannot replace them', async () => {
+	const { service, find } = manifestFixture();
+	let release!: () => void;
+	find.mockImplementationOnce(() => new Promise(resolve => { release = () => resolve([]); }));
+	const older = service.manifest();
+	await vi.waitFor(() => expect(find).toHaveBeenCalledOnce());
+	const fresh = await service.manifest(true);
+	expect(find).toHaveBeenCalledTimes(2);
+	release();
+	expect(await older).not.toBe(fresh);
+	expect(await service.manifest()).toBe(fresh);
+});
+
+test('changed manifests and failed reads do not reuse an earlier in-flight snapshot', async () => {
+	const { service, find, query } = manifestFixture();
+	let reject!: (error: Error) => void;
+	find.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+	const older = service.manifest();
+	const failed = expect(older).rejects.toThrow('failed');
+	await vi.waitFor(() => expect(find).toHaveBeenCalledOnce());
+	query.mockResolvedValue([{ count: '0', changed: 'updated' }] as never);
+	const fresh = await service.manifest();
+	reject(new Error('failed'));
+	await failed;
+	expect(await service.manifest()).toBe(fresh);
+	expect(find).toHaveBeenCalledTimes(2);
+	find.mockRejectedValueOnce(new Error('retry'));
+	await expect(service.manifest(true)).rejects.toThrow('retry');
+	await expect(service.manifest(true)).resolves.toEqual(fresh);
+});
+
 test('the admin endpoint initializes with Misskey JSON validation and rejects malformed IDs', async () => {
 	const admin = vi.fn(async () => ({}));
 	const endpoint = new AdminEmojiSyncEndpoint({ admin } as never);
