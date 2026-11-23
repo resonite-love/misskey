@@ -313,11 +313,36 @@ describe('server timeline client', () => {
 		expect(request.mock.calls[3][1]).toMatchObject({ cursor: 'restore-lower' });
 		expect(value.rows.value.map(row => row.key)).toEqual([item('old').key, item('lower').key, item('below').key]);
 	});
-	it.each(['INVALID_CURSOR', 'CURSOR_EXPIRED'])('reopens an expired %s changes session around the current anchor', async reason => {
+	it.each([
+		{ kind: 'home' },
+		{ kind: 'channel', channelOrigin: 'https://local.example', channelId: 'channel' },
+		{ kind: 'channel', channelOrigin: 'https://peer.example', channelId: 'channel' },
+	].flatMap(query => [true, false].flatMap(atTop => ['INVALID_CURSOR', 'CURSOR_EXPIRED'].map(reason => ({ query, atTop, reason })))))
+	('recovers missed new posts after an expired $query.kind update (top=$atTop, $reason)', async ({ query, atTop, reason }) => {
+		const [newHead, oldHead, tail] = ['missed-new', 'old-head', 'old-tail'].map((id, index) => ({
+			...item(id, false), sortKey: { sortAt: String(10 - index), uri: id },
+		}));
+		const listing = [newHead, oldHead, tail];
+		const request = vi.fn().mockResolvedValueOnce(page([oldHead, tail]))
+			.mockRejectedValueOnce({ info: { reason } })
+			.mockImplementationOnce((_endpoint, params) => {
+				const start = params.anchor ? listing.findIndex(row => row.key === params.anchor) : 0;
+				return Promise.resolve(page(listing.slice(start), { session: 'renewed-session' }));
+			});
+		const value = new TimelineClient(query, { request, isTop: () => atTop, anchor: () => oldHead.key, now: () => Date.now() });
+		clients.push(value);
+		await value.reload(); value.suspend(); await value.resume();
+		expect(value.rows.value.map(row => row.key)).toEqual((atTop ? listing : [oldHead, tail]).map(row => row.key));
+		expect(value.queuedCount.value).toBe(atTop ? 0 : 1);
+		await value.releaseQueue();
+		expect(value.rows.value.map(row => row.key)).toEqual(listing.map(row => row.key));
+		expect(value.error.value).toBe(false);
+	});
+	it.each(['INVALID_CURSOR', 'CURSOR_EXPIRED'])('reopens an expired %s changes session from the latest head', async reason => {
 		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)]))
 			.mockRejectedValueOnce({ info: { reason } }).mockResolvedValueOnce(page([item('old', false)], { session: 'new-session' }));
 		const value = client(request); await value.reload(); await value.refresh();
-		expect(request.mock.calls[2][1]).toMatchObject({ anchor: item('old').key });
+		expect(request.mock.calls[2][1]).not.toHaveProperty('anchor');
 		expect(value.error.value).toBe(false);
 	});
 	it.each([

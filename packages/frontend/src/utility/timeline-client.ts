@@ -243,7 +243,7 @@ export class TimelineClient {
 		}
 		this.scheduleRefresh(result.revalidateAfterMs);
 	}
-	private async run(action: (generation: number) => Promise<void>) {
+	private async run(action: (generation: number) => Promise<void>, recovery: 'restore' | 'reset' = 'restore') {
 		if (this.pending || !this.usable()) return this.pending ?? Promise.resolve();
 		const current = this.generation;
 		const startedAt = this.now();
@@ -252,7 +252,7 @@ export class TimelineClient {
 			if (current !== this.generation) return;
 			let reason = (error as { info?: { reason?: string } } | null)?.info?.reason;
 			if (reason === 'INVALID_CURSOR' || reason === 'CURSOR_EXPIRED') {
-				try { await this.readWindow(current, 'restore'); return; } catch (recoveryError) {
+				try { await this.readWindow(current, recovery); return; } catch (recoveryError) {
 					reason = (recoveryError as { info?: { reason?: string } } | null)?.info?.reason;
 				}
 			}
@@ -406,6 +406,9 @@ export class TimelineClient {
 	};
 	public refresh = async () => {
 		if (!this.session || !this.updatesCursor) { await this.reload(); return; }
+		// An expired updates cursor no longer covers arrivals since the old head.
+		// Rebuild from the current head while retaining the authorized history;
+		// an anchored restoration here would permanently skip those new posts.
 		await this.run(async current => {
 			if (this.queueOverflow && this.queuedRelease) { await this.readWindow(current, 'reload'); return; }
 			if (this.degraded) { await this.readWindow(current, 'reset'); return; }
@@ -449,7 +452,7 @@ export class TimelineClient {
 				this.publish();
 			}
 			if (this.queuedRelease) this.releaseQueue();
-		});
+		}, 'reset');
 	};
 	private insertStreamItem(item: RetainedItem) {
 		if (item.expiresAt !== null && item.expiresAt <= this.now()) { delete item.payload; delete item.displayPayload; }
