@@ -5,8 +5,9 @@
 
 import { Agent } from 'node:https';
 import fetch from 'node-fetch';
-import type { Readable } from 'node:stream';
+import { measurePeerRequest } from '@/misc/request-performance.js';
 import { createGridspaceHeaders, type GridspacePeerConfig } from './peer-protocol.js';
+import type { Readable } from 'node:stream';
 
 export class GridspaceProtocolMismatch extends Error {}
 export class GridspaceEndpointUnavailable extends Error {}
@@ -22,13 +23,17 @@ export function gridspacePeerTransport(peer: GridspacePeerConfig, path: string) 
 		// Reciprocal authorization callbacks must never queue behind requests waiting
 		// for those same callbacks. Bound idle sockets, not active sockets.
 		agent = new Agent({ keepAlive: true, maxFreeSockets: 4, timeout: 20000,
-			servername: new URL(peer.peerOrigin).hostname, ...(peer.transportCa ? { ca: peer.transportCa } : {}) });
+																						servername: new URL(peer.peerOrigin).hostname, ...(peer.transportCa ? { ca: peer.transportCa } : {}) });
 		agents.set(peer, agent);
 	}
 	return { url: new URL(path, peer.transportOrigin ?? peer.peerOrigin), agent, host: new URL(peer.peerOrigin).host };
 }
 
 export async function requestGridspacePeer(peer: GridspacePeerConfig, path: string, input: object, maxBytes = 2 * 1024 * 1024, deadline?: number): Promise<unknown> {
+	return measurePeerRequest(path, () => requestMeasured(peer, path, input, maxBytes, deadline));
+}
+
+async function requestMeasured(peer: GridspacePeerConfig, path: string, input: object, maxBytes: number, deadline?: number): Promise<unknown> {
 	const bytes = Buffer.from(JSON.stringify(input));
 	// Match HttpRequestService's HTTP/1.1 transport. Native fetch can negotiate HTTP/2
 	// and queue reciprocal POSTs behind a sync waiting for those same requests.

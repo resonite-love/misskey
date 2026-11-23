@@ -20,6 +20,8 @@ import * as Acct from '@/misc/acct.js';
 import { genIdenticon } from '@/misc/gen-identicon.js';
 import { UserEntityService } from '@/core/entities/UserEntityService.js';
 import { LoggerService } from '@/core/LoggerService.js';
+import { RequestPerformanceService } from '@/core/RequestPerformanceService.js';
+import { registerSlowRequests } from './slow-requests.js';
 import { bindThis } from '@/decorators.js';
 import { envOption } from '@/env.js';
 import { ActivityPubServerService } from './ActivityPubServerService.js';
@@ -73,6 +75,7 @@ export class ServerService implements OnApplicationShutdown {
 		private clientServerService: ClientServerService,
 		private globalEventService: GlobalEventService,
 		private loggerService: LoggerService,
+		private requestPerformance: RequestPerformanceService,
 		private oauth2ProviderService: OAuth2ProviderService,
 	) {
 		this.logger = this.loggerService.getLogger('server', 'gray');
@@ -86,6 +89,7 @@ export class ServerService implements OnApplicationShutdown {
 		});
 		this.#fastify = fastify;
 		registerHttpAccessLog(fastify);
+		registerSlowRequests(fastify, entry => this.requestPerformance.record(entry));
 
 		// HSTS
 		// 6months (15552000sec)

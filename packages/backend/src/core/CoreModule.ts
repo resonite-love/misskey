@@ -199,6 +199,7 @@ import { VmimiRelayTimelineService } from './VmimiRelayTimelineService.js';
 import { QueueModule } from './QueueModule.js';
 import { QueueService } from './QueueService.js';
 import { LoggerService } from './LoggerService.js';
+import { RequestPerformanceService } from './RequestPerformanceService.js';
 import { TelemetryService } from './telemetry/TelemetryService.js';
 import type { Provider } from '@nestjs/common';
 
@@ -399,6 +400,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceFollowGuardService,
 		VmimiRelayTimelineService,
 		LoggerService,
+		RequestPerformanceService,
 		AbuseReportService,
 		AbuseReportNotificationService,
 		AccountMoveService,
@@ -713,6 +715,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		//#endregion
 	],
 	exports: [
+		RequestPerformanceService,
 		TimelineReferenceService,
 		TimelineChangeBroker,
 		TimelinePeerService,

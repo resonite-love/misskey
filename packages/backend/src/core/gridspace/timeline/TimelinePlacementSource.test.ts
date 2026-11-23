@@ -8,28 +8,28 @@ import { DataSource, type QueryRunner } from 'typeorm';
 import { mockDeep } from 'vitest-mock-extended';
 import { loadConfig, type Config } from '@/config.js';
 import type { MiLocalUser, MiRemoteUser } from '@/models/User.js';
-import * as peerClient from '../peer-client.js';
-import { GridspaceLinkError, type GridspaceLinkService } from '../GridspaceLinkService.js';
-import type { GridspaceChannelAuthService } from '../GridspaceChannelAuthService.js';
-import type { GridspaceSearchService } from '../GridspaceSearchService.js';
 import type { NotePlacementService } from '@/core/NotePlacementService.js';
 import type { RoleService } from '@/core/RoleService.js';
+import { MiGridspaceTimelineChange, MiGridspaceTimelineState } from '@/models/GridspaceTimeline.js';
+import { ChannelEntityService } from '@/core/entities/ChannelEntityService.js';
+import * as peerClient from '../peer-client.js';
+import { GridspaceLinkError, type GridspaceLinkService } from '../GridspaceLinkService.js';
+import { TimelineReferenceService } from './TimelineReferenceService.js';
+import { refreshPlacementChannel, replacePlacementPins } from './placement-change.js';
+import { TimelinePlacementSource } from './TimelinePlacementSource.js';
+import type { GridspaceChannelAuthService } from '../GridspaceChannelAuthService.js';
+import type { GridspaceSearchService } from '../GridspaceSearchService.js';
 import type { GridspacePrivateService } from '../GridspacePrivateService.js';
 import type { GridspacePlacementService } from '../GridspacePlacementService.js';
 import type { GridspaceNoteService } from '../GridspaceNoteService.js';
 import type { TimelineLocalSource } from './TimelineLocalSource.js';
-import { MiGridspaceTimelineChange, MiGridspaceTimelineState } from '@/models/GridspaceTimeline.js';
-import { ChannelEntityService } from '@/core/entities/ChannelEntityService.js';
-import { TimelineReferenceService } from './TimelineReferenceService.js';
-import { refreshPlacementChannel, replacePlacementPins } from './placement-change.js';
-import { TimelinePlacementSource } from './TimelinePlacementSource.js';
 import type { TimelineReference } from './timeline-protocol.js';
 
 const origin = 'https://index.example';
 const other = 'https://other.example';
 const viewer = { id: 'viewer' } as MiLocalUser;
 const config: Config = { ...loadConfig(), url: origin, id: 'aidx', gridspace: { enabled: true, timelineEnabled: true,
-	keyId: 'test', communityId: 'test', peerUrl: other, secretEnv: 'TEST_PLACEMENT_TIMELINE_KEY' } };
+																																																																																keyId: 'test', communityId: 'test', peerUrl: other, secretEnv: 'TEST_PLACEMENT_TIMELINE_KEY' } };
 const secret = process.env.TEST_PLACEMENT_TIMELINE_KEY;
 beforeAll(() => { process.env.TEST_PLACEMENT_TIMELINE_KEY = Buffer.alloc(32, 9).toString('base64'); });
 afterAll(() => {
@@ -52,6 +52,27 @@ function fixture(db: DataSource) {
 }
 
 describe('listing authority and body authority', () => {
+	test.each([false, true])('batches only legacy notes in the same channel; revoked batch=%s', async revoked => {
+		const { source, local, delegated } = fixture(mockDeep<DataSource>());
+		local.hydrateQuery.mockResolvedValue([]);
+		const refs = ['a1', 'a2', 'b1', 'modern'].map((id): TimelineReference => ({ source: 'peer', noteId: id,
+																																																																														canonicalUri: `${other}/notes/${id}`, sortAt: '1', generation: 2, normalized: true,
+																																																																														placement: { channelId: id === 'b1' ? 'b' : 'a', channelOrigin: other, noteOrigin: other, includeDefault: false, legacy: id !== 'modern' },
+		}));
+		delegated.notes.mockImplementation(async (_viewer, options) => {
+			if (options.channelId === 'a' && revoked) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+			// A deleted/unreadable member is omitted by the source; another member remains readable.
+			const ids = options.ids?.filter(id => id !== 'a2') ?? [options.noteId!];
+			return { notes: ids.map(id => ({ id, origin: other, uri: `${other}/notes/${id}` })) } as never;
+		});
+		const result = await source.bodies(viewer, refs, Date.now() + 5000);
+		expect([...result.keys()].sort()).toEqual((revoked ? ['b1', 'modern'] : ['a1', 'b1', 'modern']).map(id => `${other}/notes/${id}`).sort());
+		expect(delegated.notes).toHaveBeenCalledTimes(3);
+		expect(delegated.notes).toHaveBeenCalledWith(viewer, { mode: 'validate', contextMode: 'channel', channelId: 'a', ids: ['a1', 'a2'] }, 2);
+		expect(delegated.notes).toHaveBeenCalledWith(viewer, { mode: 'validate', contextMode: 'channel', channelId: 'b', ids: ['b1'] }, 1);
+		expect(delegated.notes).toHaveBeenCalledWith(viewer, { mode: 'show', noteId: 'modern', conversationUri: `${other}/notes/modern` }, 1);
+	});
+
 	test('existing home placements remain readable after disabling new writes', async () => {
 		const { source, placements } = fixture(mockDeep<DataSource>());
 		placements.peerEnabled.mockResolvedValue(false);
@@ -105,7 +126,7 @@ describe('listing authority and body authority', () => {
 	test.each(['local', 'peer'] as const)('a %s index returns local originals without a peer callback', async index => {
 		const { source, local, delegated } = fixture(mockDeep<DataSource>());
 		const ref: TimelineReference = { source: index, noteId: 'original', canonicalUri: origin + '/notes/original', sortAt: '1', generation: 2, normalized: true,
-			placement: { channelId: 'chan', channelOrigin: index === 'local' ? origin : other, noteOrigin: origin, includeDefault: false, legacy: false } };
+																																			placement: { channelId: 'chan', channelOrigin: index === 'local' ? origin : other, noteOrigin: origin, includeDefault: false, legacy: false } };
 		local.hydrateQuery.mockResolvedValue([{ reference: ref, payload: { id: 'original' }, validForMs: null, nextPolicyCheckAt: null }] as never);
 		expect((await source.bodies(viewer, [ref], Date.now() + 1000)).get(ref.canonicalUri)?.representation).toBe('normal');
 		expect(delegated.notes).not.toHaveBeenCalled();
@@ -116,7 +137,7 @@ describe('listing authority and body authority', () => {
 		local.hydrateQuery.mockResolvedValue([]);
 		const uri = other + '/notes/original';
 		const ref: TimelineReference = { source: index, noteId: 'original', canonicalUri: uri, sortAt: '1', generation: 2, normalized: true,
-			placement: { channelId: 'chan', channelOrigin: index === 'local' ? origin : other, noteOrigin: other, includeDefault: false, legacy: false } };
+																																			placement: { channelId: 'chan', channelOrigin: index === 'local' ? origin : other, noteOrigin: other, includeDefault: false, legacy: false } };
 		delegated.notes.mockResolvedValue({ notes: [{ id: 'original', uri, origin: other }] } as never);
 		expect((await source.bodies(viewer, [ref], Date.now() + 1000)).get(uri)?.representation).toBe('delegated');
 		expect(delegated.notes).toHaveBeenCalledWith(viewer, { mode: 'show', noteId: 'original', conversationUri: uri }, 1);
@@ -129,7 +150,7 @@ test.each(['failure', 'unavailable', 'imported'] as const)('normal remote origin
 	const { source, local, shared, delegated } = fixture(db as unknown as DataSource);
 	const uri = other + '/notes/n';
 	const ref: TimelineReference = { source: 'local', noteId: 'n', canonicalUri: uri, sortAt: '1', generation: 2, normalized: true,
-		placement: { channelId: 'c', channelOrigin: origin, noteOrigin: other, includeDefault: true, legacy: false } };
+																																		placement: { channelId: 'c', channelOrigin: origin, noteOrigin: other, includeDefault: true, legacy: false } };
 	if (mode === 'failure') shared.historyNotes.mockRejectedValue(new Error('import unavailable'));
 	else shared.historyNotes.mockResolvedValue((mode === 'imported' ? new Map([['n', { id: 'mirror', uri }]]) : new Map()) as never);
 	local.hydrateQuery.mockImplementation(async (_viewer, _query, refs) => refs.map(reference => ({ reference, payload: { id: reference.noteId, myReaction: 'local' }, validForMs: null, nextPolicyCheckAt: null })) as never);
@@ -150,7 +171,7 @@ describe('channel placement index and legacy projections', () => {
 	let source: TimelinePlacementSource;
 	beforeAll(async () => {
 		db = new DataSource({ type: 'postgres', host: config.db.host, port: config.db.port, database: config.db.db, username: config.db.user, password: config.db.pass,
-			entities: [MiGridspaceTimelineChange, MiGridspaceTimelineState] });
+																								entities: [MiGridspaceTimelineChange, MiGridspaceTimelineState] });
 		await db.initialize();
 		runner = db.createQueryRunner();
 		await runner.startTransaction();
@@ -170,10 +191,10 @@ describe('channel placement index and legacy projections', () => {
 			'blocking ("blockerId" text, "blockeeId" text)',
 		];
 		for (const table of ddl) await runner.query('CREATE TEMP TABLE ' + table + ' ON COMMIT DROP');
-		await runner.query("INSERT INTO channel VALUES ('a','A','#fff',false,'owner',null,0,0,'{}'),('b','B','#fff',false,'owner',null,0,0,'{}')");
-		await runner.query("INSERT INTO \"user\" VALUES ('viewer',null),('owner',null)");
-		await runner.query("INSERT INTO note VALUES ('00000001',null,'a','owner',null,null,false)");
-		await runner.query("INSERT INTO channel_following VALUES ('viewer','a'),('viewer','b')");
+		await runner.query('INSERT INTO channel VALUES (\'a\',\'A\',\'#fff\',false,\'owner\',null,0,0,\'{}\'),(\'b\',\'B\',\'#fff\',false,\'owner\',null,0,0,\'{}\')');
+		await runner.query('INSERT INTO "user" VALUES (\'viewer\',null),(\'owner\',null)');
+		await runner.query('INSERT INTO note VALUES (\'00000001\',null,\'a\',\'owner\',null,null,false)');
+		await runner.query('INSERT INTO channel_following VALUES (\'viewer\',\'a\'),(\'viewer\',\'b\')');
 		for (const channel of ['a', 'b']) await runner.query(`INSERT INTO gridspace_channel_placement VALUES
 			($1,'2026-01-01','remote',$2,'active',$3,false,$4)`, [other + '/notes/remote', channel, other, other + '/users/author']);
 		source = fixture({ query: runner.query.bind(runner) } as unknown as DataSource).source;
@@ -192,7 +213,7 @@ describe('channel placement index and legacy projections', () => {
 		const refs = [reference(localUri, origin), reference(peerUri, other)];
 		const f = fixture({ query: runner.query.bind(runner) } as unknown as DataSource);
 		const fields = { id: 'plain', text: null as string | null, cw: null, files: [], poll: null, includeDefault: false, multiNoteKind: 'root',
-			gridspaceQuote: origin + '/notes/target?gridspaceChannelOrigin=' + encodeURIComponent(other) + '&gridspaceChannelId=a' };
+																			gridspaceQuote: origin + '/notes/target?gridspaceChannelOrigin=' + encodeURIComponent(other) + '&gridspaceChannelId=a' };
 		f.local.hydrateQuery.mockImplementation(async () => [{ reference: refs[0], payload: { ...fields, userId: viewer.id }, validForMs: null, nextPolicyCheckAt: null }] as never);
 		f.delegated.notes.mockImplementation(async () => ({ notes: [{ ...fields, origin: other, uri: peerUri, author: { uri: other + '/users/renoter' } }] }) as never);
 		const read = async (options = {}) => [...(await f.source.bodies(viewer, refs, Date.now() + 5000, options)).keys()];
@@ -216,11 +237,11 @@ describe('channel placement index and legacy projections', () => {
 		const rootId = '00010000';
 		const children = ['00010001', '00010002'];
 		const channelId = 'replyChannel';
-		await runner.query("INSERT INTO channel VALUES ($1, 'Replies', '#fff', false, 'owner', NULL, 0, 0, '{}')", [channelId]);
+		await runner.query('INSERT INTO channel VALUES ($1, \'Replies\', \'#fff\', false, \'owner\', NULL, 0, 0, \'{}\')', [channelId]);
 		await runner.query('INSERT INTO note (id, "userId", "includeDefault", "multiNoteKind") VALUES ($1, $2, false, $3)', [rootId, 'owner', 'root']);
 		for (const id of children) await runner.query('INSERT INTO note (id, "userId", "includeDefault", "multiNoteKind", "threadId", "multiNoteRootId") VALUES ($1, $2, false, $3, $4, $4)', [id, 'viewer', 'conversation-reply', rootId]);
-		await runner.query("INSERT INTO note_channel_placement VALUES ($1, '1999-01-01', $2, $3, 'active')", [origin + '/notes/' + rootId, rootId, channelId]);
-		await runner.query("INSERT INTO gridspace_placement_target VALUES ($1,$2,$3,'active')", [rootId, channelId, other]);
+		await runner.query('INSERT INTO note_channel_placement VALUES ($1, \'1999-01-01\', $2, $3, \'active\')', [origin + '/notes/' + rootId, rootId, channelId]);
+		await runner.query('INSERT INTO gridspace_placement_target VALUES ($1,$2,$3,\'active\')', [rootId, channelId, other]);
 		const f = fixture({ query: runner.query.bind(runner) } as unknown as DataSource);
 		f.placements.supportsChannelReplies.mockResolvedValue(true);
 		const visible = new Set([rootId, ...children]);
@@ -245,7 +266,7 @@ describe('channel placement index and legacy projections', () => {
 			expect((await read({ uris: [origin + '/notes/' + children[1]] })).references).toEqual([]);
 			visible.add(rootId);
 			f.changes.changes.mockResolvedValueOnce({ cursor: '2', resetRequired: false, hasMore: false,
-				events: [{ kind: 'insert', noteId: children[1] }] } as never);
+																																													events: [{ kind: 'insert', noteId: children[1] }] } as never);
 			expect((await read({ uris: [], after: '1' })).changed).toBe(true);
 			active = false;
 			expect((await read({ uris: [origin + '/notes/' + children[1]] })).references).toEqual([]);
@@ -263,7 +284,7 @@ describe('channel placement index and legacy projections', () => {
 	test('one URI retains all followed routes and a mute removes only its own route', async () => {
 		const read = async () => (await source.read(viewer, origin, { followed: true }, Date.now() + 1000)).references;
 		expect((await read()).map(ref => ref.placement!.channelIds)).toEqual([['a', 'b']]);
-		await runner.query("INSERT INTO channel_muting VALUES ('viewer','a',NULL)");
+		await runner.query('INSERT INTO channel_muting VALUES (\'viewer\',\'a\',NULL)');
 		expect((await read()).map(ref => ref.placement!.channelIds)).toEqual([['b']]);
 	});
 	test('a linked follow selects a dedicated root while retaining the guest ACL and both channel policies', async () => {
@@ -275,10 +296,10 @@ describe('channel placement index and legacy projections', () => {
 		const link = { localUserId: 'linkedOwner', peerUserId: 'caller', initiator: false };
 		f.placements.resolveActor.mockResolvedValue({ id: 'guest' } as MiRemoteUser);
 		f.links.authorizePrivate.mockResolvedValue(link as never);
-		await runner.query("INSERT INTO channel VALUES ($1, 'Linked', '#aaa', false, 'linkedOwner', NULL, 0, 0, '{}')", [channel]);
-		await runner.query("INSERT INTO gridspace_channel_placement VALUES ($1, '2026-01-01', 'linkedOriginal', $2, 'active', $3, false, $4)",
+		await runner.query('INSERT INTO channel VALUES ($1, \'Linked\', \'#aaa\', false, \'linkedOwner\', NULL, 0, 0, \'{}\')', [channel]);
+		await runner.query('INSERT INTO gridspace_channel_placement VALUES ($1, \'2026-01-01\', \'linkedOriginal\', $2, \'active\', $3, false, $4)',
 			[uri, channel, other, other + '/users/anotherAuthor']);
-		await runner.query("INSERT INTO channel_following VALUES ('linkedOwner', $1)", [channel]);
+		await runner.query('INSERT INTO channel_following VALUES (\'linkedOwner\', $1)', [channel]);
 		const read = async () => (await f.source.peerPage({ ...input, followedLink })).references;
 		expect((await f.source.peerPage(input)).references).toEqual([]);
 		expect(await read()).toMatchObject([{ canonicalUri: uri, placement: { chips: [{ canRemove: false }] } }]);
@@ -297,9 +318,9 @@ describe('channel placement index and legacy projections', () => {
 			expect(await read()).toEqual([]);
 			await runner.query('DELETE FROM channel_muting WHERE "userId" = $1 AND "channelId" = $2', [id, channel]);
 		}
-		await runner.query(`UPDATE channel SET "userId" = 'otherOwner' WHERE id = $1`, [channel]);
+		await runner.query('UPDATE channel SET "userId" = \'otherOwner\' WHERE id = $1', [channel]);
 		for (const id of ['guest', 'linkedOwner']) {
-			await runner.query("INSERT INTO blocking VALUES ('otherOwner', $1)", [id]);
+			await runner.query('INSERT INTO blocking VALUES (\'otherOwner\', $1)', [id]);
 			expect(await read()).toEqual([]);
 			await runner.query('DELETE FROM blocking WHERE "blockeeId" = $1', [id]);
 		}
@@ -309,8 +330,8 @@ describe('channel placement index and legacy projections', () => {
 	test('local and peer readers can open and follow a sensitive channel with the same mute and block rules', async () => {
 		const channelId = 'sensitive';
 		const uri = other + '/notes/sensitive';
-		await runner.query("INSERT INTO channel VALUES ($1, 'Sensitive', '#aaa', true, 'sensitiveOwner', NULL, 0, 0, '{}')", [channelId]);
-		await runner.query("INSERT INTO gridspace_channel_placement VALUES ($1, '2026-01-01', 'sensitive', $2, 'active', $3, false, $4)",
+		await runner.query('INSERT INTO channel VALUES ($1, \'Sensitive\', \'#aaa\', true, \'sensitiveOwner\', NULL, 0, 0, \'{}\')', [channelId]);
+		await runner.query('INSERT INTO gridspace_channel_placement VALUES ($1, \'2026-01-01\', \'sensitive\', $2, \'active\', $3, false, $4)',
 			[uri, channelId, other, other + '/users/author']);
 		await runner.query('INSERT INTO channel_following VALUES ($1, $2)', [viewer.id, channelId]);
 		const { source: index, placements } = fixture({ query: runner.query.bind(runner) } as unknown as DataSource);
@@ -336,8 +357,8 @@ describe('channel placement index and legacy projections', () => {
 	test('a delayed verified mirror populates legacy pins and a stale ID-only edit preserves the canonical pin', async () => {
 		const channelId = 'late';
 		const uri = other + '/notes/later';
-		await runner.query("INSERT INTO channel VALUES ($1,'Later','#aaa',false,'owner',NULL,0,0,'{}')", [channelId]);
-		await runner.query("INSERT INTO gridspace_channel_placement VALUES ($1,'2026-01-02','later',$2,'active',$3,true,$4)", [uri, channelId, other, other + '/users/author']);
+		await runner.query('INSERT INTO channel VALUES ($1,\'Later\',\'#aaa\',false,\'owner\',NULL,0,0,\'{}\')', [channelId]);
+		await runner.query('INSERT INTO gridspace_channel_placement VALUES ($1,\'2026-01-02\',\'later\',$2,\'active\',$3,true,$4)', [uri, channelId, other, other + '/users/author']);
 		await replacePlacementPins(runner.manager, channelId, origin, 'aidx', { uris: [uri] });
 		const service = new TimelineReferenceService({ transaction: runner.manager.transaction.bind(runner.manager) } as never, config, {} as never,
 			{ publishPlacedChannelMirror: vi.fn() } as never, undefined, undefined, {} as never, { enableFanoutTimeline: false } as never);
@@ -353,12 +374,12 @@ describe('channel placement index and legacy projections', () => {
 			return entity.pack(channel, null, true);
 		};
 		expect((await pack()).pinnedNoteIds).toEqual([]);
-		await runner.query(`INSERT INTO note (id, uri, "userHost", visibility, "gridspaceShared") VALUES ('mirror',$1,'other.example','public',false)`, [uri]);
-		await runner.query("INSERT INTO gridspace_timeline_change VALUES (1,'insert','mirror',NULL,$1,NULL)", [uri]);
+		await runner.query('INSERT INTO note (id, uri, "userHost", visibility, "gridspaceShared") VALUES (\'mirror\',$1,\'other.example\',\'public\',false)', [uri]);
+		await runner.query('INSERT INTO gridspace_timeline_change VALUES (1,\'insert\',\'mirror\',NULL,$1,NULL)', [uri]);
 		await service.projectPlacedMirrors();
 		expect((await pack()).pinnedNotes).toEqual([]);
-		await runner.query(`UPDATE note SET "gridspaceShared" = true WHERE id='mirror'`);
-		await runner.query("INSERT INTO gridspace_timeline_change VALUES (2,'mirror-ready','mirror',NULL,$1,NULL)", [uri]);
+		await runner.query('UPDATE note SET "gridspaceShared" = true WHERE id=\'mirror\'');
+		await runner.query('INSERT INTO gridspace_timeline_change VALUES (2,\'mirror-ready\',\'mirror\',NULL,$1,NULL)', [uri]);
 		await service.projectPlacedMirrors();
 		const projected = await pack();
 		expect(projected.pinnedNoteIds).toEqual(['mirror']);
@@ -377,11 +398,11 @@ describe('channel placement index and legacy projections', () => {
 		expect(secondPin.references.map(ref => ref.noteId)).toEqual(['remote']);
 		await replacePlacementPins(runner.manager, 'a', origin, 'aidx', { ids: [] });
 		expect(await runner.query('SELECT "canonicalUri" FROM channel_placement_pin')).toEqual([{ canonicalUri: uri }]);
-		const [channel] = await runner.query("SELECT * FROM channel WHERE id='a'");
+		const [channel] = await runner.query('SELECT * FROM channel WHERE id=\'a\'');
 		expect(channel).toMatchObject({ notesCount: 2, usersCount: 2, pinnedNoteIds: [] });
-		await runner.query("UPDATE gridspace_channel_placement SET state='removed' WHERE \"channelId\"='a'");
+		await runner.query('UPDATE gridspace_channel_placement SET state=\'removed\' WHERE "channelId"=\'a\'');
 		await refreshPlacementChannel(runner.manager, 'a', origin, 'aidx');
 		expect(await runner.query('SELECT "canonicalUri" FROM channel_placement_pin')).toEqual([]);
-		expect((await runner.query("SELECT * FROM channel WHERE id='a'"))[0].notesCount).toBe(1);
+		expect((await runner.query('SELECT * FROM channel WHERE id=\'a\''))[0].notesCount).toBe(1);
 	});
 });

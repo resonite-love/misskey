@@ -8,6 +8,7 @@ import fetch, { AbortError, FetchError } from 'node-fetch';
 import { Inject, Injectable, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { DataSource, In, IsNull, LessThan, Raw, type EntityManager } from 'typeorm';
+import { measurePeerRequest } from '@/misc/request-performance.js';
 import { DI } from '@/di-symbols.js';
 import type { Config } from '@/config.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
@@ -15,17 +16,11 @@ import { MiRegistryItem } from '@/models/RegistryItem.js';
 import { MiUserProfile } from '@/models/UserProfile.js';
 import { MiDriveFile } from '@/models/DriveFile.js';
 import { MiAvatarDecoration } from '@/models/AvatarDecoration.js';
-import { parseSettingsSnapshot, selectAccountSettings, settingsScope, settingsKey, settingsDomain, type SettingsSnapshot } from './settings-protocol.js';
 import { MiUserList } from '@/models/UserList.js';
 import { MiUserListMembership } from '@/models/UserListMembership.js';
-import { parseLinkedLists, parseLinkedAntennas, type LinkedList } from './collections-protocol.js';
 import { MiAntenna } from '@/models/Antenna.js';
 import { MiFlash } from '@/models/Flash.js';
-import { parseLinkedPlay, parseLinkedPlayIndex } from './play-import-protocol.js';
-import { parseLinkedProfile, type LinkedProfile } from './profile-protocol.js';
-import { profileFields } from './profile-protocol.js';
 import type ProfileImport from '@/server/api/endpoints/gridspace/profile-import.js';
-import { GRIDSPACE_PALETTE_SCOPE, GRIDSPACE_PALETTE_REGISTRY_SCOPE, GRIDSPACE_PALETTE_REGISTRY_KEY, parseGridspacePalette, type GridspacePalette } from './palette-protocol.js';
 import { MiAccessToken } from '@/models/AccessToken.js';
 import { MiFollowing } from '@/models/Following.js';
 import { MiFollowRequest } from '@/models/FollowRequest.js';
@@ -35,6 +30,12 @@ import { MiGridspaceAuthSession, MiGridspaceFollowOverride, MiGridspaceImportIte
 import { IdService } from '@/core/IdService.js';
 import { UserFollowingService } from '@/core/UserFollowingService.js';
 import { ApPersonService } from '@/core/activitypub/models/ApPersonService.js';
+import { GRIDSPACE_PALETTE_SCOPE, GRIDSPACE_PALETTE_REGISTRY_SCOPE, GRIDSPACE_PALETTE_REGISTRY_KEY, parseGridspacePalette, type GridspacePalette } from './palette-protocol.js';
+import { profileFields } from './profile-protocol.js';
+import { parseLinkedProfile, type LinkedProfile } from './profile-protocol.js';
+import { parseLinkedPlay, parseLinkedPlayIndex } from './play-import-protocol.js';
+import { parseLinkedLists, parseLinkedAntennas, type LinkedList } from './collections-protocol.js';
+import { parseSettingsSnapshot, selectAccountSettings, settingsScope, settingsKey, settingsDomain, type SettingsSnapshot } from './settings-protocol.js';
 import { GridspaceFollowGuardService } from './GridspaceFollowGuardService.js';
 import { GridspacePlacementService } from './GridspacePlacementService.js';
 import { gridspacePeerTransport } from './peer-client.js';
@@ -83,33 +84,35 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 	}
 
 	public async json<T>(path: string, body: object, signed = true, maxBytes = 4 * 1024 * 1024): Promise<T> {
-		const peer = this.enabled();
-		const bytes = Buffer.from(JSON.stringify(body));
-		let status: number | undefined;
-		try {
+		return measurePeerRequest(path, async () => {
+			const peer = this.enabled();
+			const bytes = Buffer.from(JSON.stringify(body));
+			let status: number | undefined;
+			try {
 			// Keep reciprocal authorization POSTs off native fetch's HTTP/2 connection.
-			const transport = gridspacePeerTransport(peer, path);
-			const response = await fetch(transport.url, {
-				agent: transport.agent,
-				method: 'POST', body: bytes, redirect: 'error', signal: AbortSignal.timeout(10000),
-				size: maxBytes,
-				headers: { ...(signed ? createGridspaceHeaders(peer, 'POST', path, bytes) : { 'content-type': 'application/json' }), host: transport.host },
-			});
-			status = response.status;
-			// node-fetch bounds streaming bodies, not just Content-Length.
-			const result = await response.json();
-			if (!response.ok) {
-				const known = ['LINK_CONFLICT', 'LINK_REVOKED', 'AUTHORIZATION_REVOKED', 'NOTIFICATIONS_NOT_GRANTED', 'SNAPSHOT_TOO_LARGE', 'REPLY_UNAVAILABLE', 'REPLY_REJECTED', 'REPLY_CONFLICT', 'REPLY_DELETED', 'RATE_LIMITED', 'ACTION_REJECTED', 'FILE_REJECTED', 'PLAY_UNAVAILABLE', 'CHANNEL_UNAVAILABLE', 'EMOJI_CONFLICT', 'NAME_CONFLICT', 'ROLE_RESTRICTED', 'IMAGE_CHANGED', 'IMAGE_UNAVAILABLE', 'EMOJI_LIMIT', 'BUSY'];
-				const code = (result as { error?: unknown } | null)?.error;
-				throw new GridspaceLinkError(typeof code === 'string' && known.includes(code) ? code : 'PEER_UNAVAILABLE');
-			}
-			return result as T;
-		} catch (error) {
-			if (error instanceof GridspaceLinkError) throw error;
-			const transport = (status == null || status >= 200 && status < 300) && (error instanceof AbortError ||
+				const transport = gridspacePeerTransport(peer, path);
+				const response = await fetch(transport.url, {
+					agent: transport.agent,
+					method: 'POST', body: bytes, redirect: 'error', signal: AbortSignal.timeout(10000),
+					size: maxBytes,
+					headers: { ...(signed ? createGridspaceHeaders(peer, 'POST', path, bytes) : { 'content-type': 'application/json' }), host: transport.host },
+				});
+				status = response.status;
+				// node-fetch bounds streaming bodies, not just Content-Length.
+				const result = await response.json();
+				if (!response.ok) {
+					const known = ['LINK_CONFLICT', 'LINK_REVOKED', 'AUTHORIZATION_REVOKED', 'NOTIFICATIONS_NOT_GRANTED', 'SNAPSHOT_TOO_LARGE', 'REPLY_UNAVAILABLE', 'REPLY_REJECTED', 'REPLY_CONFLICT', 'REPLY_DELETED', 'RATE_LIMITED', 'ACTION_REJECTED', 'FILE_REJECTED', 'PLAY_UNAVAILABLE', 'CHANNEL_UNAVAILABLE', 'EMOJI_CONFLICT', 'NAME_CONFLICT', 'ROLE_RESTRICTED', 'IMAGE_CHANGED', 'IMAGE_UNAVAILABLE', 'EMOJI_LIMIT', 'BUSY'];
+					const code = (result as { error?: unknown } | null)?.error;
+					throw new GridspaceLinkError(typeof code === 'string' && known.includes(code) ? code : 'PEER_UNAVAILABLE');
+				}
+				return result as T;
+			} catch (error) {
+				if (error instanceof GridspaceLinkError) throw error;
+				const transport = (status == null || status >= 200 && status < 300) && (error instanceof AbortError ||
 				error instanceof FetchError && error.type === 'system' && ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENETUNREACH', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE', 'ERR_STREAM_PREMATURE_CLOSE'].includes(error.code ?? ''));
-			throw new GridspaceLinkError('PEER_UNAVAILABLE', transport);
-		}
+				throw new GridspaceLinkError('PEER_UNAVAILABLE', transport);
+			}
+		});
 	}
 
 	public async start(user: MiLocalUser, purpose: MiGridspaceAuthSession['purpose'] = 'link-all') {
@@ -134,7 +137,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		url.search = new URLSearchParams({
 			response_type: 'code', client_id: peer.origin + (!isLinkPurpose(purpose) ? GRIDSPACE_PRIVATE_CLIENT_PATH : GRIDSPACE_CLIENT_PATH),
 			redirect_uri: peer.origin + GRIDSPACE_CALLBACK_PATH, scope: purpose === 'link-all' ? GRIDSPACE_ALL_SCOPES.join(' ') : purpose === 'private-all' ? GRIDSPACE_PRIVATE_SCOPES.join(' ') : purpose === 'private-actions' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_REPLY_SCOPE} ${GRIDSPACE_ACTION_SCOPE}` : purpose === 'private-full' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_REPLY_SCOPE} ${GRIDSPACE_NOTIFICATION_SCOPE} ${GRIDSPACE_NOTIFICATION_WRITE_SCOPE}` : purpose === 'private-notify' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_NOTIFICATION_SCOPE} ${GRIDSPACE_NOTIFICATION_WRITE_SCOPE}` : purpose === 'private-reply' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE} ${GRIDSPACE_REPLY_SCOPE}` : purpose === 'private-mutual' ? `${GRIDSPACE_PRIVATE_SCOPE} ${GRIDSPACE_PRIVATE_RECIPROCAL_SCOPE}` : purpose === 'private' ? GRIDSPACE_PRIVATE_SCOPE : GRIDSPACE_LINK_SCOPES.join(' '),
-			state, code_challenge: gridspaceChallenge(verifier), code_challenge_method: 'S256'
+			state, code_challenge: gridspaceChallenge(verifier), code_challenge_method: 'S256',
 		}).toString();
 		return { authorizationUrl: url.href, clientKey };
 	}
@@ -170,7 +173,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 				link = links.create({
 					...link, id: link?.id ?? randomUUID(), localUserId: user.id, peerOrigin: peer.peerOrigin,
 					peerUserId: identity.id, peerUsername: identity.username, generation: (link?.generation ?? 0) + 1,
-					initiator: true, state: 'preparing', tokenCipher: null, privateTokenCipher: null, privateTokenHash: null, privateMutualGrantId: null, privateMutualReady: false, privateRevocationCipher: null, createdAt: link?.createdAt ?? session.createdAt, lastError: null
+					initiator: true, state: 'preparing', tokenCipher: null, privateTokenCipher: null, privateTokenHash: null, privateMutualGrantId: null, privateMutualReady: false, privateRevocationCipher: null, createdAt: link?.createdAt ?? session.createdAt, lastError: null,
 				});
 				try {
 					await this.db.transaction(async manager => {
@@ -191,13 +194,13 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 						if (typeof item.uri !== 'string' || item.uri.length > 512 || !/^https?:\/\//.test(item.uri)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 						await manager.getRepository(MiGridspaceImportItem).insert({
 							id: randomUUID(), linkId: link.id, actorUri: item.uri,
-							withReplies: item.withReplies === true, state: item.skip ? 'skipped' : 'pending', reason: item.skip
+							withReplies: item.withReplies === true, state: item.skip ? 'skipped' : 'pending', reason: item.skip,
 						});
 					}
 				}
 				await manager.getRepository(MiGridspaceLink).update(link.id, {
 					state: 'active', snapshot: prepared.snapshot,
-					snapshotAt: new Date(prepared.snapshotAt), tokenCipher: sealGridspaceSecret(peer, accessToken, link.id), lastError: 'PROFILE_PENDING'
+					snapshotAt: new Date(prepared.snapshotAt), tokenCipher: sealGridspaceSecret(peer, accessToken, link.id), lastError: 'PROFILE_PENDING',
 				});
 				if (session.purpose === 'link') await manager.getRepository(MiGridspaceAuthSession).update(session.id, { completed: true, tokenCipher: null, verifierCipher: '' });
 			});
@@ -288,10 +291,10 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 				if (mutes.length > 10000 || blocks.length > 10000) throw new GridspaceLinkError('SNAPSHOT_TOO_LARGE');
 				const item = await this.db.getRepository(MiRegistryItem).findOneBy({ userId: user.id, domain: settingsDomain, scope: Raw(alias => `${alias} = :scope`, { scope: settingsScope }), key: settingsKey });
 				const settings: SettingsSnapshot = { account: selectAccountSettings({ ...profile, ...user }), client: typeof item?.value === 'string' ? item.value : null,
-					restrictions: [
-						...blocks.filter(b => b.blockee).map(b => ({ kind: 'block' as const, uri: b.blockee!.uri ?? `${peer.origin}/users/${b.blockeeId}`, expiresAt: null })),
-						...mutes.filter(m => m.mutee && (!m.expiresAt || m.expiresAt.getTime() > Date.now())).map(m => ({ kind: 'mute' as const, uri: m.mutee!.uri ?? `${peer.origin}/users/${m.muteeId}`, expiresAt: m.expiresAt?.getTime() ?? null })),
-					] };
+																																									restrictions: [
+																																										...blocks.filter(b => b.blockee).map(b => ({ kind: 'block' as const, uri: b.blockee!.uri ?? `${peer.origin}/users/${b.blockeeId}`, expiresAt: null })),
+																																										...mutes.filter(m => m.mutee && (!m.expiresAt || m.expiresAt.getTime() > Date.now())).map(m => ({ kind: 'mute' as const, uri: m.mutee!.uri ?? `${peer.origin}/users/${m.muteeId}`, expiresAt: m.expiresAt?.getTime() ?? null })),
+																																									] };
 				await this.authorized(input.accessToken);
 				if (!await this.db.getRepository(MiGridspaceLink).existsBy({ id: input.linkId, localUserId: user.id, generation: input.generation, state: 'active' })) throw new GridspaceLinkError('LINK_REVOKED');
 				return { userId: user.id, settings: parseSettingsSnapshot(settings) };
@@ -302,11 +305,11 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 				const image = async (id: string | null) => id ? (await this.db.getRepository(MiDriveFile).findOneBy({ id, userId: user.id }))?.url ?? null : null;
 				const decorations = user.avatarDecorations.length ? await this.db.getRepository(MiAvatarDecoration).findBy({ id: In(user.avatarDecorations.map(d => d.id)) }) : [];
 				const result = { name: user.name, description: profile.description, location: profile.location, birthday: profile.birthday, fields: profile.fields,
-					avatarUrl: await image(user.avatarId), bannerUrl: await image(user.bannerId),
-					avatarDecorations: user.avatarDecorations.flatMap(worn => {
-						const definition = decorations.find(d => d.id === worn.id);
-						return definition ? [{ name: definition.name, url: definition.url, angle: worn.angle ?? 0, flipH: worn.flipH ?? false, offsetX: worn.offsetX ?? 0, offsetY: worn.offsetY ?? 0 }] : [];
-					}) };
+																					avatarUrl: await image(user.avatarId), bannerUrl: await image(user.bannerId),
+																					avatarDecorations: user.avatarDecorations.flatMap(worn => {
+																						const definition = decorations.find(d => d.id === worn.id);
+																						return definition ? [{ name: definition.name, url: definition.url, angle: worn.angle ?? 0, flipH: worn.flipH ?? false, offsetX: worn.offsetX ?? 0, offsetY: worn.offsetY ?? 0 }] : [];
+																					}) };
 				await this.authorized(input.accessToken);
 				if (!await this.db.getRepository(MiGridspaceLink).existsBy({ id: input.linkId, localUserId: user.id, peerUserId: input.localUserId, generation: input.generation, state: 'active' })) throw new GridspaceLinkError('LINK_REVOKED');
 				return { userId: user.id, profile: parseLinkedProfile(result) };
@@ -329,10 +332,10 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 			const generationChanged = link?.generation !== input.generation;
 			if (generationChanged && link) await this.deletePrivateBinding(manager, link);
 			link = links.create({
-					...link, id: input.linkId, localUserId: user.id, peerOrigin: peer.peerOrigin, peerUserId: input.localUserId,
-					...(generationChanged ? { privateTokenCipher: null, privateTokenHash: null, privateMutualGrantId: null, privateMutualReady: false, privateRevocationCipher: null } : {}),
-					peerUsername: input.localUsername, generation: input.generation, initiator: false, state: 'active', createdAt: link?.createdAt ?? new Date()
-				});
+				...link, id: input.linkId, localUserId: user.id, peerOrigin: peer.peerOrigin, peerUserId: input.localUserId,
+				...(generationChanged ? { privateTokenCipher: null, privateTokenHash: null, privateMutualGrantId: null, privateMutualReady: false, privateRevocationCipher: null } : {}),
+				peerUsername: input.localUsername, generation: input.generation, initiator: false, state: 'active', createdAt: link?.createdAt ?? new Date(),
+			});
 			if (link.snapshot === null || link.snapshot === undefined) {
 				const followed = await manager.getRepository(MiFollowing).find({ where: { followerId: user.id }, relations: { followee: true }, take: 10001 });
 				if (followed.length > 10000) throw new GridspaceLinkError('SNAPSHOT_TOO_LARGE');
@@ -397,7 +400,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		const requested = new Set((await this.db.getRepository(MiFollowRequest).find({ where: { followerId: user.id }, select: { followeeId: true } })).map(request => request.followeeId));
 		const packed = items.map(item => ({
 			uri: item.actorUri, userId: item.targetUserId,
-			state: item.state === 'requested' && item.targetUserId ? following.has(item.targetUserId) ? 'done' : requested.has(item.targetUserId) ? 'requested' : 'cancelled' : item.state, reason: item.reason
+			state: item.state === 'requested' && item.targetUserId ? following.has(item.targetUserId) ? 'done' : requested.has(item.targetUserId) ? 'requested' : 'cancelled' : item.state, reason: item.reason,
 		}));
 		return {
 			enabled: !!this.peer, channelsEnabled: !!this.peer && this.config.gridspace?.channelRole === 'client', peerOrigin: this.peer?.peerOrigin ?? null, state: link?.state ?? 'unlinked', peerUsername: link?.peerUsername ?? null,
@@ -406,7 +409,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 			total: items.length, pending: packed.filter(item => item.state === 'pending').length, done: packed.filter(item => item.state === 'done').length,
 			requested: packed.filter(item => item.state === 'requested').length, failed: packed.filter(item => item.state === 'failed').length,
 			skipped: packed.filter(item => item.state === 'skipped' || item.state === 'cancelled').length, items: packed.slice(0, 100),
-			authorizationUrl: null as string | null, clientKey: null as string | null
+			authorizationUrl: null as string | null, clientKey: null as string | null,
 		};
 	}
 
@@ -701,9 +704,9 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 					await this.deletePrivateBinding(manager, current);
 					// No MiAuth session: these credentials must never be retrievable anonymously.
 					await manager.getRepository(MiAccessToken).insert({ id: tokenId, userId: user.id, token, hash: token, fetched: true,
-						name: peer.peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH, permission: [GRIDSPACE_PRIVATE_SCOPE] });
+																																																									name: peer.peerOrigin + GRIDSPACE_PRIVATE_CLIENT_PATH, permission: [GRIDSPACE_PRIVATE_SCOPE] });
 					await manager.getRepository(MiGridspaceLink).update(link.id, { privateMutualGrantId: session.id, privateMutualReady: false, privateTokenHash: gridspaceHash(token), privateRevision: () => '"privateRevision" + 1',
-						privateTokenCipher: sealGridspaceSecret(peer, accessToken, `private:${link.id}:${link.generation}`) });
+																																																																				privateTokenCipher: sealGridspaceSecret(peer, accessToken, `private:${link.id}:${link.generation}`) });
 					await manager.getRepository(MiGridspaceAuthSession).update(session.id, { privateGrant: { reverseTokenId: tokenId, expectedPeerRevision: probe.revision } });
 				});
 				return { reverseToken: token, expectedRevision: probe.revision };
@@ -741,7 +744,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 	public privateCredential(link: MiGridspaceLink): GridspacePeerLinkRequest {
 		if (!link.privateTokenCipher) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		return { linkId: link.id, generation: link.generation, localUserId: link.localUserId, ...(link.privateMutualGrantId ? { pairId: link.privateMutualGrantId } : {}),
-			accessToken: openGridspaceSecret(this.enabled(), link.privateTokenCipher, `private:${link.id}:${link.generation}`) };
+											accessToken: openGridspaceSecret(this.enabled(), link.privateTokenCipher, `private:${link.id}:${link.generation}`) };
 	}
 
 	public async checkPrivateUnchanged(link: MiGridspaceLink) {
@@ -796,7 +799,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 
 	public async profileReady(link: MiGridspaceLink): Promise<boolean> {
 		const item = await this.db.getRepository(MiRegistryItem).findOneBy({ userId: link.localUserId, domain: IsNull(),
-			scope: Raw(alias => `${alias} = :scope`, { scope: ['gridspace', 'profileImport'] }), key: JSON.stringify([link.peerOrigin, link.peerUserId]) });
+																																																																							scope: Raw(alias => `${alias} = :scope`, { scope: ['gridspace', 'profileImport'] }), key: JSON.stringify([link.peerOrigin, link.peerUserId]) });
 		const done = [...(Array.isArray(item?.value?.copied) ? item.value.copied : []), ...(Array.isArray(item?.value?.skipped) ? item.value.skipped : [])];
 		return profileFields.every(field => done.includes(field));
 	}

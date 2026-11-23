@@ -4,7 +4,6 @@
  */
 
 import { Inject, Injectable } from '@nestjs/common';
-import type { DataSource } from 'typeorm';
 import type { Config } from '@/config.js';
 import { DI } from '@/di-symbols.js';
 import { NotePlacementService, type PackedChannelPlacement } from '@/core/NotePlacementService.js';
@@ -20,18 +19,19 @@ import { GridspacePrivateService } from '../GridspacePrivateService.js';
 import { canonicalGridspaceNoteUri, gridspaceNoteId, gridspaceNoteUris } from '../note-protocol.js';
 import { requestGridspacePeer } from '../peer-client.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from '../peer-protocol.js';
+import { searchNoteTimeSql } from '../search-visibility.js';
 import { TimelineLocalSource } from './TimelineLocalSource.js';
 import { TimelineReferenceService, validTimelinePosition } from './TimelineReferenceService.js';
-import { searchNoteTimeSql } from '../search-visibility.js';
 import { activeChannelEntries } from './placement-change.js';
 import { TIMELINE_AUTHORIZATION_TTL_MS, type TimelineItem, type TimelineOptions, type TimelinePosition, type TimelineReference } from './timeline-protocol.js';
+import type { DataSource } from 'typeorm';
 
 type Position = Pick<TimelinePosition, 'sortAt' | 'canonicalUri' | 'pinRank'>;
 export type PlacementTimelineRequest = { channelId?: string; replyChannelOrigin?: string; includeReplies?: boolean; followed?: boolean; untilAt?: number; after?: string; actorId?: string; followedLink?: Pick<GridspacePeerLinkRequest, 'linkId' | 'generation' | 'localUserId' | 'pairId' | 'accessToken'>; pinnedOnly?: boolean; before?: Position; upper?: Position; uris?: string[]; limit?: number };
 type PlacementPage = { references: TimelineReference[]; next: Position | null; upper: Position | null; sequence: string; changed?: boolean };
 const uri = { type: 'string', pattern: '^https?://', maxLength: 1024 } as const;
 const position = { type: 'object', additionalProperties: false,
-	properties: { pinRank: { type: 'integer', minimum: 0, maximum: 2147483647 }, sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: uri }, required: ['sortAt', 'canonicalUri'] } as const;
+																			properties: { pinRank: { type: 'integer', minimum: 0, maximum: 2147483647 }, sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: uri }, required: ['sortAt', 'canonicalUri'] } as const;
 export const placementTimelineRequestSchema = { type: 'object', additionalProperties: false, properties: {
 	untilAt: { type: 'integer', minimum: 0, maximum: 4102444800000 }, after: { type: 'string', pattern: '^[0-9]{1,19}$' }, followed: { type: 'boolean' }, actorId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	followedLink: { type: 'object', additionalProperties: false, required: ['accessToken', 'linkId', 'localUserId', 'generation'], properties: {
@@ -161,11 +161,11 @@ export class TimelinePlacementSource {
 					const rootChip = chips.get(row.rootId)?.find(chip => chip.origin === channelOrigin && chip.channelId === input.channelId && chip.state === 'active');
 					if (!rootChip) continue;
 					const chip: PackedChannelPlacement = { origin: channelOrigin, channelId: rootChip.channelId, canonicalUri: row.canonicalUri,
-						name: rootChip.name, color: rootChip.color, isArchived: rootChip.isArchived, isSensitive: rootChip.isSensitive,
-						allowRenoteToExternal: rootChip.allowRenoteToExternal, state: 'active', canRemove: false, canRetry: false };
+																																												name: rootChip.name, color: rootChip.color, isArchived: rootChip.isArchived, isSensitive: rootChip.isSensitive,
+																																												allowRenoteToExternal: rootChip.allowRenoteToExternal, state: 'active', canRemove: false, canRetry: false };
 					result.push({ source: 'local', normalized: true, generation: 2, noteId: row.id, sortAt: row.sortAt, canonicalUri: row.canonicalUri,
-						placement: { channelId: chip.channelId, channelIds: [chip.channelId], channelOrigin, noteOrigin: this.peer!.origin,
-							includeDefault: false, legacy: false, chips: [chip] } });
+																			placement: { channelId: chip.channelId, channelIds: [chip.channelId], channelOrigin, noteOrigin: this.peer!.origin,
+																																includeDefault: false, legacy: false, chips: [chip] } });
 				}
 			}
 			if (rows.length < 100) break;
@@ -204,7 +204,7 @@ export class TimelinePlacementSource {
 			(e.kind === 'policy' && (!e.affectedUserId || e.affectedUserId === viewerId))) ||
 			await this.changedReplies(channelOrigin, input.channelId, updates.events.flatMap(e => !e.channelId && e.noteId ? [e.noteId] : []), viewerId) : undefined;
 		return { references, upper: input.upper ?? (references[0] ? key(references[0]) : null),
-			next: references.length && (roots?.next || replies.next || sorted.length > limit) ? key(references.at(-1)!) : null, sequence, changed };
+											next: references.length && (roots?.next || replies.next || sorted.length > limit) ? key(references.at(-1)!) : null, sequence, changed };
 	}
 
 	private async query(input: PlacementTimelineRequest, viewerId: string, remote: boolean, linkedId?: string): Promise<PlacementPage> {
@@ -265,8 +265,8 @@ export class TimelinePlacementSource {
 			GROUP BY a."sortAt", a."canonicalUri" COLLATE "C", a."originNoteId", a."noteOrigin", a."includeDefault", a.legacy
 			ORDER BY ${input.pinnedOnly ? '"pinRank" ASC' : '"entryTime" DESC'}, "canonicalUri" DESC LIMIT $${params.length}`, params);
 		const references: TimelineReference[] = rows.slice(0, limit).map(row => ({ source: 'local', normalized: true, generation: 2,
-			sortAt: row.sortAt, ...(row.pinRank == null ? {} : { pinRank: row.pinRank }), sourceId: row.canonicalUri, canonicalUri: row.canonicalUri, noteId: row.originNoteId,
-			placement: { channelId: row.channelIds[0], channelIds: row.channelIds, chips: row.legacy ? [] : row.chips, channelOrigin: this.peer!.origin, noteOrigin: row.noteOrigin, includeDefault: row.includeDefault, legacy: row.legacy } }));
+																																																																													sortAt: row.sortAt, ...(row.pinRank == null ? {} : { pinRank: row.pinRank }), sourceId: row.canonicalUri, canonicalUri: row.canonicalUri, noteId: row.originNoteId,
+																																																																													placement: { channelId: row.channelIds[0], channelIds: row.channelIds, chips: row.legacy ? [] : row.chips, channelOrigin: this.peer!.origin, noteOrigin: row.noteOrigin, includeDefault: row.includeDefault, legacy: row.legacy } }));
 		const key = (r: TimelineReference): Position => ({ sortAt: r.sortAt, canonicalUri: r.canonicalUri, pinRank: r.pinRank });
 		return { references, upper: input.upper ?? (references[0] ? key(references[0]) : null), next: rows.length > limit ? key(references.at(-1)!) : null, sequence, changed };
 	}
@@ -347,39 +347,60 @@ export class TimelinePlacementSource {
 		const rows = await this.local.hydrateQuery(viewer, async () => this.local.readableQuery(viewer), local);
 		for (const row of rows) result.set(row.reference.canonicalUri, { representation: 'normal', payload: row.payload, validForMs: row.validForMs, nextPolicyCheckAt: row.nextPolicyCheckAt });
 		const remote = refs.filter(ref => ref.placement!.noteOrigin === this.peer!.peerOrigin);
-		for (let offset = 0; offset < remote.length; offset += 4) {
-			await Promise.all(remote.slice(offset, offset + 4).map(async ref => {
+		const batches: TimelineReference[][] = [];
+		const legacyChannels = new Map<string, TimelineReference[]>();
+		for (const ref of remote) {
+			if (!ref.placement!.legacy) {
+				// A conversation has its own authorization scope; do not share it with other notes.
+				batches.push([ref]);
+				continue;
+			}
+			const channelId = ref.placement!.channelId;
+			let batch = legacyChannels.get(channelId);
+			if (!batch || batch.length >= 100) {
+				batch = [];
+				legacyChannels.set(channelId, batch);
+				batches.push(batch);
+			}
+			batch.push(ref);
+		}
+		for (let offset = 0; offset < batches.length; offset += 4) {
+			await Promise.all(batches.slice(offset, offset + 4).map(async batch => {
 				if (Date.now() >= deadline) throw new GridspaceLinkError('PEER_UNAVAILABLE');
-				const context = ref.placement!.legacy ? { channelId: ref.placement!.channelId } : { conversationUri: ref.canonicalUri };
+				const first = batch[0];
 				let page: Awaited<ReturnType<GridspacePrivateService['notes']>>;
 				try {
-					page = await this.delegated.notes(viewer, { mode: 'show', noteId: ref.noteId, ...context }, 1);
+					page = await this.delegated.notes(viewer, first.placement!.legacy
+						? { mode: 'validate', contextMode: 'channel', channelId: first.placement!.channelId, ids: batch.map(ref => ref.noteId) }
+						: { mode: 'show', noteId: first.noteId, conversationUri: first.canonicalUri }, batch.length);
 				} catch (error) {
 					if (!(error instanceof GridspaceLinkError) || !['ACTION_REJECTED', 'AUTHORIZATION_REVOKED', 'LINK_REVOKED'].includes(error.code)) throw error;
-					result.delete(ref.canonicalUri);
+					for (const ref of batch) result.delete(ref.canonicalUri);
 					return;
 				}
-				const note = page.notes.find(note => note.id === ref.noteId && note.origin === ref.placement!.noteOrigin && canonicalGridspaceNoteUri(note.uri, this.peer!.peerOrigin) === ref.canonicalUri);
-				if (!note) {
-					result.delete(ref.canonicalUri);
-					return;
-				}
-				const mirror = result.get(ref.canonicalUri);
-				if (mirror && note.channelPlacements?.length) {
-					const all = new Map(note.channelPlacements.map(chip => [JSON.stringify([chip.origin, chip.channelId]), chip]));
-					for (const chip of mirror.payload.channelPlacements ?? []) all.set(JSON.stringify([chip.origin, chip.channelId]), chip);
-					mirror.payload.channelPlacements = [...all.values()];
-				}
-				if (!ref.placement!.includeDefault || !byUri.has(ref.canonicalUri)) {
-					const readOnly = ref.placement!.includeDefault;
-					if (readOnly) {
-						delete note.myReaction;
-						delete note.myReactions;
-						for (const choice of note.poll?.choices ?? []) delete choice.isVoted;
-						note.canDelete = false;
-						note.canSelfRenote = false;
+				for (const ref of batch) {
+					const note = page.notes.find(note => note.id === ref.noteId && note.origin === ref.placement!.noteOrigin && canonicalGridspaceNoteUri(note.uri, this.peer!.peerOrigin) === ref.canonicalUri);
+					if (!note) {
+						result.delete(ref.canonicalUri);
+						continue;
 					}
-					result.set(ref.canonicalUri, { representation: 'delegated', payload: note, readOnly, validForMs: TIMELINE_AUTHORIZATION_TTL_MS, nextPolicyCheckAt: null });
+					const mirror = result.get(ref.canonicalUri);
+					if (mirror && note.channelPlacements?.length) {
+						const all = new Map(note.channelPlacements.map(chip => [JSON.stringify([chip.origin, chip.channelId]), chip]));
+						for (const chip of mirror.payload.channelPlacements ?? []) all.set(JSON.stringify([chip.origin, chip.channelId]), chip);
+						mirror.payload.channelPlacements = [...all.values()];
+					}
+					if (!ref.placement!.includeDefault || !byUri.has(ref.canonicalUri)) {
+						const readOnly = ref.placement!.includeDefault;
+						if (readOnly) {
+							delete note.myReaction;
+							delete note.myReactions;
+							for (const choice of note.poll?.choices ?? []) delete choice.isVoted;
+							note.canDelete = false;
+							note.canSelfRenote = false;
+						}
+						result.set(ref.canonicalUri, { representation: 'delegated', payload: note, readOnly, validForMs: TIMELINE_AUTHORIZATION_TTL_MS, nextPolicyCheckAt: null });
+					}
 				}
 			}));
 		}
