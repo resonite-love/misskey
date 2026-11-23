@@ -10,6 +10,7 @@ import { MiDriveFolder } from './DriveFolder.js';
 
 @Entity('drive_file')
 @Index(['userId', 'folderId', 'id'])
+@Index('IDX_DRIVE_FILE_URL_HASH', { synchronize: false }) // Hash index supports long URLs; managed by migration.
 export class MiDriveFile {
 	@PrimaryColumn(id())
 	public id: string;
