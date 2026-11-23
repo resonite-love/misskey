@@ -45,6 +45,17 @@ afterEach(async () => {
 });
 
 describe('GridSpace channel actions', () => {
+	test('preserves absent notification consent as a signed peer error', async () => {
+		const notifications = vi.fn(async () => { throw Object.assign(new Error('Notification consent absent'), { code: 'NOTIFICATIONS_NOT_GRANTED' }); });
+		const app = await server(true, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, notifications);
+		const url = '/gridspace/v1/notifications/references';
+		const payload = Buffer.from(JSON.stringify({ accessToken: 'reader', linkId: 'bde1bc3e-1262-4d1b-b2b6-058b04d75fbe', generation: 1, localUserId: 'viewer' }));
+		const response = await app.inject({ method: 'POST', url, payload, headers: createGridspaceHeaders(g, 'POST', url, payload) });
+		expect(response.statusCode).toBe(403);
+		expect(response.json()).toEqual({ error: 'NOTIFICATIONS_NOT_GRANTED' });
+		expect(notifications).toHaveBeenCalledOnce();
+	});
+
 	test('origin placement reads advertise a separate capability and authenticate bounded batches when posting is disabled', async () => {
 		const read = vi.fn(async () => ({ roots: [] }));
 		const app = Fastify();

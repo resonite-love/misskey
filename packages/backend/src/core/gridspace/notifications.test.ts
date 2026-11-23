@@ -23,7 +23,7 @@ import type { GridspaceChannelAuthService } from './GridspaceChannelAuthService.
 import { GridspacePlacementService } from './GridspacePlacementService.js';
 import type { MiNote } from '@/models/Note.js';
 import { GridspaceNotificationService } from './GridspaceNotificationService.js';
-import type { GridspaceLinkService } from './GridspaceLinkService.js';
+import { GridspaceLinkError, type GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
 import type { GridspaceSearchService } from './GridspaceSearchService.js';
 import type { NotificationOptions, WireNotification } from './notification-protocol.js';
@@ -250,9 +250,29 @@ describe('GridSpace notifications', () => {
 
 	test('requires notification consent in addition to the linked private-reader grant', async () => {
 		const f = fixture(); f.links.hasNotificationScope.mockResolvedValue(false);
-		await expect(f.service.peer('query', {})).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
-		await expect(f.service.peer('read', { ids: ['id'] })).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+		await expect(f.service.peerReferences({})).rejects.toMatchObject({ code: 'NOTIFICATIONS_NOT_GRANTED' });
+		await expect(f.service.peer('query', {})).rejects.toMatchObject({ code: 'NOTIFICATIONS_NOT_GRANTED' });
+		await expect(f.service.peer('read', { ids: ['id'] })).rejects.toMatchObject({ code: 'NOTIFICATIONS_NOT_GRANTED' });
+		expect(f.notifications.getNotifications).not.toHaveBeenCalled();
 		expect(f.notifications.readNotifications).not.toHaveBeenCalled();
+	});
+
+	test('rejects an invalid private grant before classifying absent notification consent', async () => {
+		const f = fixture();
+		f.links.authorizePrivate.mockRejectedValue(new GridspaceLinkError('AUTHORIZATION_REVOKED'));
+		await expect(f.service.peerReferences({})).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+		expect(f.links.hasNotificationScope).not.toHaveBeenCalled();
+		expect(f.notifications.getNotifications).not.toHaveBeenCalled();
+	});
+
+	test('keeps revocation during the scope check distinct from absent notification consent', async () => {
+		const f = fixture();
+		f.links.hasNotificationScope.mockResolvedValue(false);
+		const validLink = { localUserId: 'old' } as never;
+		f.links.authorizePrivate.mockReset().mockResolvedValueOnce(validLink).mockRejectedValueOnce(new GridspaceLinkError('AUTHORIZATION_REVOKED'));
+		await expect(f.service.peerReferences({})).rejects.toMatchObject({ code: 'AUTHORIZATION_REVOKED' });
+		expect(f.links.authorizePrivate).toHaveBeenCalledTimes(2);
+		expect(f.notifications.getNotifications).not.toHaveBeenCalled();
 	});
 	test('checks uncached notifier host/mutes even for notifications without a note', async () => {
 		const f = fixture(); f.notes.localActorAllows.mockResolvedValue(false);

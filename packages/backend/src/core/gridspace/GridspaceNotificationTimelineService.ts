@@ -64,6 +64,7 @@ export class GridspaceNotificationTimelineService {
 		}
 	}
 	private status(error: unknown): Status {
+		if (error instanceof GridspaceLinkError && error.code === 'NOTIFICATIONS_NOT_GRANTED') return 'disabled';
 		return error instanceof GridspaceLinkError && ['AUTHORIZATION_REVOKED', 'LINK_REVOKED'].includes(error.code) ? 'unauthorized' : 'unavailable';
 	}
 	private signature(snapshot: Snapshot, id: string, offset: number, limit: number) {

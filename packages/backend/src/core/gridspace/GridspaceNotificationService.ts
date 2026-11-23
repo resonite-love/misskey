@@ -96,7 +96,12 @@ export class GridspaceNotificationService {
 			return { localUserId: actor.id };
 		}
 		const link = await this.links.authorizePrivate(input);
-		if (!await this.links.hasNotificationScope(input)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		// A valid private-reader grant does not necessarily include notifications.
+		// Keep an absent opt-in distinct from a revoked or invalid credential.
+		if (!await this.links.hasNotificationScope(input)) {
+			await this.links.authorizePrivate(input);
+			throw new GridspaceLinkError('NOTIFICATIONS_NOT_GRANTED');
+		}
 		return link;
 	}
 

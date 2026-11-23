@@ -38,6 +38,31 @@ function fixture() {
 }
 
 describe('notification timeline snapshots', () => {
+	test('disables notifications without opt-in while keeping local and channel notifications', async () => {
+		const f = fixture();
+		f.notifications.guestBinding.mockResolvedValue('placement:actor');
+		f.notifications.remoteReferences.mockImplementation(async (_user, _input, channel) => {
+			if (!channel) throw new GridspaceLinkError('NOTIFICATIONS_NOT_GRANTED');
+			return { origin: 'https://peer', recipientId: 'old', items: f.peerRefs, complete: true };
+		});
+		const page = await f.service.read(f.user, {});
+		expect(page.complete).toBe(true);
+		expect(page.sources.find(source => source.source === 'peer')).toMatchObject({ status: 'disabled', retryable: false, unreadCount: null });
+		expect(page.items.map(item => item.source)).toContain('local');
+		expect(page.items.map(item => item.source)).toContain('channel');
+		expect(page.items.map(item => item.source)).not.toContain('peer');
+		expect(f.notifications.remote.mock.calls.every(call => call[3] === true)).toBe(true);
+	});
+
+	test('drops already loaded notifications if notification consent is removed', async () => {
+		const f = fixture(); const first = await f.service.read(f.user, {});
+		f.notifications.remote.mockRejectedValue(new GridspaceLinkError('NOTIFICATIONS_NOT_GRANTED'));
+		const page = await f.service.read(f.user, { mode: 'validate', cursor: first.cursor, count: 5 });
+		expect(page.complete).toBe(true);
+		expect(page.sources.find(source => source.source === 'peer')).toMatchObject({ status: 'disabled', retryable: false, unreadCount: null });
+		expect(page.items.every(item => item.source === 'local')).toBe(true);
+	});
+
 	test('allows bounded client retention only for a transport failure with the same binding', async () => {
 		const f = fixture(); const first = await f.service.read(f.user, { limit: 4 });
 		f.notifications.remoteReferences.mockRejectedValue(new GridspaceLinkError('PEER_UNAVAILABLE', true));

@@ -9,6 +9,12 @@ import { GridspaceLinkService } from './GridspaceLinkService.js';
 vi.mock('node-fetch', async importOriginal => ({ ...await importOriginal<typeof import('node-fetch')>(), default: vi.fn() }));
 vi.mock('./peer-client.js', () => ({ gridspacePeerTransport: () => ({ url: 'https://peer.example/test', host: 'peer.example' }) }));
 
+test.each(['NOTIFICATIONS_NOT_GRANTED', 'AUTHORIZATION_REVOKED'])('preserves the peer authorization result: %s', async code => {
+	vi.mocked(fetch).mockReset().mockResolvedValue({ status: 403, ok: false, json: async () => ({ error: code }) } as never);
+	const service = Object.assign(Object.create(GridspaceLinkService.prototype), { peer: {} }) as GridspaceLinkService;
+	await expect(service.json('/gridspace/v1/notifications/references', {}, false)).rejects.toMatchObject({ code, retryable: false });
+});
+
 test.each([
 	{ status: undefined, error: new FetchError('socket', 'system', { code: 'ECONNRESET' } as NodeJS.ErrnoException), retryable: true },
 	{ status: 200, error: new FetchError('socket', 'system', { code: 'ECONNRESET' } as NodeJS.ErrnoException), retryable: true },

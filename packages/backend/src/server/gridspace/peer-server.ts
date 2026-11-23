@@ -340,7 +340,7 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 			}, async (request, reply) => {
 				try { return await notifications(name, request.body); } catch (error) {
 					const code = error instanceof Error && 'code' in error ? error.code : null;
-					return reply.code(403).send({ error: typeof code === 'string' && ['AUTHORIZATION_REVOKED', 'LINK_REVOKED', 'ACTION_REJECTED', 'INVALID_REQUEST'].includes(code) ? code : 'PEER_UNAVAILABLE' });
+					return reply.code(403).send({ error: typeof code === 'string' && ['AUTHORIZATION_REVOKED', 'LINK_REVOKED', 'NOTIFICATIONS_NOT_GRANTED', 'ACTION_REJECTED', 'INVALID_REQUEST'].includes(code) ? code : 'PEER_UNAVAILABLE' });
 				}
 			});
 		}
