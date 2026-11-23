@@ -202,3 +202,21 @@ test('linked-author search retains time and cursor bounds in both author queries
 	}, ['author', 'otherAuthor']);
 	expect(rows.map(note => note.id)).toEqual([70005, 70004, 70003].map(id));
 });
+
+test('search emits its text-filter boundary after query cloning without changing the caller', async () => {
+	const query = db.getRepository(MiNote).createQueryBuilder('note').innerJoin('note.user', 'user')
+		.where('note.text ILIKE :q AND note.visibility = :visibility', { q: '%unrelated%', visibility: 'public' });
+	const before = query.getQuery();
+	const search = Object.assign(Object.create(GridspaceSearchService.prototype), { db }) as GridspaceSearchService;
+	let executed = '';
+	const rows = await readSearchRows({ read: async page => {
+		const clone = page.clone();
+		executed = clone.getQuery();
+		return search.read(clone);
+	}, readAuthorPage: search.readAuthorPage.bind(search) }, query, ids, { limit: 20 });
+	expect(rows).toHaveLength(21);
+	expect(executed).toContain('OFFSET 0');
+	expect(executed).toContain('INNER JOIN');
+	expect(query.getQuery()).toBe(before);
+	expect(before).not.toContain('OFFSET 0');
+});

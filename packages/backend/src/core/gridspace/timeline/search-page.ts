@@ -22,8 +22,11 @@ export async function readSearchRows(search: Pick<GridspaceSearchService, 'read'
 		// OFFSET 0 is a streaming planner boundary, not a result limit.
 		const matches = page.connection.createQueryBuilder().select('candidate.*').from(MiNote, 'candidate')
 			.where('(candidate.text ILIKE :q OR (candidate.cw IS NOT NULL AND candidate.cw::text ILIKE :q))');
-		// Retain entity metadata for hydration and all original ACL predicates.
-		page.expressionMap.mainAlias!.subQuery = `(${matches.getQuery()} OFFSET 0)`;
+		// TypeORM clones the FROM aliases but retains the original mainAlias
+		// pointer. Update the cloned FROM entry used to emit SQL, not the caller.
+		const source = page.expressionMap.aliases.find(alias => alias.type === 'from' && alias.name === page.alias)!;
+		source.subQuery = `(${matches.getQuery()} OFFSET 0)`;
+		page.expressionMap.mainAlias = source;
 	}
 	for (const [name, boundary, operator] of [['Before', position.before, '<'], ['Upper', position.upper, '<=']] as const) {
 		if (!boundary) continue;
