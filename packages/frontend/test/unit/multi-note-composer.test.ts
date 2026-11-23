@@ -16,14 +16,14 @@ import { instance } from '@/instance.js';
 import { miLocalStorage } from '@/local-storage.js';
 
 const sessionAccount = vi.hoisted(() => ({ id: 'author' }));
-const { api, alert, confirm, popupMenu, inputDatetime, handlers } = vi.hoisted(() => ({ api: vi.fn(), alert: vi.fn(), confirm: vi.fn(), popupMenu: vi.fn(), inputDatetime: vi.fn(), handlers: vi.fn() }));
+const { api, alert, confirm, actions, popupMenu, inputDatetime, handlers } = vi.hoisted(() => ({ api: vi.fn(), alert: vi.fn(), confirm: vi.fn(), actions: vi.fn(async () => ({ canceled: true })), popupMenu: vi.fn(), inputDatetime: vi.fn(), handlers: vi.fn() }));
 vi.mock('@/instance.js', async () => {
 	const { reactive } = await import('vue');
 	return { instance: { features: reactive({ multiNote: true, multiNotePeer: true }), maxNoteTextLength: 3000 } };
 });
 vi.mock('@/i.js', () => ({ ensureSignin: () => ({ id: sessionAccount.id, policies: { scheduledNoteLimit: 10 }, username: 'author' }), notesCount: 0, incNotesCount: vi.fn() }));
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: api, getApiErrorStatus: (error: { httpStatus?: number }) => error.httpStatus }));
-vi.mock('@/os.js', () => ({ alert, confirm, popupMenu, inputDatetime }));
+vi.mock('@/os.js', () => ({ alert, confirm, actions, popupMenu, inputDatetime }));
 vi.mock('@/preferences.js', () => ({ prefer: { s: { defaultNoteVisibility: 'public', defaultNoteLocalOnly: false } } }));
 vi.mock('@/store.js', async () => {
 	const { ref } = await import('vue');
@@ -101,10 +101,12 @@ it('sends a fixed placement reference quote with a single destination and a dura
 	expect(request).toMatchObject({ gridspaceQuote, includeDefault: false, channelIds: [], channelTargets: [{ origin: channel.origin, channelId: channel.channelId }], localOnly: true, noRelay: false });
 	expect(request.clientRequestId).toBeTruthy();
 	form.unmount();
-	api.mockResolvedValueOnce({ status: 'created', createdNote: { id: 'root' } });
+	api.mockResolvedValueOnce({ status: 'created', createdNote: { id: 'root', multiNoteKind: 'root', channelPlacementsUnavailable: true } });
 	const restored = openComposer(false, { fixedQuoteDestination: channel, gridspaceQuote });
 	await waitFor(() => expect(restored.emitted().posted).toHaveLength(1));
 	expect(api.mock.calls[1][1]).toEqual({ clientRequestId: request.clientRequestId });
+	expect(actions).not.toHaveBeenCalled();
+	expect(alert).toHaveBeenLastCalledWith({ type: 'info', text: 'Confirmed' });
 });
 
 it('isolates pending fixed quote drafts across signed-in accounts', async () => {
@@ -438,7 +440,7 @@ it('does not reserve a newer draft with a payload captured before an asynchronou
 
 it.each([false, true])('submits one sensitive channel note with optional shared CW when mixed=%s', async mixed => {
 	const localChannel = { id: 'sensitive', name: 'Sensitive', color: '#999', isSensitive: true, allowRenoteToExternal: true, userId: 'owner' };
-	api.mockResolvedValueOnce({ createdNote: { id: 'new' } });
+	api.mockResolvedValueOnce({ createdNote: { id: 'new', multiNoteKind: 'root', channelPlacementsUnavailable: true } });
 	const form = openComposer(false, { channel: localChannel, initialCw: mixed ? 'Author warning' : undefined });
 	await nextTick();
 	await nextTick();
@@ -449,6 +451,8 @@ it.each([false, true])('submits one sensitive channel note with optional shared 
 	await fireEvent.click(form.getByTestId('post-form-submit'));
 	await waitFor(() => expect(form.emitted().posted).toHaveLength(1));
 	expect(api).toHaveBeenCalledTimes(1);
+	expect(actions).not.toHaveBeenCalled();
+	expect(alert).not.toHaveBeenCalled();
 	const [path, request] = api.mock.calls[0];
 	expect(path).toBe('notes/create');
 	expect(request).toMatchObject({

@@ -1391,7 +1391,6 @@ async function sendPost(ev?: PointerEvent) {
 		}
 
 		globalEvents.emit('notePosted', res.createdNote);
-		void showPlacementResult(res.createdNote);
 
 		nextTick(() => {
 			if (!completedRequest) void deleteDraft();
@@ -1562,19 +1561,6 @@ async function currentDraftHash(): Promise<string> {
 	return await noteInputHash(snapshotDraft());
 }
 
-async function showPlacementResult(note: Misskey.entities.Note): Promise<boolean> {
-	if (note.multiNoteKind !== 'root') return false;
-	const placements = note.channelPlacements ?? [];
-	if (!note.channelPlacementsUnavailable && placements.length && placements.every(item => item.state === 'active')) return false;
-	const { canceled, result } = await os.actions({
-		type: 'info',
-		text: i18n.ts._multiNote.checkPlacements,
-		actions: [{ value: 'open', text: i18n.ts._multiNote.openNote, primary: true }, { value: 'close', text: i18n.ts.close }],
-	});
-	if (!canceled && result === 'open') os.pageWindow(`/notes/${note.id}`);
-	return true;
-}
-
 async function recoverPendingResult(retryMissing = false): Promise<boolean> {
 	const pending = pendingCreate.value;
 	if (!pending) return false;
@@ -1608,9 +1594,7 @@ async function recoverPendingResult(retryMissing = false): Promise<boolean> {
 		pauseDraftSaving = false;
 	}
 	if (result.createdNote) globalEvents.emit('notePosted', result.createdNote);
-	if (!result.createdNote || !await showPlacementResult(result.createdNote)) {
-		await os.alert({ type: 'info', text: result.status === 'deleted' ? i18n.ts._multiNote.deleted : i18n.ts._multiNote.confirmed });
-	}
+	await os.alert({ type: 'info', text: result.status === 'deleted' ? i18n.ts._multiNote.deleted : i18n.ts._multiNote.confirmed });
 	if (unchanged) emit('posted');
 	return true;
 }
