@@ -18,10 +18,22 @@ async function fixture(options: Record<string, unknown> = { kind: 'profile' }) {
 	const request = { id: 'channel', connection: { user, subscriber, sendMessageToWs, following: {}, followingChannels: new Set(), userIdsWhoMeMuting: new Set(), userIdsWhoMeMutingRenotes: new Set(), userIdsWhoBlockingMe: new Set(), userMutedInstances: new Set(), mutingChannels: new Set() } } as unknown as ChannelRequest;
 	const channel = new GridspaceTimelineChannel(request, service as unknown as GridspaceTimelineService, { linkedUserId: async () => null } as unknown as GridspaceIdentityService);
 	expect(await channel.init({ session: 's', revision: '1', updatesCursor: 'u', leaseId: 'lease1' })).toBe(true);
-	return { channel, subscriber, service, sendMessageToWs };
+	return { channel, subscriber, service, sendMessageToWs, request };
 }
 
 describe('native unified timeline stream delivery', () => {
+	test('relay social rejects unrelated hosts before authorization while retaining followed channel events', async () => {
+		const f = await fixture({ kind: 'relay-social', withLocalOnly: false });
+		f.subscriber.emit('notesStream', { id: 'unrelated', userId: 'other', visibility: 'public', user: { id: 'other', host: 'elsewhere.test' } });
+		f.subscriber.emit('notesStream', { id: 'local-only', userId: 'other', visibility: 'public', localOnly: true, user: { id: 'other', host: null } });
+		expect(f.service.streamNote).not.toHaveBeenCalled();
+		f.subscriber.emit('notesStream', { id: 'relay', userId: 'other', visibility: 'public', user: { id: 'other', host: 'misskey.kontovr.site' } });
+		await vi.waitFor(() => expect(f.service.streamNote).toHaveBeenCalledTimes(1));
+		f.request.connection.followingChannels.add('watched');
+		f.subscriber.emit('notesStream', { id: 'channel', channelId: 'watched', userId: 'other', visibility: 'public', user: { id: 'other', host: 'elsewhere.test' } });
+		await vi.waitFor(() => expect(f.service.streamNote).toHaveBeenCalledTimes(2));
+		f.channel.dispose();
+	});
 	test('native home filtering rejects unrelated global notes before any database authorization', async () => {
 		const f = await fixture({ kind: 'home' });
 		f.subscriber.emit('notesStream', { id: 'other', userId: 'unfollowed', visibility: 'public', user: { id: 'unfollowed', host: null } });

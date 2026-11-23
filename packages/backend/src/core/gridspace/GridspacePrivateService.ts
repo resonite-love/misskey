@@ -510,7 +510,7 @@ export class GridspacePrivateService {
 	/** No payload is retained between requests; credentials never leave this service. */
 	public async timeline(viewer: MiLocalUser, input: Partial<TimelineOptions> & { before?: TimelinePosition; upper?: TimelinePosition; ids?: string[]; candidates?: TimelineReference[]; sequence?: string; anchor?: string; untilAt?: number; fromAt?: number; deadline?: number; includePublicBodies?: boolean }) {
 		if (!await this.db.getRepository(MiUser).existsBy({ id: viewer.id, host: IsNull(), isSuspended: false, isDeleted: false })) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-		const mode = !input.kind || input.kind === 'social' ? 'home' : input.kind;
+		const mode = !input.kind || input.kind === 'social' || input.kind === 'relay-social' ? 'home' : input.kind;
 		if ((mode === 'channel') !== !!input.channelId || (mode === 'clip') !== !!input.clipId || (mode === 'antenna') !== !!input.antennaId || (mode === 'profile' && !input.userId)) throw new GridspaceLinkError('INVALID_REQUEST');
 		if ((input.query || mode === 'search') && (!input.query?.trim() || !(await this.roles.getUserPolicies(viewer.id)).canSearchNotes)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const channel = this.channelAuth.isClient && (mode === 'home' || mode === 'channel') ? await this.channelAuth.destination(viewer) : null;

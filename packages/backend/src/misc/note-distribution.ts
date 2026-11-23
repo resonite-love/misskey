@@ -61,7 +61,7 @@ export type NoteListing =
 	| { kind: 'channel'; channelId: string }
 	| { kind: 'profile'; viewerId?: string }
 	| { kind: 'home' | 'social'; viewerId: string; linkedUserId: string | null }
-	| { kind: 'relay-social'; viewerId: string; withLocalOnly: boolean; relayHosts: string[] };
+	| { kind: 'relay-social'; viewerId: string; linkedUserId?: string | null; withLocalOnly: boolean; relayHosts: string[] };
 
 /** An active route must satisfy the policies of the list being read, including reads of stale fanout IDs. */
 export function noteListingCondition(list: NoteListing): [string, Record<string, unknown>] {
@@ -85,6 +85,10 @@ export function noteListingCondition(list: NoteListing): [string, Record<string,
 	if (list.kind === 'relay-social') {
 		params.routeHosts = list.relayHosts;
 		authors.push(`(note.visibility = 'public' AND (note."userHost" IS NULL OR note."userHost" = ANY(:routeHosts))${list.withLocalOnly ? '' : ' AND note."localOnly" = false'})`);
+		if (list.linkedUserId !== undefined) {
+			params.routeLinked = list.linkedUserId;
+			authors.push(`(note."userId" = :routeLinked AND note.visibility IN ('public', 'home'))`);
+		}
 	} else {
 		params.routeLinked = list.linkedUserId;
 		authors.push(`(note."userId" = :routeLinked AND note.visibility IN ('public', 'home'))`);

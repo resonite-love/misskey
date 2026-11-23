@@ -287,12 +287,13 @@ describe('local timeline subscription SQL', () => {
 		await add('reply-viewer', 'followed', { reply: 'self', replyAuthor: 'viewer', host: 'remote.test' });
 		await add('renote', 'followed', { renote: 'followed', renoteAuthor: 'followed', renoteHost: 'remote.test', text: null, host: 'remote.test' });
 		await add('quote', 'followed', { renote: 'followed', renoteAuthor: 'followed', renoteHost: 'remote.test', text: 'quote', host: 'remote.test' });
+		await runner.query('ALTER TABLE note ADD COLUMN "localOnly" boolean DEFAULT false');
 		const search = { noteQuery: () => db.createQueryBuilder().setQueryRunner(runner).select('note.id', 'id').from('note', 'note')
 			.innerJoin('user', 'user', '"user".id = note."userId"').leftJoin('note', 'reply', 'reply.id = note."replyId"') };
 		source = new TimelineLocalSource(db, config, search as unknown as GridspaceSearchService,
 			{ generateMutedNoteThreadQuery: () => {}, generateMutedUserRenotesQueryForNotes: () => {} } as unknown as QueryService,
 			{ linkedUserId: async () => 'linked' } as unknown as GridspaceIdentityService,
-			{ getUserPolicies: async () => ({ ltlAvailable: true }) } as unknown as RoleService, {} as NoteEntityService, {} as IdService);
+			{ getUserPolicies: async () => ({ ltlAvailable: true, gtlAvailable: true }) } as unknown as RoleService, {} as NoteEntityService, {} as IdService);
 	});
 	afterAll(async () => {
 		if (runner) { await runner.rollbackTransaction(); await runner.release(); }
@@ -319,6 +320,34 @@ describe('local timeline subscription SQL', () => {
 		expect(await read({ kind: 'social' })).toEqual(['channel', 'followed', 'linked', 'local', 'quote', 'renote', 'reply-enabled', 'reply-self', 'reply-viewer', 'self', 'shared']);
 		expect(await read({ kind: 'social', withReplies: true })).toContain('reply-default');
 		expect(await read({ kind: 'social', withReplies: true })).not.toContain('reply-private');
+	});
+	test('relay social keeps subscriptions and local posts while adding only the existing relay hosts', async () => {
+		try {
+			await runner.query(`UPDATE note SET "userHost"='misskey.kontovr.site' WHERE id='outsider'`);
+			const ids = await read({ kind: 'relay-social' });
+			expect(ids).toEqual(['channel', 'followed', 'linked', 'local', 'outsider', 'quote', 'renote', 'reply-enabled', 'reply-self', 'reply-viewer', 'self']);
+			expect(await read({ kind: 'relay-social', withReplies: true })).toContain('reply-default');
+			expect(await read({ kind: 'relay-social', withReplies: true })).not.toContain('reply-private');
+			await runner.query(`UPDATE note SET "localOnly"=true WHERE id='local'`);
+			expect(await read({ kind: 'relay-social', withLocalOnly: false })).not.toContain('local');
+		} finally {
+			await runner.query(`UPDATE note SET "userHost"='remote.test' WHERE id='outsider'`);
+			await runner.query(`UPDATE note SET "localOnly"=false WHERE id='local'`);
+		}
+	});
+	test('relay social removes channel posts after unfollowing or muting the channel', async () => {
+		try {
+			expect(await read({ kind: 'relay-social' })).toContain('channel');
+			await runner.query("INSERT INTO channel_muting VALUES ('channel','viewer',NULL)");
+			expect(await read({ kind: 'relay-social' })).not.toContain('channel');
+			await runner.query("DELETE FROM channel_muting WHERE \"userId\"='viewer'");
+			await runner.query("DELETE FROM channel_following WHERE \"followerId\"='viewer'");
+			expect(await read({ kind: 'relay-social' })).not.toContain('channel');
+		} finally {
+			await runner.query("DELETE FROM channel_muting WHERE \"userId\"='viewer'");
+			await runner.query("DELETE FROM channel_following WHERE \"followerId\"='viewer'");
+			await runner.query("INSERT INTO channel_following VALUES ('viewer','channel')");
+		}
 	});
 	test('disabling renotes retains quoted notes and excludes pure renotes', async () => {
 		const values = await read({ kind: 'home', withRenotes: false });

@@ -13,6 +13,7 @@ import type { Packed } from '@/misc/json-schema.js';
 import type { MiLocalUser } from '@/models/User.js';
 import { GridspaceIdentityService } from '@/core/gridspace/GridspaceIdentityService.js';
 import type { TimelineOptions } from '@/core/gridspace/timeline/timeline-protocol.js';
+import { resoniteRelayHosts } from '@/core/gridspace/timeline/relay-hosts.js';
 import type { JsonObject } from '@/misc/json-value.js';
 import { bindThis } from '@/decorators.js';
 import Channel, { type ChannelRequest } from '../channel.js';
@@ -54,10 +55,11 @@ export class GridspaceTimelineChannel extends Channel {
 	private async onNote(note: Packed<'Note'>) {
 		const options = this.options!;
 		if (options.withFiles && !note.fileIds?.length) return;
-		if (options.kind === 'home' || options.kind === 'social') {
+		if (options.kind === 'home' || options.kind === 'social' || options.kind === 'relay-social') {
 			const self = note.userId === this.user!.id || (note.userId === this.linkedUserId && (note.visibility === 'public' || note.visibility === 'home'));
+			const relay = options.kind === 'relay-social' && note.visibility === 'public' && (note.user.host == null || resoniteRelayHosts.includes(note.user.host)) && (options.withLocalOnly !== false || !note.localOnly);
 			const ordinary = includesDefault(note) && (self || Object.hasOwn(this.following, note.userId) ||
-				(options.kind === 'social' && note.visibility === 'public' && (note.user.host == null || note.gridspaceShared)));
+				relay || (options.kind === 'social' && note.visibility === 'public' && (note.user.host == null || note.gridspaceShared)));
 			if (!ordinary && !await this.hasFollowedChannelPlacement(note)) return;
 			if (!this.isNoteVisibleForMe(note) || this.isNoteMutedOrBlocked(note)) return;
 		} else if (options.kind === 'channel') {

@@ -16,7 +16,8 @@ export type TimelinePosition = { sortAt: string; pinRank?: number; canonicalUri:
 export type PlacementLocator = { channelId: string; channelOrigin: string; channelIds?: string[]; chips?: PackedChannelPlacement[]; noteOrigin: string; includeDefault: boolean; legacy: boolean };
 export type TimelineReference = TimelinePosition & { noteId: string; normalized: boolean; generation: number; source: 'local' | 'peer'; public?: boolean; placement?: PlacementLocator; routes?: { origin: string; channelIds: string[] }[] };
 export type TimelineOptions = {
-	kind: 'home' | 'social' | 'profile' | 'search' | 'mentions' | 'direct' | 'channel' | 'favorites' | 'antenna' | 'clip'; withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean;
+	kind: 'home' | 'social' | 'relay-social' | 'profile' | 'search' | 'mentions' | 'direct' | 'channel' | 'favorites' | 'antenna' | 'clip'; withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean;
+	withLocalOnly?: boolean;
 	includeMyRenotes?: boolean; includeRenotedMyNotes?: boolean; includeLocalRenotes?: boolean;
 	channelId?: string; channelOrigin?: string; pinnedOnly?: boolean; clipId?: string; clipOrigin?: string; antennaId?: string; userId?: string; query?: string;
 	withChannelNotes?: boolean; order?: 'newest' | 'oldest'; rangeStartAt?: number; rangeEndAt?: number;
@@ -34,7 +35,8 @@ export type TimelinePage = {
 };
 
 export const timelineFilterSchema = {
-	kind: { type: 'string', enum: ['home', 'social', 'profile', 'search', 'mentions', 'direct', 'channel', 'favorites', 'antenna', 'clip'] },
+	kind: { type: 'string', enum: ['home', 'social', 'relay-social', 'profile', 'search', 'mentions', 'direct', 'channel', 'favorites', 'antenna', 'clip'] },
+	withLocalOnly: { type: 'boolean', default: true },
 	channelOrigin: { type: 'string', maxLength: 512 }, pinnedOnly: { type: 'boolean' },
 	clipOrigin: { type: 'string', maxLength: 512 },
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },

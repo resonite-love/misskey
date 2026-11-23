@@ -109,6 +109,7 @@ const props = withDefaults(defineProps<{
 	withReplies?: boolean;
 	withSensitive?: boolean;
 	withLocalOnly?: boolean;
+	confirmedTimeline?: boolean;
 	onlyFiles?: boolean;
 }>(), {
 	withRenotes: true,
@@ -161,7 +162,7 @@ if (props.src === 'antenna') {
 		})),
 		useShallowRef: true,
 	}));
-} else if (props.src === 'social') {
+} else if (props.src === 'social' || props.src === 'rl-relay-social') {
 	paginator = markRaw(new Paginator('notes/hybrid-timeline', {
 		computedParams: computed(() => ({
 			withRenotes: props.withRenotes,
@@ -258,9 +259,10 @@ if (props.src === 'antenna') {
 	throw new Error('Unrecognized timeline type: ' + props.src);
 }
 
-const home = useGridspaceHome(paginator, computed(() => (props.src === 'home' || props.src === 'social') && $i ? {
+const home = useGridspaceHome(paginator, computed(() => (props.src === 'home' || props.src === 'social' || props.src === 'rl-relay-social') && $i ? {
 	mode: 'home' as const, withReplies: props.withReplies, withRenotes: props.withRenotes, withFiles: props.onlyFiles, withChannelNotes: true,
-} : null), isTop, computed(() => props.withSensitive), computed(() => props.src === 'social' ? 'social' : 'home'), { anchor: timelineAnchor, beforeReplace: captureAnchor, afterReplace: restoreAnchor, onNewItems: playIntegratedSound, prepareNote, isPaused: () => isPausingUpdate });
+	...(props.src === 'rl-relay-social' ? { withLocalOnly: props.withLocalOnly } : {}),
+} : null), isTop, computed(() => props.withSensitive), computed(() => props.src === 'rl-relay-social' ? 'relay-social' : props.src === 'social' ? 'social' : 'home'), { capabilityConfirmed: props.confirmedTimeline, anchor: timelineAnchor, beforeReplace: captureAnchor, afterReplace: restoreAnchor, onNewItems: playIntegratedSound, prepareNote, isPaused: () => isPausingUpdate });
 
 onMounted(() => {
 	if (paginator.computedParams) {
@@ -460,7 +462,7 @@ function connectChannel() {
 			withFiles: props.onlyFiles ? true : undefined,
 		});
 		connections.localTimeline.on('note', prepend);
-	} else if (props.src === 'social') {
+	} else if (props.src === 'social' || props.src === 'rl-relay-social') {
 		connections.hybridTimeline = stream.useChannel('hybridTimeline', {
 			withRenotes: props.withRenotes,
 			withReplies: props.withReplies,

@@ -22,9 +22,11 @@ import { GridspaceLinkError } from '../GridspaceLinkService.js';
 import { GridspaceSearchService } from '../GridspaceSearchService.js';
 import { canonicalGridspaceNoteUri, gridspaceNoteUris } from '../note-protocol.js';
 import { TIMELINE_AUTHORIZATION_TTL_MS, type TimelinePosition, type TimelineReference } from './timeline-protocol.js';
+import { resoniteRelayHosts } from './relay-hosts.js';
 
 export type TimelineLocalOptions = {
-	kind: 'home' | 'social';
+	kind: 'home' | 'social' | 'relay-social';
+	withLocalOnly?: boolean;
 	withReplies?: boolean;
 	withRenotes?: boolean;
 	withFiles?: boolean;
@@ -76,7 +78,10 @@ export class TimelineLocalSource {
 	/** Live and historical reads use the same current subscriptions and ACL. */
 	public async buildQuery(viewer: MiLocalUser, options: TimelineLocalOptions, singleNote?: { id?: string }): Promise<SelectQueryBuilder<MiNote>> {
 		if (viewer.isSuspended || viewer.isDeleted) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-		if (options.kind === 'social' && !(await this.roles.getUserPolicies(viewer.id)).ltlAvailable) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		if (options.kind !== 'home') {
+			const policies = await this.roles.getUserPolicies(viewer.id);
+			if (!policies.ltlAvailable || (options.kind === 'relay-social' && !policies.gtlAvailable)) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
+		}
 		const linkedId = singleNote ? null : await this.identity.linkedUserId(viewer.id);
 		const query = this.readableQuery(viewer, singleNote?.id).setParameters({ timelineViewer: viewer.id, timelineLinked: linkedId });
 		// Keep link resolution in the same statement as the current note ACL. This
@@ -86,11 +91,13 @@ export class TimelineLocalSource {
 			: ':timelineLinked';
 		const followed = (column: string) => `EXISTS (SELECT 1 FROM following tf WHERE tf."followerId" = :timelineViewer AND tf."followeeId" = ${column})`;
 		const self = `(note."userId" = :timelineViewer OR (note."userId" = ${linked} AND note.visibility IN ('public', 'home')))`;
-		const [routes, bindings] = noteListingCondition({ kind: options.kind, viewerId: viewer.id, linkedUserId: linkedId });
+		const [routes, bindings] = noteListingCondition(options.kind === 'relay-social'
+			? { kind: 'relay-social', viewerId: viewer.id, linkedUserId: linkedId, withLocalOnly: options.withLocalOnly !== false, relayHosts: resoniteRelayHosts }
+			: { kind: options.kind, viewerId: viewer.id, linkedUserId: linkedId });
 		query.andWhere(routes.replaceAll(':routeLinked', linked), bindings);
 		// withReplies belongs to each follow on home; social additionally has the
 		// explicit global switch. Self replies and replies to the viewer remain.
-		const expandedReplies = options.kind === 'social' && options.withReplies === true ? 'true'
+		const expandedReplies = options.kind !== 'home' && options.withReplies === true ? 'true'
 			: `EXISTS (SELECT 1 FROM following trf WHERE trf."followerId" = :timelineViewer AND trf."followeeId" = note."userId" AND trf."withReplies" = true)`;
 		const readableReply = `(reply.visibility IS DISTINCT FROM 'followers' OR reply."userId" = :timelineViewer OR ${followed('reply."userId"')})`;
 		query.andWhere(`(note."replyId" IS NULL OR ((${expandedReplies}) AND ${readableReply}) OR (NOT (${expandedReplies}) AND (${self} OR note."replyUserId" = :timelineViewer OR note."replyUserId" = note."userId")))`);

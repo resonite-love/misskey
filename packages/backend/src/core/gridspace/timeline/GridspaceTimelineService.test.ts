@@ -135,6 +135,27 @@ describe('unified timeline coordinator with real Redis checkpoints', () => {
 			previousSession: first.session, previousRevision: first.revision, refs: [], anchorRef: first.items[0].ref,
 		})).rejects.toMatchObject({ code: 'INVALID_CURSOR' });
 	});
+	test('relay social merges linked channel posts and removes them when channel access is lost', async () => {
+		const placements = mockDeep<TimelinePlacementSource>();
+		placements.supportHome.mockResolvedValue(true);
+		const channelOrigin = 'https://peer.example';
+		const channelNote = { ...ref('peer', 110), placement: { channelId: 'followed', channelOrigin, noteOrigin: channelOrigin, includeDefault: false, legacy: false } };
+		let allowed = true;
+		placements.read.mockImplementation(async (_viewer, origin, request) => {
+			expect(request.followed).toBe(true);
+			const references = allowed && origin === channelOrigin ? [channelNote] : [];
+			return { references, upper: references[0] ?? null, next: null, sequence: '0' };
+		});
+		placements.bodies.mockImplementation(async (_viewer, refs) => new Map(refs.map(row => [row.canonicalUri,
+			{ representation: 'delegated', payload: { id: row.noteId }, validForMs: 60000, nextPolicyCheckAt: null }])) as never);
+		const f = fixture([ref('local', 100)], [ref('peer', 90)], placements);
+		const first = await f.service.page(viewer, { kind: 'relay-social' }, 20);
+		expect(first.items.map(item => item.key)).toEqual([channelNote.canonicalUri, ref('local', 100).canonicalUri, ref('peer', 90).canonicalUri]);
+		expect(first.items[0]).toMatchObject({ representation: 'delegated', validForMs: 60000 });
+		allowed = false;
+		const renewed = await f.changes(first, first.items);
+		expect(renewed.items.map(item => item.key)).not.toContain(channelNote.canonicalUri);
+	});
 	test.each(['local', 'peer'] as const)('merges both child origins for a %s channel and invalidates an unscoped insert', async owner => {
 		const channelOrigin = 'https://' + owner + '.example';
 		const query = { kind: 'channel', channelId: 'route', channelOrigin } as const;

@@ -15,7 +15,7 @@ import { supportsTimelineKind } from '@/utility/timeline-capabilities.js';
 import { subscribeTimeline } from '@/utility/timeline-stream.js';
 
 /** The legacy reader remains isolated until both servers advertise the new contract. */
-export function useGridspaceHome(normal: IPaginator<entities.Note>, params: ComputedRef<entities.GridspacePrivateNotesRequest | null>, isTop: () => boolean, withSensitive: ComputedRef<boolean>, kind: ComputedRef<'home' | 'social'> = computed(() => 'home'), view: { anchor?: () => string | undefined; beforeReplace?: () => void; afterReplace?: () => void; onNewItems?: (items: TimelineDisplayRow[]) => void; prepareNote?: (note: entities.Note) => entities.Note; isPaused?: () => boolean } = {}) {
+export function useGridspaceHome(normal: IPaginator<entities.Note>, params: ComputedRef<(entities.GridspacePrivateNotesRequest & { withLocalOnly?: boolean }) | null>, isTop: () => boolean, withSensitive: ComputedRef<boolean>, kind: ComputedRef<'home' | 'social' | 'relay-social'> = computed(() => 'home'), view: { capabilityConfirmed?: boolean; anchor?: () => string | undefined; beforeReplace?: () => void; afterReplace?: () => void; onNewItems?: (items: TimelineDisplayRow[]) => void; prepareNote?: (note: entities.Note) => entities.Note; isPaused?: () => boolean } = {}) {
 	const integrated = ref(false);
 	const deciding = ref(true);
 	const legacyAllowed = ref(false);
@@ -39,9 +39,9 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 		legacyAllowed.value = false; integrated.value = false; deciding.value = true;
 		if (params.value) {
 			try {
-				const status = await misskeyApi('gridspace/link', { action: 'status' });
+				const supported = view.capabilityConfirmed || supportsTimelineKind(await misskeyApi('gridspace/link', { action: 'status' }), kind.value);
 				if (current !== generation) return;
-				if (supportsTimelineKind(status, kind.value)) {
+				if (supported) {
 					integrated.value = true;
 					const { mode: _mode, ...filters } = params.value;
 					client.value = new TimelineClient({ ...filters, kind: kind.value }, { ...view, subscribe: subscribeTimeline, isTop, withSensitive: () => withSensitive.value });

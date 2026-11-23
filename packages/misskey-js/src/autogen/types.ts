@@ -31176,7 +31176,9 @@ export interface operations {
             content: {
                 'application/json': {
                     /** @enum {string} */
-                    kind: 'home' | 'social' | 'profile' | 'search' | 'mentions' | 'direct' | 'channel' | 'favorites' | 'antenna' | 'clip';
+                    kind: 'home' | 'social' | 'relay-social' | 'profile' | 'search' | 'mentions' | 'direct' | 'channel' | 'favorites' | 'antenna' | 'clip';
+                    /** @default true */
+                    withLocalOnly?: boolean;
                     channelOrigin?: string;
                     pinnedOnly?: boolean;
                     clipOrigin?: string;

@@ -63,7 +63,7 @@ export class GridspaceTimelineService {
 
 	public async capability() {
 		if (!this.peer) return { version: 1, enabled: false, kinds: ['home', 'social'] };
-		return { version: 1, enabled: this.enabled, channelPlacements: this.enabled && await this.placements?.supportHome() === true, kinds: ['home', 'social', 'profile', 'search', 'mentions', 'direct', 'favorites', 'channel', 'antenna', 'clip'] };
+		return { version: 1, enabled: this.enabled, channelPlacements: this.enabled && await this.placements?.supportHome() === true, kinds: ['home', 'social', 'relay-social', 'profile', 'search', 'mentions', 'direct', 'favorites', 'channel', 'antenna', 'clip'] };
 	}
 
 	private localSource(options: TimelineOptions) {
@@ -73,7 +73,7 @@ export class GridspaceTimelineService {
 			ownerReferences: (viewer: MiLocalUser, uris: string[]) => this.clipReferences!.ownerReferences(viewer, options, uris),
 			ownerCandidates: (viewer: MiLocalUser, uris: string[]) => this.clipReferences!.ownerReferences(viewer, options, uris),
 		};
-		if (options.kind === 'home' || options.kind === 'social') return {
+		if (options.kind === 'home' || options.kind === 'social' || options.kind === 'relay-social') return {
 			readPage: (viewer: MiLocalUser, position: Parameters<TimelineLocalSource['readPage']>[2]) => this.local.readPage(viewer, options as TimelineLocalOptions, position),
 			hydrate: (viewer: MiLocalUser, refs: TimelineReference[]) => this.local.hydrate(viewer, options as TimelineLocalOptions, refs),
 			ownerReferences: (viewer: MiLocalUser, uris: string[], upper?: Parameters<TimelineLocalSource['ownerReferences']>[3]) => this.local.ownerReferences(viewer, options as TimelineLocalOptions, uris, upper),
@@ -275,7 +275,7 @@ export class GridspaceTimelineService {
 		const deadline = Date.now() + 8000;
 		const source = this.localSource(checkpoint.options);
 		let candidate: TimelineReference | undefined;
-		const singleLocal = event.source === 'local' && (checkpoint.options.kind === 'home' || checkpoint.options.kind === 'social');
+		const singleLocal = event.source === 'local' && (checkpoint.options.kind === 'home' || checkpoint.options.kind === 'social' || checkpoint.options.kind === 'relay-social');
 		if (event.source === 'local') {
 			const refs = await this.references.getMany([event.noteId]);
 			if (!refs[0]) return result;
@@ -329,7 +329,7 @@ export class GridspaceTimelineService {
 					changes.events.flatMap(e => !e.channelId && e.noteId ? [e.noteId] : []), viewer.id)), inserts: [] as TimelineReference[] };
 		}
 		const channels = changes.events.flatMap(event => event.channelId && event.channelOrigin === this.peer?.origin ? [event.channelId] : []);
-		const placementChanged = (checkpoint.options.kind === 'home' || checkpoint.options.kind === 'social') && channels.length > 0 &&
+		const placementChanged = (checkpoint.options.kind === 'home' || checkpoint.options.kind === 'social' || checkpoint.options.kind === 'relay-social') && channels.length > 0 &&
 			await this.placements?.followsAny(viewer.id, channels) === true;
 		const ids = [...new Set(changes.events.flatMap(event => event.noteId ? [event.noteId] : []))];
 		const candidates = checkpoint.options.kind !== 'favorites' && ids.length ? (await this.references.getMany(ids)).map(ref => ({ ...ref, source: 'local' as const })) : [];
@@ -386,7 +386,7 @@ export class GridspaceTimelineService {
 		} else {
 			position = { session: randomUUID(), id: randomUUID(), expires: Date.now() + 3600_000 };
 			checkpoint = { options, mode, session: position.session, viewerId: viewer.id, expires: position.expires, revision: String(status.generation), merge: emptyTimelineMerge(mode === 'unified'), sequence: await this.references.currentPosition() };
-			if ((options.kind === 'home' || options.kind === 'social') && await this.placements?.supportHome()) {
+			if ((options.kind === 'home' || options.kind === 'social' || options.kind === 'relay-social') && await this.placements?.supportHome()) {
 				checkpoint.merge.localPlacement = { before: null, upper: null, ended: false, pending: [] };
 				checkpoint.merge.peerPlacement = { before: null, upper: null, ended: mode !== 'unified', pending: [] };
 			}
