@@ -49,6 +49,7 @@ import { decodeHistoryCursor, encodeHistoryCursor } from './history-protocol.js'
 import { gridspaceHash } from './link-crypto.js';
 import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protocol.js';
 import { searchNoteTimeSql } from './search-visibility.js';
+import { readSearchRows } from './timeline/search-page.js';
 import { canonicalGridspaceNoteUri, gridspaceNoteId } from './note-protocol.js';
 import { fillPeerEmojiUrls } from './peer-emoji-url.js';
 import { GridspacePeerAuthorizationError, requestGridspacePeer } from './peer-client.js';
@@ -481,7 +482,18 @@ export class GridspacePrivateService {
 			return { references: rows.map(note => reference(note, !!publicQuery)), next: null, upper: null, sequence, generation: status.generation, changed: false };
 		}
 		const sequence = initialSequence;
-		const windowSize = mode === 'search' && !authorIds ? 4096 : 512;
+		if (mode === 'search') {
+			const position = { before: input.timelineBefore, upper: input.timelineUpper, untilAt: input.timelineUntilAt, fromAt: input.timelineFromAt, limit: 50 };
+			const publicRows = publicQuery ? await readSearchRows(this.search, publicQuery, this.ids, position, authorIds) : [];
+			const privateRows = privateQuery ? await readSearchRows(this.search, privateQuery, this.ids, position, authorIds) : [];
+			const publicIds = new Set(publicRows.map(note => note.id));
+			const matches = [...new Map([...privateRows, ...publicRows].map(note => [note.id, note])).values()]
+				.sort((a, b) => a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+			const references = matches.slice(0, 50).map(note => reference(note, publicIds.has(note.id)));
+			if (link) await this.authorizeRead(input);
+			return { references, next: matches.length > 50 ? references.at(-1)! : null, upper: input.timelineUpper ?? references[0] ?? null, sequence, generation: status.generation, changed: false };
+		}
+		const windowSize = 512;
 		const candidates = authorIds ? (await Promise.all(authorIds.map(author => this.search.read(scan.clone().andWhere('candidate.userId = :listScanAuthor', { listScanAuthor: author }).orderBy('candidate.id', 'DESC').limit(windowSize + 1)))))
 			.flat().sort((a, b) => a.id < b.id ? 1 : a.id > b.id ? -1 : 0).slice(0, windowSize + 1)
 			: await this.search.read(scan.orderBy(orderColumn, ascending ? 'ASC' : 'DESC').limit(windowSize + 1));

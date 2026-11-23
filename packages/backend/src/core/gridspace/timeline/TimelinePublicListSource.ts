@@ -14,6 +14,7 @@ import { IdService } from '@/core/IdService.js';
 import { GridspaceSearchService } from '../GridspaceSearchService.js';
 import { GridspaceLinkError } from '../GridspaceLinkService.js';
 import { canonicalGridspaceNoteUri } from '../note-protocol.js';
+import { readSearchRows } from './search-page.js';
 import type { TimelinePosition, TimelineReference } from './timeline-protocol.js';
 
 export type PublicListRequest = {
@@ -57,8 +58,14 @@ export class TimelinePublicListSource {
 
 	public async readPage(input: PublicListRequest, position: { before?: TimelinePosition; upper?: TimelinePosition; untilAt?: number; limit: number }) {
 		if (!Number.isInteger(position.limit) || position.limit < 1 || position.limit > 50) throw new GridspaceLinkError('INVALID_REQUEST');
+		if (input.kind === 'search') {
+			const matches = await readSearchRows(this.search, await this.buildQuery(input), this.ids, position);
+			const references = matches.slice(0, position.limit).map(note => this.reference(note));
+			const more = matches.length > position.limit;
+			return { references, next: more ? references.at(-1)! : null, upper: position.upper ?? references[0] ?? null, ended: !more };
+		}
 		const query = await this.buildQuery(input, true);
-		const windowSize = input.kind === 'search' ? 4096 : 512;
+		const windowSize = 512;
 		const scan = this.db.getRepository(MiNote).createQueryBuilder('candidate').select(['candidate.id', 'candidate.uri']);
 		for (const [name, boundary, operator] of [['Before', position.before, '<'], ['Upper', position.upper, '<=']] as const) {
 			if (!boundary) continue;

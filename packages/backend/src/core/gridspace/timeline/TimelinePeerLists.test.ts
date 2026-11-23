@@ -18,7 +18,7 @@ function fixture(rows: Row[], publicIds: string[] = []) {
 		const builder = {
 			arm, ids: null as string[] | null, clone: vi.fn(() => makeQuery(arm)),
 			andWhere: vi.fn(function (this: { ids: string[] | null }, _sql: string, params?: Record<string, unknown>) { const ids = params?.listPublicIds ?? params?.listPrivateIds; if (ids) this.ids = ids as string[]; return this; }),
-			limit: vi.fn().mockReturnThis(), orderBy: vi.fn().mockReturnThis(),
+			select: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(), orderBy: vi.fn().mockReturnThis(),
 		};
 		return builder;
 	};

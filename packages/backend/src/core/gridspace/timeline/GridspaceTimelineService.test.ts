@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto';
 import * as Redis from 'ioredis';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { mockDeep } from 'vitest-mock-extended';
 import { loadConfig, type Config } from '@/config.js';
 import type { MiLocalUser } from '@/models/User.js';
@@ -112,6 +112,11 @@ function fixture(initialLocal: TimelineReference[], initialPeer: TimelineReferen
 }
 
 describe('unified timeline coordinator with real Redis checkpoints', () => {
+	test('checkpoint expiry is not misreported as a peer outage or a partial search page', async () => {
+		const f = fixture([], [ref('peer', 100)]);
+		vi.spyOn(f.sessions, 'claimResult').mockRejectedValueOnce(new GridspaceLinkError('INVALID_CURSOR'));
+		await expect(f.service.page(viewer, { kind: 'search', query: 'word' }, 30)).rejects.toMatchObject({ code: 'INVALID_CURSOR' });
+	});
 	test.each<TimelineOptions>([
 		{ kind: 'channel', channelId: 'channel' }, { kind: 'antenna', antennaId: 'antenna' },
 		{ kind: 'clip', clipId: 'clip' }, { kind: 'clip', clipId: 'clip', order: 'oldest' },

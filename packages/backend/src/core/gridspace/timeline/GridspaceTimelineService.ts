@@ -467,6 +467,9 @@ export class GridspaceTimelineService {
 				await this.sessions.putSession(checkpoint.session, JSON.stringify(checkpoint), checkpoint.expires);
 			} catch (error) {
 				if (!(error instanceof GridspaceLinkError)) throw error;
+				// A local checkpoint limit/expiry is recoverable with a fresh cursor;
+				// it must not disable the peer source or discard its search results.
+				if (error.code === 'INVALID_CURSOR' || error.code === 'CURSOR_EXPIRED') throw error;
 				states[1] = { source: 'peer', status: ['AUTHORIZATION_REVOKED', 'LINK_REVOKED'].includes(error.code) ? 'unauthorized' : 'unavailable', retryable: true };
 				return this.partialPage(viewer, checkpoint, position.id, limit, states);
 			}

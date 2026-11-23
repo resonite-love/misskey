@@ -20,6 +20,7 @@ import { resolveGridspaceConfig, type GridspacePeerConfig } from '../peer-protoc
 import { filterNoteVisibility, searchNoteTimeSql } from '../search-visibility.js';
 import { canonicalGridspaceNoteUri, gridspaceNoteUris } from '../note-protocol.js';
 import { TimelineLocalSource } from './TimelineLocalSource.js';
+import { readSearchRows } from './search-page.js';
 import type { TimelinePosition, TimelineReference } from './timeline-protocol.js';
 
 export type TimelineListOptions =
@@ -105,8 +106,8 @@ export class GridspaceTimelineListSourceService {
 	private async searchQuery(viewer: MiLocalUser, options: Extract<TimelineListOptions, { kind: 'search' }>, includePeerPublic: boolean, boundedSearch: boolean): Promise<SelectQueryBuilder<MiNote>> {
 		if (!options.query.trim() || options.query.length > 200) throw new GridspaceLinkError('INVALID_REQUEST');
 		if (!(await this.roles.getUserPolicies(viewer.id)).canSearchNotes) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
-		// Match within the bounded ID set, rather than materializing the full-text
-		// index's matches across the entire server for every small page.
+		// Discovery can use the text index; hydration checks an already-bounded
+		// ID set, while author searches retain their ordered author index.
 		const query = this.search.noteQuery(viewer, { ...options, query: options.query.trim() }, false, true, undefined, boundedSearch || options.userId != null);
 		// Preserve Gridspace search's local/peer scope; unrelated federated hosts
 		// are not an extra search source introduced by this adapter.
@@ -145,7 +146,7 @@ export class GridspaceTimelineListSourceService {
 	/** Bounded candidate scans advance through empty permission-filtered pages. */
 	public async readPage(viewer: MiLocalUser, options: TimelineListOptions, position: { before?: TimelinePosition; upper?: TimelinePosition; untilAt?: number; limit: number }) {
 		if (!Number.isInteger(position.limit) || position.limit < 1 || position.limit > 50) throw new GridspaceLinkError('INVALID_REQUEST');
-		const windowSize = options.kind === 'search' && !options.userId ? 4096 : 512;
+		const windowSize = 512;
 		const scan = this.db.getRepository(MiNote).createQueryBuilder('candidate').select(['candidate.id', 'candidate.uri']);
 		const recipientList = options.kind === 'mentions' || options.kind === 'direct';
 		if (recipientList) {
@@ -160,6 +161,12 @@ export class GridspaceTimelineListSourceService {
 			const link = await this.history.findLink(options.userId);
 			const counterpart = link && this.peer ? await this.db.getRepository(MiUser).findOneBy({ uri: `${this.peer.peerOrigin}/users/${link.peerUserId}` }) : null;
 			authorIds = link ? [link.localUserId, ...(counterpart ? [counterpart.id] : [])] : [options.userId];
+		}
+		if (options.kind === 'search') {
+			const matches = await readSearchRows(this.search, await this.buildQuery(viewer, options), this.ids, position, authorIds);
+			const references = matches.slice(0, position.limit).map(note => this.reference({ noteId: note.id, uri: note.uri }));
+			const more = matches.length > position.limit;
+			return { references, next: more ? references.at(-1)! : null, upper: position.upper ?? references[0] ?? null, ended: !more };
 		}
 		for (const [name, boundary, operator] of [['Before', position.before, '<'], ['Upper', position.upper, '<=']] as const) {
 			if (!boundary) continue;

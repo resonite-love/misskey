@@ -15,6 +15,8 @@ import { IdService } from '@/core/IdService.js';
 import { GridspacePrivateService } from '../GridspacePrivateService.js';
 import { GridspaceSearchService } from '../GridspaceSearchService.js';
 import { GridspaceTimelineListSourceService } from './GridspaceTimelineListSourceService.js';
+import { TimelinePublicListSource } from './TimelinePublicListSource.js';
+import { readSearchRows } from './search-page.js';
 import type { PrivatePeerRequest } from '../private-protocol.js';
 import type { MiLocalUser } from '@/models/User.js';
 
@@ -133,7 +135,8 @@ test('real local recipient pages reach older mentions and direct notes without e
 	}
 });
 
-test('search reaches sparse older matches in one bounded window and rechecks visibility on every page', async () => {
+test('search pages matches beyond 4096 unrelated rows and rechecks public/private visibility', async () => {
+	await db.query('INSERT INTO note (id, "userId", visibility, text) SELECT id, \'author\', \'public\', \'unrelated\' FROM unnest($1::varchar[]) AS id', [Array.from({ length: 10000 }, (_, n) => id(20000 + n))]);
 	await db.query('UPDATE note SET text = \'sparse match\' WHERE id = $1', [id(1)]);
 	await db.query('UPDATE note SET cw = \'sparse match\' WHERE id = $1', [id(2)]);
 	const makeQuery = () => db.getRepository(MiNote).createQueryBuilder('note').select(['note.id', 'note.uri'])
@@ -146,8 +149,56 @@ test('search reaches sparse older matches in one bounded window and rechecks vis
 	const first = await read();
 	expect(first.references.map(ref => ref.noteId)).toEqual([id(1)]);
 	expect(first.ended).toBe(true);
+	expect(first.next).toBeNull();
+	const publicSource = Object.assign(Object.create(TimelinePublicListSource.prototype), { buildQuery: makeQuery, search: searchSource['search'], ids, config: { url: 'https://source.test' } });
+	const publicPage = await publicSource.readPage({ kind: 'search', query: 'sparse' }, { limit: 50 });
+	expect(publicPage.references.map(ref => ref.noteId)).toEqual([id(1)]);
+	expect(publicPage.next).toBeNull();
+	const peer = Object.assign(Object.create(GridspacePrivateService.prototype), service, {
+		publicLists: { buildQuery: makeQuery },
+		listQuery: async () => db.getRepository(MiNote).createQueryBuilder('note').where("(note.text ILIKE '%sparse%' OR note.cw ILIKE '%sparse%') AND note.visibility = 'followers'"),
+	});
+	const peerPage = await peer.peerListTimeline({ mode: 'search', query: 'sparse', timelineViewerId: 'viewer', accessToken: 'token' });
+	expect(peerPage.references.map(ref => [ref.noteId, ref.public ?? false])).toEqual([[id(2), false], [id(1), true]]);
+	expect(peerPage.next).toBeNull();
 	await db.query('UPDATE note SET visibility = \'followers\' WHERE id = $1', [id(1)]);
 	expect((await read()).references).toEqual([]);
 	await db.query('UPDATE note SET visibility = \'public\', text = NULL WHERE id = $1', [id(1)]);
 	await db.query('UPDATE note SET cw = NULL WHERE id = $1', [id(2)]);
+});
+
+test('matching public/private search rows page once in origin order without gaps or hidden matches', async () => {
+	for (let n = 1; n <= 120; n++) {
+		await db.query('INSERT INTO note (id, "userId", visibility, text) VALUES ($1, \'author\', $2, \'multipage\')', [id(40000 + n), n % 2 ? 'public' : 'followers']);
+	}
+	await db.query('INSERT INTO note (id, "userId", visibility, text) VALUES ($1, \'author\', \'specified\', \'multipage\')', [id(60000)]);
+	const query = (visibility: string) => db.getRepository(MiNote).createQueryBuilder('note')
+		.where('note.text = :query AND note.visibility = :visibility', { query: 'multipage', visibility });
+	const peer = Object.assign(Object.create(GridspacePrivateService.prototype), service, {
+		publicLists: { buildQuery: async () => query('public') }, listQuery: async () => query('followers'),
+	});
+	const input: PrivatePeerRequest = { mode: 'search', query: 'multipage', timelineViewerId: 'viewer', accessToken: 'token' };
+	const first = await peer.peerListTimeline(input);
+	const second = await peer.peerListTimeline({ ...input, timelineBefore: first.next!, timelineUpper: first.upper! });
+	const third = await peer.peerListTimeline({ ...input, timelineBefore: second.next!, timelineUpper: first.upper! });
+	expect([first.references.length, second.references.length, third.references.length]).toEqual([50, 50, 20]);
+	expect(third.next).toBeNull();
+	const refs = [...first.references, ...second.references, ...third.references];
+	expect(refs.map(ref => ref.noteId)).toEqual(Array.from({ length: 120 }, (_, n) => id(40120 - n)));
+	expect(refs.filter(ref => ref.public).length).toBe(60);
+});
+
+test('linked-author search retains time and cursor bounds in both author queries', async () => {
+	for (let n = 1; n <= 8; n++) {
+		await db.query('INSERT INTO note (id, "userId", visibility, text) VALUES ($1, $2, \'public\', \'authors\')', [id(70000 + n), n % 2 ? 'author' : 'otherAuthor']);
+	}
+	await db.query('INSERT INTO note (id, "userId", visibility, text) VALUES ($1, \'oldViewer\', \'public\', \'authors\')', [id(70005) + 'a']);
+	const query = db.getRepository(MiNote).createQueryBuilder('note').where('note.text = :term AND note.userId IN (:...authors)', { term: 'authors', authors: ['author', 'otherAuthor'] });
+	const search = Object.assign(Object.create(GridspaceSearchService.prototype), { db }) as GridspaceSearchService;
+	const ref = (n: number) => ({ sortAt: String(ids.parse(id(n)).date.getTime()), noteId: id(n), canonicalUri: `https://source.test/notes/${id(n)}` });
+	const rows = await readSearchRows(search, query, ids, {
+		before: ref(70007), upper: ref(70006),
+		fromAt: ids.parse(id(70003)).date.getTime(), untilAt: ids.parse(id(70005)).date.getTime(), limit: 2,
+	}, ['author', 'otherAuthor']);
+	expect(rows.map(note => note.id)).toEqual([70005, 70004, 70003].map(id));
 });
