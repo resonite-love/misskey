@@ -4,7 +4,7 @@
  */
 
 import type { SelectQueryBuilder } from 'typeorm';
-import type { MiNote } from '@/models/Note.js';
+import { MiNote } from '@/models/Note.js';
 import type { IdService } from '@/core/IdService.js';
 import { GridspaceLinkError } from '../GridspaceLinkService.js';
 import type { GridspaceSearchService } from '../GridspaceSearchService.js';
@@ -15,6 +15,16 @@ export async function readSearchRows(search: Pick<GridspaceSearchService, 'read'
 	position: { before?: TimelinePosition; upper?: TimelinePosition; untilAt?: number; fromAt?: number; limit: number }, authorIds?: string[]): Promise<MiNote[]> {
 	if (!Number.isInteger(position.limit) || position.limit < 1 || position.limit > 50) throw new GridspaceLinkError('INVALID_REQUEST');
 	const page = query.clone().select(['note.id', 'note.uri']);
+	const parameters = page.getParameters();
+	if (!authorIds?.length && parameters.gridspaceAuthorScoped !== true && typeof parameters.q === 'string') {
+		// Keep text matching ahead of the ACL joins. PGroonga's cardinality
+		// estimate can otherwise repeat the text scan for every user.
+		// OFFSET 0 is a streaming planner boundary, not a result limit.
+		const matches = page.connection.createQueryBuilder().select('candidate.*').from(MiNote, 'candidate')
+			.where('(candidate.text ILIKE :q OR (candidate.cw IS NOT NULL AND candidate.cw::text ILIKE :q))');
+		// Retain entity metadata for hydration and all original ACL predicates.
+		page.expressionMap.mainAlias!.subQuery = `(${matches.getQuery()} OFFSET 0)`;
+	}
 	for (const [name, boundary, operator] of [['Before', position.before, '<'], ['Upper', position.upper, '<=']] as const) {
 		if (!boundary) continue;
 		if (!boundary.noteId || !/^[a-zA-Z0-9]{1,32}$/.test(boundary.noteId)) throw new GridspaceLinkError('INVALID_CURSOR');

@@ -140,7 +140,7 @@ test('search pages matches beyond 4096 unrelated rows and rechecks public/privat
 	await db.query('UPDATE note SET text = \'sparse match\' WHERE id = $1', [id(1)]);
 	await db.query('UPDATE note SET cw = \'sparse match\' WHERE id = $1', [id(2)]);
 	const makeQuery = () => db.getRepository(MiNote).createQueryBuilder('note').select(['note.id', 'note.uri'])
-		.where("(note.text ILIKE '%sparse%' OR note.cw ILIKE '%sparse%') AND note.visibility = 'public'");
+		.where("(note.text ILIKE :q OR note.cw ILIKE :q) AND note.visibility = 'public'", { q: '%sparse%' });
 	const searchSource = Object.assign(Object.create(GridspaceTimelineListSourceService.prototype), {
 		db, ids, peer: null, origin: 'https://source.test', buildQuery: makeQuery,
 		search: Object.assign(Object.create(GridspaceSearchService.prototype), { db }),
@@ -156,7 +156,7 @@ test('search pages matches beyond 4096 unrelated rows and rechecks public/privat
 	expect(publicPage.next).toBeNull();
 	const peer = Object.assign(Object.create(GridspacePrivateService.prototype), service, {
 		publicLists: { buildQuery: makeQuery },
-		listQuery: async () => db.getRepository(MiNote).createQueryBuilder('note').where("(note.text ILIKE '%sparse%' OR note.cw ILIKE '%sparse%') AND note.visibility = 'followers'"),
+		listQuery: async () => db.getRepository(MiNote).createQueryBuilder('note').where("(note.text ILIKE :q OR note.cw ILIKE :q) AND note.visibility = 'followers'", { q: '%sparse%' }),
 	});
 	const peerPage = await peer.peerListTimeline({ mode: 'search', query: 'sparse', timelineViewerId: 'viewer', accessToken: 'token' });
 	expect(peerPage.references.map(ref => [ref.noteId, ref.public ?? false])).toEqual([[id(2), false], [id(1), true]]);
@@ -173,7 +173,7 @@ test('matching public/private search rows page once in origin order without gaps
 	}
 	await db.query('INSERT INTO note (id, "userId", visibility, text) VALUES ($1, \'author\', \'specified\', \'multipage\')', [id(60000)]);
 	const query = (visibility: string) => db.getRepository(MiNote).createQueryBuilder('note')
-		.where('note.text = :query AND note.visibility = :visibility', { query: 'multipage', visibility });
+		.where('note.text = :query AND note.visibility = :visibility', { query: 'multipage', q: '%multipage%', visibility });
 	const peer = Object.assign(Object.create(GridspacePrivateService.prototype), service, {
 		publicLists: { buildQuery: async () => query('public') }, listQuery: async () => query('followers'),
 	});
