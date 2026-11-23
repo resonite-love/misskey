@@ -42,6 +42,52 @@ function fixture(rows: Row[], publicIds: string[] = []) {
 }
 
 describe('peer list source scope and paging', () => {
+	test('public fallback needs no private grant and rechecks its public root after packing', async () => {
+		const { service, authorizeRead, publicBuild, privateBuild } = fixture([row('30'), row('20')], ['30']);
+		const show = vi.fn(async () => [{ noteId: '30', reactions: {}, reactionEmojis: {}, myReactions: [] }]);
+		const pack = vi.fn(async () => ({ id: '30', uri: 'https://source.test/notes/30', origin: 'https://source.test', text: 'Public commentary', renoteUnavailable: true, renoteId: null, filterActors: [] }));
+		Object.assign(service, { extendedReactions: { show }, pack });
+		const result = await service.peerListTimeline({ mode: 'validate', contextMode: 'profile', timelineViewerId: 'viewer', targetUris: ['https://source.test/users/author'], ids: ['30', '20'], timelineValidate: true, timelinePublicBodies: true });
+		expect(result.notes).toEqual([expect.objectContaining({ text: 'Public commentary', renoteUnavailable: true })]);
+		expect(pack).toHaveBeenCalledWith(expect.objectContaining({ id: '30' }), '', new Set(), expect.anything());
+		expect(show).toHaveBeenCalledWith(['30'], null, true);
+		expect(publicBuild.mock.calls.length).toBeGreaterThan(1);
+		expect(authorizeRead).not.toHaveBeenCalled();
+		expect(privateBuild).not.toHaveBeenCalled();
+	});
+	test('the real wire packer retains commentary but never includes an unreadable quote target', async () => {
+		const root = { ...row('30'), text: 'Public commentary', cw: null, visibility: 'public', localOnly: true,
+			fileIds: [], emojis: [], hasPoll: false, renoteId: 'privateTarget', replyId: null,
+			user: { id: 'author', username: 'author', name: 'Author', host: null, emojis: [] } } as Row;
+		const { service } = fixture([root], ['30']);
+		Object.assign(service, {
+			db: { getRepository: () => ({ findBy: async () => [root.user] }) },
+			users: { pack: async () => ({ avatarUrl: 'https://source.test/avatar.png', avatarDecorations: [] }) },
+			emojis: { populateEmojis: async () => ({}), localEmojisCache: { fetch: async () => new Map() } },
+			meta: {},
+		});
+		const packed = await Reflect.get(service, 'pack').call(service, root, '', new Set(), { reactions: {}, reactionEmojis: {}, myReactions: [] });
+		expect(packed).toMatchObject({ text: 'Public commentary', renoteId: null, renoteUnavailable: true });
+		expect(packed.renote).toBeUndefined();
+	});
+	test('fallback cannot request a non-public-list scope', async () => {
+		const { service } = fixture([]);
+		await expect(service.peerListTimeline({ mode: 'validate', contextMode: 'direct', ids: ['30'], timelineValidate: true, timelinePublicBodies: true })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+	});
+	test('public fallback lease expires with the author temporal policy', async () => {
+		const now = Date.now();
+		const source = row('30');
+		source.user = { makeNotesHiddenBefore: -10 } as never;
+		const { service } = fixture([source], ['30']);
+		Object.assign(service, { ids: { parse: () => ({ date: new Date(now - 9500) }) },
+			extendedReactions: { show: async () => [{ noteId: '30' }] }, pack: async () => ({ id: '30', text: 'Public', renoteUnavailable: true }) });
+		const input = { mode: 'validate', contextMode: 'profile', timelineViewerId: 'viewer', targetUris: ['https://source.test/users/author'], ids: ['30'], timelineValidate: true, timelinePublicBodies: true } as const;
+		const result = await service.peerListTimeline({ ...input, ids: [...input.ids], targetUris: [...input.targetUris] });
+		expect(result.validForMs).toBeGreaterThan(0);
+		expect(result.validForMs).toBeLessThanOrEqual(500);
+		const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 1000);
+		try { expect((await service.peerListTimeline({ ...input, ids: [...input.ids], targetUris: [...input.targetUris] })).validForMs).toBe(0); } finally { clock.mockRestore(); }
+	});
 	test('public profile without a private credential reads only its public arm', async () => {
 		const { service, authorizeRead, privateBuild } = fixture([row('30'), row('20')], ['30']);
 		const result = await service.peerListTimeline({ mode: 'profile', timelineViewerId: 'viewer', targetUris: ['https://source.test/users/author'] });

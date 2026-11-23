@@ -125,6 +125,27 @@ test('defers a reply when its parent is temporarily unavailable', async () => {
 	expect(f.ap.createNote).not.toHaveBeenCalled();
 });
 
+test('an unavailable quote does not reject other history items or create a broken public copy', async () => {
+	const f = fixture();
+	const child = bundle('child');
+	Object.assign(child.notes[0].object, { _misskey_quote: 'https://r.example/notes/parent', quoteUrl: 'https://r.example/notes/parent' });
+	f.ap.fetchNote.mockImplementation(async uri => uri.endsWith('/parent') ? null : { id: uri.split('/').at(-1), gridspaceShared: true, visibility: 'public', channelId: null } as MiNote);
+	vi.mocked(requestGridspacePeer).mockResolvedValueOnce({ items: [{ id: 'a', bundle: bundle('a') }, { id: 'child', bundle: child }] })
+		.mockResolvedValueOnce({ deleted: false, unavailable: true, notes: [] });
+	expect([...(await f.service.historyNotes(['a', 'child'], f.budget)).keys()]).toEqual(['a']);
+	expect(f.ap.createNote).not.toHaveBeenCalled();
+	expect(f.create.pushToTl).not.toHaveBeenCalled();
+});
+
+test('a network failure while resolving a history reference is still an error', async () => {
+	const f = fixture();
+	const child = bundle('child');
+	Object.assign(child.notes[0].object, { _misskey_quote: 'https://r.example/notes/parent' });
+	f.ap.fetchNote.mockResolvedValue(null);
+	vi.mocked(requestGridspacePeer).mockResolvedValueOnce({ items: [{ id: 'child', bundle: child }] }).mockRejectedValueOnce(new Error('offline'));
+	await expect(f.service.historyNotes(['child'], f.budget)).rejects.toThrow('offline');
+});
+
 test('never imports a reply as a root when the local parent is missing', async () => {
 	const f = fixture();
 	const child = bundle('child');

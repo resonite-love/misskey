@@ -423,7 +423,7 @@ export function registerGridspacePeer(fastify: FastifyInstance, config: Gridspac
 					timelineViewerId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 					timelineBefore: { type: 'object', additionalProperties: false, required: ['sortAt', 'canonicalUri', 'noteId'], properties: { sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 }, noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, sourceId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } },
 					timelineUpper: { type: 'object', additionalProperties: false, required: ['sortAt', 'canonicalUri', 'noteId'], properties: { sortAt: { type: 'string', pattern: '^[0-9]{1,19}$' }, canonicalUri: { type: 'string', maxLength: 1024 }, noteId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, sourceId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' } } },
-					timelineSequence: { type: 'string', pattern: '^[0-9]{1,19}$' }, timelineValidate: { type: 'boolean' },
+					timelineSequence: { type: 'string', pattern: '^[0-9]{1,19}$' }, timelineValidate: { type: 'boolean' }, timelinePublicBodies: { type: 'boolean' },
 					timelineAnchor: { type: 'string', maxLength: 1024 },
 					timelineUntilAt: { type: 'integer', minimum: 0, maximum: 4102444800000 },
 					timelineFromAt: { type: 'integer', minimum: 0, maximum: 4102444800000 },

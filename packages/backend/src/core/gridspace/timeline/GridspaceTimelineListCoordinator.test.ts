@@ -89,7 +89,7 @@ function fixture(options: TimelineOptions, originalLocal: TimelineReference[], o
 		const selected = input.ids ? rows.peer.filter(ref => input.ids!.includes(ref.noteId)) : [];
 		return { ...(input.ids ? { references: selected, next: null, upper: null } : page('peer', input)),
 			sequence: '0', generation: 1, changed: false, validForMs: 10000, newReferences: [],
-			notes: selected.filter(ref => !ref.public).map(ref => ({ id: ref.noteId, uri: ref.canonicalUri, text: 'protected', origin: 'https://peer.example' })),
+			notes: selected.filter(ref => !ref.public || input.includePublicBodies).map(ref => ({ id: ref.noteId, uri: ref.canonicalUri, text: input.includePublicBodies ? 'Public commentary' : 'protected', origin: 'https://peer.example', ...(input.includePublicBodies ? { renoteId: null, renoteUnavailable: true } : {}) })),
 		} as never;
 	});
 	shared.historyNotes.mockImplementation(async ids => {
@@ -125,6 +125,50 @@ function fixture(options: TimelineOptions, originalLocal: TimelineReference[], o
 }
 
 describe('other-list coordinator with real Redis sessions', () => {
+	test('keeps a public profile page when an unimportable reference needs a delegated placeholder', async () => {
+		const options = { kind: 'profile', userId: 'profile' } as const;
+		const original = row('local', 80);
+		const missing = { ...row('peer', 70), public: true };
+		const f = fixture(options, [original], [missing]);
+		f.shared.historyNotes.mockResolvedValue(new Map());
+		const page = await f.service.page(viewer, options, 20);
+		expect(page.items.map(item => item.key)).toEqual([original.canonicalUri, missing.canonicalUri]);
+		expect(page.items[1]).toMatchObject({ representation: 'delegated', payload: { text: 'Public commentary', renoteId: null, renoteUnavailable: true } });
+		expect(page.items[1].validForMs).toBeGreaterThan(0);
+		expect(page.items[1].validForMs).toBeLessThanOrEqual(10000);
+		expect(f.delegated.timeline).toHaveBeenCalledWith(viewer, expect.objectContaining({ kind: 'profile', userId: 'profile', ids: [missing.noteId], includePublicBodies: true }));
+		expect(f.imports.size).toBe(0);
+	});
+
+	test('public fallback preserves roots without requiring a private account grant', async () => {
+		const options = { kind: 'profile', userId: 'profile' } as const;
+		const original = row('local', 80);
+		const f = fixture(options, [original], [{ ...row('peer', 70), public: true }]);
+		f.shared.historyNotes.mockResolvedValue(new Map());
+		const page = await f.service.page(viewer, options, 20);
+		expect(page.items).toHaveLength(2);
+		expect(page.items[1].payload).toMatchObject({ text: 'Public commentary', renoteUnavailable: true });
+		expect(f.delegated.notes).not.toHaveBeenCalled();
+		expect(f.imports.size).toBe(0);
+	});
+
+	test('a revoked public reference never falls back to an old delegated body', async () => {
+		const options = { kind: 'profile', userId: 'profile' } as const;
+		const missing = { ...row('peer', 70), public: true };
+		const f = fixture(options, [], [missing]);
+		f.shared.historyNotes.mockImplementation(async () => { f.rows.peer = []; return new Map(); });
+		const page = await f.service.page(viewer, options, 20);
+		expect(page.items).toEqual([]);
+		expect(f.delegated.timeline.mock.calls.some(([, input]) => input.includePublicBodies)).toBe(false);
+	});
+	test('a delegated outage is not silently treated as an empty profile', async () => {
+		const options = { kind: 'profile', userId: 'profile' } as const;
+		const f = fixture(options, [], [{ ...row('peer', 70), public: true }]);
+		f.shared.historyNotes.mockResolvedValue(new Map());
+		const read = f.delegated.timeline.getMockImplementation()!;
+		f.delegated.timeline.mockImplementation(async (user, input) => { if (input.includePublicBodies) throw new GridspaceLinkError('PEER_UNAVAILABLE'); return read(user, input); });
+		await expect(f.service.page(viewer, options, 20)).rejects.toMatchObject({ code: 'PEER_UNAVAILABLE' });
+	});
 	test('favorites page on save identity while body hydration keeps the distinct note identity', async () => {
 		const locals = Array.from({ length: 60 }, (_, i) => row('local', 300 - i * 2, `n${String(i + 1).padStart(8, '0')}`, `f${String(300 - i * 2).padStart(8, '0')}`));
 		const peers = Array.from({ length: 65 }, (_, i) => row('peer', 299 - i * 2, `n${String(200 - i).padStart(8, '0')}`, `f${String(299 - i * 2).padStart(8, '0')}`));

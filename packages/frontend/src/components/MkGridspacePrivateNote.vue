@@ -29,6 +29,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				<span v-if="isUnavailableGridspaceNote(note, true)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span>
 				<MkNoteText v-else :text="displayNote.text ?? ''" :author="displayAuthor" :emojiUrls="displayNote.emojis ?? {}"/>
 				<MkA v-if="!readOnly && note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts.quote }}</MkA>
+				<span v-if="note.renoteUnavailable && !isUnavailableGridspaceNote(note, true)"><i class="ti ti-lock"></i> {{ i18n.ts.invisibleNote }}</span>
 			</div>
 			<details v-if="note.files.length" :key="`${note.id}:files`" :open="quoteFilesExpanded" @toggle="toggleQuoteFiles">
 				<summary>({{ i18n.tsx.withNFiles({ n: note.files.length }) }})</summary>
@@ -56,9 +57,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 		<div v-if="!readOnly && note.replyId" :class="$style.parentLinks"><MkA :to="noteLink(note.replyId)"><i class="ti ti-arrow-back-up"></i> {{ i18n.ts._gridspace.privateReply }}</MkA></div>
 		<MkNoteCw v-if="displayNote.cw != null" v-model="expanded" :cw="displayNote.cw" :text="displayNote.text" :author="displayNote.author" :emojiUrls="displayNote.emojis ?? {}" :files="note.files" :poll="note.poll ? { ...note.poll, choices: note.poll.choices.map(choice => ({ ...choice, isVoted: choice.isVoted === true })) } : null"/>
 		<div v-if="displayNote.cw == null || expanded" :class="$style.body"><span v-if="isUnavailableGridspaceNote(note, true)"><i class="ti ti-lock"></i> {{ i18n.ts._gridspace.unavailableNote }}</span><MkNoteText v-else :text="translation?.text ?? displayNote.text ?? ''" :author="displayNote.author" :emojiUrls="displayNote.emojis ?? {}"/></div>
-		<div v-if="note.renoteId && (displayNote.cw == null || expanded)" :class="$style.quote">
-			<MkGridspacePrivateNote v-if="note.renote" :note="note.renote" :readOnly="readOnly" :class="$style.quoteNote" quotePreview nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
-			<MkA v-else-if="!readOnly" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA>
+		<div v-if="(note.renoteId || (note.renoteUnavailable && !isUnavailableGridspaceNote(note, true))) && (displayNote.cw == null || expanded)" :class="$style.quote">
+			<span v-if="note.renoteUnavailable"><i class="ti ti-lock"></i> {{ i18n.ts.invisibleNote }}</span>
+			<MkGridspacePrivateNote v-else-if="note.renote" :note="note.renote" :readOnly="readOnly" :class="$style.quoteNote" quotePreview nested @unavailable="emit('unavailable')" @replied="emit('replied')"/>
+			<MkA v-else-if="!readOnly && note.renoteId" :to="noteLink(note.renoteId)">{{ i18n.ts._gridspace.privateRenote }}</MkA>
 		</div>
 		<div v-if="note.gridspaceQuote && (displayNote.cw == null || expanded)" :class="$style.quote"><div :class="$style.quoteNote"><MkGridspaceNoteLinkPreview :url="note.gridspaceQuote" quote/></div></div>
 		<button v-if="translation" class="_textButton" @click="translation = null">{{ i18n.ts._autoTranslation.showOriginal }}</button>

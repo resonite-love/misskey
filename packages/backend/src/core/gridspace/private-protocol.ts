@@ -6,8 +6,8 @@
 import { packedNoteSchema } from '@/models/json-schema/note.js';
 import type { PackedChannelPlacement } from '@/core/NotePlacementService.js';
 import { packedUserLiteSchema } from '@/models/json-schema/user.js';
-import { conversationUriSchema, type ConversationCredential, type ConversationOptions } from './conversation-protocol.js';
 import type { Packed } from '@/misc/json-schema.js';
+import { conversationUriSchema, type ConversationCredential, type ConversationOptions } from './conversation-protocol.js';
 import type { GridspacePeerLinkRequest } from './GridspaceLinkService.js';
 import type { ReactionPreview } from './reaction-protocol.js';
 
@@ -26,6 +26,7 @@ export type PrivatePeerRequest = ConversationCredential & GridspacePeerLinkReque
 	timelineBefore?: { sortAt: string; canonicalUri: string; noteId?: string; sourceId?: string }; timelineUpper?: { sortAt: string; canonicalUri: string; noteId?: string; sourceId?: string };
 	timelineViewerId?: string;
 	timelineSequence?: string; timelineValidate?: boolean;
+	timelinePublicBodies?: boolean;
 	timelineAnchor?: string;
 	timelineUntilAt?: number;
 	timelineFromAt?: number;
@@ -49,6 +50,7 @@ export type PrivateNote = {
 	myReactions?: string[]; extendedReactions?: boolean;
 	reactionPreviews?: ReactionPreview[];
 	replyId: string | null; renoteId: string | null;
+	renoteUnavailable?: boolean;
 	renote?: PrivateNote | null;
 	files: { id: string; name: string; type: string; size: number; comment: string | null; isSensitive: boolean; url?: string; thumbnailUrl?: string | null }[];
 	poll: { choices: { text: string; votes: number; isVoted?: boolean }[]; expiresAt: string | null; multiple: boolean } | null;
@@ -92,7 +94,7 @@ const privateNoteBaseSchema = {
 			reaction: text, account: { type: 'object', optional: false, nullable: false, properties: { name: nullableText, username: text, host: text, uri: text, avatarUrl: text } },
 		} } },
 		extendedReactions: { ...flag, optional: true },
-		replyId: nullableText, renoteId: nullableText,
+		replyId: nullableText, renoteId: nullableText, renoteUnavailable: { ...flag, optional: true },
 		files: { type: 'array', optional: false, nullable: false, items: { type: 'object', optional: false, nullable: false, properties: {
 			id: text, name: text, type: text, size: integer, comment: nullableText, isSensitive: flag, url: { ...text, optional: true }, thumbnailUrl: { ...nullableText, optional: true },
 		} } },

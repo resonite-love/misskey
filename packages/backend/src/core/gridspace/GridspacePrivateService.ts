@@ -370,6 +370,7 @@ export class GridspacePrivateService {
 		if ((mode === 'channel') !== !!input.channelId || (mode === 'clip') !== !!input.clipId || (mode === 'antenna') !== !!input.antennaId || (mode === 'profile' && !input.targetUris?.length)) throw new GridspaceLinkError('INVALID_REQUEST');
 		const initialSequence = await this.timelineReferences.currentPosition();
 		const isPublicList = (mode === 'profile' || mode === 'search') && !!input.timelineViewerId;
+		if (input.timelinePublicBodies && (!input.timelineValidate || !isPublicList)) throw new GridspaceLinkError('INVALID_REQUEST');
 		const publicInput = { ...input, kind: mode, viewerId: input.timelineViewerId } as PublicListRequest;
 		const publicQuery = isPublicList ? await this.publicLists!.buildQuery(publicInput) : null;
 		let link: Awaited<ReturnType<GridspacePrivateService['authorizeRead']>> | null = null;
@@ -402,6 +403,11 @@ export class GridspacePrivateService {
 			const eligible = await readIds(input.ids ?? []);
 			const privateIds = eligible.rows.filter(note => !eligible.publicIds.has(note.id)).map(note => note.id);
 			const packed = link && privateIds.length ? await this.peerNotes({ ...sourceInput, mode: 'validate', contextMode: mode, ids: privateIds }) : { notes: [] as PrivateWireNote[] };
+			// A public root whose nested target cannot be mirrored is still readable.
+			// Send only that root, with no nested bodies, under the public list ACL.
+			const publicRows = input.timelinePublicBodies ? eligible.rows.filter(note => eligible.publicIds.has(note.id)) : [];
+			const states = new Map((publicRows.length ? await this.extendedReactions.show(publicRows.map(note => note.id), null, true) : []).map(state => [state.noteId, state]));
+			const publicNotes = await Promise.all(publicRows.map(note => this.pack(note, '', new Set(), states.get(note.id))));
 			if (link) await this.authorizeRead(input);
 			const fresh = await readIds(input.ids ?? []);
 			const freshIds = new Set(fresh.rows.map(note => note.id));
@@ -416,8 +422,9 @@ export class GridspacePrivateService {
 			packed.notes = packed.notes.filter(note => policyAllowed.has(note.id));
 			for (const note of packed.notes) if (note.renote && !policyAllowed.has(note.renote.id)) { delete note.renote; note.renoteId = null; }
 			let lease = Math.max(0, TIMELINE_AUTHORIZATION_TTL_MS - (Date.now() - started));
-			for (const note of policyNotes) {
-				if (note.userId === link!.localUserId) continue;
+			const publicPolicyIds = new Set(publicNotes.map(note => note.id));
+			for (const note of [...policyNotes, ...fresh.rows.filter(note => publicPolicyIds.has(note.id))]) {
+				if (note.userId === link?.localUserId) continue;
 				for (const [kind, policy] of [['hidden', note.user?.makeNotesHiddenBefore], ['followers', note.user?.makeNotesFollowersOnlyBefore]] as const) {
 					if (policy != null && policy <= 0) {
 						const cutoff = this.ids.parse(note.id).date.getTime() - policy * 1000;
@@ -428,7 +435,7 @@ export class GridspacePrivateService {
 				}
 			}
 			if (link) await this.authorizeRead(input);
-			return { references: retained, notes: packed.notes.filter(note => freshIds.has(note.id) && allowed.has(note.id)), newReferences: newer.rows.filter(note => changes?.events.some(event => event.noteId === note.id && event.kind === 'insert')).map(note => reference(note, newer.publicIds.has(note.id))),
+			return { references: retained, notes: [...packed.notes, ...publicNotes.filter(note => fresh.publicIds.has(note.id))].filter(note => freshIds.has(note.id) && allowed.has(note.id)), newReferences: newer.rows.filter(note => changes?.events.some(event => event.noteId === note.id && event.kind === 'insert')).map(note => reference(note, newer.publicIds.has(note.id))),
 				sequence, generation: status.generation, validForMs: lease,
 				changed: changes ? changes.resetRequired || changes.events.some(event => !event.noteId && (!event.affectedUserId || event.affectedUserId === link?.localUserId)) || changes.events.some(event => event.kind !== 'insert' && event.noteId && [...freshIds, ...newer.rows.map(note => note.id), ...(input.ids ?? [])].includes(event.noteId)) || (mode === 'clip' && newer.rows.length > 0) : false };
 		}
@@ -490,7 +497,7 @@ export class GridspacePrivateService {
 	}
 
 	/** No payload is retained between requests; credentials never leave this service. */
-	public async timeline(viewer: MiLocalUser, input: Partial<TimelineOptions> & { before?: TimelinePosition; upper?: TimelinePosition; ids?: string[]; candidates?: TimelineReference[]; sequence?: string; anchor?: string; untilAt?: number; fromAt?: number; deadline?: number }) {
+	public async timeline(viewer: MiLocalUser, input: Partial<TimelineOptions> & { before?: TimelinePosition; upper?: TimelinePosition; ids?: string[]; candidates?: TimelineReference[]; sequence?: string; anchor?: string; untilAt?: number; fromAt?: number; deadline?: number; includePublicBodies?: boolean }) {
 		if (!await this.db.getRepository(MiUser).existsBy({ id: viewer.id, host: IsNull(), isSuspended: false, isDeleted: false })) throw new GridspaceLinkError('AUTHORIZATION_REVOKED');
 		const mode = !input.kind || input.kind === 'social' ? 'home' : input.kind;
 		if ((mode === 'channel') !== !!input.channelId || (mode === 'clip') !== !!input.clipId || (mode === 'antenna') !== !!input.antennaId || (mode === 'profile' && !input.userId)) throw new GridspaceLinkError('INVALID_REQUEST');
@@ -517,6 +524,7 @@ export class GridspacePrivateService {
 		try {
 			page = await requestGridspacePeer(this.peer!, '/gridspace/v1/private/timeline', {
 			...credential, mode: input.ids ? 'validate' : mode, contextMode: input.ids ? mode : undefined, timelineValidate: !!input.ids,
+			timelinePublicBodies: input.includePublicBodies,
 			channelId: input.channelId, query: input.query, clipId: input.clipId, antennaId: input.antennaId, order: input.order, targetUris,
 			timelineViewerId: publicList ? viewer.id : undefined,
 			timelineCandidates: input.candidates?.map(ref => position(ref)),
@@ -538,9 +546,9 @@ export class GridspacePrivateService {
 		const actorAllows = await this.localActorChecker(viewer, this.actorsForNotes(page.notes ?? []));
 		for (const note of page.notes ?? []) {
 			if (note.origin !== this.peer!.peerOrigin) throw new GridspaceLinkError('PEER_UNAVAILABLE');
-			if (await this.localAllows(viewer, note, mode === 'home', channel?.peerUserId ?? link!.peerUserId, actorAllows)) {
+			if (await this.localAllows(viewer, note, mode === 'home', channel?.peerUserId ?? link?.peerUserId ?? '', actorAllows)) {
 				const { filterActors: _actors, ...display } = note;
-				notes.push(await this.filterChannelRenote(viewer, display, channel?.peerUserId ?? link!.peerUserId, actorAllows));
+				notes.push(await this.filterChannelRenote(viewer, display, channel?.peerUserId ?? link?.peerUserId ?? '', actorAllows));
 			}
 		}
 		if (channel) await channel.check(); else if (link) await this.links.checkPrivateUnchanged(link);
@@ -594,6 +602,7 @@ export class GridspacePrivateService {
 													instance: note.user!.host ? author.instance && { name: author.instance.name, faviconUrl: author.instance.faviconUrl, themeColor: author.instance.themeColor } : { name: this.meta.name, faviconUrl: this.meta.iconUrl, themeColor: this.meta.themeColor } }, filterActors: actors.map(user => this.actor(user)),
 			replyId: note.replyId && readableRelated.has(note.replyId) ? note.replyId : null,
 			renoteId: note.renoteId && readableRelated.has(note.renoteId) ? note.renoteId : null,
+			renoteUnavailable: !!note.renoteId && !readableRelated.has(note.renoteId),
 			files: files.map(file => ({ id: file.id, name: file.name, type: file.type, size: file.size, comment: file.comment, ...(note.multiNoteKind && ['public', 'home'].includes(note.visibility) ? { url: this.driveFiles!.getPublicUrl(file), thumbnailUrl: this.driveFiles!.getThumbnailUrl(file) } : {}), isSensitive: file.isSensitive || file.maybeSensitive })),
 			poll: poll ? { choices: poll.choices.map((text, i) => ({ text, votes: poll.votes[i] ?? 0, isVoted: votes.some(vote => vote.choice === i) })), expiresAt: poll.expiresAt?.toISOString() ?? null, multiple: poll.multiple } : null,
 		};

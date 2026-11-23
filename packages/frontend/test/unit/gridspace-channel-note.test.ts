@@ -34,7 +34,7 @@ vi.mock('@/components/MkNoteHeader.vue', () => ({ default: { template: '<div/>' 
 vi.mock('@/components/global/MkAvatar.vue', () => ({ default: { props: ['preview'], template: '<div data-avatar :data-preview="preview"/>' } }));
 vi.mock('@/components/MkInstanceTicker.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkUrlPreview.vue', () => ({ default: { template: '<div/>' } }));
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { delete: 'Delete', showOnRemote: 'Open original', _multiNote: { mirrorUnavailable: 'Awaiting local copy' }, reply: 'Reply', renote: 'Renote', quote: 'Quote', renoteToOtherChannel: 'Other channel', cantRenote: 'Unavailable', reaction: 'React', more: 'More', inChannelRenote: 'Channel renote', inChannelQuote: 'Channel quote', renoted: 'Renoted', _gridspace: {}, _visibility: { public: 'Public' } }, tsx: { withNFiles: ({ n }: { n: number }) => `${n} files`, _gridspace: { selfRenoteAs: ({ account }: { account: string }) => `Self-renote as ${account}` } } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { invisibleNote: 'Unavailable source', delete: 'Delete', showOnRemote: 'Open original', _multiNote: { mirrorUnavailable: 'Awaiting local copy' }, reply: 'Reply', renote: 'Renote', quote: 'Quote', renoteToOtherChannel: 'Other channel', cantRenote: 'Unavailable', reaction: 'React', more: 'More', inChannelRenote: 'Channel renote', inChannelQuote: 'Channel quote', renoted: 'Renoted', _gridspace: {}, _visibility: { public: 'Public' } }, tsx: { withNFiles: ({ n }: { n: number }) => `${n} files`, _gridspace: { selfRenoteAs: ({ account }: { account: string }) => `Self-renote as ${account}` } } } }));
 
 beforeEach(() => {
 	vi.clearAllMocks(); window.sessionStorage.clear();
@@ -47,6 +47,12 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 type PrivateNote = entities.GridspacePrivateNotesResponse['notes'][number];
 const original = { id: 'original', channelId: 'channel', uri: 'https://r.example/notes/original', origin: 'https://r.example', createdAt: '2026-11-14T00:00:00Z', author: { name: 'Author', username: 'author', host: 'r.example', uri: 'https://r.example/users/author', avatarUrl: '', emojis: {} }, text: 'Original content', cw: null, visibility: 'public', localOnly: true, files: [], poll: null, renoteId: null, replyId: null } as PrivateNote;
 const globals = { stubs: { Mfm: { props: ['text'], template: '<span>{{ text }}</span>' }, MkA: { props: ['to'], template: '<a :href="to"><slot/></a>' }, MkTime: true, MkUserName: true, I18n: { template: '<span><slot name="user"/></span>' } } };
+
+test.each([false, true])('keeps public commentary visible with an unavailable quote placeholder (compact: %s)', quotePreview => {
+	const view = render(Note, { props: { note: { ...original, text: 'Public commentary', renoteUnavailable: true }, quotePreview }, global: globals });
+	expect(view.getByText('Public commentary')).toBeTruthy();
+	expect(view.getByText('Unavailable source')).toBeTruthy();
+});
 
 test('an allowed channel quote opens the normal composer outside the source channel', async () => {
 	const source = { ...original, canQuoteOutside: true, author: { ...original.author, uri: `${url}/users/current`, host: new URL(url).host } };

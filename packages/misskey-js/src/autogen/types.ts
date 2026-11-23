@@ -27802,6 +27802,7 @@ export interface operations {
                             extendedReactions?: boolean;
                             replyId: string | null;
                             renoteId: string | null;
+                            renoteUnavailable?: boolean;
                             files: {
                                 id: string;
                                 name: string;
@@ -27916,6 +27917,7 @@ export interface operations {
                                 extendedReactions?: boolean;
                                 replyId: string | null;
                                 renoteId: string | null;
+                                renoteUnavailable?: boolean;
                                 files: {
                                     id: string;
                                     name: string;
@@ -28249,6 +28251,7 @@ export interface operations {
                                 extendedReactions?: boolean;
                                 replyId: string | null;
                                 renoteId: string | null;
+                                renoteUnavailable?: boolean;
                                 files: {
                                     id: string;
                                     name: string;
@@ -28363,6 +28366,7 @@ export interface operations {
                                     extendedReactions?: boolean;
                                     replyId: string | null;
                                     renoteId: string | null;
+                                    renoteUnavailable?: boolean;
                                     files: {
                                         id: string;
                                         name: string;
@@ -28481,6 +28485,7 @@ export interface operations {
                                 extendedReactions?: boolean;
                                 replyId: string | null;
                                 renoteId: string | null;
+                                renoteUnavailable?: boolean;
                                 files: {
                                     id: string;
                                     name: string;
@@ -28595,6 +28600,7 @@ export interface operations {
                                     extendedReactions?: boolean;
                                     replyId: string | null;
                                     renoteId: string | null;
+                                    renoteUnavailable?: boolean;
                                     files: {
                                         id: string;
                                         name: string;
@@ -29002,6 +29008,7 @@ export interface operations {
                                     extendedReactions?: boolean;
                                     replyId: string | null;
                                     renoteId: string | null;
+                                    renoteUnavailable?: boolean;
                                     files: {
                                         id: string;
                                         name: string;
@@ -29116,6 +29123,7 @@ export interface operations {
                                         extendedReactions?: boolean;
                                         replyId: string | null;
                                         renoteId: string | null;
+                                        renoteUnavailable?: boolean;
                                         files: {
                                             id: string;
                                             name: string;
@@ -29234,6 +29242,7 @@ export interface operations {
                                     extendedReactions?: boolean;
                                     replyId: string | null;
                                     renoteId: string | null;
+                                    renoteUnavailable?: boolean;
                                     files: {
                                         id: string;
                                         name: string;
@@ -29348,6 +29357,7 @@ export interface operations {
                                         extendedReactions?: boolean;
                                         replyId: string | null;
                                         renoteId: string | null;
+                                        renoteUnavailable?: boolean;
                                         files: {
                                             id: string;
                                             name: string;
@@ -29772,6 +29782,7 @@ export interface operations {
                             extendedReactions?: boolean;
                             replyId: string | null;
                             renoteId: string | null;
+                            renoteUnavailable?: boolean;
                             files: {
                                 id: string;
                                 name: string;
@@ -29886,6 +29897,7 @@ export interface operations {
                                 extendedReactions?: boolean;
                                 replyId: string | null;
                                 renoteId: string | null;
+                                renoteUnavailable?: boolean;
                                 files: {
                                     id: string;
                                     name: string;
@@ -30324,6 +30336,7 @@ export interface operations {
                             extendedReactions?: boolean;
                             replyId: string | null;
                             renoteId: string | null;
+                            renoteUnavailable?: boolean;
                             files: {
                                 id: string;
                                 name: string;
@@ -30438,6 +30451,7 @@ export interface operations {
                                 extendedReactions?: boolean;
                                 replyId: string | null;
                                 renoteId: string | null;
+                                renoteUnavailable?: boolean;
                                 files: {
                                     id: string;
                                     name: string;
@@ -31319,6 +31333,7 @@ export interface operations {
                                 extendedReactions?: boolean;
                                 replyId: string | null;
                                 renoteId: string | null;
+                                renoteUnavailable?: boolean;
                                 files: {
                                     id: string;
                                     name: string;
@@ -31433,6 +31448,7 @@ export interface operations {
                                     extendedReactions?: boolean;
                                     replyId: string | null;
                                     renoteId: string | null;
+                                    renoteUnavailable?: boolean;
                                     files: {
                                         id: string;
                                         name: string;
@@ -31575,6 +31591,7 @@ export interface operations {
                                 extendedReactions?: boolean;
                                 replyId: string | null;
                                 renoteId: string | null;
+                                renoteUnavailable?: boolean;
                                 files: {
                                     id: string;
                                     name: string;
@@ -31689,6 +31706,7 @@ export interface operations {
                                     extendedReactions?: boolean;
                                     replyId: string | null;
                                     renoteId: string | null;
+                                    renoteUnavailable?: boolean;
                                     files: {
                                         id: string;
                                         name: string;
@@ -31906,6 +31924,7 @@ export interface operations {
                                 extendedReactions?: boolean;
                                 replyId: string | null;
                                 renoteId: string | null;
+                                renoteUnavailable?: boolean;
                                 files: {
                                     id: string;
                                     name: string;
@@ -32020,6 +32039,7 @@ export interface operations {
                                     extendedReactions?: boolean;
                                     replyId: string | null;
                                     renoteId: string | null;
+                                    renoteUnavailable?: boolean;
                                     files: {
                                         id: string;
                                         name: string;
@@ -32162,6 +32182,7 @@ export interface operations {
                                 extendedReactions?: boolean;
                                 replyId: string | null;
                                 renoteId: string | null;
+                                renoteUnavailable?: boolean;
                                 files: {
                                     id: string;
                                     name: string;
@@ -32276,6 +32297,7 @@ export interface operations {
                                     extendedReactions?: boolean;
                                     replyId: string | null;
                                     renoteId: string | null;
+                                    renoteUnavailable?: boolean;
                                     files: {
                                         id: string;
                                         name: string;

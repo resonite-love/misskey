@@ -28,6 +28,9 @@ import { resolveGridspaceConfig, type GridspacePeerConfig } from './peer-protoco
 import { GridspaceEndpointUnavailable, requestGridspacePeer } from './peer-client.js';
 import { GRIDSPACE_NOTE_BATCH_LIMIT, GRIDSPACE_NOTE_BATCH_BODY_LIMIT, validateGridspaceNoteBatch, canShareGridspaceNote, canonicalGridspaceNoteUri, gridspaceNoteUris, gridspaceNoteId, GRIDSPACE_NOTE_BODY_LIMIT, GRIDSPACE_NOTE_PATH, validateGridspaceBundle, type GridspaceNoteBundle } from './note-protocol.js';
 
+/** The root is public, but one of its references is not available for public import. */
+export class GridspaceNoteReferenceUnavailable extends Error {}
+
 @Injectable()
 export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown {
 	private peer: GridspacePeerConfig | null;
@@ -130,7 +133,14 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 		}
 		for (let offset = 0; offset < noteIds.length; offset += 4) {
 			await Promise.all(noteIds.slice(offset, offset + 4).map(async id => {
-				if (await this.importNote(id, new Set(), false, budget, prefetched) !== 'imported') return;
+				try {
+					if (await this.importNote(id, new Set(), false, budget, prefetched) !== 'imported') return;
+				} catch (error) {
+					// Keep this root out of the public cache; the timeline can request a
+					// viewer-authorized representation without losing unrelated notes.
+					if (error instanceof GridspaceNoteReferenceUnavailable) return;
+					throw error;
+				}
 				const note = await this.apNotes.fetchNote(`${this.peer!.peerOrigin}/notes/${id}`);
 				if (note) result.set(id, note);
 			}));
@@ -186,7 +196,7 @@ export class GridspaceNoteService implements OnModuleInit, OnApplicationShutdown
 					const id = ref.slice((this.peer.peerOrigin + '/notes/').length);
 					if (!gridspaceNoteId(id)) throw new Error('Invalid note reference');
 					const state = await this.importNote(id, visiting, false, budget, prefetched);
-					if (state === 'unavailable') throw new Error('Referenced note unavailable');
+					if (state === 'unavailable') throw new GridspaceNoteReferenceUnavailable('Referenced note unavailable');
 					if (state === 'deleted') {
 						if (field === 'inReplyTo') { visiting.delete(uri); return 'unavailable'; }
 						delete entry.object[field];
