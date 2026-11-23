@@ -56,7 +56,7 @@ export type PrivateNote = {
 	poll: { choices: { text: string; votes: number; isVoted?: boolean }[]; expiresAt: string | null; multiple: boolean } | null;
 };
 export type PrivateWireNote = Omit<PrivateNote, 'renote'> & { filterActors: PrivateActor[]; renote?: PrivateWireNote | null };
-export type PrivatePage = { notes: PrivateWireNote[]; next: string | null; head: string | null; scannedThrough: string | null; observedAt: string };
+export type PrivatePage = { notes: PrivateWireNote[]; next: string | null; head: string | null; scannedThrough: string | null; observedAt: string; validForMs?: number };
 export const PRIVATE_FILE_LIMIT = 16 * 1024 * 1024;
 
 const text = { type: 'string', optional: false, nullable: false } as const;

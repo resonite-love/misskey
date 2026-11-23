@@ -6,6 +6,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { ClipService } from '@/core/ClipService.js';
+import { GridspaceClipReferenceService } from '@/core/gridspace/GridspaceClipReferenceService.js';
+import { GridspaceLinkError } from '@/core/gridspace/GridspaceLinkService.js';
 import { ApiError } from '../../error.js';
 
 export const meta = {
@@ -37,6 +39,7 @@ export const paramDef = {
 	properties: {
 		clipId: { type: 'string', format: 'misskey:id' },
 		noteId: { type: 'string', format: 'misskey:id' },
+		noteUri: { type: 'string', maxLength: 512 },
 	},
 	required: ['clipId', 'noteId'],
 } as const;
@@ -45,11 +48,17 @@ export const paramDef = {
 export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-disable-line import/no-default-export
 	constructor(
 		private clipService: ClipService,
+		private clipReferences: GridspaceClipReferenceService,
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			try {
+				if (ps.noteUri) {
+					await this.clipReferences.change(me, ps.clipId, ps.noteUri, false, async () => {});
+					return;
+				}
 				await this.clipService.removeNote(me, ps.clipId, ps.noteId);
 			} catch (e) {
+				if (e instanceof GridspaceLinkError) throw new ApiError(meta.errors.noSuchClip);
 				if (e instanceof ClipService.NoSuchClipError) {
 					throw new ApiError(meta.errors.noSuchClip);
 				} else if (e instanceof ClipService.NoSuchNoteError) {

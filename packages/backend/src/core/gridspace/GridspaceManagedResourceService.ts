@@ -27,6 +27,8 @@ import { CustomEmojiService } from '@/core/CustomEmojiService.js';
 import { UtilityService } from '@/core/UtilityService.js';
 import { ApiError } from '@/server/api/error.js';
 import { GridspaceNoteService } from './GridspaceNoteService.js';
+import { GridspaceClipReferenceService } from './GridspaceClipReferenceService.js';
+import { MiGridspaceClipReference } from '@/models/GridspaceClipReference.js';
 import { attachContentEmojis, type ContentEmojiCarrier } from './content-emojis.js';
 import { GridspaceLinkService } from './GridspaceLinkService.js';
 import { GridspaceSharedDriveService } from './GridspaceSharedDriveService.js';
@@ -128,6 +130,9 @@ export class GridspaceManagedResourceService {
 		const result: Result = { enabled: true, origin: new URL(this.config.url).origin, item: null, items: [], aliases: [] };
 		if ((input.kind === 'page' || input.kind === 'gallery') && ['liked', 'inspect', 'like', 'unlike'].includes(input.action)) {
 			await this.liked(input, user as MiLocalUser, result);
+		} else if (input.action === 'note-references' && input.kind === 'clip') {
+			if (!input.id) throw new ApiError(managedError);
+			result.item = await this.modules.get(GridspaceClipReferenceService).peerPage(user as MiLocalUser, input.id, input.data as never) as unknown as Item;
 		} else if (input.action === 'reference' && input.kind === 'clip') {
 			if (!input.id) throw new ApiError(managedError);
 			result.item = await this.native('clips/show', { clipId: input.id }, user as MiLocalUser) as Item;
@@ -154,6 +159,19 @@ export class GridspaceManagedResourceService {
 			if (!input.id || !await this.db.getRepository(resource.entity).existsBy({ id: input.id, userId: user.id })) throw new ApiError(managedError);
 			const action = input.action;
 			if (input.kind === 'clip' && (action === 'add-note' || action === 'remove-note')) {
+				const noteUrl = input.data?.noteUrl;
+				if (typeof noteUrl === 'string' && noteUrl.startsWith(link.peerOrigin + '/notes/')) {
+					const existing = await this.db.getRepository(MiGridspaceClipReference).existsBy({ clipId: input.id, canonicalUri: noteUrl });
+					let native = await this.db.getRepository(MiNote).findOneBy({ uri: noteUrl });
+					if (!existing && !native && action === 'add-note') native = await this.modules.get(GridspaceNoteService, { strict: false }).historyNote(noteUrl.slice((link.peerOrigin + '/notes/').length), { remaining: 20, deadline: Date.now() + 8000 });
+					if (existing || !native) {
+						result.clipNoteError = await this.modules.get(GridspaceClipReferenceService).change(user as MiLocalUser, input.id, noteUrl, action === 'add-note', async () => {
+							const current = await this.pair(user.id);
+							if (!current || current.id !== link.id || current.generation !== link.generation) throw new ApiError(managedError);
+						});
+						return result;
+					}
+				}
 				const noteId = await this.clipNote(input.data?.noteUrl, user as MiLocalUser, link, action === 'add-note');
 				const current = await this.pair(user.id);
 				if (!current || current.id !== link.id || current.generation !== link.generation) throw new ApiError(managedError);

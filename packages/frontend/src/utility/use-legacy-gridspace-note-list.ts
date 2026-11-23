@@ -17,7 +17,7 @@ import { $i } from '@/i.js';
 
 export type GridspaceNoteSource =
 	| { kind: 'favorites' }
-	| { kind: 'clip'; clipId: string; order?: 'newest' | 'oldest'; query?: string; rangeStartAt?: number; rangeEndAt?: number }
+	| { kind: 'clip'; clipId: string; clipOrigin?: string; order?: 'newest' | 'oldest'; query?: string; rangeStartAt?: number; rangeEndAt?: number }
 	| { kind: 'antenna'; antennaId: string }
 	| { kind: 'mentions'; direct: boolean }
 	| { kind: 'profile'; userId: string; linked: boolean; withReplies: boolean; withRenotes: boolean; withFiles: boolean; withChannelNotes: boolean }

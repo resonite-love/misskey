@@ -11,6 +11,7 @@ import { loadConfig, type Config } from '@/config.js';
 import type { MiLocalUser } from '@/models/User.js';
 import type { GridspacePrivateService } from '../GridspacePrivateService.js';
 import type { GridspaceNoteService } from '../GridspaceNoteService.js';
+import type { GridspaceClipReferenceService } from '../GridspaceClipReferenceService.js';
 import { GridspaceLinkError } from '../GridspaceLinkService.js';
 import { GridspaceTimelineService } from './GridspaceTimelineService.js';
 import { TimelineSessionStore } from './TimelineSessionStore.js';
@@ -121,8 +122,45 @@ function fixture(options: TimelineOptions, originalLocal: TimelineReference[], o
 		}
 		throw new Error('Unexpected endless continuation');
 	};
-	return { service, sessions, rows, delegated, favorites, lists, shared, imports, addUnrelated, all };
+	return { service, sessions, rows, delegated, favorites, lists, shared, imports, addUnrelated, all, page };
 }
+
+test('clip reference sources keep local and peer bodies through pagination and revalidation', async () => {
+	const options = { kind: 'clip', clipId: 'clip', clipOrigin: 'https://local.example' } as const;
+	const f = fixture(options, [row('local', 80)], [row('peer', 90)]);
+	const clips = mockDeep<GridspaceClipReferenceService>();
+	clips.readPage.mockImplementation(async (_viewer, _options, source, position) => f.page(source, position, position.limit));
+	clips.ownerReferences.mockImplementation(async (_viewer, _options, uris) => f.rows.local.filter(row => uris.includes(row.canonicalUri)));
+	clips.hydrate.mockImplementation(async (_viewer, _options, selected) => selected.filter(ref => f.rows[ref.source].some(row => row.noteId === ref.noteId)).map(reference => ({ reference,
+		representation: reference.source === 'local' ? 'normal' : 'delegated', payload: { id: reference.noteId }, validForMs: 5000, nextPolicyCheckAt: null })) as never);
+	f.service['clipReferences'] = clips;
+	const first = await f.service.page(viewer, options, 1);
+	expect(first.items[0].key).toBe(f.rows.peer[0].canonicalUri);
+	const second = await f.service.page(viewer, options, 1, first.nextCursor!);
+	expect(second.items[0].key).toBe(f.rows.local[0].canonicalUri);
+	const check = await f.service.changes(viewer, { session: first.session, revision: first.revision, updatesCursor: first.updatesCursor, refs: first.items.map(row => row.ref), phase: 'validate' });
+	expect(check.items[0].key).toBe(first.items[0].key);
+	f.rows.peer.length = 0;
+	const revoked = await f.service.changes(viewer, { session: first.session, revision: first.revision, updatesCursor: check.updatesCursor, refs: first.items.map(row => row.ref), phase: 'validate' });
+	expect(revoked.items).toEqual([]);
+	expect(revoked.removed).toEqual([first.items[0].key]);
+	expect(f.delegated.timeline).not.toHaveBeenCalled();
+});
+
+test.each(['newest', 'oldest'] as const)('clip reference reset includes its anchor in %s order', async order => {
+	const options = { kind: 'clip', clipId: 'clip', clipOrigin: 'https://local.example', order } as const;
+	const f = fixture(options, [row('local', 50), row('local', 70)], [row('peer', 60), row('peer', 80)]);
+	const clips = mockDeep<GridspaceClipReferenceService>();
+	clips.readPage.mockImplementation(async (_viewer, _options, source, position) => position.uris
+		? { references: f.rows[source].filter(ref => position.uris!.includes(ref.canonicalUri)), next: null, upper: null, ended: true }
+		: f.page(source, position, position.limit));
+	clips.ownerReferences.mockImplementation(async (_viewer, _options, uris) => f.rows.local.filter(row => uris.includes(row.canonicalUri)));
+	clips.hydrate.mockImplementation(async (_viewer, _options, selected) => selected.map(reference => ({ reference,
+		representation: reference.source === 'local' ? 'normal' : 'delegated', payload: { id: reference.noteId }, validForMs: 5000, nextPolicyCheckAt: null })) as never);
+	f.service['clipReferences'] = clips;
+	const result = await f.service.page(viewer, options, 20, undefined, 'unified', f.rows.peer[0].canonicalUri);
+	expect(result.items.map(item => item.sortKey.sortAt)).toEqual((order === 'oldest' ? [60, 70, 80] : [60, 50]).map(n => String(n * 1000)));
+});
 
 describe('other-list coordinator with real Redis sessions', () => {
 	test('keeps a public profile page when an unimportable reference needs a delegated placeholder', async () => {

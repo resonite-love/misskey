@@ -12,6 +12,7 @@ import type { } from '@/models/Blocking.js';
 import type { MiClip } from '@/models/Clip.js';
 import { bindThis } from '@/decorators.js';
 import { IdService } from '@/core/IdService.js';
+import { MiGridspaceClipReference } from '@/models/GridspaceClipReference.js';
 import { UserEntityService } from './UserEntityService.js';
 
 @Injectable()
@@ -53,7 +54,7 @@ export class ClipEntityService {
 			isPublic: clip.isPublic,
 			favoritedCount: await this.clipFavoritesRepository.countBy({ clipId: clip.id }),
 			isFavorited: meId ? await this.clipFavoritesRepository.exists({ where: { clipId: clip.id, userId: meId } }) : undefined,
-			notesCount: (meId === clip.userId) ? await this.clipNotesRepository.countBy({ clipId: clip.id }) : undefined,
+			notesCount: (meId === clip.userId) ? await this.clipNotesRepository.countBy({ clipId: clip.id }) + await this.clipNotesRepository.manager.getRepository(MiGridspaceClipReference).countBy({ clipId: clip.id }) : undefined,
 		});
 	}
 

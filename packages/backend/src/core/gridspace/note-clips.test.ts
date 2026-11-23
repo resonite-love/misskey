@@ -31,8 +31,8 @@ function fixture() {
 	const reader = mockDeep<GridspacePrivateService>(), publicNotes = mockDeep<GridspacePublicNoteService>(), channels = mockDeep<GridspaceChannelAuthService>(), modules = mockDeep<ModuleRef>();
 	const placementActions = mockDeep<GridspacePlacementActionService>();
 	const config = { url: 'https://g.example', gridspace: { enabled: true, peerUrl: 'https://r.example', channelRole: 'client' } } as Config;
-	const query = { innerJoin: vi.fn(), where: vi.fn(), andWhere: vi.fn(), orderBy: vi.fn(), getMany: vi.fn().mockResolvedValue([clip]) };
-	for (const key of ['innerJoin', 'where', 'andWhere', 'orderBy'] as const) query[key].mockReturnValue(query);
+	const query = { innerJoin: vi.fn(), leftJoin: vi.fn(), where: vi.fn(), andWhere: vi.fn(), orderBy: vi.fn(), getMany: vi.fn().mockResolvedValue([clip]) };
+	for (const key of ['innerJoin', 'leftJoin', 'where', 'andWhere', 'orderBy'] as const) query[key].mockReturnValue(query);
 	const notes = { findOneBy: vi.fn().mockResolvedValue({ id: 'note', uri: null, channelId: null }) };
 	db.getRepository.mockImplementation((entity: unknown) => (entity === MiNote ? notes : entity === MiClip ? { createQueryBuilder: () => query } : entity === MiUser ? { findBy: async () => [] } : {}) as never);
 	const native = vi.fn().mockResolvedValue({ id: 'note', uri: null, clippedCount: 0, visibility: 'public' });

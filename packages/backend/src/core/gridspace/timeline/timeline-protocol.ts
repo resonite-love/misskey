@@ -18,7 +18,7 @@ export type TimelineReference = TimelinePosition & { noteId: string; normalized:
 export type TimelineOptions = {
 	kind: 'home' | 'social' | 'profile' | 'search' | 'mentions' | 'direct' | 'channel' | 'favorites' | 'antenna' | 'clip'; withReplies?: boolean; withRenotes?: boolean; withFiles?: boolean;
 	includeMyRenotes?: boolean; includeRenotedMyNotes?: boolean; includeLocalRenotes?: boolean;
-	channelId?: string; channelOrigin?: string; pinnedOnly?: boolean; clipId?: string; antennaId?: string; userId?: string; query?: string;
+	channelId?: string; channelOrigin?: string; pinnedOnly?: boolean; clipId?: string; clipOrigin?: string; antennaId?: string; userId?: string; query?: string;
 	withChannelNotes?: boolean; order?: 'newest' | 'oldest'; rangeStartAt?: number; rangeEndAt?: number;
 };
 export type TimelineItem = {
@@ -36,6 +36,7 @@ export type TimelinePage = {
 export const timelineFilterSchema = {
 	kind: { type: 'string', enum: ['home', 'social', 'profile', 'search', 'mentions', 'direct', 'channel', 'favorites', 'antenna', 'clip'] },
 	channelOrigin: { type: 'string', maxLength: 512 }, pinnedOnly: { type: 'boolean' },
+	clipOrigin: { type: 'string', maxLength: 512 },
 	channelId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	clipId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' }, antennaId: { type: 'string', pattern: '^[a-zA-Z0-9]{1,32}$' },
 	userId: { type: 'string', format: 'misskey:id', maxLength: 32 },

@@ -14,6 +14,7 @@ import type { MiAccessToken } from '@/models/AccessToken.js';
 import { MiNote } from '@/models/Note.js';
 import { MiClip } from '@/models/Clip.js';
 import { MiClipNote } from '@/models/ClipNote.js';
+import { MiGridspaceClipReference } from '@/models/GridspaceClipReference.js';
 import { MiUser } from '@/models/User.js';
 import { ClipEntityService } from '@/core/entities/ClipEntityService.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
@@ -38,11 +39,13 @@ export class GridspaceNoteClipsService {
 	private canonical(uri: string) { return canonicalGridspaceNoteUri(canonicalGridspaceNoteUri(uri, this.config.url), this.config.gridspace?.peerUrl); }
 	private uri(note: MiNote) { return this.canonical(note.uri ?? `${new URL(this.config.url).origin}/notes/${note.id}`); }
 
-	private async publicClips(noteId: string, viewer?: { id: string } | null): Promise<Packed<'Clip'>[]> {
+	private async publicClips(noteId: string, viewer?: { id: string } | null, noteUri?: string): Promise<Packed<'Clip'>[]> {
 		const query = () => this.db.getRepository(MiClip).createQueryBuilder('clip')
-			.innerJoin(MiClipNote, 'membership', 'membership.clipId = clip.id AND membership.noteId = :noteId', { noteId })
+			.leftJoin(MiClipNote, 'membership', 'membership.clipId = clip.id AND membership.noteId = :noteId', { noteId })
+			.leftJoin(MiGridspaceClipReference, 'reference', 'reference.clipId = clip.id AND reference.canonicalUri = :noteUri', { noteUri: noteUri ?? '' })
 			.innerJoin(MiUser, 'owner', 'owner.id = clip.userId')
 			.where('clip.isPublic = true AND owner.host IS NULL AND owner.isSuspended = false AND owner.isDeleted = false')
+			.andWhere('(membership.id IS NOT NULL OR reference.id IS NOT NULL)')
 			.orderBy('clip.id', 'DESC');
 		const rows = await query().getMany();
 		if (!rows.length) return [];
@@ -69,7 +72,22 @@ export class GridspaceNoteClipsService {
 			const localId = uri.origin === origin && /^\/notes\/[a-zA-Z0-9]{1,32}$/.test(uri.pathname) && !uri.search && !uri.hash ? uri.pathname.slice(7) : null;
 			note = await this.db.getRepository(MiNote).findOneBy(localId ? { id: localId } : { uri: In(gridspaceNoteUris(canonical, this.config.gridspace?.peerUrl)) });
 		}
-		if (!note) return { origin, noteId: input.noteId ?? '', noteUri: input.noteUri ?? '', clips: [] };
+		if (!note) {
+			const uri = input.noteUri && this.canonical(input.noteUri);
+			const prefix = this.config.gridspace && new URL(this.config.gridspace.peerUrl).origin + '/notes/';
+			if (!uri || !prefix || !uri.startsWith(prefix) || !input.accessToken) return { origin, noteId: input.noteId ?? '', noteUri: input.noteUri ?? '', clips: [] };
+			const link = await this.links.authorizePrivate(input);
+			const viewer = await this.db.getRepository(MiUser).findOneByOrFail({ id: link.localUserId }) as MiLocalUser;
+			const check = async () => {
+				await this.links.authorizePrivate(input);
+				const page = await this.reader.notes(viewer, { mode: 'show', noteId: uri.slice(prefix.length), conversationUri: uri }, 1);
+				if (!page.notes.some(note => note.uri === uri)) throw new GridspaceLinkError('UNAVAILABLE');
+			};
+			await check();
+			const clips = await this.publicClips('', viewer, uri);
+			await check();
+			return { origin, noteId: uri.slice(prefix.length), noteUri: uri, clips };
+		}
 		const channelId = input.channelId ?? note.channelId ?? undefined;
 		let viewer: { id: string } | undefined;
 		const check = async () => {
@@ -88,7 +106,7 @@ export class GridspaceNoteClipsService {
 			} else await this.publicNotes.local({ noteId: note.id, channelId });
 		};
 		await check();
-		const clips = await this.publicClips(note.id, viewer);
+		const clips = await this.publicClips(note.id, viewer, this.uri(note));
 		await check();
 		return { origin, noteId: note.id, noteUri: this.uri(note), clips };
 	}
@@ -137,7 +155,7 @@ export class GridspaceNoteClipsService {
 			const canonical = this.canonical(remote.noteUri);
 			const local = await this.db.getRepository(MiNote).findOneBy({ uri: In(gridspaceNoteUris(canonical, this.config.gridspace.peerUrl)) });
 			const ownId = canonical.startsWith(new URL(this.config.url).origin + '/notes/') ? canonical.split('/').at(-1) : null;
-			const localClips = local || ownId ? await this.publicClips(local?.id ?? ownId!, viewer) : [];
+			const localClips = await this.publicClips(local?.id ?? ownId ?? '', viewer, canonical);
 			await remote.check();
 			await check();
 			return { clips: [...localClips, ...remote.clips], partial: false };
@@ -162,7 +180,7 @@ export class GridspaceNoteClipsService {
 			recheck = remote.check;
 			remoteClips = remote.clips;
 		} catch { partial = true; }
-		const local = await this.publicClips(input.noteId, viewer);
+		const local = await this.publicClips(input.noteId, viewer, uri);
 		await this.nativeNote(input.noteId, viewer);
 		try { await recheck?.(); } catch { remoteClips = []; partial = true; }
 		return { clips: [...local, ...remoteClips], partial };

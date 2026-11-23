@@ -22,7 +22,7 @@ import { instance } from '@/instance.js';
 import { getUserMenu } from '@/utility/get-user-menu.js';
 
 type PrivateNote = entities.GridspacePrivateNotesResponse['notes'][number];
-export type LinkedClipContext = { id: string; canManage: boolean };
+export type LinkedClipContext = { id: string; canManage: boolean; local?: boolean };
 
 export async function getGridspaceNoteMenu(note: PrivateNote, detailPath: string, translation: Ref<entities.NotesTranslateResponse | null>, translating: Ref<boolean>, currentClip?: LinkedClipContext | null, isCurrent: () => boolean = () => true) {
  let state: entities.GridspaceNoteMenuResponse | null = null;
@@ -41,7 +41,8 @@ export async function getGridspaceNoteMenu(note: PrivateNote, detailPath: string
   return result;
  };
  const removeFromClip = async (clipId: string) => {
-  if (!await request('clip-remove', { clipId })) return;
+  if (currentClip?.local) await os.apiWithDialog('clips/remove-note', { clipId, noteId: note.id, noteUri: note.uri });
+  else if (!await request('clip-remove', { clipId })) return;
   clipsCache.delete();
   globalEvents.emit('gridspaceClipNoteRemoved', clipId, note.id);
  };
@@ -60,7 +61,7 @@ export async function getGridspaceNoteMenu(note: PrivateNote, detailPath: string
  }
  const menu: MenuItem[] = [];
  if (!dedicated) try { state = await misskeyApi('gridspace/note-menu', { action: 'state', noteId: note.id, channelId: note.channelId ?? undefined }); } catch { /* Read-only actions still work during a peer outage. */ }
- if (currentClip?.canManage && state?.canWrite) menu.push(unclip, { type: 'divider' });
+ if (currentClip?.canManage && (currentClip.local || state?.canWrite)) menu.push(unclip, { type: 'divider' });
  menu.push({ text: i18n.ts.details, icon: 'ti ti-info-circle', action: () => os.pageWindow(detailPath) },
   { text: i18n.ts.copyContent, icon: 'ti ti-copy', action: () => copyToClipboard(note.text ?? '') },
   { text: i18n.ts.copyLink, icon: 'ti ti-link', action: () => copyToClipboard(`${url}${detailPath}`) },

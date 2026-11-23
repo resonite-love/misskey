@@ -13,6 +13,7 @@ import { RoleService } from '@/core/RoleService.js';
 import { IdService } from '@/core/IdService.js';
 import { GlobalEventService } from '@/core/GlobalEventService.js';
 import type { MiLocalUser } from '@/models/User.js';
+import { MiGridspaceClipReference } from '@/models/GridspaceClipReference.js';
 
 @Injectable()
 export class ClipService {
@@ -144,10 +145,12 @@ export class ClipService {
 
 		const currentCount = await this.clipNotesRepository.countBy({
 			clipId: clip.id,
-		});
+		}) + await this.clipNotesRepository.manager.getRepository(MiGridspaceClipReference).countBy({ clipId: clip.id });
 		if (currentCount >= (await this.roleService.getUserPolicies(me.id)).noteEachClipsLimit) {
 			throw new ClipService.TooManyClipNotesError();
 		}
+		const note = await this.notesRepository.findOneBy({ id: noteId });
+		if (note?.uri && await this.clipNotesRepository.manager.getRepository(MiGridspaceClipReference).existsBy({ clipId, canonicalUri: note.uri.replace(/\/activity$/, '') })) throw new ClipService.AlreadyAddedError();
 
 		try {
 			await this.clipNotesRepository.insert({

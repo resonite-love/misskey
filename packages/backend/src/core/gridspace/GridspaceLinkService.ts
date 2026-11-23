@@ -83,7 +83,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 		return this.peer;
 	}
 
-	public async json<T>(path: string, body: object, signed = true, maxBytes = 4 * 1024 * 1024): Promise<T> {
+	public async json<T>(path: string, body: object, signed = true, maxBytes = 4 * 1024 * 1024, deadline?: number): Promise<T> {
 		return measurePeerRequest(path, async () => {
 			const peer = this.enabled();
 			const bytes = Buffer.from(JSON.stringify(body));
@@ -93,7 +93,7 @@ export class GridspaceLinkService implements OnModuleInit, OnApplicationShutdown
 				const transport = gridspacePeerTransport(peer, path);
 				const response = await fetch(transport.url, {
 					agent: transport.agent,
-					method: 'POST', body: bytes, redirect: 'error', signal: AbortSignal.timeout(10000),
+					method: 'POST', body: bytes, redirect: 'error', signal: AbortSignal.timeout(Math.max(1, Math.min(10000, (deadline ?? Date.now() + 10000) - Date.now()))),
 					size: maxBytes,
 					headers: { ...(signed ? createGridspaceHeaders(peer, 'POST', path, bytes) : { 'content-type': 'application/json' }), host: transport.host },
 				});

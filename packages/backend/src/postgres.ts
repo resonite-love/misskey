@@ -31,6 +31,7 @@ import { MiChannelFavorite } from '@/models/ChannelFavorite.js';
 import { MiChannelMuting } from '@/models/ChannelMuting.js';
 import { MiClip } from '@/models/Clip.js';
 import { MiClipNote } from '@/models/ClipNote.js';
+import { MiGridspaceClipReference } from '@/models/GridspaceClipReference.js';
 import { MiClipFavorite } from '@/models/ClipFavorite.js';
 import { MiDriveFile } from '@/models/DriveFile.js';
 import { MiDriveFolder } from '@/models/DriveFolder.js';
@@ -248,6 +249,7 @@ export const entities = [
 	MiModerationLog,
 	MiClip,
 	MiClipNote,
+	MiGridspaceClipReference,
 	MiClipFavorite,
 	MiAntenna,
 	MiPromoNote,

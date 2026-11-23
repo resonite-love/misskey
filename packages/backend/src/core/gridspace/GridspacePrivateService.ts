@@ -667,8 +667,20 @@ export class GridspacePrivateService {
 			if (note.renoteId && !relatedAllowed.has(note.renoteId)) { note.renoteId = null; delete note.renote; }
 		}
 		await this.authorizeRead(input);
+		let validForMs = Math.max(0, TIMELINE_AUTHORIZATION_TTL_MS - (Date.now() - Date.parse(observedAt)));
+		for (const note of [...fresh, ...freshRelated]) {
+			if (note.userId === link.localUserId) continue;
+			for (const [kind, policy] of [['hidden', note.user?.makeNotesHiddenBefore], ['followers', note.user?.makeNotesFollowersOnlyBefore]] as const) {
+				if (policy != null && policy <= 0) {
+					const cutoff = this.ids.parse(note.id).date.getTime() - policy * 1000;
+					const remaining = cutoff - Date.now();
+					if (remaining > 0) validForMs = Math.min(validForMs, remaining);
+					else if (kind === 'hidden' || cutoff > Date.parse(observedAt)) validForMs = 0;
+				}
+			}
+		}
 		return { notes: packed.filter(note => allowed.has(note.id)), next: homePage ? homePage.next : rows.length > limit ? this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id : null, head: homePage ? homePage.head : input.head ?? (selected[0] ? this.collectionId(selected[0]) ?? selected[0].id : null),
-											scannedThrough: homePage ? homePage.scannedThrough : selected.length ? this.ids.parse(this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id).date.toISOString() : null, observedAt };
+											scannedThrough: homePage ? homePage.scannedThrough : selected.length ? this.ids.parse(this.collectionId(selected.at(-1)!) ?? selected.at(-1)!.id).date.toISOString() : null, observedAt, validForMs };
 	}
 
 	public async localActorAllows(viewer: MiLocalUser, actor: PrivateWireNote['author'] | PrivateWireNote['filterActors'][number]) {
@@ -748,7 +760,8 @@ export class GridspacePrivateService {
 		return [...new Set(targets)];
 	}
 
-	public async notes(viewer: MiLocalUser, input: PrivateOptions, limit: number, cursor?: string) {
+	public async notes(viewer: MiLocalUser, input: PrivateOptions, limit: number, cursor?: string, deadline?: number) {
+		const startedAt = Date.now();
 		if (input.mode !== 'validate' && input.contextMode) throw new GridspaceLinkError('INVALID_REQUEST');
 		const channel = input.conversationUri ? await this.placementActions!.destination(viewer, input.conversationUri, input.noteId) :
 			input.channelId || (this.channelAuth.isClient && (input.contextMode ?? input.mode) === 'home') ? await this.channelAuth.destination(viewer) : null;
@@ -766,10 +779,13 @@ export class GridspacePrivateService {
 		let state;
 		try { state = cursor ? decodeHistoryCursor(this.peer!, cursor, context) : { local: null, remote: null, localHead: null, remoteHead: null, expires: Date.now() + 3600_000 }; } catch { throw new GridspaceLinkError('INVALID_CURSOR'); }
 		const { userId: _userId, ...peerOptions } = options;
-		const page = await this.links.json<PrivatePage>('/gridspace/v1/private/notes', {
+		const request = {
 			...credential, ...peerOptions, targetUris, before: state.remote ?? undefined, head: state.remoteHead ?? undefined, limit,
-		});
+		};
+		const page = deadline == null ? await this.links.json<PrivatePage>('/gridspace/v1/private/notes', request)
+			: await this.links.json<PrivatePage>('/gridspace/v1/private/notes', request, true, 4 * 1024 * 1024, deadline);
 		if (!Array.isArray(page.notes) || page.notes.length > (input.mode === 'validate' ? 100 : limit) || page.notes.some(note => note.origin !== this.peer!.peerOrigin)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
+		if (page.validForMs != null && (!Number.isFinite(page.validForMs) || page.validForMs < 0)) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		if (!Number.isFinite(Date.parse(page.observedAt)) || (page.next && !Number.isFinite(Date.parse(page.scannedThrough ?? '')))) throw new GridspaceLinkError('PEER_UNAVAILABLE');
 		const notes: PrivateNote[] = [];
 		const actorAllows = await this.localActorChecker(viewer, this.actorsForNotes(page.notes));
@@ -779,7 +795,8 @@ export class GridspacePrivateService {
 		}
 		if (channel) await channel.check(); else await this.links.checkPrivateUnchanged(link!);
 		const next = page.next ? encodeHistoryCursor(this.peer!, { ...state, remote: page.next, remoteHead: page.head }, context) : null;
-		return { notes, cursor: next, scannedThrough: page.scannedThrough, observedAt: page.observedAt };
+		return { notes, cursor: next, scannedThrough: page.scannedThrough, observedAt: page.observedAt,
+			validForMs: Math.max(0, Math.min(TIMELINE_AUTHORIZATION_TTL_MS, page.validForMs ?? TIMELINE_AUTHORIZATION_TTL_MS) - (Date.now() - startedAt)) };
 	}
 
 	public async peerCollections(input: PrivatePeerRequest) {

@@ -26,7 +26,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 				</div>
 			</div>
 
-			<MkGridspaceNoteList v-if="isPeer" :source="{ kind: 'clip', clipId }" withControl :noGap="false"/>
+			<MkGridspaceNoteList v-if="isPeer || useUnified" :source="{ kind: 'clip', clipId, clipOrigin: isPeer ? undefined : url }" withControl :noGap="false"/>
 			<MkNotesTimeline v-else :paginator="paginator" :detail="true"/>
 		</div>
 	</div>
@@ -54,6 +54,7 @@ import { copyToClipboard } from '@/utility/copy-to-clipboard.js';
 import { genEmbedCode } from '@/utility/get-embed-code.js';
 import { assertServerContext, serverContext } from '@/server-context.js';
 import { Paginator } from '@/utility/paginator.js';
+import { supportsTimelineKind } from '@/utility/timeline-capabilities.js';
 
 // contextは非ログイン状態の情報しかないためログイン時は利用できない
 const CTX_CLIP = !$i && assertServerContext(serverContext, 'clip') ? serverContext.clip : null;
@@ -68,6 +69,7 @@ const favorited = ref(false);
 const favoriteBusy = ref(false);
 const managedClipId = ref<string | null>(null);
 const isPeer = computed(() => props.peer === 'linked');
+const useUnified = ref(false);
 const peerOrigin = ref('');
 const peerHost = computed(() => peerOrigin.value ? new URL(peerOrigin.value).host : '');
 const sourceUrl = computed(() => `${isPeer.value ? peerOrigin.value : url}/clips/${props.clipId}`);
@@ -102,13 +104,17 @@ async function loadClip() {
 			if (current !== generation) return;
 			clip.value = loaded;
 			favorited.value = clip.value!.isFavorited ?? false;
+			if ($i) {
+				const status = await misskeyApi('gridspace/link', { action: 'status' }).catch(() => null);
+				if (current === generation) useUnified.value = !!status && supportsTimelineKind(status, 'clip');
+			}
 		}
 	} catch { if (current === generation) { clip.value = null; peerError.value = true; } } finally { if (current === generation) checking = false; }
 }
 
 watch(() => [props.clipId, props.peer], () => { generation++; checking = false; clip.value = null; managedClipId.value = null; void loadClip(); }, { immediate: true });
-provide('currentClip', computed(() => isPeer.value ? null : clip.value));
-provide('gridspaceClip', computed(() => isPeer.value ? { id: props.clipId, canManage: isOwned.value === true } : null));
+provide('currentClip', computed(() => isPeer.value && clip.value ? { ...clip.value, id: managedClipId.value ?? `gridspace:clip:${props.clipId}`, userId: isOwned.value && $i ? $i.id : clip.value.userId } : clip.value));
+provide('gridspaceClip', computed(() => ({ id: props.clipId, canManage: isOwned.value === true, local: !isPeer.value })));
 
 function suspendPeer() { if (isPeer.value) { generation++; checking = false; clip.value = null; } }
 

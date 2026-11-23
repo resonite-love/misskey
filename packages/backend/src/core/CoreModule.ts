@@ -32,6 +32,7 @@ import { GridspaceAdminService } from './gridspace/GridspaceAdminService.js';
 import { GridspaceLinkService } from './gridspace/GridspaceLinkService.js';
 import { GridspaceSharedDriveService } from './gridspace/GridspaceSharedDriveService.js';
 import { GridspaceManagedResourceService } from './gridspace/GridspaceManagedResourceService.js';
+import { GridspaceClipReferenceService } from './gridspace/GridspaceClipReferenceService.js';
 import { GridspaceContentService } from './gridspace/GridspaceContentService.js';
 import { GridspaceNoteClipsService } from './gridspace/GridspaceNoteClipsService.js';
 import { GridspaceEmojiSyncService } from './gridspace/GridspaceEmojiSyncService.js';
@@ -379,6 +380,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceEmojiSyncService,
 		GridspaceSharedDriveService,
 		GridspaceManagedResourceService,
+		GridspaceClipReferenceService,
 		GridspaceLinkService,
 		GridspaceChannelService,
 		GridspaceChannelAuthService,
@@ -732,6 +734,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		GridspaceNoteClipsService,
 		GridspaceEmojiSyncService,
 		GridspaceManagedResourceService,
+		GridspaceClipReferenceService,
 		GridspaceLinkService,
 		GridspaceChannelService,
 		GridspaceChannelAuthService,
