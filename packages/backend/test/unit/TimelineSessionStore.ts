@@ -124,6 +124,7 @@ describe('TimelineSessionStore', () => {
 		}
 		const key = `gridspace:timeline-store:session:${session}`;
 		expect(Number(await redis.hget(key, '_pages'))).toBeLessThanOrEqual(8);
+		expect(JSON.parse((await redis.hget(key, '_pageOrder'))!).length).toBeLessThanOrEqual(8);
 		expect(Number(await redis.hget(key, '_bytes'))).toBeLessThan(262144);
 		expect(Number(await redis.hget(key, '_references'))).toBe(4500);
 		expect(await store.getCheckpoint(session, '0')).toBeNull();

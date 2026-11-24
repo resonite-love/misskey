@@ -146,39 +146,44 @@ if operation == 'merge' and existing then
 end
 local bytes = tonumber(redis.call('HGET', session, '_bytes') or '0') - (existing and string.len(existing) or 0) + string.len(value)
 local pageId = string.match(field, '^page:(.+)$') or string.match(field, '^result:(.+)$')
-local count = tonumber(redis.call('HGET', session, '_pages') or '0')
+local order = redis.call('HGET', session, '_pageOrder')
+local pages = order and cjson.decode(order) or {}
+if not order then
+ -- A one-time upgrade of the old page index; normal paging never scans URI fields.
+ local legacy = {}
+ for _, key in ipairs(redis.call('HKEYS', session)) do
+  local id = string.match(key, '^known:(.+)$')
+  if id then table.insert(legacy, {id=id, clock=tonumber(redis.call('HGET', session, key)) or 0}) end
+ end
+ table.sort(legacy, function(a, b) return a.clock < b.clock end)
+ for _, page in ipairs(legacy) do table.insert(pages, page.id) end
+end
 if pageId and redis.call('HEXISTS', session, 'known:' .. pageId) == 0 then
- count = count + 1
+ table.insert(pages, pageId)
  redis.call('HSET', session, 'known:' .. pageId, redis.call('HINCRBY', session, '_pageClock', 1))
 end
+local count = #pages
 -- Keep the current and look-ahead pages, and evict only older replay checkpoints.
 -- The URI index remains intact, so eviction cannot reintroduce old duplicates.
 if bytes > 262144 or count > 8 then
- local pages = {}; local newest = nil; local newestClock = -1
- for _, key in ipairs(redis.call('HKEYS', session)) do
-  local id = string.match(key, '^known:(.+)$')
-  if id then
-   local clock = tonumber(redis.call('HGET', session, key)) or 0
-   table.insert(pages, {id=id, clock=clock})
-   if clock > newestClock then newest = id; newestClock = clock end
-  end
- end
- table.sort(pages, function(a, b) return a.clock < b.clock end)
- for _, page in ipairs(pages) do
-  if bytes <= 262144 and count <= 8 then break end
-  if page.id ~= pageId and page.id ~= newest and page.id ~= ARGV[10] then
+ local kept = {}; local newest = pages[#pages]
+ for _, id in ipairs(pages) do
+  if (bytes > 262144 or count > 8) and id ~= pageId and id ~= newest and id ~= ARGV[10] then
    for _, prefix in ipairs({'page:', 'result:'}) do
-    local key = prefix .. page.id
+    local key = prefix .. id
     bytes = bytes - string.len(redis.call('HGET', session, key) or '')
     redis.call('HDEL', session, key)
    end
-   redis.call('HDEL', session, 'known:' .. page.id)
+   redis.call('HDEL', session, 'known:' .. id)
    count = count - 1
+  else
+   table.insert(kept, id)
   end
  end
+ pages = kept
 end
 if bytes > 262144 or count > 8 then discard(); return redis.error_reply('TIMELINE_CAPACITY') end
-redis.call('HSET', session, field, value, '_bytes', bytes, '_pages', count, '_expires', expires)
+redis.call('HSET', session, field, value, '_bytes', bytes, '_pages', count, '_expires', expires, '_pageOrder', cjson.encode(pages))
 redis.call('PEXPIRE', session, ttl)
 redis.call('PEXPIRE', KEYS[1], ttl)
 return value
