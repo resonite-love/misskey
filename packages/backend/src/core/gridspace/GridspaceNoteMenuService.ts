@@ -11,12 +11,14 @@ import type { Config } from '@/config.js';
 import { MiUser, type MiLocalUser } from '@/models/User.js';
 import { MiUserNotePining } from '@/models/UserNotePining.js';
 import { MiClip } from '@/models/Clip.js';
+import type { MiNote } from '@/models/Note.js';
 import { ApiError } from '@/server/api/error.js';
 import { RoleService } from '@/core/RoleService.js';
 import { GridspacePrivateService } from './GridspacePrivateService.js';
 import { GridspaceLinkError, GridspaceLinkService } from './GridspaceLinkService.js';
 import { GRIDSPACE_ACTION_SCOPE, GRIDSPACE_PRIVATE_SCOPE } from './link-crypto.js';
 import type { NoteMenuOptions, NoteMenuPeerRequest } from './note-menu-protocol.js';
+import { canonicalGridspaceNoteUri, gridspaceNoteId } from './note-protocol.js';
 
 @Injectable()
 export class GridspaceNoteMenuService {
@@ -24,6 +26,23 @@ export class GridspaceNoteMenuService {
   private links: GridspaceLinkService, private reader: GridspacePrivateService, private modules: ModuleRef) {}
  private async native<T>(path: string, data: object, user: MiLocalUser): Promise<T> {
   return this.modules.get<{ exec: (data: object, user: MiLocalUser, token: null) => Promise<T> }>('ep:' + path, { strict: false }).exec(data, user, null);
+ }
+ /** Local menu hint only. Deletion still checks the live grant and source author. */
+ public async deleteTarget(viewer: MiLocalUser, note: MiNote) {
+  const peer = this.config.gridspace;
+  if (!peer?.enabled || !note.userHost || !note.uri || note.userHost !== new URL(peer.peerUrl).host) return undefined;
+  let link;
+  try { link = await this.links.privateLink(viewer.id); } catch (error) {
+   if (error instanceof GridspaceLinkError) return undefined;
+   throw error;
+  }
+  if (!link.privateTokenCipher || note.userHost !== new URL(link.peerOrigin).host) return undefined;
+  const uri = canonicalGridspaceNoteUri(note.uri, link.peerOrigin);
+  const prefix = link.peerOrigin + '/notes/';
+  if (!uri.startsWith(prefix) || !gridspaceNoteId(uri.slice(prefix.length))) return undefined;
+  const actorUri = new URL('/users/' + link.peerUserId, link.peerOrigin).href;
+  if (!await this.db.getRepository(MiUser).existsBy({ id: note.userId, host: note.userHost, uri: actorUri, isSuspended: false, isDeleted: false })) return undefined;
+  return { noteId: uri.slice(prefix.length), actorUri, ...(note.channelId ? { channelId: note.channelId } : {}) };
  }
  public async peer(input: NoteMenuPeerRequest, rateLimit: (userId: string) => Promise<void>) {
   const link = await this.links.authorizePrivate(input);

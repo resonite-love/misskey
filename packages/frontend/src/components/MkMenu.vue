@@ -30,7 +30,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		@mousemove.passive="onMouseMove"
 		@mouseleave.passive="onMouseLeave"
 	>
-		<template v-for="item in (items2 ?? [])">
+		<template v-for="{ item, key } in (items2 ?? [])" :key="key">
 			<div v-if="item.type === 'divider'" role="separator" tabindex="-1" :class="$style.divider"></div>
 
 			<div v-else-if="item.type === 'label'" role="menuitem" tabindex="-1" :class="[$style.label]">
@@ -270,7 +270,8 @@ const isNestingMenu = inject<boolean>('isNestingMenu', false);
 
 const itemsEl = useTemplateRef('itemsEl');
 
-const items2 = ref<InnerMenuItem[]>();
+const resolvedItems = ref<(InnerMenuItem | null)[]>();
+const items2 = computed(() => resolvedItems.value?.flatMap((item, key) => item === null ? [] : [{ item, key }]));
 
 const child = useTemplateRef('child');
 
@@ -295,19 +296,19 @@ let preferClick = isTouchUsing || props.asDrawer;
 
 watch(() => props.items, () => {
 	const items = [...props.items].filter(item => item !== undefined) as (NonNullable<MenuItem> | MenuPending)[];
+	const resolved = items.map(item => 'then' in item ? { type: 'pending' as const } : item) as (InnerMenuItem | null)[];
+	resolvedItems.value = resolved;
+	const currentItems = resolvedItems.value;
 
 	for (let i = 0; i < items.length; i++) {
 		const item = items[i];
 
 		if ('then' in item) { // if item is Promise
-			items[i] = { type: 'pending' };
 			item.then(actualItem => {
-				if (items2.value?.[i]) items2.value[i] = actualItem;
+				if (resolvedItems.value === currentItems) currentItems[i] = actualItem;
 			});
 		}
 	}
-
-	items2.value = items as InnerMenuItem[];
 }, {
 	immediate: true,
 });

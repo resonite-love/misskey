@@ -9,6 +9,9 @@ import type { DataSource } from 'typeorm';
 import type { ModuleRef } from '@nestjs/core';
 import type { Config } from '@/config.js';
 import type { MiLocalUser } from '@/models/User.js';
+import type { MiNote } from '@/models/Note.js';
+import NoteState from '@/server/api/endpoints/notes/state.js';
+import { GridspaceLinkError } from './GridspaceLinkService.js';
 import type { MiGridspaceLink } from '@/models/Gridspace.js';
 import { MiClip } from '@/models/Clip.js';
 import { GridspaceNoteMenuService } from './GridspaceNoteMenuService.js';
@@ -32,7 +35,7 @@ function fixture() {
  const native = vi.fn(async (path: string) => path === 'ep:notes/state' ? { isFavorited: false, isMutedThread: false } : path === 'ep:clips/list' ? [{ id: 'clip', name: 'Private', secret: 'not forwarded' }] : undefined);
  const execute = vi.fn((..._args: unknown[]) => undefined);
  modules.get.mockImplementation(((path: string) => ({ exec: async (...args: unknown[]) => { execute(path, ...args); return native(path); } })) as never);
- const service = new GridspaceNoteMenuService(db, { url: 'https://r.example' } as Config, links, reader, modules);
+ const service = new GridspaceNoteMenuService(db, { url: 'https://r.example', gridspace: { enabled: true, peerUrl: 'https://r.example' } } as Config, links, reader, modules);
  const input = { action: 'favorite', noteId: 'note', expectedActorUri: 'https://r.example/users/old' } as NoteMenuPeerRequest;
  return { service, db, repo, links, reader, modules, native, execute, user, input };
 }
@@ -74,6 +77,62 @@ test('only allows removing from a clip owned by the source account', async () =>
 test.each(['delete', 'pin', 'unpin'] as const)('does not grant source moderator privileges for %s', async action => {
  const f = fixture();
  await expect(f.service.peer({ ...f.input, action }, async () => {})).rejects.toThrow();
+});
+
+test('deletes an own source note using the source account and rechecks the grant under the lock', async () => {
+ const f = fixture();
+ f.reader.readableSourceNote.mockResolvedValue({ id: 'note', userId: 'old', channelId: null } as never);
+ const result = await f.service.peer({ ...f.input, action: 'delete' }, async () => {});
+ expect(result.deleted).toBe(true);
+ expect(f.links.lockReplyAuthorization).toHaveBeenCalled();
+ expect(f.execute).toHaveBeenCalledWith('ep:notes/delete', { noteId: 'note' }, f.user, null);
+ expect(f.links.authorizePrivate).toHaveBeenCalledTimes(2);
+});
+
+test.each(['actor', 'scope', 'lock'] as const)('does not delete an own source note after %s changes', async reason => {
+ const f = fixture();
+ f.reader.readableSourceNote.mockResolvedValue({ id: 'note', userId: 'old', channelId: null } as never);
+ if (reason === 'actor') f.input.expectedActorUri = 'https://r.example/users/other';
+ if (reason === 'scope') f.links.hasActionScope.mockResolvedValue(false);
+ if (reason === 'lock') f.links.lockReplyAuthorization.mockRejectedValue(new GridspaceLinkError('AUTHORIZATION_REVOKED'));
+ await expect(f.service.peer({ ...f.input, action: 'delete' }, async () => {})).rejects.toThrow();
+ expect(f.execute.mock.calls.some(([path]) => path === 'ep:notes/delete')).toBe(false);
+});
+
+test.each(['', '/activity'])('offers a source delete target only for the linked author (%s)', async suffix => {
+ const f = fixture();
+ f.links.privateLink.mockResolvedValue({ peerOrigin: 'https://r.example', peerUserId: 'old', privateTokenCipher: 'encrypted' } as MiGridspaceLink);
+ f.repo.existsBy.mockResolvedValue(true);
+ const note = { uri: 'https://r.example/notes/source' + suffix, userHost: 'r.example', userId: 'remote', channelId: null } as MiNote;
+ expect(await f.service.deleteTarget(f.user, note)).toEqual({ noteId: 'source', actorUri: 'https://r.example/users/old' });
+ expect(f.repo.existsBy).toHaveBeenLastCalledWith({ id: 'remote', host: 'r.example', uri: 'https://r.example/users/old', isSuspended: false, isDeleted: false });
+ expect(f.links.json).not.toHaveBeenCalled();
+});
+
+test.each(['local', 'author', 'unlinked', 'grant', 'host', 'uri'] as const)('omits the source deletion hint for %s notes', async reason => {
+ const f = fixture();
+ f.links.privateLink.mockResolvedValue({ peerOrigin: 'https://r.example', peerUserId: 'old', privateTokenCipher: 'encrypted' } as MiGridspaceLink);
+ f.repo.existsBy.mockResolvedValue(reason !== 'author');
+ const note = { uri: 'https://r.example/notes/source', userHost: 'r.example', userId: 'remote' } as MiNote;
+ if (reason === 'local') note.userHost = null;
+ if (reason === 'unlinked') f.links.privateLink.mockRejectedValue(new GridspaceLinkError('LINK_REVOKED'));
+ if (reason === 'grant') f.links.privateLink.mockResolvedValue({ peerOrigin: 'https://r.example', peerUserId: 'old', privateTokenCipher: null } as MiGridspaceLink);
+ if (reason === 'host') note.userHost = 'other.example';
+ if (reason === 'uri') note.uri = 'https://other.example/notes/source';
+ expect(await f.service.deleteTarget(f.user, note)).toBeUndefined();
+ expect(f.links.json).not.toHaveBeenCalled();
+});
+
+test('notes/state keeps native state and returns the advisory linked deletion target', async () => {
+ const f = fixture();
+ const note = { id: 'copy', userId: 'remote', userHost: 'r.example', uri: 'https://r.example/notes/source' } as MiNote;
+ const notes = { findOneByOrFail: vi.fn(async () => note) };
+ const favorites = { count: vi.fn(async () => 1) }, mutings = { count: vi.fn(async () => 0) };
+ const target = { noteId: 'source', actorUri: 'https://r.example/users/old' };
+ const menu = { deleteTarget: vi.fn(async () => target) };
+ const endpoint = new NoteState(notes as never, mutings as never, favorites as never, menu as never);
+ expect(await endpoint.exec({ noteId: 'copy' }, f.user, null)).toEqual({ isFavorited: true, isMutedThread: false, gridspaceDeleteTarget: target });
+ expect(menu.deleteTarget).toHaveBeenCalledWith(f.user, note);
 });
 
 test('does not forward browser credentials or operate on a locally unreadable note', async () => {

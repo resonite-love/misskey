@@ -109,7 +109,7 @@ export async function getGridspaceNoteMenu(note: PrivateNote, detailPath: string
     },
    }, { closed: () => dispose() });
   } });
-  if (state.isOwn && !note.channelId) menu.push({ type: 'divider' }, { text: i18n.ts.delete, icon: 'ti ti-trash', danger: true, action: async () => {
+  if (state.isOwn && (!note.channelId || !note.canDelete)) menu.push({ type: 'divider' }, { text: i18n.ts.delete, icon: 'ti ti-trash', danger: true, action: async () => {
    const confirm = await os.confirm({ type: 'warning', text: i18n.ts.noteDeleteConfirm });
    if (!confirm.canceled && available()) await request('delete');
   } });

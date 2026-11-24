@@ -23,7 +23,9 @@ vi.mock('@/i18n.js', () => ({ i18n: { ts: new Proxy({}, { get: (_, key) => key }
 const note = { id: 'sourceNote', uri: 'https://r.example/notes/sourceNote', visibility: 'followers', author: { username: 'author', host: 'r.example' } } as entities.GridspacePrivateNotesResponse['notes'][number];
 const state = { actorUri: 'https://r.example/users/old', canWrite: true, isOwn: false, isPinned: false, isFavorited: false, isMutedThread: false, deleted: false, clips: [{ id: 'sourceClip', name: 'Saved' }] };
 const translation = () => ref<entities.NotesTranslateResponse | null>(null);
+
 function action(menu: unknown[], text: string) { return (menu.find(item => item && typeof item === 'object' && (item as { text?: string }).text === text) as { action: () => Promise<unknown> }).action(); }
+
 afterEach(() => { vi.resetAllMocks(); });
 
 test('limited notes get normal menu actions, all routed with the source note and actor', async () => {
@@ -63,6 +65,20 @@ test('an unavailable source leaves read-only entries without mutation controls',
  expect(result.menu.some(item => item && typeof item === 'object' && 'text' in item && ['favorite', 'unclip', 'clip'].includes(String(item.text)))).toBe(false);
 });
 
+test('a source-owned channel post remains deletable when read through the current account', async () => {
+ api.mockResolvedValue({ ...state, isOwn: true, deleted: true });
+ confirm.mockResolvedValue({ canceled: false });
+ const result = await getGridspaceNoteMenu({ ...note, channelId: 'sourceChannel', canDelete: false }, '/private', translation(), ref(false));
+ await action(result.menu, 'delete');
+ expect(api).toHaveBeenLastCalledWith('gridspace/note-menu', expect.objectContaining({ action: 'delete', noteId: note.id, channelId: 'sourceChannel', expectedActorUri: state.actorUri }));
+ expect(emit).toHaveBeenCalledWith('gridspaceNoteDeleted', note.id);
+});
+
+test('keeps the existing channel delete action when the channel reader already grants it', async () => {
+ api.mockResolvedValue({ ...state, isOwn: true });
+ const result = await getGridspaceNoteMenu({ ...note, channelId: 'sourceChannel', canDelete: true }, '/private', translation(), ref(false));
+ expect(result.menu.some(item => item && typeof item === 'object' && 'text' in item && item.text === 'delete')).toBe(false);
+});
 
 test('resolved normal notes keep the ordinary menu and never get the source ID', async () => {
  api.mockResolvedValue({ id: 'local' }); nativeMenu.mockReturnValue({ menu: [{ text: 'native' }], cleanup: vi.fn() });

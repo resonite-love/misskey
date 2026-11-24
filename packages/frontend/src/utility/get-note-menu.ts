@@ -30,6 +30,7 @@ import { getDefaultNoteDelivery, getNoteDeliveryFlags } from '@/utility/note-del
 import { getPluginHandlers } from '@/plugin.js';
 import { globalEvents } from '@/events.js';
 import { loadClipMenu } from '@/utility/clip-menu.js';
+import { getLinkedNoteDeleteMenu } from '@/utility/linked-note-delete.js';
 
 const isInBrowserTranslationAvailable = (
 	'LanguageDetector' in window &&
@@ -529,12 +530,13 @@ export function getNoteMenu(props: {
 					action: removeFromAntenna,
 				});
 			}
-			menuItems.push({
+			const deleteItem = {
 				icon: 'ti ti-trash',
 				text: i18n.ts.delete,
 				danger: true,
 				action: del,
-			});
+			};
+			menuItems.push(appearNote.user.host == null ? deleteItem : statePromise.then(state => state.gridspaceDeleteTarget ? null : deleteItem).catch(() => deleteItem));
 		} else if (props.currentAntenna != null) {
 			menuItems.push({ type: 'divider' });
 			menuItems.push({
@@ -543,6 +545,9 @@ export function getNoteMenu(props: {
 				danger: true,
 				action: removeFromAntenna,
 			});
+		}
+		if (appearNote.user.host != null) {
+			menuItems.push(statePromise.then(state => getLinkedNoteDeleteMenu(appearNote, state)).catch(() => null));
 		}
 	} else {
 		menuItems.push({

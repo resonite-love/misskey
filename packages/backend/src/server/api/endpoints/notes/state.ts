@@ -7,6 +7,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { NotesRepository, NoteThreadMutingsRepository, NoteFavoritesRepository } from '@/models/_.js';
 import { Endpoint } from '@/server/api/endpoint-base.js';
 import { DI } from '@/di-symbols.js';
+import { GridspaceNoteMenuService } from '@/core/gridspace/GridspaceNoteMenuService.js';
 
 export const meta = {
 	tags: ['notes'],
@@ -25,6 +26,14 @@ export const meta = {
 			isMutedThread: {
 				type: 'boolean',
 				optional: false, nullable: false,
+			},
+			gridspaceDeleteTarget: {
+				type: 'object', optional: true, nullable: false,
+				properties: {
+					noteId: { type: 'string', optional: false, nullable: false },
+					actorUri: { type: 'string', optional: false, nullable: false },
+					channelId: { type: 'string', optional: true, nullable: false },
+				},
 			},
 		},
 	},
@@ -49,11 +58,12 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 
 		@Inject(DI.noteFavoritesRepository)
 		private noteFavoritesRepository: NoteFavoritesRepository,
+		private gridspaceNoteMenu: GridspaceNoteMenuService,
 	) {
 		super(meta, paramDef, async (ps, me) => {
 			const note = await this.notesRepository.findOneByOrFail({ id: ps.noteId });
 
-			const [favorite, threadMuting] = await Promise.all([
+			const [favorite, threadMuting, gridspaceDeleteTarget] = await Promise.all([
 				this.noteFavoritesRepository.count({
 					where: {
 						userId: me.id,
@@ -68,11 +78,13 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 					},
 					take: 1,
 				}),
+				this.gridspaceNoteMenu.deleteTarget(me, note),
 			]);
 
 			return {
 				isFavorited: favorite !== 0,
 				isMutedThread: threadMuting !== 0,
+				...(gridspaceDeleteTarget ? { gridspaceDeleteTarget } : {}),
 			};
 		});
 	}
