@@ -5,15 +5,29 @@
 
 import { compareTimelinePosition } from './timeline-protocol.js';
 import type { TimelinePosition, TimelineReference } from './timeline-protocol.js';
+import type { TimelineKnownReference } from './TimelineSessionStore.js';
 
 export type TimelineSourceCursor = { before: TimelinePosition | null; upper: TimelinePosition | null; ended: boolean; pending: TimelineReference[] };
 export type TimelineMergeState = { local: TimelineSourceCursor; peer: TimelineSourceCursor; localPlacement?: TimelineSourceCursor; peerPlacement?: TimelineSourceCursor; seen: string[]; owners: Record<string, 'local' | 'peer'> };
 export type TimelineRead = (source: 'local' | 'peer', cursor: TimelineSourceCursor) => Promise<{ references: TimelineReference[]; next: TimelinePosition | null; upper: TimelinePosition | null; ended: boolean }>;
 
 /** Pure reference merge. The caller checkpoints only the successfully completed state. */
-export async function mergeTimeline(state: TimelineMergeState, limit: number, read: TimelineRead, canRead: () => boolean = () => true, compare = compareTimelinePosition, readPlacement?: TimelineRead): Promise<TimelineReference[]> {
+export async function mergeTimeline(state: TimelineMergeState, limit: number, read: TimelineRead, canRead: () => boolean = () => true, compare = compareTimelinePosition, readPlacement?: TimelineRead, readKnown?: (uris: string[]) => Promise<Record<string, TimelineKnownReference>>): Promise<TimelineReference[]> {
 	const output: TimelineReference[] = [];
 	const seen = new Set(state.seen);
+	const checked = new Set<string>();
+	const restoreKnown = async (refs: TimelineReference[]) => {
+		if (!readKnown) return;
+		const uris = [...new Set(refs.map(ref => ref.canonicalUri))].filter(uri => !checked.has(uri));
+		if (!uris.length) return;
+		const known = await readKnown(uris);
+		for (const uri of uris) checked.add(uri);
+		for (const [uri, value] of Object.entries(known)) {
+			if (value.source) state.owners[uri] = value.source;
+			if (value.seen) seen.add(uri);
+		}
+	};
+	await restoreKnown([state.local, state.peer, state.localPlacement, state.peerPlacement].flatMap(cursor => cursor?.pending ?? []));
 	let reads = 0;
 	let peerReads = 0;
 	while (output.length < limit) {
@@ -36,6 +50,7 @@ export async function mergeTimeline(state: TimelineMergeState, limit: number, re
 			const cursor = missing.cursor;
 			const page = await missing.read(missing.source, cursor);
 			if (!page.ended && !page.next) throw new Error('Timeline source made no progress');
+			await restoreKnown(page.references);
 			cursor.before = page.next;
 			cursor.upper ??= page.upper;
 			cursor.pending = page.references;
@@ -50,10 +65,12 @@ export async function mergeTimeline(state: TimelineMergeState, limit: number, re
 		state.seen.push(chosen.canonicalUri);
 		output.push(chosen);
 	}
-	if (state.localPlacement || state.peerPlacement) {
-		if (state.seen.length > 2000) throw new Error('Timeline session reference limit reached');
-	} else {
+	if (readKnown || (!state.localPlacement && !state.peerPlacement)) {
 		state.seen = state.seen.slice(-100);
+	}
+	if (readKnown) {
+		const retained = new Set([...state.seen, ...[state.local, state.peer, state.localPlacement, state.peerPlacement].flatMap(cursor => cursor?.pending.map(ref => ref.canonicalUri) ?? [])]);
+		state.owners = Object.fromEntries(Object.entries(state.owners).filter(([uri]) => retained.has(uri)));
 	}
 	return output;
 }

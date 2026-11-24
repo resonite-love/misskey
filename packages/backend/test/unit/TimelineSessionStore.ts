@@ -51,20 +51,24 @@ describe('TimelineSessionStore', () => {
 		for (const [index, value] of retained.entries()) if (!value) expect(await store.getCheckpoint(sessions[index], 'page')).toBeNull();
 	});
 
-	test('65th distinct page evicts the complete session', async () => {
+	test('old replay pages are evicted without invalidating the active session', async () => {
 		const session = randomUUID(); await store.start(owner(), session, '{}', expires());
-		for (let index = 0; index < 64; index++) await store.putCheckpoint(session, String(index), '{}', expires());
-		await expect(store.putCheckpoint(session, '64', '{}', expires())).rejects.toThrow();
-		expect(await store.getSession(session)).toBeNull();
+		for (let index = 0; index < 130; index++) await store.putCheckpoint(session, String(index), '{}', expires());
+		expect(await store.getSession(session)).toBe('{}');
 		expect(await store.getCheckpoint(session, '0')).toBeNull();
+		expect(await store.getCheckpoint(session, '129')).toBe('{}');
+		expect(Number(await redis.hget(`gridspace:timeline-store:session:${session}`, '_pages'))).toBeLessThanOrEqual(8);
 	});
 
 	test('the byte limit counts all retained checkpoints and results together', async () => {
 		const session = randomUUID(); await store.start(owner(), session, '{}', expires());
 		await store.putCheckpoint(session, 'first', randomBytes(96000).toString('base64'), expires());
 		await store.claimResult(session, 'first', randomBytes(96000).toString('base64'), expires());
-		await expect(store.putCheckpoint(session, 'second', randomBytes(12000).toString('base64'), expires())).rejects.toThrow();
-		expect(await store.getSession(session)).toBeNull();
+		const next = randomBytes(12000).toString('base64');
+		await store.putCheckpoint(session, 'second', next, expires());
+		expect(await store.getSession(session)).toBe('{}');
+		expect(await store.getCheckpoint(session, 'first')).toBeNull();
+		expect(await store.getCheckpoint(session, 'second')).toBe(next);
 	});
 
 	test('compresses repeated references while preserving immutable page results', async () => {
@@ -102,8 +106,31 @@ describe('TimelineSessionStore', () => {
 		expect(merged.sequence).toBe('10000000000000000');
 		expect(merged.peerSequence).toBe('10');
 		expect(merged.windowHead.noteId).toBe('b');
-		expect(merged.merge.owners).toEqual({ a: 'local', b: 'peer' });
-		expect(merged.merge.seen).toEqual(['a', 'b']);
+		expect(merged.merge.owners).toEqual({});
+		expect(merged.merge.seen).toEqual([]);
+		expect(await store.getReferences(session, ['a', 'b'])).toEqual({ a: { source: 'local', seen: true }, b: { source: 'peer', seen: true } });
+	});
+
+	test('keeps thousands of identities once while bounding every page snapshot', async () => {
+		const session = randomUUID(); const until = expires();
+		await store.start(owner(), session, JSON.stringify({ session, expires: until, revision: '1', mode: 'unified', merge: { owners: {}, seen: [] } }), until);
+		for (let page = 0; page < 150; page++) {
+			const seen = Array.from({ length: 30 }, (_, index) => `https://example.test/notes/${page * 30 + index}`);
+			const json = JSON.stringify({ session, expires: until, revision: '1', mode: 'unified', selected: seen,
+				merge: { owners: Object.fromEntries(seen.map(uri => [uri, 'local'])), seen } });
+			await store.putCheckpoint(session, String(page), json, until);
+			await store.claimResult(session, String(page), json, until);
+			await store.putSession(session, json, until);
+		}
+		const key = `gridspace:timeline-store:session:${session}`;
+		expect(Number(await redis.hget(key, '_pages'))).toBeLessThanOrEqual(8);
+		expect(Number(await redis.hget(key, '_bytes'))).toBeLessThan(262144);
+		expect(Number(await redis.hget(key, '_references'))).toBe(4500);
+		expect(await store.getCheckpoint(session, '0')).toBeNull();
+		expect(await store.getReferences(session, ['https://example.test/notes/0', 'https://example.test/notes/4499'])).toEqual({
+			'https://example.test/notes/0': { source: 'local', seen: true },
+			'https://example.test/notes/4499': { source: 'local', seen: true },
+		});
 	});
 
 	test('conflicting ownership expires the session instead of replacing the choice', async () => {
@@ -112,5 +139,28 @@ describe('TimelineSessionStore', () => {
 		await store.start(owner(), session, JSON.stringify(state), until);
 		await expect(store.putSession(session, JSON.stringify({ ...state, merge: { owners: { a: 'peer' }, seen: ['a'] } }), until)).rejects.toThrow();
 		expect(await store.getSession(session)).toBeNull();
+	});
+
+	test('migrates legacy identity maps without invalidating issued cursors', async () => {
+		const session = randomUUID(); const user = owner(); const until = expires();
+		const state = JSON.stringify({ session, expires: until, revision: '1', mode: 'unified', merge: { owners: { old: 'local' }, seen: ['old'] } });
+		const key = `gridspace:timeline-store:session:${session}`;
+		await redis.set(`gridspace:timeline-store:owner:${session}`, user, 'PX', 60000);
+		await redis.zadd(`gridspace:timeline-store:viewer:${user}`, Date.now(), session);
+		await redis.hset(key, 'session', state, '_bytes', Buffer.byteLength(state), '_expires', until);
+		expect(await store.getReferences(session, ['old'])).toEqual({ old: { source: 'local', seen: true } });
+		await store.putCheckpoint(session, 'existing-cursor', state, until);
+		expect(await store.getReferences(session, ['old'])).toEqual({ old: { source: 'local', seen: true } });
+		expect(JSON.parse((await store.getSession(session))!).merge).toEqual({ owners: {}, seen: [] });
+		expect(await store.getCheckpoint(session, 'existing-cursor')).not.toBeNull();
+	});
+
+	test('an immutable claim does not remember identities from its losing competitor', async () => {
+		const session = randomUUID(); const until = expires();
+		await store.start(owner(), session, '{}', until);
+		const result = (uri: string) => JSON.stringify({ selected: [uri], merge: { owners: { [uri]: 'local' }, seen: [uri] } });
+		const first = await store.claimResult(session, 'same-page', result('winner'), until);
+		expect(await store.claimResult(session, 'same-page', result('loser'), until)).toBe(first);
+		expect(await store.getReferences(session, ['winner', 'loser'])).toEqual({ winner: { source: 'local', seen: true } });
 	});
 });

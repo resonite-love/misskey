@@ -311,7 +311,9 @@ export class TimelineClient {
 				(this.query.pinnedOnly !== true && windowRows.some(row => ascending ? BigInt(row.item.sortKey.sortAt) > BigInt(historyEnd.sortKey.sortAt) : BigInt(row.item.sortKey.sortAt) < BigInt(historyEnd.sortKey.sortAt)));
 			while (response.result.nextCursor && !complete()) {
 				if (current !== this.generation || !this.usable()) return;
-				if (cursors.size >= 64 || cursors.has(response.result.nextCursor)) throw new Error('Incomplete history restoration');
+				// A long, valid history may span more than 64 pages. Only a cursor
+				// cycle proves that restoration stopped making forward progress.
+				if (cursors.has(response.result.nextCursor)) throw new Error('Incomplete history restoration');
 				cursors.add(response.result.nextCursor);
 				response = await this.fetch('gridspace/timeline', { ...this.query, mode, cursor: response.result.nextCursor, limit: 30 });
 				requireComplete();

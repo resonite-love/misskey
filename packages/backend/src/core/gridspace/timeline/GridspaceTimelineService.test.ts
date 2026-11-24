@@ -151,7 +151,9 @@ describe('unified timeline coordinator with real Redis checkpoints', () => {
 		const f = fixture([ref('local', 100)], [ref('peer', 90)], placements);
 		const first = await f.service.page(viewer, { kind: 'relay-social' }, 20);
 		expect(first.items.map(item => item.key)).toEqual([channelNote.canonicalUri, ref('local', 100).canonicalUri, ref('peer', 90).canonicalUri]);
-		expect(first.items[0]).toMatchObject({ representation: 'delegated', validForMs: 60000 });
+		expect(first.items[0]).toMatchObject({ representation: 'delegated' });
+		expect(first.items[0].validForMs).toBeGreaterThan(0);
+		expect(first.items[0].validForMs).toBeLessThanOrEqual(60000);
 		allowed = false;
 		const renewed = await f.changes(first, first.items);
 		expect(renewed.items.map(item => item.key)).not.toContain(channelNote.canonicalUri);
@@ -476,6 +478,46 @@ describe('unified timeline coordinator with real Redis checkpoints', () => {
 		}
 		expect(pages + 1).toBe(26);
 		expect(seen).toEqual(input.map(row => row.canonicalUri));
+	});
+
+	test('reads 4500 home rows beyond the old byte, page and identity limits and still rechecks revoked rows', async () => {
+		const input = Array.from({ length: 4500 }, (_, i) => ref('local', 10000 - i));
+		const placements = mockDeep<TimelinePlacementSource>();
+		placements.supportHome.mockResolvedValue(true);
+		const duplicate = { ...ref('peer', 1, input[0].canonicalUri), placement: {
+			channelId: 'old-channel', channelOrigin: 'https://peer.example', noteOrigin: 'https://local.example', includeDefault: true, legacy: false,
+		} };
+		placements.read.mockImplementation(async (_viewer, origin, request) => ({
+			references: origin === 'https://peer.example' && !request.uris ? [duplicate] : [], next: null, upper: duplicate, sequence: '0',
+		}));
+		placements.bodies.mockResolvedValue(new Map());
+		const f = fixture(input, [], placements);
+		const seen: string[] = [];
+		let cursor: string | undefined;
+		let first: Awaited<ReturnType<GridspaceTimelineService['page']>> | undefined;
+		let last: typeof first;
+		for (let index = 0; index < 150; index++) {
+			const page = await f.service.page(viewer, options, 30, cursor);
+			first ??= page; last = page;
+			expect(page.complete).toBe(true);
+			seen.push(...page.items.map(item => item.key));
+			cursor = page.nextCursor ?? undefined;
+		}
+		expect(seen).toEqual(input.map(row => row.canonicalUri));
+		expect(new Set(seen).size).toBe(4500);
+		if (cursor) {
+			const terminal = await f.service.page(viewer, options, 30, cursor);
+			expect(terminal.items).toEqual([]);
+			expect(terminal.nextCursor).toBeNull();
+		}
+		const fields = await redis.hmget(`gridspace:timeline-store:session:${last!.session}`, '_bytes', '_pages', '_references');
+		expect(Number(fields[0])).toBeLessThan(262144);
+		expect(Number(fields[1])).toBeLessThanOrEqual(8);
+		expect(Number(fields[2])).toBe(4500);
+		f.rows.local.splice(0, 1);
+		const checked = await f.changes(last!, [first!.items[0], last!.items[0]]);
+		expect(checked.removed).toContain(first!.items[0].key);
+		expect(checked.items.map(row => row.key)).toContain(last!.items[0].key);
 	});
 
 	test('equal timestamp and short ID on distinct sources remain distinct in page order', async () => {

@@ -242,6 +242,10 @@ export class GridspaceTimelineService {
 	private referenceToken(viewer: MiLocalUser, checkpoint: Checkpoint, reference: TimelineReference) {
 		return sealGridspaceSecret(this.peer!, JSON.stringify(reference), `timeline-ref:${viewer.id}:${checkpoint.session}:${checkpoint.revision}`);
 	}
+	private async restoreOwners(checkpoint: Checkpoint, uris: string[]) {
+		const known = await this.sessions.getReferences(checkpoint.session, [...new Set(uris)]);
+		for (const [uri, value] of Object.entries(known)) if (value.source) checkpoint.merge.owners[uri] = value.source;
+	}
 	private updatesToken(viewer: MiLocalUser, checkpoint: Checkpoint) {
 		return sealGridspaceSecret(this.peer!, JSON.stringify({ sequence: checkpoint.sequence, peerSequence: checkpoint.peerSequence, placementSequence: checkpoint.placementSequence, expires: checkpoint.expires }), `timeline-updates:${viewer.id}:${checkpoint.session}:${checkpoint.revision}`);
 	}
@@ -292,6 +296,7 @@ export class GridspaceTimelineService {
 			candidate = owners[0] ?? ref;
 		}
 		if (!candidate) return result;
+		await this.restoreOwners(checkpoint, [candidate.canonicalUri]);
 		const owner = checkpoint.merge.owners[candidate.canonicalUri];
 		if (owner != null && owner !== candidate.source) return { ...result, resetRequired: true };
 		const compare = this.compare(checkpoint.options);
@@ -309,6 +314,7 @@ export class GridspaceTimelineService {
 		if (!checkpoint.windowHead || compare(candidate, checkpoint.windowHead) < 0) checkpoint.windowHead = candidate;
 		try {
 			const merged = JSON.parse(await this.sessions.putSession(session, JSON.stringify(checkpoint), checkpoint.expires)) as Checkpoint;
+			await this.restoreOwners(merged, [candidate.canonicalUri]);
 			if (merged.merge.owners[candidate.canonicalUri] !== candidate.source || (owner == null && merged.windowHead && compare(candidate, merged.windowHead) > 0)) return { ...result, resetRequired: true };
 		} catch (error) {
 			if (error instanceof GridspaceLinkError) return { ...result, resetRequired: true };
@@ -338,6 +344,7 @@ export class GridspaceTimelineService {
 		const retainedIds = new Set(retained.filter(ref => ref.source === 'local').map(ref => ref.noteId));
 		const policy = changes.events.some(event => !event.channelId && !event.noteId && (!event.affectedUserId || event.affectedUserId === viewer.id));
 		const updated = changes.events.some(event => event.noteId && (retainedIds.has(event.noteId) || visible.has(event.noteId)) && event.kind !== 'insert');
+		await this.restoreOwners(checkpoint, changes.events.flatMap(event => event.kind !== 'insert' && event.canonicalUri ? [event.canonicalUri] : []));
 		const ownerChanged = changes.events.some(event => event.kind !== 'insert' && event.canonicalUri != null && Object.hasOwn(checkpoint.merge.owners, event.canonicalUri));
 		const inserts = candidates.filter(ref => visible.has(ref.noteId) && changes.events.some(event => event.noteId === ref.noteId && event.kind === 'insert'));
 		return { ...changes, resetRequired: changes.resetRequired || placementChanged || policy || updated || ownerChanged ||
@@ -475,15 +482,13 @@ export class GridspaceTimelineService {
 					}, deadline);
 					if (source === 'peer') working.placementSequence ??= page.sequence;
 					return { ...page, ended: !page.next };
-				});
+				}, uris => this.sessions.getReferences(checkpoint.session, uris));
 				working.nextId = [working.merge.local, working.merge.peer, working.merge.localPlacement, working.merge.peerPlacement]
 					.some(lane => lane && (lane.pending.length || !lane.ended)) ? randomUUID() : null;
 				working.windowHead ??= working.selected[0];
 				// NX fixes both selection and next checkpoint for concurrent retries.
-				const baseOwners = checkpoint.merge.owners;
-				const deltaOwners = Object.fromEntries(Object.entries(working.merge.owners).filter(([key]) => !Object.hasOwn(baseOwners, key)));
-				const committed = JSON.parse(await this.sessions.claimResult(position.session, position.id, JSON.stringify({ ...working, merge: { ...working.merge, owners: deltaOwners } }), checkpoint.expires)) as Checkpoint;
-				checkpoint = { ...committed, merge: { ...committed.merge, owners: { ...baseOwners, ...committed.merge.owners } } };
+				checkpoint = JSON.parse(await this.sessions.claimResult(position.session, position.id, JSON.stringify(working), checkpoint.expires)) as Checkpoint;
+				await this.restoreOwners(checkpoint, [...(checkpoint.selected ?? []), ...[checkpoint.merge.local, checkpoint.merge.peer, checkpoint.merge.localPlacement, checkpoint.merge.peerPlacement].flatMap(state => state?.pending ?? [])].map(ref => ref.canonicalUri));
 				if (checkpoint.nextId) await this.store({ ...checkpoint, selected: undefined, nextId: undefined }, checkpoint.nextId, true);
 				await this.store(checkpoint, position.id);
 				await this.sessions.putSession(checkpoint.session, JSON.stringify(checkpoint), checkpoint.expires);

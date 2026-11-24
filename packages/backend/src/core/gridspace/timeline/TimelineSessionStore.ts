@@ -10,8 +10,9 @@ import { DI } from '@/di-symbols.js';
 import { GridspaceLinkError } from '../GridspaceLinkService.js';
 
 const PREFIX = 'gridspace:timeline-store:';
+export type TimelineKnownReference = { source?: 'local' | 'peer'; seen: boolean };
 
-/** One hash contains the session and all its checkpoints so eviction is atomic. */
+/** One expiring hash owns a bounded page cache and one entry per encountered URI. */
 const STORE = `
 local current = redis.call('GET', KEYS[1])
 local session = KEYS[2]
@@ -57,6 +58,49 @@ local existing = redis.call('HGET', session, field)
 if operation == 'claim' and existing then return existing end
 if operation == 'nx' and existing then return existing end
 if operation == 'merge' and existing then
+ local old = cjson.decode(existing); local proposed = cjson.decode(value)
+ if old.session ~= proposed.session or old.mode ~= proposed.mode or old.revision ~= proposed.revision or old.expires ~= proposed.expires then
+  return redis.error_reply('TIMELINE_CONTEXT')
+ end
+end
+local function remember(owners, seen)
+ local visited = {}
+ for _, uri in ipairs(seen or {}) do visited[uri] = true end
+ for uri, source in pairs(owners or {}) do
+  local key = 'ref:' .. uri
+  local prior = redis.call('HGET', session, key)
+  local owner = source == 'local' and 'l' or 'p'
+  if prior and string.sub(prior, 1, 1) ~= '?' and string.sub(prior, 1, 1) ~= owner then
+   discard(); return false
+  end
+  if not prior then redis.call('HINCRBY', session, '_references', 1) end
+  redis.call('HSET', session, key, owner .. ((visited[uri] or (prior and string.sub(prior, 2, 2) == '1')) and '1' or '0'))
+  visited[uri] = nil
+ end
+ for uri in pairs(visited) do
+  local key = 'ref:' .. uri
+  local prior = redis.call('HGET', session, key)
+  if not prior then redis.call('HINCRBY', session, '_references', 1) end
+  redis.call('HSET', session, key, (prior and string.sub(prior, 1, 1) or '?') .. '1')
+ end
+ return true
+end
+-- Upgrade an existing session in place. Its issued references and cursors stay valid.
+local base = redis.call('HGET', session, 'session')
+if base then
+ local old = cjson.decode(base)
+ if old.merge and ((old.merge.owners and next(old.merge.owners)) or (old.merge.seen and next(old.merge.seen))) then
+  if not remember(old.merge.owners, old.merge.seen) then return redis.error_reply('TIMELINE_OWNER_CHANGED') end
+  old.merge.owners = {}; old.merge.seen = {}
+  local compact = cjson.encode(old)
+  redis.call('HINCRBY', session, '_bytes', string.len(compact) - string.len(base))
+  redis.call('HSET', session, 'session', compact)
+  if field == 'session' then existing = compact end
+ end
+end
+local identities = cjson.decode(ARGV[9])
+if not remember(identities.owners, identities.seen) then return redis.error_reply('TIMELINE_OWNER_CHANGED') end
+if operation == 'merge' and existing then
  local old = cjson.decode(existing)
  local next = cjson.decode(value)
  local function greater(a, b)
@@ -91,17 +135,7 @@ if operation == 'merge' and existing then
  if newer(next.windowHead, old.windowHead) then old.windowHead = next.windowHead end
  if next.nextPolicyCheckAt and next.nextPolicyCheckAt ~= cjson.null and (not old.nextPolicyCheckAt or old.nextPolicyCheckAt == cjson.null or next.nextPolicyCheckAt < old.nextPolicyCheckAt) then old.nextPolicyCheckAt = next.nextPolicyCheckAt end
  if old.merge and next.merge then
-  old.merge.owners = old.merge.owners or {}
-  for uri, source in pairs(next.merge.owners or {}) do
-   if old.merge.owners[uri] and old.merge.owners[uri] ~= source then discard(); return redis.error_reply('TIMELINE_OWNER_CHANGED') end
-   old.merge.owners[uri] = source
-  end
-  local seen = {}; local values = {}
-  for _, uri in ipairs(old.merge.seen or {}) do if not seen[uri] then seen[uri] = true; table.insert(values, uri) end end
-  for _, uri in ipairs(next.merge.seen or {}) do if not seen[uri] then seen[uri] = true; table.insert(values, uri) end end
-  local count = 0; for _ in pairs(old.merge.owners) do count = count + 1 end
-  if count > 2000 or #values > 2000 then discard(); return redis.error_reply('TIMELINE_CAPACITY') end
-  if #values > 0 then old.merge.seen = values end
+  old.merge.owners = {}; old.merge.seen = {}
   for _, source in ipairs({'local', 'peer','localPlacement','peerPlacement'}) do
    if old.merge[source] and next.merge[source] and (not old.merge[source].upper or old.merge[source].upper == cjson.null) then
     old.merge[source].upper = next.merge[source].upper
@@ -113,10 +147,38 @@ end
 local bytes = tonumber(redis.call('HGET', session, '_bytes') or '0') - (existing and string.len(existing) or 0) + string.len(value)
 local pageId = string.match(field, '^page:(.+)$') or string.match(field, '^result:(.+)$')
 local count = tonumber(redis.call('HGET', session, '_pages') or '0')
-if pageId and redis.call('HEXISTS', session, 'known:' .. pageId) == 0 then count = count + 1 end
-if bytes > 262144 or count > 64 then discard(); return redis.error_reply('TIMELINE_CAPACITY') end
+if pageId and redis.call('HEXISTS', session, 'known:' .. pageId) == 0 then
+ count = count + 1
+ redis.call('HSET', session, 'known:' .. pageId, redis.call('HINCRBY', session, '_pageClock', 1))
+end
+-- Keep the current and look-ahead pages, and evict only older replay checkpoints.
+-- The URI index remains intact, so eviction cannot reintroduce old duplicates.
+if bytes > 262144 or count > 8 then
+ local pages = {}; local newest = nil; local newestClock = -1
+ for _, key in ipairs(redis.call('HKEYS', session)) do
+  local id = string.match(key, '^known:(.+)$')
+  if id then
+   local clock = tonumber(redis.call('HGET', session, key)) or 0
+   table.insert(pages, {id=id, clock=clock})
+   if clock > newestClock then newest = id; newestClock = clock end
+  end
+ end
+ table.sort(pages, function(a, b) return a.clock < b.clock end)
+ for _, page in ipairs(pages) do
+  if bytes <= 262144 and count <= 8 then break end
+  if page.id ~= pageId and page.id ~= newest and page.id ~= ARGV[10] then
+   for _, prefix in ipairs({'page:', 'result:'}) do
+    local key = prefix .. page.id
+    bytes = bytes - string.len(redis.call('HGET', session, key) or '')
+    redis.call('HDEL', session, key)
+   end
+   redis.call('HDEL', session, 'known:' .. page.id)
+   count = count - 1
+  end
+ end
+end
+if bytes > 262144 or count > 8 then discard(); return redis.error_reply('TIMELINE_CAPACITY') end
 redis.call('HSET', session, field, value, '_bytes', bytes, '_pages', count, '_expires', expires)
-if pageId then redis.call('HSET', session, 'known:' .. pageId, '1') end
 redis.call('PEXPIRE', session, ttl)
 redis.call('PEXPIRE', KEYS[1], ttl)
 return value
@@ -132,6 +194,17 @@ export class TimelineSessionStore {
 
 	private async write(operation: string, session: string, field: string, json: string, expires: number, viewerId?: string): Promise<string> {
 		this.validate(session);
+		let identities: { owners: Record<string, 'local' | 'peer'>; seen: string[] } = { owners: {}, seen: [] };
+		let nextPageId = '';
+		try {
+			const value = JSON.parse(json);
+			if (typeof value?.nextId === 'string') nextPageId = value.nextId;
+			if (value?.merge) {
+				identities = { owners: value.merge.owners ?? {}, seen: value.merge.seen ?? [] };
+				value.merge.owners = {}; value.merge.seen = [];
+				json = JSON.stringify(value);
+			}
+		} catch { /* Some standalone store callers use opaque strings. */ }
 		if (Buffer.byteLength(json) > 256 * 1024 || !Number.isSafeInteger(expires) || expires <= Date.now() || expires > Date.now() + 7200000) throw new GridspaceLinkError('INVALID_CURSOR');
 		const owner = viewerId ?? await this.redis.get(`${PREFIX}owner:${session}`);
 		if (!owner) throw new GridspaceLinkError('INVALID_CURSOR');
@@ -139,7 +212,7 @@ export class TimelineSessionStore {
 		const stored = field === 'session' ? json : this.compress(json);
 		try {
 			const result = await this.redis.eval(STORE, 3, `${PREFIX}owner:${session}`, `${PREFIX}session:${session}`, `${PREFIX}viewer:${owner}`,
-				operation, field, stored, Date.now(), expires, owner, session, `${this.redis.options.keyPrefix ?? ''}${PREFIX}`) as string;
+				operation, field, stored, Date.now(), expires, owner, session, `${this.redis.options.keyPrefix ?? ''}${PREFIX}`, JSON.stringify(identities), nextPageId) as string;
 			return field === 'session' ? result : this.decompress(result);
 		} catch { throw new GridspaceLinkError('INVALID_CURSOR'); }
 	}
@@ -190,6 +263,28 @@ export class TimelineSessionStore {
 		this.validate(session); this.validate(id);
 		const value = await this.read(session, `page:${id}`);
 		return value == null ? null : this.decompress(value);
+	}
+
+	/** Content-free decisions are indexed once, never copied into every page. */
+	public async getReferences(session: string, uris: string[]): Promise<Record<string, TimelineKnownReference>> {
+		this.validate(session);
+		if (!uris.length) return {};
+		if (uris.length > 1000) throw new GridspaceLinkError('INVALID_REQUEST');
+		const values = await this.redis.hmget(`${PREFIX}session:${session}`, ...uris.map(uri => `ref:${uri}`));
+		const result: Record<string, TimelineKnownReference> = {};
+		for (const [index, value] of values.entries()) if (value) result[uris[index]] = {
+			...(value[0] === 'l' ? { source: 'local' as const } : value[0] === 'p' ? { source: 'peer' as const } : {}), seen: value[1] === '1',
+		};
+		// Rolling upgrades can read a session created before the first compact write.
+		if (values.some(value => value === null)) {
+			const raw = await this.redis.hget(`${PREFIX}session:${session}`, 'session');
+			const legacy = raw ? JSON.parse(raw).merge : null;
+			const seen = new Set<string>(Array.isArray(legacy?.seen) ? legacy.seen : []);
+			if (legacy) for (const uri of uris) if (!result[uri] && (legacy.owners?.[uri] || seen.has(uri))) {
+				result[uri] = { source: legacy.owners?.[uri], seen: seen.has(uri) };
+			}
+		}
+		return result;
 	}
 
 	private async read(session: string, field: string): Promise<string | null> {

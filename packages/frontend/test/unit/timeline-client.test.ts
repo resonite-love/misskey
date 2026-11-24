@@ -317,8 +317,7 @@ describe('server timeline client', () => {
 		{ kind: 'home' },
 		{ kind: 'channel', channelOrigin: 'https://local.example', channelId: 'channel' },
 		{ kind: 'channel', channelOrigin: 'https://peer.example', channelId: 'channel' },
-	].flatMap(query => [true, false].flatMap(atTop => ['INVALID_CURSOR', 'CURSOR_EXPIRED'].map(reason => ({ query, atTop, reason })))))
-	('recovers missed new posts after an expired $query.kind update (top=$atTop, $reason)', async ({ query, atTop, reason }) => {
+	].flatMap(query => [true, false].flatMap(atTop => ['INVALID_CURSOR', 'CURSOR_EXPIRED'].map(reason => ({ query, atTop, reason })))))('recovers missed new posts after an expired $query.kind update (top=$atTop, $reason)', async ({ query, atTop, reason }) => {
 		const [newHead, oldHead, tail] = ['missed-new', 'old-head', 'old-tail'].map((id, index) => ({
 			...item(id, false), sortKey: { sortAt: String(10 - index), uri: id },
 		}));
@@ -344,6 +343,22 @@ describe('server timeline client', () => {
 		const value = client(request); await value.reload(); await value.refresh();
 		expect(request.mock.calls[2][1]).not.toHaveProperty('anchor');
 		expect(value.error.value).toBe(false);
+	});
+	it('restores more than 64 pages after a long history session expires', async () => {
+		const history = Array.from({ length: 2400 }, (_, index) => ({ ...item(`deep-${index}`, false), sortKey: { sortAt: String(3000 - index), uri: String(index) } }));
+		const request = vi.fn().mockResolvedValueOnce(page(history, { nextCursor: 'expired' }))
+			.mockRejectedValueOnce({ info: { reason: 'INVALID_CURSOR' } });
+		for (let offset = 0; offset < history.length; offset += 30) {
+			request.mockResolvedValueOnce(page(history.slice(offset, offset + 30), { session: 'restored', nextCursor: offset + 30 < history.length ? `older-${offset + 30}` : 'next-page' }));
+		}
+		const value = client(request, () => false);
+		await value.reload(); await value.load();
+		expect(value.error.value).toBe(false);
+		expect(value.rows.value.map(row => row.key)).toEqual(history.map(row => row.key));
+		request.mockResolvedValueOnce(page([item('older-than-history', false)], { session: 'restored' }));
+		await value.load();
+		expect(request.mock.calls.at(-1)![1]).toMatchObject({ cursor: 'next-page' });
+		expect(value.rows.value).toHaveLength(2401);
 	});
 	it.each([
 		{ kind: 'home' }, { kind: 'social' }, { kind: 'channel', channelId: 'channel' }, { kind: 'antenna', antennaId: 'antenna' },

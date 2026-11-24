@@ -41,6 +41,17 @@ class MemorySessions {
 		return this.results.get(key)!;
 	}
 	public state(session: string) { return JSON.parse(this.sessions.get(session)!); }
+	public async getReferences(session: string, uris: string[]) {
+		const result: Record<string, { source?: 'local' | 'peer'; seen: boolean }> = {};
+		const values = [this.sessions.get(session), ...[...this.pages, ...this.results].filter(([key]) => key.startsWith(`${session}:`)).map(([, value]) => value)];
+		for (const value of values) if (value) {
+			const state = JSON.parse(value);
+			for (const uri of uris) if (state.merge?.owners[uri] || state.merge?.seen.includes(uri)) {
+				result[uri] = { source: state.merge.owners[uri] ?? result[uri]?.source, seen: result[uri]?.seen === true || state.merge.seen.includes(uri) };
+			}
+		}
+		return result;
+	}
 }
 
 function fixture(localRows: TimelineReference[] = [], remoteRows: TimelineReference[] = []) {
