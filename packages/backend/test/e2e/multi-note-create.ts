@@ -18,6 +18,23 @@ import { getValidator } from '../prelude/get-api-validator.js';
 import { MiUser } from '@/models/User.js';
 import { api, initTestDb, origin, role, signup, successfulApiCall } from '../utils.js';
 
+describe('Channel-targeted native renotes', () => {
+	test('keeps the original, replays once, and rejects a newly restricted source', async () => {
+		const owner = await signup({ username: 'renoteowner' });
+		const actor = await signup({ username: 'renoteactor' });
+		const channel = await successfulApiCall({ endpoint: 'channels/create', user: actor, parameters: { name: 'renote target' } });
+		const source = (await successfulApiCall({ endpoint: 'notes/create', user: owner, parameters: { text: 'native original' } })).createdNote;
+		const request = { renoteId: source.id, includeDefault: false, channelIds: [], channelTargets: [{ origin, channelId: channel.id }], clientRequestId: randomUUID() };
+		const result = await successfulApiCall({ endpoint: 'notes/create', user: actor, parameters: request });
+		expect(result.createdNote).toMatchObject({ multiNoteKind: 'root', includeDefault: false, localOnly: true, renoteId: source.id, renote: { text: 'native original' } });
+		expect((await successfulApiCall({ endpoint: 'channels/timeline', user: actor, parameters: { channelId: channel.id } })).map(n => n.id)).toContain(result.createdNote.id);
+		expect((await successfulApiCall({ endpoint: 'notes/create', user: actor, parameters: request })).createdNote.id).toBe(result.createdNote.id);
+		await successfulApiCall({ endpoint: 'blocking/create', user: owner, parameters: { userId: actor.id } });
+		expect((await api('notes/create', { ...request, clientRequestId: randomUUID() }, actor)).status).toBe(400);
+		expect((await successfulApiCall({ endpoint: 'notes/create', user: actor, parameters: request })).createdNote.id).toBe(result.createdNote.id);
+	});
+});
+
 describe('Multi-note creation', () => {
 	let author: misskey.entities.SignupResponse;
 	let other: misskey.entities.SignupResponse;

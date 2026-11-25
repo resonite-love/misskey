@@ -648,6 +648,7 @@ export class GridspacePrivateService {
 		const related = relatedIds.length ? await this.search.read(relatedQuery().andWhere('note.id IN (:...related)', { related: relatedIds })) : [];
 		const previewTargets = related.filter(note => selected.some(parent => parent.renoteId === note.id && (
 			((input.channelId || homeChannels) && !!note.channelId && parent.channelId === note.channelId) ||
+			(parent.multiNoteKind === 'root' && parent.includeDefault === false && ['public', 'home'].includes(note.visibility) && (note.includeDefault !== false || !!note.channelId)) ||
 			(!link.initiator && !this.collectionClient && canSelfRenote(note, link.localUserId))
 		)));
 		const reactionIds = [...new Set([...selected, ...previewTargets].map(note => note.id))];

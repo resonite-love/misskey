@@ -195,6 +195,7 @@ type Option = {
 	gridspaceQuote?: string | null;
 	gridspaceQuoteCheck?: (manager?: EntityManager) => Promise<void>;
 	gridspacePlacementQuote?: boolean;
+	placedRenoteCheck?: (manager: EntityManager) => Promise<void>;
 	gridspaceReply?: { requestId: string; requestHash: string; beforeInsert: (manager: EntityManager) => Promise<void> };
 	reactionAcceptance?: MiNote['reactionAcceptance'];
 	cw?: string | null;
@@ -339,7 +340,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 			const existing = await this.notePlacementService.status(user.id, data.multiNote.clientRequestId, data.multiNote.inputHash);
 			if (existing.status === 'deleted') throw new PlacementError('request-note-deleted');
 			if (existing.note) return existing.note;
-			if (data.channelId || data.replyId || data.renoteId) throw new PlacementError('incompatible-destination');
+			if (data.channelId || data.replyId || (data.renoteId && (data.multiNote.includeDefault || data.multiNote.channelIds.length !== 0 || data.multiNote.channelTargets.length !== 1))) throw new PlacementError('incompatible-destination');
 			if (data.prepareGridspaceQuote && (data.multiNote.includeDefault || data.multiNote.channelIds.length + data.multiNote.channelTargets.length !== 1)) {
 				throw new PlacementError('incompatible-destination');
 			}
@@ -420,6 +421,11 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 				}
 			}
 		}
+		if (data.multiNote && renote) {
+			await this.notePlacementService.authorizeRenote(user.id, renote.id);
+			// Channel placements are shared only with the configured peer, never through federation.
+			data.localOnly = true;
+		}
 
 		let reply: MiNote | null = null;
 		if (data.replyId != null) {
@@ -493,6 +499,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 			gridspaceQuote: quote?.url,
 			gridspaceQuoteCheck: quote?.check,
 			gridspacePlacementQuote: quote?.placement,
+			placedRenoteCheck: data.multiNote && renote ? manager => this.notePlacementService.authorizeRenote(user.id, renote.id, manager) : undefined,
 		});
 	}
 
@@ -738,9 +745,13 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 		}
 
 		if (data.multiNote) {
+			const referencedFiles = data.renote?.fileIds.length ? await this.driveFilesRepository.findBy({ id: In(data.renote.fileIds) }) : [];
+			const referencedPoll = data.renote?.hasPoll ? await this.db.getRepository(MiPoll).findOneBy({ noteId: data.renote.id }) : null;
 			const preview = {
-				text: data.text, cw: data.cw, pollChoices: data.poll?.choices,
-				files: data.files?.map(({ name, comment, isSensitive }) => ({ name, comment, isSensitive })),
+				text: data.renote ? [data.text, data.renote.text].filter(Boolean).join('\n') : data.text,
+				cw: data.renote ? [data.cw, data.renote.cw].filter(Boolean).join('\n') : data.cw,
+				pollChoices: [...(data.poll?.choices ?? []), ...(referencedPoll?.choices ?? [])],
+				files: [...(data.files ?? []), ...referencedFiles].map(({ name, comment, isSensitive }) => ({ name, comment, isSensitive })),
 			};
 			const keywords = this.utilityService.concatNoteContentsForKeyWordCheck({ ...preview, others: [
 				...(preview.files ?? []).flatMap(file => [file.name, file.comment ?? '']),
@@ -848,6 +859,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 						if (user.host == null && !data.gridspaceHistorical && !data.gridspaceQuoteCheck) throw new Error('Missing channel quote authorization');
 						await data.gridspaceQuoteCheck?.(transactionalEntityManager);
 					}
+					await data.placedRenoteCheck?.(transactionalEntityManager);
 					if (data.gridspaceReply) {
 						await data.gridspaceReply.beforeInsert(transactionalEntityManager);
 						await transactionalEntityManager.insert(MiGridspaceReplyReceipt, { userId: user.id, requestId: data.gridspaceReply.requestId, requestHash: data.gridspaceReply.requestHash, noteId: insert.id });

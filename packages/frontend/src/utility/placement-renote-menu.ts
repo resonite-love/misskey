@@ -13,7 +13,7 @@ import { placementReferenceUri } from '@/utility/gridspace-note-link.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { globalEvents } from '@/events.js';
 import { i18n } from '@/i18n.js';
-import { instance } from '@/instance.js';
+import { renoteChannelChoices } from '@/utility/renote-channel-choices.js';
 import { prefer } from '@/preferences.js';
 import { store } from '@/store.js';
 import * as os from '@/os.js';
@@ -30,21 +30,6 @@ export function placementSources(note: Note, channel?: ChannelRoute | null): Sou
 
 function label(channel: ChannelRoute & { name?: string | null }) {
 	return `${channel.name ?? i18n.ts.channel} · ${channel.origin === localOrigin ? i18n.ts._multiNote.localSiteName : i18n.ts._multiNote.peerSiteName}`;
-}
-
-async function favoriteDestinations(source: Source) {
-	const local = await misskeyApi('channels/my-favorites', {});
-	const channels: PostingChannel[] = local.filter(item => !item.isArchived).map(item => ({ ...item, origin: localOrigin, channelId: item.id }));
-	if (instance.features?.multiNotePeer) {
-		let before: string | undefined;
-		do {
-			const result = await misskeyApi('gridspace/multi-note/channels', { list: 'favorite', limit: 20, before });
-			channels.push(...result.channels.filter(item => !item.isArchived).map(item => ({ ...item, origin: result.origin, channelId: item.id })));
-			if (!result.next || result.next === before) break;
-			before = result.next;
-		} while (before);
-	}
-	return channels.filter(channel => !sameChannel(source, channel)).map(channel => ({ channel, name: label(channel) }));
 }
 
 export function placementRenoteMenu(note: Note, accountId: string, context: ChannelRoute | null, active: () => boolean, changed: () => void, publicActions?: PublicActions): MenuItem[] {
@@ -77,7 +62,7 @@ export function placementRenoteMenu(note: Note, accountId: string, context: Chan
 				if (!active()) return;
 				void os.post({ gridspaceQuote: reference, fixedQuoteDestination: target, initialLocalOnly: true, initialVisibility: 'public' });
 			},
-			channels: () => favoriteDestinations(source),
+			channels: () => renoteChannelChoices(source),
 			renoteToChannel: destination => create(destination.channel),
 		});
 	};

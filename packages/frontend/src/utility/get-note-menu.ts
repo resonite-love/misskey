@@ -19,7 +19,7 @@ import { copyToClipboard } from '@/utility/copy-to-clipboard.js';
 import { store } from '@/store.js';
 import { miLocalStorage } from '@/local-storage.js';
 import { getUserMenu } from '@/utility/get-user-menu.js';
-import { clipsCache, favoritedChannelsCache } from '@/cache.js';
+import { clipsCache } from '@/cache.js';
 import { buildRenoteMenu } from '@/utility/build-renote-menu.js';
 import MkRippleEffect from '@/components/MkRippleEffect.vue';
 import { isSupportShare } from '@/utility/navigator.js';
@@ -32,7 +32,10 @@ import { globalEvents } from '@/events.js';
 import { loadClipMenu } from '@/utility/clip-menu.js';
 import { getLinkedNoteDeleteMenu } from '@/utility/linked-note-delete.js';
 import { placementRenoteMenu, placementSources } from '@/utility/placement-renote-menu.js';
+import { placementParams } from '@/utility/multi-note.js';
 import type { ChannelRoute } from '@/utility/multi-note.js';
+import { renoteChannelChoices } from '@/utility/renote-channel-choices.js';
+import { forgetReplyRequest, rememberReplyRequest } from '@/utility/gridspace-reply-request.js';
 
 const isInBrowserTranslationAvailable = (
 	'LanguageDetector' in window &&
@@ -661,6 +664,7 @@ export function getRenoteMenu(props: {
 		create({ localOnly, noRelay: !localOnly && noRelay, visibility, renoteId: appearNote.id }, i18n.ts.renoted);
 	};
 	const quote = props.mock ? undefined : () => { void os.post({ renote: appearNote }); };
+	const localOrigin = new URL(url).origin;
 	if (!props.mock && $i && appearNote.multiNoteKind === 'root' && appearNote.includeDefault === true && props.channel && placementSources(appearNote, props.channel).length > 0) {
 		return { menu: placementRenoteMenu(appearNote, $i.id, props.channel, props.isCurrent ?? (() => true), pulse, { renote, quote: quote! }) };
 	}
@@ -671,7 +675,24 @@ export function getRenoteMenu(props: {
 		quote,
 		inChannelRenote: () => create({ renoteId: appearNote.id, channelId: appearNote.channelId }, i18n.ts.renoted),
 		inChannelQuote: () => { if (!props.mock) void os.post({ renote: appearNote, channel: appearNote.channel }); },
-		channels: props.mock ? undefined : async () => (await favoritedChannelsCache.fetch()).filter(channel => channel.id !== appearNote.channelId),
-		renoteToChannel: channel => create({ renoteId: appearNote.id, channelId: channel.id }, i18n.tsx.renotedToX({ name: channel.name })),
+		channels: props.mock ? undefined : () => renoteChannelChoices(appearNote.channelId ? { origin: localOrigin, channelId: appearNote.channelId } : null,
+			['public', 'home'].includes(appearNote.visibility) && (appearNote.includeDefault !== false || !!appearNote.channelId)),
+		renoteToChannel: async ({ channel }) => {
+			if (props.isCurrent?.() === false) return;
+			if (channel.origin === localOrigin) {
+				create({ renoteId: appearNote.id, channelId: channel.channelId }, i18n.tsx.renotedToX({ name: channel.name }));
+				return;
+			}
+			if (!$i) return;
+			const key = JSON.stringify(['channel-renote', appearNote.id, channel.origin, channel.channelId]);
+			const requestId = rememberReplyRequest($i.id, key, crypto.randomUUID());
+			try {
+				const result = await misskeyApi('notes/create', { renoteId: appearNote.id, visibility: 'public', localOnly: true,
+					...placementParams({ includeDefault: false, channels: [channel] }, localOrigin), clientRequestId: requestId }, undefined, AbortSignal.timeout(30000));
+				forgetReplyRequest($i.id, key, requestId);
+				globalEvents.emit('notePosted', result.createdNote);
+				if (props.isCurrent?.() !== false) { pulse(); os.toast(i18n.tsx.renotedToX({ name: channel.name })); }
+			} catch { if (props.isCurrent?.() !== false) await os.alert({ type: 'error', text: i18n.ts._gridspace.replyUncertain }); }
+		},
 	}) };
 }

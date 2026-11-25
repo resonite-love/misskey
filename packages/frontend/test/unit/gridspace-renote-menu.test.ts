@@ -54,13 +54,13 @@ test('dedicated renote menu scopes all five actions to the selected source and p
 	expect(items.filter(item => item.text).map(item => item.text)).toEqual(['RN', 'Quote', 'Inside RN', 'Inside quote', 'Other channel']);
 	const reference = canonicalUri + '?gridspaceChannelOrigin=https%3A%2F%2Fpeer.test&gridspaceChannelId=same';
 	api.mockImplementation(async (path, input) => {
-		if (path === 'channels/my-favorites') return [{ id: 'same', name: 'Same', color: '#aaa' }];
 		if (path === 'gridspace/multi-note/channels') {
 			expect(input.limit).toBeLessThanOrEqual(20);
 			return { origin: peerSource.origin, channels: [{ id: input.before ? 'other' : 'same', name: 'Same', color: '#aaa' }], next: input.before ? null : 'next' };
 		}
 		return { createdNote: { id: 'new' } };
 	});
+	favorites.mockResolvedValue([{ id: 'same', name: 'Same', color: '#aaa' }]);
 	await items[0].action();
 	expect(api.mock.calls[0][1]).toEqual({ gridspaceQuote: reference, visibility: 'home', localOnly: true });
 	await items[1].action();
@@ -70,7 +70,7 @@ test('dedicated renote menu scopes all five actions to the selected source and p
 	await items[4].action();
 	expect(os.post).toHaveBeenCalledWith(expect.objectContaining({ gridspaceQuote: reference, fixedQuoteDestination: expect.objectContaining({ origin: peerSource.origin, channelId: 'same' }) }));
 	const destinations = await items[6].children();
-	expect(destinations.map(item => item.text)).toEqual(['Same · Local site', 'Same · Peer site']);
+	expect(destinations.map(item => item.text)).toEqual(['Same', 'Same · Peer site']);
 	await destinations[0].action();
 	expect(api.mock.calls.at(-1)![1]).toMatchObject({ gridspaceQuote: reference, includeDefault: false, channelIds: ['same'], channelTargets: [] });
 	await destinations[1].action();

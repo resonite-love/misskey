@@ -21,6 +21,7 @@ import type { RoleService } from '@/core/RoleService.js';
 import type { GridspaceSearchService } from '@/core/gridspace/GridspaceSearchService.js';
 import type { GridspacePlacementService } from '@/core/gridspace/GridspacePlacementService.js';
 import type { PlacementPreview } from '@/core/gridspace/placement-protocol.js';
+import { isRenote, isQuote } from '@/misc/is-renote.js';
 import { recordPlacementChange, refreshPlacementChannel } from '@/core/gridspace/timeline/placement-change.js';
 
 export type PackedChannelPlacement = {
@@ -131,6 +132,21 @@ export class NotePlacementService {
 		const query = search.noteQuery({ id: userId }, { query: '' }, false, true, undefined, true, false, noteId);
 		if (manager?.queryRunner) query.setQueryRunner(manager.queryRunner);
 		return query.getOne();
+	}
+
+	/** Recheck the original under the insertion transaction, including channel export policy. */
+	public async authorizeRenote(userId: string, noteId: string, manager?: EntityManager) {
+		if (manager && !await manager.findOne(MiNote, { where: { id: noteId }, lock: { mode: 'pessimistic_read' } })) {
+			throw new PlacementError('renote-source-unavailable');
+		}
+		const note = await this.readable(userId, noteId, manager);
+		if (!note || !['public', 'home'].includes(note.visibility) || (note.includeDefault === false && !note.channelId) || (isRenote(note) && !isQuote(note)) ||
+			(note.gridspaceQuote && !note.text && !note.cw && !note.fileIds.length && !note.hasPoll)) throw new PlacementError('renote-source-unavailable');
+		if (note.channelId) {
+			const channel = await (manager ?? this.db.manager).findOne(MiChannel, { where: { id: note.channelId }, ...(manager ? { lock: { mode: 'for_no_key_update' as const } } : {}) });
+			if (!channel || channel.isArchived || !channel.allowRenoteToExternal) throw new PlacementError('channel-disallows-external-renotes');
+		}
+		return note;
 	}
 
 	private readableConversationRoots(viewer?: Pick<MiUser, 'id'> | null) {

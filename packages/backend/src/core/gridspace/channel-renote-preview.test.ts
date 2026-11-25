@@ -62,3 +62,19 @@ test.each([true, false])('destination filters the embedded target and strips int
 	expect(page.notes[0]).not.toHaveProperty('filterActors');
 	if (readable) { expect(page.notes[0].renote).toMatchObject({ text: 'Original' }); expect(page.notes[0].renote).not.toHaveProperty('filterActors'); } else expect(page.notes[0]).not.toHaveProperty('renote');
 });
+
+test.each([true, false])('a placed native RN includes its original only while it remains readable (%s)', async stillReadable => {
+	const parent = { id: 'wrapper', channelId: null, multiNoteKind: 'root', includeDefault: false, text: null, renoteId: 'target' };
+	const target = { id: 'target', channelId: null, visibility: 'public', includeDefault: true, text: 'Original', renoteId: null };
+	const query = mockDeep<SelectQueryBuilder<MiNote>>(); query.andWhere.mockReturnValue(query);
+	const read = vi.fn().mockResolvedValueOnce([target]).mockResolvedValueOnce([parent]).mockResolvedValueOnce(stillReadable ? [target] : []);
+	const pack = vi.fn(async (note: MiNote) => ({ ...note, filterActors: [] }));
+	const service = Object.assign(Object.create(GridspacePrivateService.prototype), {
+		authorizeRead: vi.fn(async () => ({ localUserId: 'viewer', initiator: false })), sourceNotes: vi.fn(async () => [parent]),
+		query: () => query, search: { read }, pack, extendedReactions: { show: async () => [] },
+		notePlacements: { pack: async () => new Map() }, ids: { parse: () => ({ date: new Date(0) }) },
+	}) as GridspacePrivateService;
+	const page = await service.peerNotes({ mode: 'show', noteId: 'wrapper', conversationUri: 'https://origin.test/notes/wrapper' } as PrivatePeerRequest);
+	if (stillReadable) expect(page.notes[0].renote).toMatchObject({ id: 'target', text: 'Original' });
+	else { expect(page.notes[0].renoteId).toBeNull(); expect(page.notes[0]).not.toHaveProperty('renote'); }
+});

@@ -9,15 +9,15 @@ import { url } from '@@/js/config.js';
 import { getRenoteMenu } from '@/utility/get-note-menu.js';
 import type { MenuButton, MenuItem } from '@/types/menu.js';
 
-const { api, post } = vi.hoisted(() => ({ api: vi.fn(), post: vi.fn() }));
+const { api, post, favorites } = vi.hoisted(() => ({ api: vi.fn(), post: vi.fn(), favorites: vi.fn(async () => []) }));
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: api }));
 vi.mock('@/os.js', () => ({ post, toast: vi.fn(), alert: vi.fn() }));
 vi.mock('@/i.js', () => ({ $i: { id: 'viewer' } }));
 vi.mock('@/preferences.js', () => ({ prefer: { s: { animation: false, rememberNoteVisibility: false, defaultNoteVisibility: 'public', defaultNoteLocalOnly: 'none' } } }));
 vi.mock('@/store.js', () => ({ store: { s: {} } }));
 vi.mock('@/instance.js', () => ({ instance: { features: { multiNotePeer: true } } }));
-vi.mock('@/cache.js', () => ({ clipsCache: {}, favoritedChannelsCache: { fetch: vi.fn(async () => []) } }));
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { renote: 'RN', quote: 'Quote', inChannelRenote: 'Inside RN', inChannelQuote: 'Inside quote', renoteToChannel: 'To channel', renoteToOtherChannel: 'Other channel', _multiNote: {} }, tsx: {} } }));
+vi.mock('@/cache.js', () => ({ clipsCache: {}, favoritedChannelsCache: { fetch: favorites } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { renote: 'RN', quote: 'Quote', inChannelRenote: 'Inside RN', inChannelQuote: 'Inside quote', renoteToChannel: 'To channel', renoteToOtherChannel: 'Other channel', _multiNote: { peerSiteName: 'Peer' } }, tsx: { renotedToX: ({ name }: { name: string }) => name } } }));
 vi.mock('@/utility/get-appear-note.js', () => ({ getAppearNote: (note: unknown) => note }));
 vi.mock('@/utility/note-delivery.js', () => ({ getDefaultNoteDelivery: () => 'none', getNoteDeliveryFlags: () => ({ localOnly: false, noRelay: true }) }));
 vi.mock('@/utility/achievements.js', () => ({ claimAchievement: vi.fn() }));
@@ -81,4 +81,15 @@ test('an open menu stops acting after its channel context becomes stale', async 
 	await button(menu, 'Quote').action({} as PointerEvent);
 	expect(api).not.toHaveBeenCalled();
 	expect(post).not.toHaveBeenCalled();
+});
+
+test('the ordinary menu offers peer favorites and preserves the native source ID when posting', async () => {
+	api.mockImplementation(async path => path === 'gridspace/multi-note/channels' ? { origin: 'https://peer.test', channels: [{ id: 'current', name: 'Peer channel' }], next: null } : { createdNote: { id: 'new' } });
+	const menu = menuFor(note, null);
+	const item = menu.find(item => 'type' in item && item.type === 'parent');
+	if (!item || !('children' in item) || typeof item.children !== 'function') throw new Error('Missing destinations');
+	const children = await item.children();
+	await button(children, 'Peer channel · Peer').action({} as PointerEvent);
+	expect(api).toHaveBeenLastCalledWith('notes/create', expect.objectContaining({ renoteId: 'root', includeDefault: false, visibility: 'public', localOnly: true,
+		channelIds: [], channelTargets: [{ origin: 'https://peer.test', channelId: 'current' }], clientRequestId: expect.any(String) }), undefined, expect.any(AbortSignal));
 });

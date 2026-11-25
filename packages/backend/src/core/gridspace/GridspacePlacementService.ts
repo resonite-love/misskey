@@ -689,10 +689,15 @@ export class GridspacePlacementService implements OnModuleInit, OnApplicationShu
 		const actor = await this.db.getRepository(MiUser).findOneBy({ id: row.authorId, host: IsNull() });
 		if (!actor) throw revoked();
 		await this.currentActorCredential(actor as MiLocalUser);
-		const files = note.fileIds.length ? await this.db.getRepository(MiDriveFile).findBy({ id: In(note.fileIds) }) : [];
+		const referenced = note.renoteId ? await this.modules.get(NotePlacementService).authorizeRenote(actor.id, note.renoteId) : null;
+		const fileIds = [...note.fileIds, ...(referenced?.fileIds ?? [])];
+		const files = fileIds.length ? await this.db.getRepository(MiDriveFile).findBy({ id: In(fileIds) }) : [];
 		const indexed = new Map(files.map(f => [f.id, f]));
 		const poll = note.hasPoll ? await this.db.getRepository(MiPoll).findOneBy({ noteId: note.id }) : null;
-		return { text: note.text, cw: note.cw, pollChoices: poll?.choices, files: note.fileIds.flatMap(id => {
+		const referencedPoll = referenced?.hasPoll ? await this.db.getRepository(MiPoll).findOneBy({ noteId: referenced.id }) : null;
+		return { text: referenced ? [note.text, referenced.text].filter(Boolean).join('\n') : note.text,
+			cw: referenced ? [note.cw, referenced.cw].filter(Boolean).join('\n') : note.cw,
+			pollChoices: [...(poll?.choices ?? []), ...(referencedPoll?.choices ?? [])], files: fileIds.flatMap(id => {
 			const f = indexed.get(id);
 			return f ? [{ name: f.name, comment: f.comment, isSensitive: f.isSensitive }] : [];
 		}) };
