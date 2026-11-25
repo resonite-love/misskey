@@ -499,7 +499,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 			gridspaceQuote: quote?.url,
 			gridspaceQuoteCheck: quote?.check,
 			gridspacePlacementQuote: quote?.placement,
-			placedRenoteCheck: data.multiNote && renote ? manager => this.notePlacementService.authorizeRenote(user.id, renote.id, manager) : undefined,
+			placedRenoteCheck: data.multiNote && renote ? async manager => { await this.notePlacementService.authorizeRenote(user.id, renote.id, manager); } : undefined,
 		});
 	}
 

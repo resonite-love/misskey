@@ -33,7 +33,7 @@ vi.mock('@/components/MkRippleEffect.vue', () => ({ default: {} }));
 
 const origin = new URL(url).origin;
 const channel = { origin, channelId: 'current' };
-const placement = { ...channel, name: 'Current channel', canonicalUri: `${origin}/notes/root`, state: 'active' as const, isArchived: false, allowRenoteToExternal: true };
+const placement = { ...channel, name: 'Current channel', color: '#112233', canonicalUri: `${origin}/notes/root`, state: 'active' as const, isArchived: false, allowRenoteToExternal: true };
 const note = { id: 'root', userId: 'author', user: { id: 'author' }, visibility: 'public', multiNoteKind: 'root', includeDefault: true, channelPlacements: [placement] } as entities.Note;
 const button = (menu: MenuItem[], text: string) => menu.find(item => 'text' in item && item.text === text) as MenuButton;
 const menuFor = (target = note, context: typeof channel | null = channel, isCurrent = () => true) => getRenoteMenu({ note: target, channel: context, isCurrent, renoteButton: shallowRef(null) }).menu;
