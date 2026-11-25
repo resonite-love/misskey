@@ -235,7 +235,8 @@ async function renote() {
 	try {
 		const target = await misskeyApi('gridspace/renote-target', { noteId: note.value.id }, undefined, AbortSignal.timeout(20000));
 		if (current !== generation) return;
-		const { menu } = getRenoteMenu({ note: target, renoteButton });
+		const source = placementChannel?.value;
+		const { menu } = getRenoteMenu({ note: target, renoteButton, channel: source, isCurrent: () => current === generation && source === placementChannel?.value });
 		await os.popupMenu(menu, renoteButton.value);
 	} catch (error) {
 		if (current === generation) await os.alert({ type: 'error', text: (error as { code?: string }).code === 'GRIDSPACE_RENOTE_UNAVAILABLE' ? i18n.ts.cantRenote : i18n.ts._gridspace.connectionError });

@@ -63,7 +63,7 @@ export class GridspaceQuoteService {
 		const note = result.note ?? result.localNote;
 		if (!note && !viewer && result.publicUrl === target.canonicalUri) return result;
 		if (!note || note.id !== target.noteId || (note.uri && note.uri !== target.canonicalUri) || note.multiNoteKind !== 'root' ||
-			note.includeDefault !== false || !note.localOnly || !['public', 'home'].includes(note.visibility)) throw rejected();
+			(note.includeDefault !== true && (note.includeDefault !== false || !note.localOnly)) || !['public', 'home'].includes(note.visibility)) throw rejected();
 		return result;
 	}
 
@@ -73,7 +73,10 @@ export class GridspaceQuoteService {
 		const localChannel = target.sourceOrigin === this.config.url;
 		const lock = { mode: 'pessimistic_read' as const };
 		const where = { canonicalUri: target.canonicalUri, channelId: target.channelId, state: 'active' as const };
-		if (localNote && !await manager.findOne(MiNote, { where: { id: target.noteId, uri: IsNull(), multiNoteKind: 'root', includeDefault: false }, lock })) throw rejected();
+		if (localNote) {
+			const original = await manager.findOne(MiNote, { where: { id: target.noteId, uri: IsNull(), multiNoteKind: 'root' }, lock });
+			if (!original || (original.includeDefault !== true && (original.includeDefault !== false || !original.localOnly))) throw rejected();
+		}
 		if (localChannel) {
 			// Staging locks a local destination as well. Acquire the lower ID first for opposite A→B / B→A quotes.
 			if (destination?.origin === this.config.url && destination.channelId < target.channelId) {

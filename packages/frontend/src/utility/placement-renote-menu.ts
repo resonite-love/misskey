@@ -20,6 +20,7 @@ import * as os from '@/os.js';
 
 type Source = NotePlacement & { canonicalUri: string };
 type Note = { channelPlacements?: readonly NotePlacement[] | null; visibility: string };
+type PublicActions = { renote: () => void; quote: () => void };
 const localOrigin = new URL(url).origin;
 
 export function placementSources(note: Note, channel?: ChannelRoute | null): Source[] {
@@ -46,7 +47,7 @@ async function favoriteDestinations(source: Source) {
 	return channels.filter(channel => !sameChannel(source, channel)).map(channel => ({ channel, name: label(channel) }));
 }
 
-export function placementRenoteMenu(note: Note, accountId: string, context: ChannelRoute | null, active: () => boolean, changed: () => void): MenuItem[] {
+export function placementRenoteMenu(note: Note, accountId: string, context: ChannelRoute | null, active: () => boolean, changed: () => void, publicActions?: PublicActions): MenuItem[] {
 	const sources = placementSources(note, context);
 	const menu = (source: Source): MenuItem[] => {
 		const target = { origin: source.origin, channelId: source.channelId, name: source.name ?? i18n.ts.channel, color: source.color ?? '' };
@@ -68,11 +69,14 @@ export function placementRenoteMenu(note: Note, accountId: string, context: Chan
 			} catch { if (active()) await os.alert({ type: 'error', text: i18n.ts._gridspace.replyUncertain }); }
 		};
 		return buildRenoteMenu({
-			inChannel: true, allowExternal: source.allowRenoteToExternal === true,
-			renote: () => create(),
-			quote: () => { if (active()) void os.post({ gridspaceQuote: reference, initialLocalOnly: true }); },
+			inChannel: true, allowExternal: publicActions != null || source.allowRenoteToExternal === true,
+			renote: publicActions ? () => { if (active()) publicActions.renote(); } : () => create(),
+			quote: publicActions ? () => { if (active()) publicActions.quote(); } : () => { if (active()) void os.post({ gridspaceQuote: reference, initialLocalOnly: true }); },
 			inChannelRenote: () => create(target),
-			inChannelQuote: () => { if (active()) void os.post({ gridspaceQuote: reference, fixedQuoteDestination: target, initialLocalOnly: true, initialVisibility: 'public' }); },
+			inChannelQuote: () => {
+				if (!active()) return;
+				void os.post({ gridspaceQuote: reference, fixedQuoteDestination: target, initialLocalOnly: true, initialVisibility: 'public' });
+			},
 			channels: () => favoriteDestinations(source),
 			renoteToChannel: destination => create(destination.channel),
 		});

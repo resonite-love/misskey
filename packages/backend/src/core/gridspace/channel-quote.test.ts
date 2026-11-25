@@ -9,6 +9,12 @@ import { expect, test, vi } from 'vitest';
 import type { EntityManager } from 'typeorm';
 import type { Config } from '@/config.js';
 import type { MiLocalUser } from '@/models/User.js';
+import { MiNote } from '@/models/Note.js';
+import { MiChannel } from '@/models/Channel.js';
+import { MiUser } from '@/models/User.js';
+import { MiNoteChannelPlacement } from '@/models/NotePlacement.js';
+import { NotePlacementService } from '@/core/NotePlacementService.js';
+import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import type { GridspacePrivateService } from './GridspacePrivateService.js';
 import { GridspaceQuoteService } from './GridspaceQuoteService.js';
 import { parseChannelQuote, parsePlacementQuote } from './quote-reference.js';
@@ -67,6 +73,40 @@ test('a dedicated source uses the canonical signed conversation and the selected
 	expect(f.reader.notes).toHaveBeenCalledWith(viewer, { mode: 'show', noteId: 'root', conversationUri: canonical }, 1);
 	await expect(f.service.prepare(viewer, reference)).rejects.toMatchObject({ code: 'ACTION_REJECTED' });
 	await expect(f.service.prepare(viewer, reference, { origin: 'https://r.example', channelId: 'channel' })).rejects.toMatchObject({ code: 'ACTION_REJECTED' });
+});
+
+test.each([true, false])('a published root can be quoted in its channel (localOnly=%s)', async localOnly => {
+	const f = placementFixture();
+	Object.assign(f.note, { includeDefault: true, localOnly });
+	f.source.allowRenoteToExternal = false;
+	const quote = await f.service.prepare(viewer, reference, { origin: owner, channelId: 'channel' });
+	expect(quote.placement).toBe(true);
+	await quote.check();
+	await expect(f.service.prepare(viewer, reference)).rejects.toMatchObject({ code: 'ACTION_REJECTED' });
+	f.source.state = 'removed';
+	await expect(quote.check()).rejects.toMatchObject({ code: 'ACTION_REJECTED' });
+});
+
+test.each([{ includeDefault: false, localOnly: false }, { includeDefault: undefined, localOnly: true }, { visibility: 'followers', includeDefault: true }, { multiNoteKind: 'conversation-reply', includeDefault: true }])('does not broaden quoting to an invalid or unreadable root (%j)', async patch => {
+	const f = placementFixture();
+	Object.assign(f.note, patch);
+	await expect(f.service.prepare(viewer, reference, { origin: owner, channelId: 'channel' })).rejects.toMatchObject({ code: 'ACTION_REJECTED' });
+});
+
+test('locks a published local root and its source placement before a channel quote is saved', async () => {
+	const modules = mockDeep<ModuleRef>();
+	const source = { canonicalUri: owner + '/notes/root', origin: owner, channelId: 'channel', state: 'active', isArchived: false, allowRenoteToExternal: true };
+	const note = { id: 'root', uri: null, multiNoteKind: 'root', includeDefault: true, localOnly: false, visibility: 'public', channelPlacements: [source], files: [] };
+	modules.get.mockImplementation((token => token === NotePlacementService ? { readable: async () => note } : token === NoteEntityService ? { pack: async () => note } : undefined) as ModuleRef['get']);
+	const service = new GridspaceQuoteService({ url: owner, multiNote: { enabled: true }, gridspace: { enabled: true, peerUrl: 'https://r.example' } } as Config, mockDeep<GridspacePrivateService>(), modules);
+	const localReference = source.canonicalUri + '?gridspaceChannelOrigin=https%3A%2F%2Fg.example&gridspaceChannelId=channel';
+	const quote = await service.prepare(viewer, localReference, { origin: owner, channelId: 'channel' });
+	const manager = mockDeep<EntityManager>();
+	manager.findOne.mockImplementation((async entity => entity === MiNote ? note : entity === MiChannel ? { isArchived: false } : entity === MiUser ? {} : entity === MiNoteChannelPlacement ? source : null) as EntityManager['findOne']);
+	await quote.check(manager);
+	expect(manager.findOne).toHaveBeenCalledWith(MiNote, expect.objectContaining({ where: expect.objectContaining({ id: 'root', multiNoteKind: 'root' }), lock: { mode: 'pessimistic_read' } }));
+	manager.findOne.mockImplementation((async entity => entity === MiNote ? { ...note, includeDefault: false, localOnly: false } : source) as EntityManager['findOne']);
+	await expect(quote.check(manager)).rejects.toMatchObject({ code: 'ACTION_REJECTED' });
 });
 
 test.each([{ isArchived: true }, { allowRenoteToExternal: false }, { state: 'removed' }, { origin: 'https://r.example' }, { channelId: 'another' }, { canonicalUri: canonical + '2' }])('rechecks the exact placement at insertion (%j)', async change => {

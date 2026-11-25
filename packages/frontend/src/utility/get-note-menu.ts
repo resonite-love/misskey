@@ -31,6 +31,8 @@ import { getPluginHandlers } from '@/plugin.js';
 import { globalEvents } from '@/events.js';
 import { loadClipMenu } from '@/utility/clip-menu.js';
 import { getLinkedNoteDeleteMenu } from '@/utility/linked-note-delete.js';
+import { placementRenoteMenu, placementSources } from '@/utility/placement-renote-menu.js';
+import type { ChannelRoute } from '@/utility/multi-note.js';
 
 const isInBrowserTranslationAvailable = (
 	'LanguageDetector' in window &&
@@ -632,6 +634,8 @@ export function getRenoteMenu(props: {
 	note: Misskey.entities.Note;
 	renoteButton: ShallowRef<HTMLElement | null | undefined>;
 	mock?: boolean;
+	channel?: ChannelRoute | null;
+	isCurrent?: () => boolean;
 }) {
 	const appearNote = getAppearNote(props.note) ?? props.note;
 
@@ -649,17 +653,22 @@ export function getRenoteMenu(props: {
 			globalEvents.emit('notePosted', res.createdNote);
 		});
 	};
+	const renote = () => {
+		const configuredVisibility = prefer.s.rememberNoteVisibility ? store.s.visibility : prefer.s.defaultNoteVisibility;
+		const { localOnly, noRelay } = prefer.s.rememberNoteVisibility ? store.s : getNoteDeliveryFlags(getDefaultNoteDelivery(prefer.s.defaultNoteLocalOnly));
+		let visibility = smallerVisibility(appearNote.visibility, configuredVisibility);
+		if (appearNote.channel?.isSensitive) visibility = smallerVisibility(visibility, 'home');
+		create({ localOnly, noRelay: !localOnly && noRelay, visibility, renoteId: appearNote.id }, i18n.ts.renoted);
+	};
+	const quote = props.mock ? undefined : () => { void os.post({ renote: appearNote }); };
+	if (!props.mock && $i && appearNote.multiNoteKind === 'root' && appearNote.includeDefault === true && props.channel && placementSources(appearNote, props.channel).length > 0) {
+		return { menu: placementRenoteMenu(appearNote, $i.id, props.channel, props.isCurrent ?? (() => true), pulse, { renote, quote: quote! }) };
+	}
 	return { menu: buildRenoteMenu({
 		inChannel: !!appearNote.channel,
 		allowExternal: !appearNote.channel || appearNote.channel.allowRenoteToExternal,
-		renote: () => {
-			const configuredVisibility = prefer.s.rememberNoteVisibility ? store.s.visibility : prefer.s.defaultNoteVisibility;
-			const { localOnly, noRelay } = prefer.s.rememberNoteVisibility ? store.s : getNoteDeliveryFlags(getDefaultNoteDelivery(prefer.s.defaultNoteLocalOnly));
-			let visibility = smallerVisibility(appearNote.visibility, configuredVisibility);
-			if (appearNote.channel?.isSensitive) visibility = smallerVisibility(visibility, 'home');
-			create({ localOnly, noRelay: !localOnly && noRelay, visibility, renoteId: appearNote.id }, i18n.ts.renoted);
-		},
-		quote: props.mock ? undefined : () => { void os.post({ renote: appearNote }); },
+		renote,
+		quote,
 		inChannelRenote: () => create({ renoteId: appearNote.id, channelId: appearNote.channelId }, i18n.ts.renoted),
 		inChannelQuote: () => { if (!props.mock) void os.post({ renote: appearNote, channel: appearNote.channel }); },
 		channels: props.mock ? undefined : async () => (await favoritedChannelsCache.fetch()).filter(channel => channel.id !== appearNote.channelId),

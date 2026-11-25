@@ -216,10 +216,13 @@ export function useNote(
 			await os.popupMenu(placementRenoteMenu(appearNote, $i.id, source ?? null, active, subscribeManuallyToNoteCapture), button.value);
 			return;
 		}
+		const source = placementChannel?.value;
 		const { menu } = getRenoteMenu({
 			note: rawNote,
 			renoteButton: els.renoteButton,
 			mock: props.mock,
+			channel: source,
+			isCurrent: () => !isDeleted.value && !!els.renoteButton?.value?.isConnected && source === placementChannel?.value,
 		});
 		os.popupMenu(menu, els.renoteButton.value);
 		subscribeManuallyToNoteCapture();
