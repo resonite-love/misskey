@@ -18,14 +18,14 @@ vi.mock('@/instance.js', () => ({ instance: { features: { multiNote: true, multi
 vi.mock('@/store.js', () => ({ store: { s: { visibility: 'public' } } }));
 vi.mock('@/preferences.js', () => ({ prefer: { s: { rememberNoteVisibility: false, defaultNoteVisibility: 'public' } } }));
 vi.mock('@/os.js', () => ({ post: vi.fn(), toast: vi.fn(), alert: vi.fn() }));
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { renote: 'RN', quote: 'Quote', inChannelRenote: 'Inside RN', inChannelQuote: 'Inside quote', renoteToOtherChannel: 'Other channel', _gridspace: {}, _multiNote: { localSiteName: 'Local site', peerSiteName: 'Peer site' } } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { renote: 'RN', quote: 'Quote', inChannelRenote: 'Inside RN', inChannelQuote: 'Inside quote', renoteToChannel: 'To channel', _gridspace: {}, _multiNote: { localSiteName: 'Local site', peerSiteName: 'Peer site' } } } }));
 const source = { id: 'note', channelId: 'source', canQuoteOutside: true, visibility: 'public' } as entities.GridspacePrivateNotesResponse['notes'][number];
 type Item = { text?: string; action: () => Promise<void>; children: () => Promise<Item[]> };
 beforeEach(() => { vi.clearAllMocks(); api.mockImplementation(async endpoint => endpoint === 'gridspace/channels' ? { channels: [{ id: 'source', name: 'R source' }, { id: 'r2', name: 'R destination' }], next: null } : { createdNote: { id: 'created' } }); favorites.mockResolvedValue([{ id: 'source', name: 'G same ID' }]); peer.mockResolvedValue({}); });
 
 test('normal and in-channel choices coexist in the shared menu', async () => {
 	const items = getGridspaceRenoteMenu(source, 'g-only-user', () => true, vi.fn()) as Item[];
-	expect(items.filter(item => item.text).map(item => item.text)).toEqual(['RN', 'Quote', 'Inside RN', 'Inside quote', 'Other channel']);
+	expect(items.filter(item => item.text).map(item => item.text)).toEqual(['RN', 'Quote', 'Inside RN', 'Inside quote', 'To channel']);
 	await items[0].action();
 	expect(api).toHaveBeenCalledWith('notes/create', expect.objectContaining({ gridspaceQuote: expect.stringContaining('noteId=note&channelId=source'), localOnly: true }));
 	expect(api.mock.calls[0][1]).not.toHaveProperty('renoteId');
@@ -51,7 +51,7 @@ test('dedicated renote menu scopes all five actions to the selected source and p
 	expect(menu(null).map(item => item.text)).toEqual(['Same · Local site', 'Same · Peer site']);
 	expect(placementRenoteMenu({ ...note, channelPlacements: [{ ...peerSource, isArchived: true }] }, 'author', null, () => true, vi.fn())).toEqual([]);
 	const items = menu(peerSource);
-	expect(items.filter(item => item.text).map(item => item.text)).toEqual(['RN', 'Quote', 'Inside RN', 'Inside quote', 'Other channel']);
+	expect(items.filter(item => item.text).map(item => item.text)).toEqual(['RN', 'Quote', 'Inside RN', 'Inside quote', 'To channel']);
 	const reference = canonicalUri + '?gridspaceChannelOrigin=https%3A%2F%2Fpeer.test&gridspaceChannelId=same';
 	api.mockImplementation(async (path, input) => {
 		if (path === 'gridspace/multi-note/channels') {

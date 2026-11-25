@@ -28,12 +28,13 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	current = { ...original };
 	manager.findOne.mockImplementation((async entity => entity === MiNote ? current : entity === MiChannel ? { isArchived: false, allowRenoteToExternal: true } : null) as EntityManager['findOne']);
-	placements = Object.assign(Object.create(NotePlacementService.prototype), { readable: vi.fn(async () => current), db: { manager } });
+	placements = Object.assign(Object.create(NotePlacementService.prototype), { readable: vi.fn(async () => current), db: { manager }, config: { url: 'https://local.test' } });
 });
 
 function fixture() {
 	const create = vi.fn(async (_user, data) => data);
 	const service = Object.assign(Object.create(NoteCreateService.prototype), {
+		config: { url: 'https://local.test' },
 		notePlacementService: Object.assign(placements, { status: vi.fn(async () => ({ status: 'missing', note: null })) }),
 		notesRepository: { findOne: vi.fn(async () => current) }, blockingsRepository: { exists: async () => false },
 	});
@@ -76,6 +77,32 @@ test.each([{ isArchived: true, allowRenoteToExternal: true }, { isArchived: fals
 test('legacy channel sources can be exported when their current channel permits it', async () => {
 	current = { ...original, includeDefault: false, channelId: 'source-channel' };
 	await expect(placements.authorizeRenote(user.id, original.id, manager)).resolves.toBe(current);
+});
+
+test('a pasted native quote keeps a single local channel, including a non-exportable source in that same channel', async () => {
+	current = { ...original, includeDefault: false, channelId: 'same-channel' };
+	manager.findOne.mockImplementation((async entity => entity === MiNote ? current : { isArchived: false, allowRenoteToExternal: false }) as EntityManager['findOne']);
+	const f = fixture();
+	await f.service.fetchAndCreate(user, { ...input, text: 'Comment', multiNote: { ...input.multiNote, channelIds: ['same-channel'], channelTargets: [] } });
+	const data = f.create.mock.calls[0][1];
+	expect(data).toMatchObject({ text: 'Comment', renote: current, multiNote: { channelIds: ['same-channel'] } });
+	await expect(data.placedRenoteCheck(manager)).resolves.toBeUndefined();
+	await expect(placements.authorizeRenote(user.id, original.id, manager, { origin: 'https://peer.test', channelId: 'same-channel' })).rejects.toThrow('channel-disallows-external-renotes');
+});
+
+test('locks local source and destination channels in ID order for opposite-direction quotes', async () => {
+	current = { ...original, channelId: 'zzz' };
+	await placements.authorizeRenote(user.id, original.id, manager, { origin: 'https://local.test', channelId: 'aaa' });
+	expect(manager.findOne.mock.calls.filter(([entity]) => entity === MiChannel).map(([, options]) => options.where)).toEqual([{ id: 'aaa' }, { id: 'zzz' }]);
+});
+
+test('legacy peer references can target one local channel but cannot bypass permission checks through a peer placement', async () => {
+	const f = fixture();
+	const check = vi.fn();
+	const request = { ...input, renoteId: null, text: 'Comment', prepareGridspaceQuote: async () => ({ url: 'https://local.test/gridspace/private?noteId=n&channelId=c', placement: false, check }) };
+	await f.service.fetchAndCreate(user, { ...request, multiNote: { ...input.multiNote, channelIds: ['local-channel'], channelTargets: [] } });
+	expect(f.create.mock.calls[0][1]).toMatchObject({ gridspaceQuoteCheck: check, multiNote: { channelIds: ['local-channel'] } });
+	await expect(f.service.fetchAndCreate(user, request)).rejects.toThrow('incompatible-destination');
 });
 
 test('replays an existing receipt before consulting source or peer availability', async () => {

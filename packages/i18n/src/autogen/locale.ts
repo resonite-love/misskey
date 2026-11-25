@@ -15303,6 +15303,10 @@ export interface Locale extends ILocale {
          */
         "placementsUnavailable": string;
         /**
+         * 引用するときは、投稿先のチャンネルを1つ選んでください。
+         */
+        "singleQuoteDestination": string;
+        /**
          * この投稿は作成後に削除されています。
          */
         "deleted": string;

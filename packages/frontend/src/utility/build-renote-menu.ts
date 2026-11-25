@@ -31,7 +31,7 @@ export function buildRenoteMenu<T extends { name: string }>(options: {
 	}
 	if (options.allowExternal && options.channels && options.renoteToChannel) {
 		if (items.length) items.push({ type: 'divider' });
-		items.push({ type: 'parent', text: options.inChannel ? i18n.ts.renoteToOtherChannel : i18n.ts.renoteToChannel,
+		items.push({ type: 'parent', text: i18n.ts.renoteToChannel,
 			icon: 'ti ti-repeat', children: async () => (await options.channels!()).map(channel => ({
 				text: channel.name, action: () => options.renoteToChannel!(channel),
 			})) });

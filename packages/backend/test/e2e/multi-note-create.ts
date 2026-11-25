@@ -16,9 +16,23 @@ import { createInputHash } from '@/core/NotePlacementService.js';
 import { paramDef } from '@/server/api/endpoints/notes/create.js';
 import { getValidator } from '../prelude/get-api-validator.js';
 import { MiUser } from '@/models/User.js';
-import { api, initTestDb, origin, role, signup, successfulApiCall } from '../utils.js';
+import { api, initTestDb, origin, role, signup, successfulApiCall, uploadFile } from '../utils.js';
 
 describe('Channel-targeted native renotes', () => {
+	test('quotes a legacy channel post into its non-exportable local channel using the composer destination', async () => {
+		const owner = await signup({ username: 'quoteowner' });
+		const channel = await successfulApiCall({ endpoint: 'channels/create', user: owner, parameters: { name: 'same channel', allowRenoteToExternal: false } });
+		const uploaded = await uploadFile(owner);
+		expect(uploaded.status).toBe(200);
+		await successfulApiCall({ endpoint: 'drive/files/update', user: owner, parameters: { fileId: uploaded.body!.id, isSensitive: true } });
+		const source = (await successfulApiCall({ endpoint: 'notes/create', user: owner, parameters: { text: 'channel original', channelId: channel.id, fileIds: [uploaded.body!.id] } })).createdNote;
+		const request = { renoteId: source.id, text: 'Comment', includeDefault: false, channelIds: [channel.id], clientRequestId: randomUUID() };
+		const result = await successfulApiCall({ endpoint: 'notes/create', user: owner, parameters: request });
+		expect(result.createdNote).toMatchObject({ text: 'Comment', renoteId: source.id, localOnly: true, includeDefault: false });
+		expect(result.createdNote.renote?.files[0]).toMatchObject({ id: uploaded.body!.id, isSensitive: true });
+		expect((await successfulApiCall({ endpoint: 'channels/timeline', user: owner, parameters: { channelId: channel.id } })).some(note => note.id === result.createdNote.id)).toBe(true);
+		expect((await api('notes/create', { ...request, includeDefault: true, clientRequestId: randomUUID() }, owner)).status).toBe(400);
+	});
 	test('keeps the original, replays once, and rejects a newly restricted source', async () => {
 		const owner = await signup({ username: 'renoteowner' });
 		const actor = await signup({ username: 'renoteactor' });

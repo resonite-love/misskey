@@ -4072,6 +4072,7 @@ _multiNote:
   otherRequest: "別の投稿フォームで送った投稿の結果を確認してください。"
   pendingCreate: "投稿結果を確認できるまで、この下書きを保持します。"
   placementsUnavailable: "選んだ投稿先への掲載は、現在利用できません。"
+  singleQuoteDestination: "引用するときは、投稿先のチャンネルを1つ選んでください。"
   deleted: "この投稿は作成後に削除されています。"
   confirmed: "前回の投稿を確認しました。"
   accountUnavailable: "前回の投稿結果を確認するには、投稿に使ったアカウントで再度ログインしてください。"

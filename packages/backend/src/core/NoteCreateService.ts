@@ -340,7 +340,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 			const existing = await this.notePlacementService.status(user.id, data.multiNote.clientRequestId, data.multiNote.inputHash);
 			if (existing.status === 'deleted') throw new PlacementError('request-note-deleted');
 			if (existing.note) return existing.note;
-			if (data.channelId || data.replyId || (data.renoteId && (data.multiNote.includeDefault || data.multiNote.channelIds.length !== 0 || data.multiNote.channelTargets.length !== 1))) throw new PlacementError('incompatible-destination');
+			if (data.channelId || data.replyId || (data.renoteId && (data.multiNote.includeDefault || data.multiNote.channelIds.length + data.multiNote.channelTargets.length !== 1))) throw new PlacementError('incompatible-destination');
 			if (data.prepareGridspaceQuote && (data.multiNote.includeDefault || data.multiNote.channelIds.length + data.multiNote.channelTargets.length !== 1)) {
 				throw new PlacementError('incompatible-destination');
 			}
@@ -348,7 +348,8 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 		}
 		// Resolve live source permissions only after checking for an already committed request.
 		const quote = await data.prepareGridspaceQuote?.();
-		if (data.multiNote && quote && !quote.placement) throw new PlacementError('incompatible-destination');
+		if (data.multiNote && quote && !quote.placement && data.multiNote.channelTargets.length !== 0) throw new PlacementError('incompatible-destination');
+		const renoteDestination = data.multiNote?.channelIds.length === 1 ? { origin: this.config.url, channelId: data.multiNote.channelIds[0] } : data.multiNote?.channelTargets[0];
 		const visibleUsers = data.visibleUserIds.length > 0 ? await this.usersRepository.findBy({
 			id: In(data.visibleUserIds),
 		}) : [];
@@ -408,7 +409,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 				throw new IdentifiableError('48d7a997-da5c-4716-b3c3-92db3f37bf7d', 'Renote target visibility');
 			}
 
-			if (renote.channelId && renote.channelId !== data.channelId) {
+			if (renote.channelId && renote.channelId !== data.channelId && !(renoteDestination?.origin === this.config.url && renoteDestination.channelId === renote.channelId)) {
 				// チャンネルのノートに対しリノート要求がきたとき、チャンネル外へのリノート可否をチェック
 				// リノートのユースケースのうち、チャンネル内→チャンネル外は少数だと考えられるため、JOINはせず必要な時に都度取得する
 				const renoteChannel = await this.channelsRepository.findOneBy({ id: renote.channelId });
@@ -422,7 +423,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 			}
 		}
 		if (data.multiNote && renote) {
-			await this.notePlacementService.authorizeRenote(user.id, renote.id);
+			await this.notePlacementService.authorizeRenote(user.id, renote.id, undefined, renoteDestination);
 			// Channel placements are shared only with the configured peer, never through federation.
 			data.localOnly = true;
 		}
@@ -499,7 +500,7 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 			gridspaceQuote: quote?.url,
 			gridspaceQuoteCheck: quote?.check,
 			gridspacePlacementQuote: quote?.placement,
-			placedRenoteCheck: data.multiNote && renote ? async manager => { await this.notePlacementService.authorizeRenote(user.id, renote.id, manager); } : undefined,
+			placedRenoteCheck: data.multiNote && renote ? async manager => { await this.notePlacementService.authorizeRenote(user.id, renote.id, manager, renoteDestination); } : undefined,
 		});
 	}
 
@@ -745,11 +746,12 @@ export class NoteCreateService implements OnApplicationShutdown, OnModuleInit {
 		}
 
 		if (data.multiNote) {
-			const referencedFiles = data.renote?.fileIds.length ? await this.driveFilesRepository.findBy({ id: In(data.renote.fileIds) }) : [];
-			const referencedPoll = data.renote?.hasPoll ? await this.db.getRepository(MiPoll).findOneBy({ noteId: data.renote.id }) : null;
+			const peerReference = data.multiNote.channelTargets.some(target => target.origin !== this.config.url) ? data.renote : null;
+			const referencedFiles = peerReference?.fileIds.length ? await this.driveFilesRepository.findBy({ id: In(peerReference.fileIds) }) : [];
+			const referencedPoll = peerReference?.hasPoll ? await this.db.getRepository(MiPoll).findOneBy({ noteId: peerReference.id }) : null;
 			const preview = {
-				text: data.renote ? [data.text, data.renote.text].filter(Boolean).join('\n') : data.text,
-				cw: data.renote ? [data.cw, data.renote.cw].filter(Boolean).join('\n') : data.cw,
+				text: peerReference ? [data.text, peerReference.text].filter(Boolean).join('\n') : data.text,
+				cw: peerReference ? [data.cw, peerReference.cw].filter(Boolean).join('\n') : data.cw,
 				pollChoices: [...(data.poll?.choices ?? []), ...(referencedPoll?.choices ?? [])],
 				files: [...(data.files ?? []), ...referencedFiles].map(({ name, comment, isSensitive }) => ({ name, comment, isSensitive })),
 			};

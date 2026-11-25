@@ -16,7 +16,7 @@ import { instance } from '@/instance.js';
 import { miLocalStorage } from '@/local-storage.js';
 
 const sessionAccount = vi.hoisted(() => ({ id: 'author' }));
-const { api, alert, confirm, actions, popupMenu, inputDatetime, handlers } = vi.hoisted(() => ({ api: vi.fn(), alert: vi.fn(), confirm: vi.fn(), actions: vi.fn(async () => ({ canceled: true })), popupMenu: vi.fn(), inputDatetime: vi.fn(), handlers: vi.fn() }));
+const { api, alert, confirm, actions, popupMenu, inputDatetime, handlers, delegatedPost } = vi.hoisted(() => ({ api: vi.fn(), alert: vi.fn(), confirm: vi.fn(), actions: vi.fn(async () => ({ canceled: true })), popupMenu: vi.fn(), inputDatetime: vi.fn(), handlers: vi.fn(), delegatedPost: vi.fn() }));
 vi.mock('@/instance.js', async () => {
 	const { reactive } = await import('vue');
 	return { instance: { features: reactive({ multiNote: true, multiNotePeer: true }), maxNoteTextLength: 3000 } };
@@ -29,7 +29,7 @@ vi.mock('@/store.js', async () => {
 	const { ref } = await import('vue');
 	return { store: { set: vi.fn(), s: { reactionAcceptance: null, visibility: 'public', localOnly: false, noRelay: false }, r: { tips: ref({ postForm: true }) }, model: (key: string) => ref(key === 'postFormHashtags' ? '' : false) } };
 });
-vi.mock('@/i18n.js', () => ({ i18n: { ts: { schedulePost: 'Schedule', _drafts: {}, _visibility: { public: 'Public', delivery: 'Delivery', deliveryPublic: 'Federate', noRelay: 'Skip relays', disableFederation: 'Local only' }, _multiNote: { pendingCreate: 'Pending', confirmed: 'Confirmed', checkResult: 'Check' }, _channel: {}, _postForm: { _placeholders: {} } } } }));
+vi.mock('@/i18n.js', () => ({ i18n: { ts: { quoteAttached: 'Quote attached', quoteQuestion: 'Quote?', invisibleNote: 'Unavailable', schedulePost: 'Schedule', _drafts: {}, _visibility: { public: 'Public', delivery: 'Delivery', deliveryPublic: 'Federate', noRelay: 'Skip relays', disableFederation: 'Local only' }, _multiNote: { singleQuoteDestination: 'Choose one channel for this quote', pendingCreate: 'Pending', confirmed: 'Confirmed', checkResult: 'Check' }, _channel: {}, _postForm: { _placeholders: {} } } } }));
 vi.mock('@/plugin.js', () => ({ getPluginHandlers: handlers }));
 vi.mock('@/accounts.js', () => ({ getAccounts: async () => [], getAccountMenu: vi.fn() }));
 vi.mock('@/utility/autocomplete.js', () => ({ Autocomplete: class { detach() {} } }));
@@ -37,7 +37,7 @@ vi.mock('@/utility/achievements.js', () => ({ claimAchievement: vi.fn() }));
 vi.mock('@/utility/drive.js', () => ({ chooseDriveFile: vi.fn() }));
 vi.mock('@/utility/emoji-picker.js', () => ({ emojiPicker: {} }));
 vi.mock('@/utility/mfm-function-picker.js', () => ({ mfmFunctionPicker: vi.fn() }));
-vi.mock('@/utility/gridspace-post.js', () => ({ gridspacePost: vi.fn() }));
+vi.mock('@/utility/gridspace-post.js', () => ({ gridspacePost: delegatedPost }));
 vi.mock('@/utility/tour.js', () => ({ startTour: vi.fn() }));
 vi.mock('@/events.js', () => ({ globalEvents: { emit: vi.fn() } }));
 vi.mock('@/composables/use-uploader.js', async () => {
@@ -54,18 +54,19 @@ vi.mock('@/components/MkNoteSimple.vue', () => ({ default: { template: '<div/>' 
 vi.mock('@/components/MkRippleEffect.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkPostFormActionBar.vue', () => ({ default: { template: '<div/>' } }));
 vi.mock('@/components/MkNoteDestinations.vue', () => ({ default: {
-	props: ['modelValue'],
+	props: ['modelValue', 'disabled'],
 	emits: ['update:modelValue'],
 	setup() { return { channel: { origin: 'https://peer.example', channelId: 'talk', name: 'Talk', color: '#666' } }; },
 	template: `<div>
-		<button data-testid="channel-only" @click="$emit('update:modelValue', { includeDefault: false, channels: [channel] })">Choose</button>
-		<button data-testid="mixed-destinations" @click="$emit('update:modelValue', { includeDefault: true, channels: [...modelValue.channels, channel] })">Add regular and peer</button>
+		<button data-testid="channel-only" :disabled="disabled" @click="$emit('update:modelValue', { includeDefault: false, channels: [channel] })">Choose</button>
+		<button data-testid="mixed-destinations" :disabled="disabled" @click="$emit('update:modelValue', { includeDefault: true, channels: [...modelValue.channels, channel] })">Add regular and peer</button>
 		<button data-testid="empty-destinations" @click="$emit('update:modelValue', { includeDefault: false, channels: [] })">Clear</button>
 		<span data-testid="has-default">{{ modelValue.includeDefault }}</span>
 		<span v-if="modelValue.channels.length" data-testid="selected-channel">{{ modelValue.channels[0].name }}</span>
 	</div>`,
 } }));
 vi.mock('@/components/MkInfo.vue', () => ({ default: { template: '<div><slot/></div>' } }));
+vi.mock('insert-text-at-cursor', () => ({ default: (element: HTMLTextAreaElement, value: string) => { element.setRangeText(value); element.dispatchEvent(new Event('input', { bubbles: true })); } }));
 
 const channel = { origin: 'https://peer.example', channelId: 'talk', name: 'Talk', color: '#666' };
 
@@ -75,6 +76,10 @@ function openComposer(channelPage = true, props: Partial<PostFormProps> = {}) {
 
 beforeEach(() => {
 	sessionAccount.id = 'author';
+	api.mockReset();
+	delegatedPost.mockReset();
+	confirm.mockReset();
+	confirm.mockResolvedValue({ canceled: false });
 	handlers.mockReturnValue([]);
 	let active: Promise<unknown> = Promise.resolve();
 	Object.defineProperty(navigator, 'locks', { configurable: true, value: {
@@ -84,6 +89,83 @@ beforeEach(() => {
 			return next;
 		},
 	} });
+});
+
+const quoteSource = { id: 'quoted', visibility: 'public', text: 'Original', user: { id: 'other' }, files: [], channelId: null } as unknown as entities.Note;
+const paste = (element: HTMLElement, value: string) => fireEvent.paste(element, { clipboardData: { items: [], getData: () => value } });
+
+it.each([true, false])('pastes a local note URL as a quote while retaining the selected channel (peer=%s)', async peer => {
+	const destination = { ...channel, origin: peer ? channel.origin : new URL(url).origin };
+	api.mockImplementation(async path => path === 'notes/show' ? quoteSource : { createdNote: { id: 'new' } });
+	const form = openComposer(false, { initialChannelDestination: destination, initialText: 'My comment', initialCw: 'My CW' });
+	await nextTick(); await nextTick();
+	await paste(form.getByTestId('post-form-text'), `${url}/notes/quoted`);
+	await waitFor(() => expect(form.getByText('Quote attached')).toBeTruthy());
+	expect((form.getByTestId('post-form-text') as HTMLTextAreaElement).value).toBe('My comment');
+	expect(form.getByTestId('selected-channel').textContent).toBe('Talk');
+	await fireEvent.click(form.getByTestId('post-form-submit'));
+	await waitFor(() => expect(form.emitted().posted).toHaveLength(1));
+	expect(api.mock.calls.at(-1)![1]).toMatchObject({ renoteId: 'quoted', text: 'My comment', cw: 'My CW', includeDefault: false, localOnly: true,
+		channelIds: peer ? [] : ['talk'], channelTargets: peer ? [{ origin: channel.origin, channelId: 'talk' }] : [], clientRequestId: expect.any(String) });
+});
+
+it('keeps a cancelled or unreadable pasted quote as text', async () => {
+	const form = openComposer(); await nextTick(); await nextTick();
+	confirm.mockResolvedValueOnce({ canceled: true });
+	await paste(form.getByTestId('post-form-text'), `${url}/notes/quoted`);
+	await waitFor(() => expect((form.getByTestId('post-form-text') as HTMLTextAreaElement).value).toBe(`${url}/notes/quoted`));
+	expect(api).not.toHaveBeenCalled();
+	expect(form.queryByText('Quote attached')).toBeNull();
+	api.mockResolvedValueOnce({ ...quoteSource, isHidden: true });
+	await fireEvent.update(form.getByTestId('post-form-text'), '');
+	await paste(form.getByTestId('post-form-text'), `${url}/notes/quoted`);
+	await waitFor(() => expect(alert).toHaveBeenCalledWith({ type: 'error', text: 'Unavailable' }));
+	expect(form.queryByText('Quote attached')).toBeNull();
+});
+
+it('does not silently discard extra destinations after attaching a quote', async () => {
+	api.mockResolvedValue(quoteSource);
+	const form = openComposer(); await nextTick(); await nextTick();
+	await paste(form.getByTestId('post-form-text'), `${url}/notes/quoted`);
+	await waitFor(() => expect(form.getByText('Quote attached')).toBeTruthy());
+	await fireEvent.click(form.getByTestId('mixed-destinations'));
+	expect(form.getByText('Choose one channel for this quote')).toBeTruthy();
+	expect((form.getByTestId('post-form-submit') as HTMLButtonElement).disabled).toBe(true);
+	await fireEvent.click(form.getByTestId('channel-only'));
+	expect((form.getByTestId('post-form-submit') as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('attaches the qualified original to a same-channel quote without requiring export permission', async () => {
+	const reference = `${channel.origin}/notes/quoted?gridspaceChannelOrigin=${encodeURIComponent(channel.origin)}&gridspaceChannelId=talk`;
+	api.mockResolvedValue({ localNote: null, note: { ...quoteSource, multiNoteKind: 'root', includeDefault: false,
+		channelPlacements: [{ ...channel, canonicalUri: `${channel.origin}/notes/quoted`, state: 'active', isArchived: false, allowRenoteToExternal: false }] } });
+	const form = openComposer(); await nextTick(); await nextTick();
+	await paste(form.getByTestId('post-form-text'), reference);
+	await waitFor(() => expect(form.getByText('Quote attached')).toBeTruthy());
+	api.mockResolvedValueOnce({ createdNote: { id: 'new' } });
+	await fireEvent.click(form.getByTestId('post-form-submit'));
+	await waitFor(() => expect(form.emitted().posted).toHaveLength(1));
+	expect(api.mock.calls.at(-1)![1]).toMatchObject({ gridspaceQuote: reference, includeDefault: false, channelTargets: [{ origin: channel.origin, channelId: 'talk' }] });
+});
+
+it('opens a legacy paired-channel quote in the chosen destination with the draft preserved', async () => {
+	const target = { ...quoteSource, origin: channel.origin, channelId: 'originalchannel', canQuoteOutside: true, author: { username: 'other' } };
+	api.mockImplementation(async path => path === 'gridspace/search-info' ? { enabled: true, origins: ['https://viewer.example'] } : { note: target, localNote: null });
+	const form = openComposer(true, { initialText: 'Keep my comment' }); await nextTick(); await nextTick();
+	await paste(form.getByTestId('post-form-text'), 'https://viewer.example/gridspace/private?noteId=quoted&channelId=originalchannel');
+	await waitFor(() => expect(delegatedPost).toHaveBeenCalled());
+	expect(delegatedPost).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'talk', renote: target, initialText: 'Keep my comment' }), expect.any(Function));
+	expect((form.getByTestId('post-form-text') as HTMLTextAreaElement).value).toBe('Keep my comment');
+});
+
+it('keeps a legacy peer reference in its selected local channel until the quote is removed', async () => {
+	api.mockImplementation(async path => path === 'gridspace/search-info' ? { enabled: true, origins: ['https://viewer.example'] } : { note: { ...quoteSource, origin: channel.origin, channelId: 'originalchannel', canQuoteOutside: true }, localNote: null });
+	const form = openComposer(false, { initialChannelDestination: { ...channel, origin: new URL(url).origin } });
+	await nextTick(); await nextTick();
+	await paste(form.getByTestId('post-form-text'), 'https://viewer.example/gridspace/private?noteId=quoted&channelId=originalchannel');
+	await waitFor(() => expect(form.getByText('Quote attached')).toBeTruthy());
+	expect((form.getByTestId('channel-only') as HTMLButtonElement).disabled).toBe(true);
+	expect((form.getByTestId('post-form-submit') as HTMLButtonElement).disabled).toBe(false);
 });
 
 afterEach(() => { Object.assign(prefer.s, { rememberNoteVisibility: false, defaultNoteLocalOnly: false }); Object.assign(store.s, { localOnly: false, noRelay: false }); cleanup(); Reflect.deleteProperty(navigator, 'locks'); window.localStorage.clear(); vi.clearAllMocks(); instance.features!.multiNotePeer = true; instance.features!.multiNote = true; });

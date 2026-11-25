@@ -42,7 +42,7 @@ beforeEach(() => { vi.clearAllMocks(); api.mockResolvedValue({ createdNote: { id
 
 test('a default-and-channel post exposes same-channel actions in the native menu', async () => {
 	const menu = menuFor();
-	expect(menu.filter(item => 'text' in item).map(item => item.text)).toEqual(['RN', 'Quote', 'Inside RN', 'Inside quote', 'Other channel']);
+	expect(menu.filter(item => 'text' in item).map(item => item.text)).toEqual(['RN', 'Quote', 'Inside RN', 'Inside quote', 'To channel']);
 	await button(menu, 'Inside quote').action({} as PointerEvent);
 	expect(post).toHaveBeenCalledWith(expect.objectContaining({
 		gridspaceQuote: expect.stringContaining('gridspaceChannelId=current'),

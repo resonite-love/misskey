@@ -135,7 +135,7 @@ export class NotePlacementService {
 	}
 
 	/** Recheck the original under the insertion transaction, including channel export policy. */
-	public async authorizeRenote(userId: string, noteId: string, manager?: EntityManager) {
+	public async authorizeRenote(userId: string, noteId: string, manager?: EntityManager, destination?: { origin: string; channelId: string }) {
 		if (manager && !await manager.findOne(MiNote, { where: { id: noteId }, lock: { mode: 'pessimistic_read' } })) {
 			throw new PlacementError('renote-source-unavailable');
 		}
@@ -143,8 +143,12 @@ export class NotePlacementService {
 		if (!note || !['public', 'home'].includes(note.visibility) || (note.includeDefault === false && !note.channelId) || (isRenote(note) && !isQuote(note)) ||
 			(note.gridspaceQuote && !note.text && !note.cw && !note.fileIds.length && !note.hasPoll)) throw new PlacementError('renote-source-unavailable');
 		if (note.channelId) {
+			if (manager && destination?.origin === this.origin && destination.channelId < note.channelId) {
+				await manager.findOne(MiChannel, { where: { id: destination.channelId }, lock: { mode: 'for_no_key_update' } });
+			}
 			const channel = await (manager ?? this.db.manager).findOne(MiChannel, { where: { id: note.channelId }, ...(manager ? { lock: { mode: 'for_no_key_update' as const } } : {}) });
-			if (!channel || channel.isArchived || !channel.allowRenoteToExternal) throw new PlacementError('channel-disallows-external-renotes');
+			const sameChannel = destination?.origin === this.origin && destination.channelId === note.channelId;
+			if (!channel || channel.isArchived || (!sameChannel && !channel.allowRenoteToExternal)) throw new PlacementError('channel-disallows-external-renotes');
 		}
 		return note;
 	}

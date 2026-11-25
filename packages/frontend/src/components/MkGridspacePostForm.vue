@@ -111,7 +111,8 @@ const pastedQuote = shallowRef<entities.GridspacePrivateNotesResponse['notes'][n
 const targetNote = computed(() => props.reply ?? props.renote ?? pastedQuote.value);
 const validPoll = computed(() => !poll.value || (poll.value.choices.length >= 2 && poll.value.choices.length <= 10 && new Set(poll.value.choices).size === poll.value.choices.length && poll.value.choices.every(choice => choice.trim() && Array.from(choice).length <= 50)));
 const canSend = computed(() => !!info.value?.canReply && !transferFailed.value && !sending.value && !loading.value && !resolvingQuote.value && (!!pending.value || (remaining.value >= 0 && validPoll.value && !!(text.value.trim() || uploader.items.value.length || poll.value || props.renote || pastedQuoteId.value) && !uploader.items.value.some(item => item.preprocessing))));
-const target = () => ({ noteId: props.reply?.id, renoteId: props.renote?.id ?? pastedQuoteId.value ?? undefined, channelId: props.channelId });
+const target = () => ({ noteId: props.reply?.id, renoteId: props.renote?.id ?? pastedQuoteId.value ?? undefined, channelId: props.channelId,
+	...(props.renote?.channelId && props.renote.channelId !== props.channelId ? { sourceChannelId: props.renote.channelId } : {}) });
 const operationKey = () => props.reply?.multiNoteKind ? props.reply.uri : props.channelId ? `channel:${props.channelId}:${(props.renote?.id ?? pastedQuoteId.value) ? `quote:${props.renote?.id ?? pastedQuoteId.value}` : props.reply?.id ?? 'new'}` : props.reply!.id;
 let generation = 0;
 let active = true;
@@ -201,7 +202,7 @@ async function send() {
 					form.set('i', $i!.token); form.set('name', getUploadName(item));
 					if (props.reply?.multiNoteKind && props.reply.includeDefault === false) form.set('conversationUri', props.reply.uri);
 					else if (props.channelId) form.set('channelId', props.channelId);
-					if (targetNote.value) form.set('noteId', targetNote.value.id);
+					if (targetNote.value && !(props.renote && props.channelId && props.renote.channelId !== props.channelId)) form.set('noteId', targetNote.value.id);
 					form.set('expectedActorUri', info.value.account.uri);
 					form.set('comment', item.caption ?? ''); form.set('isSensitive', String(item.isSensitive ?? false)); form.set('file', blob, getUploadName(item));
 					const response = await window.fetch(`${apiUrl}/gridspace/private-upload`, { method: 'POST', body: form, credentials: 'omit', cache: 'no-store', signal: signal() });

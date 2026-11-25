@@ -10,7 +10,7 @@ import { Endpoint } from '@/server/api/endpoint-base.js';
 import { NoteEntityService } from '@/core/entities/NoteEntityService.js';
 import { createInputHash, PlacementError } from '@/core/NotePlacementService.js';
 import { NoteCreateService } from '@/core/NoteCreateService.js';
-import { parsePlacementQuote } from '@/core/gridspace/quote-reference.js';
+import { parseChannelQuote, parsePlacementQuote } from '@/core/gridspace/quote-reference.js';
 import { GridspaceQuoteService } from '@/core/gridspace/GridspaceQuoteService.js';
 import { GridspaceLinkError } from '@/core/gridspace/GridspaceLinkService.js';
 import { IdentifiableError } from '@/misc/identifiable-error.js';
@@ -349,6 +349,7 @@ export default class extends Endpoint<typeof meta, typeof paramDef> { // eslint-
 			// Hash the source tuple without consulting the current pairing. Fresh writes authorize it in prepare().
 			const reference = parsePlacementQuote(value);
 			if (reference) return reference.url;
+			return parseChannelQuote(value, new URL(value).origin).url;
 		} catch { /* malformed placement reference */ }
 		throw new PlacementError('incompatible-destination');
 	}

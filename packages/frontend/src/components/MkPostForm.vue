@@ -44,19 +44,20 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</div>
 		</button>
 	</MkPostFormHeader>
-	<MkNoteDestinations v-if="placementForm" v-model="destinations" :localOrigin="localOrigin" :localOnly="effectiveLocalOnly" :visibility="visibility" :disabled="posting || preparing || posted" :peerEnabled="instance.features?.multiNotePeer === true" :token="candidateToken"/>
+	<MkNoteDestinations v-if="placementForm" v-model="destinations" :localOrigin="localOrigin" :localOnly="effectiveLocalOnly" :visibility="visibility" :disabled="posting || preparing || posted || legacyPlacementQuote" :peerEnabled="instance.features?.multiNotePeer === true" :token="candidateToken"/>
 	<MkInfo v-for="key in otherPendingDrafts" :key="key">
 		<button type="button" class="_textButton" @click="openPendingDraft(key)">{{ i18n.ts._multiNote.openPendingDraft }}</button>
 	</MkInfo>
 	<MkInfo v-if="missingDraftAccountId && !pendingCreate" warn>{{ i18n.ts._multiNote.chooseAccount }}</MkInfo>
-	<MkInfo v-if="placementsUnavailable || (explicitDestinations && !placementSubmission)" warn>{{ i18n.ts._multiNote.placementsUnavailable }}</MkInfo>
+	<MkInfo v-if="placementsUnavailable || unsupportedQuoteDestination || (explicitDestinations && !placementSubmission)" warn>{{ i18n.ts._multiNote.placementsUnavailable }}</MkInfo>
+	<MkInfo v-if="invalidQuoteDestinations" warn>{{ i18n.ts._multiNote.singleQuoteDestination }}</MkInfo>
 	<MkInfo v-if="pendingCreate">
 		{{ i18n.ts._multiNote.pendingCreate }}
 		<button type="button" class="_textButton" :disabled="posting || preparing" @click="recoverPending">{{ i18n.ts._multiNote.checkResult }}</button>
 	</MkInfo>
 	<MkNoteSimple v-if="replyTargetNote" :class="$style.targetNote" :note="replyTargetNote"/>
 	<MkNoteSimple v-if="renoteTargetNote" :class="$style.targetNote" :note="renoteTargetNote"/>
-	<MkGridspaceNoteLinkPreview v-if="gridspaceQuote" :class="$style.targetNote" :url="gridspaceQuote" composing :quoteDestination="fixedQuoteDestination" quote/>
+	<MkGridspaceNoteLinkPreview v-if="gridspaceQuote" :class="$style.targetNote" :url="gridspaceQuote" composing :quoteDestination="fixedQuoteDestination ?? (keepDestinationSelection ? destinations.channels[0] : null)" quote/>
 	<div v-if="gridspaceQuote" :class="$style.withQuote"><i class="ti ti-quote"></i> {{ i18n.ts.quoteAttached }}<button v-if="!fixedQuoteDestination" class="_button" :aria-label="i18n.ts.remove" @click="gridspaceQuote = null"><i class="ti ti-x"></i></button></div>
 	<div v-if="quoteId" :class="$style.withQuote"><i class="ti ti-quote"></i> {{ i18n.ts.quoteAttached }}<button @click="quoteId = null; renoteTargetNote = null;"><i class="ti ti-x"></i></button></div>
 	<div v-if="visibility === 'specified'" :class="$style.toSpecified">
@@ -153,7 +154,7 @@ import { useUploader } from '@/composables/use-uploader.js';
 import { startTour } from '@/utility/tour.js';
 import { closeTip } from '@/tips.js';
 import type { LinkedQuoteAttachment } from '@/utility/gridspace-note-link.js';
-import { isGridspaceNoteLink, isConfiguredGridspaceNoteLink, parsePlacementReference } from '@/utility/gridspace-note-link.js';
+import { isGridspaceNoteLink, isConfiguredGridspaceNoteLink, parsePlacementReference, placementReferenceUri } from '@/utility/gridspace-note-link.js';
 import { gridspacePost } from '@/utility/gridspace-post.js';
 import { getDefaultNoteDelivery, getNoteDelivery, getNoteDeliveryFlags, getNoteDeliveryOptions } from '@/utility/note-delivery.js';
 import type { NoteDelivery } from '@/utility/note-delivery.js';
@@ -248,11 +249,15 @@ let lastDraftRevision: string | undefined;
 const initiallyPlaced = !props.reply && !props.renote && !props.gridspaceQuote && !props.initialNote?.gridspaceQuote && !props.instant && initialChannel != null &&
 	(props.initialChannelDestination != null || instance.features?.multiNote === true);
 const keepDestinationSelection = ref(initiallyPlaced);
+const hasQuote = computed(() => !!renoteTargetNote.value || !!quoteId.value || !!gridspaceQuote.value);
+const legacyPlacementQuote = computed(() => keepDestinationSelection.value && !!gridspaceQuote.value && !parsePlacementReference(gridspaceQuote.value));
+const unsupportedQuoteDestination = computed(() => legacyPlacementQuote.value && destinations.value.channels.some(channel => channel.origin !== localOrigin));
+const invalidQuoteDestinations = computed(() => keepDestinationSelection.value && hasQuote.value && (destinations.value.includeDefault || destinations.value.channels.length !== 1));
 watch(destinations, value => {
 	if (!props.instant && !replyTargetNote.value && !renoteTargetNote.value && !quoteId.value && !gridspaceQuote.value && !scheduledAt.value && (value.channels.length || !value.includeDefault)) keepDestinationSelection.value = true;
 }, { deep: true, flush: 'sync' });
 const placementForm = computed(() => !fixedQuoteDestination.value && (instance.features?.multiNote === true || keepDestinationSelection.value) && !props.instant &&
-	!replyTargetNote.value && !renoteTargetNote.value && !quoteId.value && !gridspaceQuote.value && !scheduledAt.value);
+	!replyTargetNote.value && (!hasQuote.value || keepDestinationSelection.value) && !scheduledAt.value);
 const fixedReference = computed(() => !!fixedQuoteDestination.value && !!gridspaceQuote.value && !!parsePlacementReference(gridspaceQuote.value) &&
 	!replyTargetNote.value && !renoteTargetNote.value && !quoteId.value && !scheduledAt.value &&
 	!destinations.value.includeDefault && destinations.value.channels.length === 1 && sameChannel(destinations.value.channels[0], fixedQuoteDestination.value));
@@ -370,7 +375,7 @@ const cwTextLength = computed((): number => {
 const maxCwTextLength = 100;
 
 const canPost = computed((): boolean => {
-	return !missingDraftAccountId.value && !placementsUnavailable.value && (!explicitDestinations.value || placementSubmission.value) && (!placementSubmission.value || canUseDestinations(destinations.value, visibility.value)) && !preparing.value &&
+	return !missingDraftAccountId.value && !placementsUnavailable.value && !unsupportedQuoteDestination.value && !invalidQuoteDestinations.value && (!explicitDestinations.value || placementSubmission.value) && (!placementSubmission.value || canUseDestinations(destinations.value, visibility.value)) && !preparing.value &&
 		!props.mock && !resolvingLinkedQuote.value && !posting.value && !posted.value && !uploader.uploading.value && (uploader.items.value.length === 0 || uploader.readyForUpload.value) &&
 		(
 			1 <= textLength.value ||
@@ -828,6 +833,82 @@ function onCompositionEnd(ev: CompositionEvent) {
 
 const pastedFileName = 'yyyy-MM-dd HH-mm-ss [{{number}}]';
 
+async function copyLinkedQuoteFiles(): Promise<LinkedQuoteAttachment[]> {
+	const attached = [...files.value], pending = [...uploader.items.value];
+	if (attached.length + pending.length > 16 || attached.some(file => !file.size || file.size > 16 * 1024 * 1024) || pending.some(item => item.preprocessing || item.uploading || !(item.preprocessedFile ?? item.file).size || (item.preprocessedFile ?? item.file).size > 16 * 1024 * 1024)) throw new Error('Attachment cannot be transferred');
+	const result: LinkedQuoteAttachment[] = [];
+	for (const file of attached) {
+		const response = await window.fetch(file.url, { credentials: 'omit', signal: AbortSignal.timeout(15000) });
+		if (!response.ok) throw new Error('Attachment unavailable');
+		result.push({ file: new File([await response.blob()], file.name, { type: file.type }), isSensitive: file.isSensitive, caption: file.comment });
+	}
+	for (const item of pending) result.push({ file: new File([item.preprocessedFile ?? item.file], item.name, { type: item.file.type }), isSensitive: item.isSensitive, caption: item.caption });
+	return result;
+}
+
+/** Keep the selected destination; never turn a channel draft into an ordinary post. */
+async function pasteChannelQuote(paste: string): Promise<boolean> {
+	if (!explicitDestinations.value || fixedQuoteDestination.value || pendingCreate.value || hasQuote.value || replyTargetNote.value ||
+		destinations.value.includeDefault || destinations.value.channels.length !== 1 || scheduledAt.value || postAccount.value) return false;
+	let localId: string | undefined;
+	try {
+		const link = new URL(paste.trim());
+		if (link.origin === localOrigin && !link.search && !link.hash) localId = /^\/notes\/([a-zA-Z0-9]{1,32})\/?$/.exec(link.pathname)?.[1];
+	} catch { return false; }
+	const placement = parsePlacementReference(paste.trim());
+	if (!localId && !placement && !isGridspaceNoteLink(paste.trim())) return false;
+	resolvingLinkedQuote.value = true;
+	textAreaReadOnly.value = true;
+	const current = ++linkedQuoteGeneration;
+	const draftState = () => JSON.stringify([text.value, cw.value, useCw.value, withHashtags.value, hashtags.value, poll.value, destinations.value, postAccount.value?.id, scheduledAt.value, visibility.value, localOnly.value, noRelay.value, files.value.map(f => [f.id, f.name, f.isSensitive, f.comment]), uploader.items.value.map(f => [f.id, f.name, f.caption, f.isSensitive])]);
+	const initialState = draftState();
+	const unchanged = () => current === linkedQuoteGeneration && !window.document.hidden && !!textareaEl.value?.isConnected && draftState() === initialState;
+	let applied = false;
+	try {
+		if (isGridspaceNoteLink(paste.trim()) && !await isConfiguredGridspaceNoteLink(paste.trim())) return true;
+		if ((await os.confirm({ type: 'info', text: i18n.ts.quoteQuestion })).canceled || !unchanged()) return true;
+		const result = localId ? { localNote: await misskeyApi('notes/show', { noteId: localId }), note: null } : await misskeyApi('gridspace/note-link', { url: paste.trim() });
+		if (!unchanged()) return true;
+		const source = result.localNote ?? result.note;
+		if (!source || !['public', 'home'].includes(source.visibility) || result.localNote?.isHidden) throw new Error('Quote unavailable');
+		const destination = destinations.value.channels[0];
+		if (placement || (source.multiNoteKind === 'root' && source.includeDefault === false)) {
+			const candidates = (source.channelPlacements ?? []).filter(item => item.state === 'active' && item.isArchived === false && item.canonicalUri &&
+				(!placement || (sameChannel(item, placement) && item.canonicalUri === placement.canonicalUri)));
+			const selected = candidates.find(item => sameChannel(item, destination)) ?? candidates.find(item => item.allowRenoteToExternal === true);
+			if (!selected?.canonicalUri || (!sameChannel(selected, destination) && selected.allowRenoteToExternal !== true)) throw new Error('Channel export is unavailable');
+			gridspaceQuote.value = placementReferenceUri(selected.canonicalUri, selected);
+		} else if (result.localNote) {
+			if (result.localNote.channel && !sameChannel({ origin: localOrigin, channelId: result.localNote.channel.id }, destination) && !result.localNote.channel.allowRenoteToExternal) throw new Error('Channel export is unavailable');
+			renoteTargetNote.value = result.localNote; quoteId.value = result.localNote.id;
+		} else if (result.note?.channelId) {
+			const note = result.note;
+			if (!sameChannel({ origin: note.origin, channelId: note.channelId! }, destination) && !note.canQuoteOutside) throw new Error('Channel export is unavailable');
+			if (destination.origin === localOrigin) {
+				gridspaceQuote.value = `${url}/gridspace/private?noteId=${note.id}&channelId=${note.channelId}`;
+			} else {
+				if (destination.origin !== note.origin) throw new Error('Unknown destination');
+				const copiedFiles = await copyLinkedQuoteFiles();
+				if (!unchanged()) return true;
+				const copiedText = withHashtags.value && hashtags.value.trim() ? `${text.value}\n${hashtags.value.trim().split(/\s+/).map(tag => tag.startsWith('#') ? tag : `#${tag}`).join(' ')}` : text.value;
+				await gridspacePost({ channelId: destination.channelId, channel: destination, renote: note, initialText: copiedText,
+					initialCw: useCw.value ? cw.value ?? '' : undefined, initialFiles: copiedFiles, initialPoll: poll.value ? { ...poll.value, choices: [...poll.value.choices] } : null }, () => {
+					if (unchanged()) { clear(); deleteDraft(); emit('posted'); }
+				});
+			}
+		} else if (result.note) {
+			const local = await misskeyApi('gridspace/renote-target', { noteId: result.note.id });
+			if (!unchanged()) return true;
+			renoteTargetNote.value = local; quoteId.value = local.id;
+		}
+		applied = true;
+	} catch { if (unchanged()) await os.alert({ type: 'error', text: i18n.ts.invisibleNote }); } finally {
+		textAreaReadOnly.value = false; resolvingLinkedQuote.value = false;
+		if (!applied && !!textareaEl.value?.isConnected && draftState() === initialState) insertTextAtCursor(textareaEl.value, paste);
+	}
+	return true;
+}
+
 async function onPaste(ev: ClipboardEvent) {
 	if (props.mock) return;
 	if (resolvingLinkedQuote.value || posting.value) { ev.preventDefault(); return; }
@@ -853,6 +934,11 @@ async function onPaste(ev: ClipboardEvent) {
 	}
 
 	const paste = ev.clipboardData.getData('text');
+	if (explicitDestinations.value && (parsePlacementReference(paste.trim()) || isGridspaceNoteLink(paste.trim()) || paste.trim().startsWith(url + '/notes/'))) {
+		ev.preventDefault();
+		if (!await pasteChannelQuote(paste)) insertTextAtCursor(textareaEl.value!, paste);
+		return;
+	}
 
 	if (!explicitDestinations.value && !pendingCreate.value && !gridspaceQuote.value && !renoteTargetNote.value && !quoteId.value && !replyTargetNote.value && isGridspaceNoteLink(paste.trim())) {
 		ev.preventDefault();
