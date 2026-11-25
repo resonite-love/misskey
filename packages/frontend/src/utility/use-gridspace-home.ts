@@ -44,7 +44,7 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 				if (supported) {
 					integrated.value = true;
 					const { mode: _mode, ...filters } = params.value;
-					client.value = new TimelineClient({ ...filters, kind: kind.value }, { ...view, subscribe: subscribeTimeline, isTop, withSensitive: () => withSensitive.value });
+					client.value = new TimelineClient({ ...filters, kind: kind.value }, { ...view, subscribe: subscribeTimeline, isTop, withSensitive: () => withSensitive.value, backgroundStreaming: true });
 					if (active) await client.value.reload();
 					if (current === generation) deciding.value = false;
 					return;
@@ -65,7 +65,7 @@ export function useGridspaceHome(normal: IPaginator<entities.Note>, params: Comp
 
 	function visibility() {
 		if (!integrated.value) return;
-		if (window.document.hidden) client.value?.suspend();
+		if (window.document.hidden) client.value?.background();
 		else if (active) void client.value?.resume();
 	}
 

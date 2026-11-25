@@ -12,6 +12,7 @@ import { useGridspaceHome } from '@/utility/use-gridspace-home.js';
 import { Paginator } from '@/utility/paginator.js';
 import { misskeyApi } from '@/utility/misskey-api.js';
 import { timelineNoteContent } from '@/utility/timeline-note-content.js';
+import { subscribeTimeline } from '@/utility/timeline-stream.js';
 
 vi.mock('@/utility/misskey-api.js', () => ({ misskeyApi: vi.fn() }));
 vi.mock('@/i.js', () => ({ $i: { id: 'viewer', hardMutedWords: [] } }));
@@ -694,7 +695,123 @@ describe('server timeline client', () => {
 	});
 });
 
+describe('background home streaming', () => {
+	it('keeps the subscription and reveals buffered notes before foreground HTTP finishes', async () => {
+		let finish!: (response: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)]))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+		const dispose = vi.fn(); const subscribe = vi.fn(() => dispose);
+		const value = new TimelineClient({ kind: 'home' }, { request, subscribe, backgroundStreaming: true, now: () => Date.now() });
+		clients.push(value); await value.reload();
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+		value.background();
+		value.receive({ session: 'session', revision: 'revision', item: item('buffered', false) });
+		await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+		expect(dispose).not.toHaveBeenCalled(); expect(request).toHaveBeenCalledOnce();
+		expect(value.rows.value.map(row => row.key)).toEqual([item('old').key]);
+		expect(value.queuedCount.value).toBe(1);
+		hidden.mockReturnValue(false); const resumed = value.resume();
+		expect(value.rows.value.map(row => row.key)).toEqual([item('buffered').key, item('old').key]);
+		expect(subscribe).toHaveBeenCalledOnce();
+		finish(page([item('old', false), item('buffered', false)])); await resumed;
+	});
+	it('does not give expired background bodies the previous-screen grace', async () => {
+		let finish!: (response: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)]))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+		const value = new TimelineClient({ kind: 'home' }, { request, backgroundStreaming: true, now: () => Date.now() });
+		clients.push(value); await value.reload();
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true); value.background();
+		value.receive({ session: 'session', revision: 'revision', item: item('expired', true, 1000), leaseStartedAt: Date.now(), leaseElapsedMs: 0 });
+		value.receive({ session: 'session', revision: 'revision', item: item('public', false) });
+		await vi.advanceTimersByTimeAsync(2000);
+		hidden.mockReturnValue(false); const resumed = value.resume();
+		expect(JSON.stringify(value.rows.value)).not.toContain('body:expired');
+		expect(value.rows.value.map(row => row.key)).toEqual([item('public').key, item('old').key]);
+		expect(request.mock.calls[1][1].refs).toContain('opaque:expired');
+		finish(page([item('public', false), item('old', false)], { removed: [item('expired').key] })); await resumed;
+		expect(value.queuedCount.value).toBe(0);
+	});
+	it('shows new items before older authorization batches and keeps periodic validation', async () => {
+		const history = Array.from({ length: 153 }, (_, index) => item(`history-${index}`, false));
+		let finish!: (response: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page(history))
+			.mockResolvedValueOnce(page(history.slice(0, 100), { newItems: [item('latest', false)], updatesCursor: 'next-updates' }))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockResolvedValue(page());
+		const value = new TimelineClient({ kind: 'home' }, { request, backgroundStreaming: true, now: () => Date.now() });
+		clients.push(value); await value.reload(); const refreshing = value.refresh(); await settle();
+		expect(request.mock.calls[1][1]).toMatchObject({ phase: 'changes', updatesCursor: 'updates' });
+		expect(request.mock.calls[2][1]).toMatchObject({ phase: 'validate', updatesCursor: 'next-updates' });
+		expect(value.rows.value[0].key).toBe(item('latest').key);
+		finish(page(history.slice(100, 152), { removed: [history[152].key] })); await refreshing;
+		expect(value.rows.value.some(row => row.key === history[152].key)).toBe(false);
+		await vi.advanceTimersByTimeAsync(10000);
+		expect(request.mock.calls[3][1]).toMatchObject({ phase: 'changes' });
+	});
+	it('does not extend a newly displayed buffered lease while recovery is pending', async () => {
+		let finish!: (response: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('old', false)]))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+		const value = new TimelineClient({ kind: 'home' }, { request, backgroundStreaming: true, now: () => Date.now() });
+		clients.push(value); await value.reload();
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true); value.background();
+		value.receive({ session: 'session', revision: 'revision', item: item('buffered', true, 1000), leaseStartedAt: Date.now(), leaseElapsedMs: 0 });
+		hidden.mockReturnValue(false); const resumed = value.resume();
+		expect(JSON.stringify(value.rows.value)).toContain('body:buffered');
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(JSON.stringify(value.rows.value)).not.toContain('body:buffered');
+		finish(page([item('old', false)], { removed: [item('buffered').key] })); await resumed;
+	});
+	it('shows an authorized replacement head before restoring the full history', async () => {
+		const history = Array.from({ length: 60 }, (_, index) => ({ ...item(`history-${index}`, false), sortKey: { sortAt: String(100 - index), uri: String(index) } }));
+		const latest = { ...item('latest', false), sortKey: { sortAt: '101', uri: 'latest' } };
+		let finish!: (response: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page(history)).mockResolvedValueOnce(page(history, { resetRequired: true }))
+			.mockResolvedValueOnce(page([latest, ...history.slice(0, 29)], { session: 'new-session', nextCursor: 'older' }))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+		const value = new TimelineClient({ kind: 'home' }, { request, backgroundStreaming: true, now: () => Date.now() });
+		clients.push(value); await value.reload(); const refreshing = value.refresh(); await settle();
+		expect(value.rows.value[0].key).toBe(latest.key);
+		expect(value.rows.value.at(-1)!.key).toBe(history.at(-1)!.key);
+		expect(request.mock.calls[3][1]).toMatchObject({ cursor: 'older' });
+		finish(page(history.slice(29), { session: 'new-session', nextCursor: 'past' })); await refreshing;
+		expect(value.rows.value.map(row => row.key)).toEqual([latest, ...history].map(row => row.key));
+	});
+	it('expires a provisional authorized head while older history is still pending', async () => {
+		const history = [item('old', false), item('tail', false)];
+		let finish!: (response: TimelineResponse) => void;
+		const request = vi.fn().mockResolvedValueOnce(page(history)).mockResolvedValueOnce(page(history, { resetRequired: true }))
+			.mockResolvedValueOnce(page([item('preview', true, 1000)], { session: 'new-session', nextCursor: 'older' }))
+			.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+		const value = new TimelineClient({ kind: 'home' }, { request, backgroundStreaming: true, now: () => Date.now() });
+		clients.push(value); await value.reload(); const refreshing = value.refresh(); await settle();
+		expect(JSON.stringify(value.rows.value)).toContain('body:preview');
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(JSON.stringify(value.rows.value)).not.toContain('body:preview');
+		finish(page(history, { session: 'new-session' })); await refreshing;
+	});
+});
+
 describe('home capability dispatch', () => {
+	it('keeps the home channel subscribed on visibility changes', async () => {
+		const api = vi.mocked(misskeyApi);
+		api.mockResolvedValueOnce({ timeline: { enabled: true, version: 1, kinds: ['home'] } } as never)
+			.mockResolvedValueOnce(page([item('old', false)]) as never).mockResolvedValue(page() as never);
+		const dispose = vi.fn(); const subscribe = vi.mocked(subscribeTimeline);
+		subscribe.mockClear(); subscribe.mockReturnValueOnce(dispose);
+		const normal = new Paginator('notes/timeline', {});
+		let home!: ReturnType<typeof useGridspaceHome>;
+		const app = createApp({ setup() { home = useGridspaceHome(normal, computed(() => ({ mode: 'home' })), () => true, computed(() => true)); return () => null; } });
+		app.mount(document.createElement('div')); cleanup = () => app.unmount(); await settle();
+		const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+		document.dispatchEvent(new Event('visibilitychange')); await settle();
+		expect(dispose).not.toHaveBeenCalled();
+		subscribe.mock.calls[0][3]!({ session: 'session', revision: 'revision', item: item('new', false) });
+		expect(home.rows.value.map(row => row.key)).toEqual([item('old').key]);
+		hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange'));
+		expect(home.rows.value.map(row => row.key)).toEqual([item('new').key, item('old').key]);
+		await settle(); expect(dispose).not.toHaveBeenCalled();
+	});
 	it('uses only the integrated endpoint when the server advertises the kind', async () => {
 		const api = vi.mocked(misskeyApi);
 		api.mockResolvedValueOnce({ timeline: { enabled: true, version: 1, kinds: ['home', 'social'] } } as never).mockResolvedValueOnce(page([item('native', false)]) as never);

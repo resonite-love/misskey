@@ -63,6 +63,8 @@ const request: Request = (endpoint, params, signal) => misskeyApi(endpoint as ke
 export class TimelineClient {
 	private visibleItems: RetainedItem[] = [];
 	private queuedItems: RetainedItem[] = [];
+	private previewItems: RetainedItem[] = [];
+	private backgrounded = false;
 	private session: string | null = null;
 	private revision: string | null = null;
 	private nextCursor: string | null = null;
@@ -91,6 +93,7 @@ export class TimelineClient {
 	private unsubscribe: (() => void) | null = null;
 	private streamLeaseStartedAt = 0;
 	private resumeDisplayUntil = 0;
+	private resumeDisplayKeys = new Set<string>();
 	private retryNotBefore = 0;
 	private consecutiveFailures = 0;
 	public rows = shallowRef<TimelineDisplayRow[]>([]);
@@ -117,6 +120,7 @@ export class TimelineClient {
 	constructor(private query: TimelineQuery, private options: {
 		isTop?: () => boolean;
 		isPaused?: () => boolean;
+		backgroundStreaming?: boolean;
 		withSensitive?: () => boolean;
 		request?: Request;
 		now?: () => number;
@@ -132,7 +136,8 @@ export class TimelineClient {
 	private usable() { return this.active && !this.disposed && !window.document.hidden; }
 	private publish() {
 		this.queuedCount.value = this.queuedItems.filter(item => item.visible).length || (this.queueOverflow ? 1 : 0);
-		this.rows.value = this.displayItems(this.visibleItems);
+		const previewKeys = new Set(this.previewItems.map(item => item.key));
+		this.rows.value = this.displayItems([...this.previewItems, ...this.visibleItems.filter(item => !previewKeys.has(item.key))]);
 		this.scheduleExpiry();
 	}
 	private queue(items: RetainedItem[]) {
@@ -164,22 +169,30 @@ export class TimelineClient {
 	private scheduleExpiry() {
 		if (this.expireTimer !== null) window.clearTimeout(this.expireTimer);
 		this.expireTimer = null;
-		const deadlines = [...this.visibleItems, ...this.queuedItems, ...[...this.streamDuringRequest.values()].map(event => event.item)].filter(item => item.payload && item.expiresAt !== null).map(item => Math.max(item.expiresAt!, this.resumeDisplayUntil));
+		const deadlines = [...this.visibleItems, ...this.previewItems].filter(item => item.payload && item.expiresAt !== null).map(item => Math.max(item.expiresAt!, this.resumeDisplayKeys.has(item.key) ? this.resumeDisplayUntil : 0));
+		deadlines.push(...[...this.queuedItems, ...[...this.streamDuringRequest.values()].map(event => event.item)].filter(item => item.payload && item.expiresAt !== null).map(item => item.expiresAt!));
 		if (!deadlines.length || this.disposed || !this.active || window.document.hidden) return;
 		this.expireTimer = window.setTimeout(() => this.expire(), Math.max(0, Math.min(...deadlines) - this.now()));
 	}
 	private expire(all = false) {
 		if (!all && (!this.active || window.document.hidden)) { this.scheduleExpiry(); return; }
 		let changed = false;
-		for (const item of [...this.visibleItems, ...this.queuedItems]) {
-			if (item.payload && item.expiresAt !== null && (all || Math.max(item.expiresAt, this.resumeDisplayUntil) <= this.now())) {
+		for (const item of [...this.visibleItems, ...this.previewItems]) {
+			if (item.payload && item.expiresAt !== null && (all || Math.max(item.expiresAt, this.resumeDisplayKeys.has(item.key) ? this.resumeDisplayUntil : 0) <= this.now())) {
 				delete item.payload;
 				delete item.displayPayload;
 				changed = true;
 			}
 		}
+		// Newly buffered bodies have never been displayed. The foreground grace
+		// for the previous screen must not extend their authorization leases.
+		for (const item of this.queuedItems) {
+			if (item.payload && item.expiresAt !== null && (all || item.expiresAt <= this.now())) {
+				delete item.payload; delete item.displayPayload; changed = true;
+			}
+		}
 		for (const event of this.streamDuringRequest.values()) {
-			if (event.item.expiresAt !== null && (all || Math.max(event.item.expiresAt, this.resumeDisplayUntil) <= this.now())) {
+			if (event.item.expiresAt !== null && (all || event.item.expiresAt <= this.now())) {
 				delete event.item.payload; delete event.item.displayPayload;
 			}
 		}
@@ -237,15 +250,19 @@ export class TimelineClient {
 		this.consecutiveFailures = 0;
 		this.retryNotBefore = 0;
 		if (changedSession) { this.unsubscribe?.(); this.unsubscribe = null; }
+		this.ensureSubscription();
+		this.scheduleRefresh(result.revalidateAfterMs);
+	}
+	private ensureSubscription() {
+		if (!this.session || !this.revision || !this.updatesCursor) return;
 		if (!this.unsubscribe && this.options.subscribe && this.usable()) {
 			this.streamLeaseStartedAt = this.now();
-			this.unsubscribe = this.options.subscribe({ session: result.session, revision: result.revision, updatesCursor: result.updatesCursor }, () => {
+			this.unsubscribe = this.options.subscribe({ session: this.session, revision: this.revision, updatesCursor: this.updatesCursor }, () => {
 				this.invalidationAt = Math.min(this.invalidationAt, this.now() + 100);
 				this.refreshRequested = true;
 				if (!this.pending) this.armRefresh();
 			}, () => { void this.refresh(); }, this.receive);
 		}
-		this.scheduleRefresh(result.revalidateAfterMs);
 	}
 	private async run(action: (generation: number) => Promise<void>, recovery: 'restore' | 'reset' = 'restore') {
 		if (this.pending || !this.usable()) return this.pending ?? Promise.resolve();
@@ -272,6 +289,7 @@ export class TimelineClient {
 		}).finally(() => {
 			if (this.pending !== pending) return;
 			this.pending = null; this.busy.value = false; this.loading.value = false;
+			if (this.previewItems.length) { this.previewItems = []; this.publish(); }
 			this.lastCycleDuration = this.now() - startedAt;
 			this.streamDuringRequest.clear();
 			if (this.streamResetRequested) {
@@ -311,6 +329,12 @@ export class TimelineClient {
 				if (!response.result.complete) throw new Error('Incomplete history restoration');
 			};
 			requireComplete();
+			if (this.options.backgroundStreaming && action === 'reset' && (this.options.isTop?.() ?? true)) {
+				// The fresh head is already authorized. Render it while restoring
+				// older pages, without using its refs in the previous session.
+				this.previewItems = response.result.items.map(item => this.retain(item, response.startedAt));
+				this.publish();
+			}
 			const cursors = new Set<string>();
 			const ascending = this.query.kind === 'clip' && this.query.order === 'oldest';
 			const complete = () => windowRows.some(row => row.item.key === historyEnd.key) ||
@@ -376,6 +400,7 @@ export class TimelineClient {
 			if (incoming.length) this.options.onNewItems?.(this.displayItems(incoming));
 		}
 		this.nextCursor = result.nextCursor; this.hasMore.value = this.nextCursor !== null;
+		this.previewItems = [];
 		this.acceptHeader(result); this.publish();
 		for (const event of this.streamDuringRequest.values()) {
 			if (event.version <= windowStreamVersion) continue;
@@ -421,12 +446,13 @@ export class TimelineClient {
 		await this.run(async current => {
 			if (this.queueOverflow && this.queuedRelease) { await this.readWindow(current, 'reload'); return; }
 			if (this.degraded) { await this.readWindow(current, 'reset'); return; }
-			const retained = [...this.visibleItems, ...this.queuedItems].map(item => item.ref);
+			const retained = (this.options.backgroundStreaming ? [...this.queuedItems, ...this.visibleItems] : [...this.visibleItems, ...this.queuedItems]).map(item => item.ref);
 			for (let offset = 0; offset < Math.max(1, retained.length); offset += 100) {
 				const final = offset + 100 >= retained.length;
+				const changes = this.options.backgroundStreaming ? offset === 0 : final;
 				const { result, startedAt, streamVersion } = await this.fetch('gridspace/timeline/changes', {
 					session: this.session, revision: this.revision, updatesCursor: this.updatesCursor,
-					refs: retained.slice(offset, offset + 100), phase: final ? 'changes' : 'validate',
+					refs: retained.slice(offset, offset + 100), phase: changes ? 'changes' : 'validate',
 				});
 				if (current !== this.generation || !this.usable()) return;
 				if (result.session !== this.session || result.revision !== this.revision) {
@@ -445,7 +471,7 @@ export class TimelineClient {
 					this.publish();
 					await this.readWindow(current, 'reset'); return;
 				}
-				if (final) {
+				if (changes) {
 					const known = new Set([...this.visibleItems, ...this.queuedItems].map(item => item.key));
 					const incoming = (result.newItems ?? []).filter(item => !known.has(item.key)).map(item => this.retain(item, startedAt));
 					if (incoming.length && this.streamVersion > streamVersion) {
@@ -458,7 +484,9 @@ export class TimelineClient {
 					else this.queue([...incoming, ...this.queuedItems]);
 					this.acceptHeader(result);
 				}
+				if (!changes) this.scheduleRefresh(result.revalidateAfterMs);
 				this.publish();
+				if (changes && this.options.backgroundStreaming && this.queuedRelease) void this.releaseQueue();
 			}
 			if (this.queuedRelease) this.releaseQueue();
 		}, 'reset');
@@ -469,11 +497,11 @@ export class TimelineClient {
 		if (visible >= 0) { this.visibleItems[visible] = item; return; }
 		const queued = this.queuedItems.findIndex(row => row.key === item.key);
 		if (queued >= 0) { this.queuedItems[queued] = item; return; }
-		if ((this.options.isTop?.() ?? true) && !this.options.isPaused?.()) this.visibleItems.unshift(item);
+		if (!window.document.hidden && (this.options.isTop?.() ?? true) && !this.options.isPaused?.()) this.visibleItems.unshift(item);
 		else this.queue([item, ...this.queuedItems]);
 	}
 	public receive = (event: TimelineStreamEvent) => {
-		if (!this.usable() || event.session !== this.session || event.revision !== this.revision) return;
+		if ((!this.usable() && !(this.options.backgroundStreaming && this.active && !this.disposed && window.document.hidden)) || event.session !== this.session || event.revision !== this.revision) return;
 		if (event.resetRequired) {
 			if (this.pending) this.streamResetRequested = true;
 			else void this.refresh();
@@ -510,6 +538,12 @@ export class TimelineClient {
 		}
 		this.expire();
 		if (this.queuedItems.some(item => item.expiresAt !== null && !item.payload)) {
+			if (this.options.backgroundStreaming) {
+				const ready = this.queuedItems.filter(item => item.payload);
+				this.queuedItems = this.queuedItems.filter(item => !item.payload);
+				this.visibleItems = [...ready, ...this.visibleItems];
+				this.publish();
+			}
 			this.queuedRelease = true; void this.refresh(); return;
 		}
 		this.queuedRelease = false;
@@ -519,24 +553,41 @@ export class TimelineClient {
 	public removeNormal = (id: string) => this.remove(item => item.representation === 'normal' && item.id === id);
 	public removePrivate = (id: string) => this.remove(item => item.representation === 'delegated' && item.id === id);
 	private remove(predicate: (item: RetainedItem) => boolean) {
+		this.previewItems = this.previewItems.filter(item => !predicate(item));
 		this.visibleItems = this.visibleItems.filter(item => !predicate(item)); this.queuedItems = this.queuedItems.filter(item => !predicate(item)); this.publish();
 	}
-	private cancel() {
-		this.unsubscribe?.(); this.unsubscribe = null;
+	private cancel(keepSubscription = false) {
+		if (!keepSubscription) { this.unsubscribe?.(); this.unsubscribe = null; }
 		this.generation++; this.controller.abort(); this.controller = new AbortController(); this.pending = null;
+		this.previewItems = [];
 		this.busy.value = false; this.loading.value = false;
 		this.refreshRequested = false;
 		this.streamDuringRequest.clear(); this.streamResetRequested = false;
 		this.clearScheduledRefresh();
 	}
+	public background = () => {
+		if (!this.options.backgroundStreaming) { this.suspend(); return; }
+		this.backgrounded = true;
+		// Like native timelines, keep the channel alive and enqueue new notes.
+		// Abort page reads, which would otherwise hold up foreground recovery.
+		this.cancel(true);
+	};
 	public suspend = () => { this.active = false; this.cancel(); this.scheduleExpiry(); };
 	public resume = async () => {
 		// Keep the last rendered snapshot while the foreground check runs. This
 		// is display-only: new responses and explicit revocations still apply
 		// immediately, and an unavailable server cannot prolong it past 15s.
-		if (!this.active) this.resumeDisplayUntil = this.now() + 15000;
+		if (!this.active || this.backgrounded) {
+			this.resumeDisplayUntil = this.now() + 15000;
+			this.resumeDisplayKeys = new Set(this.visibleItems.map(item => item.key));
+		}
+		this.backgrounded = false;
 		this.active = true; this.expire();
-		try { await this.refresh(); } finally { this.resumeDisplayUntil = 0; this.expire(); }
+		if (this.options.backgroundStreaming) {
+			this.ensureSubscription();
+			if (this.options.isTop?.() ?? true) void this.releaseQueue();
+		}
+		try { await this.refresh(); } finally { this.resumeDisplayUntil = 0; this.resumeDisplayKeys.clear(); this.expire(); }
 	};
 	public fail = () => { this.error.value = true; this.failed.value = true; this.expire(true); };
 	public dispose = () => {
