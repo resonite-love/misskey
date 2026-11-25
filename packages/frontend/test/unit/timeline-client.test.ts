@@ -578,6 +578,32 @@ describe('server timeline client', () => {
 		await vi.advanceTimersByTimeAsync(9999); expect(request).toHaveBeenCalledTimes(3);
 		await vi.advanceTimersByTimeAsync(1); expect(request).toHaveBeenCalledTimes(4);
 	});
+	it('keeps the failure cooldown despite invalidations, reconnects and tab focus', async () => {
+		let invalidate!: () => void; let reconnect!: () => void;
+		const request = vi.fn().mockResolvedValueOnce(page([item('local', false)])).mockRejectedValue({ code: 'RATE_LIMIT_EXCEEDED' });
+		const subscribe = vi.fn((_params, hint, connected) => { invalidate = hint; reconnect = connected; return () => {}; });
+		const value = new TimelineClient({ kind: 'home' }, { request, subscribe, now: () => Date.now() });
+		clients.push(value); await value.reload();
+		invalidate(); await vi.advanceTimersByTimeAsync(100);
+		expect(request).toHaveBeenCalledTimes(2);
+		invalidate(); reconnect(); await value.resume();
+		await vi.advanceTimersByTimeAsync(7999);
+		expect(request).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(request).toHaveBeenCalledTimes(3);
+		invalidate(); await vi.advanceTimersByTimeAsync(15999);
+		expect(request).toHaveBeenCalledTimes(3);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(request).toHaveBeenCalledTimes(4);
+	});
+	it('allows an explicit retry to bypass the failure cooldown', async () => {
+		const request = vi.fn().mockResolvedValueOnce(page([item('local', false)]))
+			.mockRejectedValueOnce(new Error('offline')).mockResolvedValue(page([item('local', false)]));
+		const value = client(request); await value.reload(); await value.refresh();
+		await value.retry();
+		expect(request).toHaveBeenCalledTimes(3);
+		expect(value.failed.value).toBe(false);
+	});
 	it('renews a leased body early enough for a three-second response before its deadline', async () => {
 		const starts: number[] = [];
 		const request = vi.fn(() => {
@@ -661,7 +687,7 @@ describe('server timeline client', () => {
 		const value = client(request, () => false); await value.reload(); await value.refresh(); await value.releaseQueue();
 		expect(value.rows.value.map(row => row.key)).toEqual([old.key]);
 		expect(value.queuedCount.value).toBe(100); expect(value.error.value).toBe(true);
-		await value.refresh();
+		await value.retry();
 		expect(request.mock.calls[3][1]).not.toHaveProperty('anchor');
 		expect(value.rows.value.map(row => row.key)).toEqual([item('fresh').key]);
 		expect(value.queuedCount.value).toBe(0);

@@ -10,6 +10,7 @@ import { DI } from '@/di-symbols.js';
 import { GridspaceLinkError } from '../GridspaceLinkService.js';
 
 const PREFIX = 'gridspace:timeline-store:';
+const MAX_VIEWER_SESSIONS = 32;
 export type TimelineKnownReference = { source?: 'local' | 'peer'; seen: boolean };
 
 /** One expiring hash owns a bounded page cache and one entry per encountered URI. */
@@ -42,7 +43,7 @@ if operation == 'start' then
  redis.call('SET', KEYS[1], owner, 'PX', ttl)
  redis.call('ZADD', viewer, now, sessionId)
  redis.call('PEXPIRE', viewer, 7200000)
- local excess = redis.call('ZCARD', viewer) - 8
+ local excess = redis.call('ZCARD', viewer) - ${MAX_VIEWER_SESSIONS}
  if excess > 0 then
   local oldest = redis.call('ZRANGE', viewer, 0, excess - 1)
   for _, id in ipairs(oldest) do
@@ -54,6 +55,9 @@ if operation == 'start' then
 elseif not current or current ~= owner or redis.call('EXISTS', session) == 0 then
  return redis.error_reply('TIMELINE_EXPIRED')
 end
+-- Renew activity on writes as well as reads, rather than ranking by creation.
+redis.call('ZADD', viewer, now, sessionId)
+redis.call('PEXPIRE', viewer, 7200000)
 local existing = redis.call('HGET', session, field)
 if operation == 'claim' and existing then return existing end
 if operation == 'nx' and existing then return existing end
@@ -293,13 +297,16 @@ export class TimelineSessionStore {
 	}
 
 	private async read(session: string, field: string): Promise<string | null> {
-		return await this.redis.eval(`if redis.call('EXISTS', KEYS[1]) == 0 then return false end
+		return await this.redis.eval(`local owner = redis.call('GET', KEYS[1])
+if not owner then return false end
 local expires = tonumber(redis.call('HGET', KEYS[2], '_expires') or '0')
 local ttl = math.min(expires - tonumber(ARGV[2]), 1800000)
 if ttl <= 0 then redis.call('DEL', KEYS[1], KEYS[2]); return false end
 redis.call('PEXPIRE', KEYS[1], ttl); redis.call('PEXPIRE', KEYS[2], ttl)
+local viewer = ARGV[3] .. 'viewer:' .. owner
+redis.call('ZADD', viewer, ARGV[2], ARGV[4]); redis.call('PEXPIRE', viewer, 7200000)
 return redis.call('HGET', KEYS[2], ARGV[1])`, 2,
-			`${PREFIX}owner:${session}`, `${PREFIX}session:${session}`, field, Date.now()) as string | null;
+			`${PREFIX}owner:${session}`, `${PREFIX}session:${session}`, field, Date.now(), `${this.redis.options.keyPrefix ?? ''}${PREFIX}`, session) as string | null;
 	}
 
 	public async claimResult(session: string, id: string, json: string, expires: number): Promise<string> {

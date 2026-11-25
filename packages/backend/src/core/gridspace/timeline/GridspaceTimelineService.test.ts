@@ -112,6 +112,27 @@ function fixture(initialLocal: TimelineReference[], initialPeer: TimelineReferen
 }
 
 describe('unified timeline coordinator with real Redis checkpoints', () => {
+	test('retains recently used sessions when another view fills the bounded viewer budget', async () => {
+		const sessions = new TimelineSessionStore(redis);
+		const owner = 'session-capacity-viewer';
+		const ids: string[] = [];
+		let clock = Date.now();
+		const expires = clock + 3600000;
+		const time = vi.spyOn(Date, 'now').mockImplementation(() => clock++);
+		try {
+			const start = async () => {
+				const session = randomUUID(); ids.push(session);
+				await sessions.start(owner, session, JSON.stringify({ session, mode: 'unified', revision: '1', expires, options: { kind: 'home' }, merge: { owners: {}, seen: [] } }), expires);
+			};
+			for (let i = 0; i < 32; i++) await start();
+			expect(await sessions.getSession(ids[0])).not.toBeNull();
+			await start();
+			expect(await sessions.getSession(ids[0])).not.toBeNull();
+			expect(await sessions.getSession(ids[1])).toBeNull();
+			expect(await sessions.getSession(ids[32])).not.toBeNull();
+			expect(await redis.zcard(`gridspace:timeline-store:viewer:${owner}`)).toBe(32);
+		} finally { time.mockRestore(); }
+	});
 	test('checkpoint expiry is not misreported as a peer outage or a partial search page', async () => {
 		const f = fixture([], [ref('peer', 100)]);
 		vi.spyOn(f.sessions, 'claimResult').mockRejectedValueOnce(new GridspaceLinkError('INVALID_CURSOR'));

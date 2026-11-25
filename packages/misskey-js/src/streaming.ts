@@ -143,14 +143,18 @@ export default class Stream extends EventEmitter<StreamEvents> implements IStrea
 	 */
 	private onOpen(): void {
 		const isReconnect = this.state === 'reconnecting';
+		const pools = [...this.sharedConnectionPools];
+		const connections = [...this.nonSharedConnections];
 
 		this.state = 'connected';
 		this.emit('_connected_');
 
 		// チャンネル再接続
 		if (isReconnect) {
-			for (const p of this.sharedConnectionPools) p.connect();
-			for (const c of this.nonSharedConnections) c.connect();
+			// Connected listeners may replace their channels. New channels already
+			// sent connect; disposed channels must not be resurrected here.
+			for (const p of pools) if (this.sharedConnectionPools.includes(p)) p.connect();
+			for (const c of connections) if (this.nonSharedConnections.includes(c)) c.connect();
 		}
 	}
 

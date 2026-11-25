@@ -91,6 +91,8 @@ export class TimelineClient {
 	private unsubscribe: (() => void) | null = null;
 	private streamLeaseStartedAt = 0;
 	private resumeDisplayUntil = 0;
+	private retryNotBefore = 0;
+	private consecutiveFailures = 0;
 	public rows = shallowRef<TimelineDisplayRow[]>([]);
 	private displayItems(items: RetainedItem[]): TimelineDisplayRow[] {
 		return items.filter(item => item.visible).map(item => {
@@ -197,7 +199,7 @@ export class TimelineClient {
 		// Keep enough room for both validation and a replacement-window request.
 		const deadline = Math.min(...[...this.visibleItems, ...this.queuedItems].filter(item => item.payload && item.expiresAt !== null).map(item => item.expiresAt!));
 		const margin = Math.max(2000, this.lastCycleDuration * 2 + 1000);
-		const at = Math.max(this.now(), Math.min(this.invalidationAt, this.lastRequestStartedAt + this.refreshDelay, this.failed.value ? Infinity : deadline - margin));
+		const at = Math.max(this.now(), this.retryNotBefore, Math.min(this.invalidationAt, this.lastRequestStartedAt + this.refreshDelay, this.failed.value ? Infinity : deadline - margin));
 		if (this.refreshTimer !== null && this.refreshAt <= at) return;
 		this.clearScheduledRefresh();
 		this.refreshAt = at;
@@ -232,6 +234,8 @@ export class TimelineClient {
 		this.degraded = !result.complete || result.mode === 'local-fallback';
 		this.error.value = this.degraded;
 		this.failed.value = false;
+		this.consecutiveFailures = 0;
+		this.retryNotBefore = 0;
 		if (changedSession) { this.unsubscribe?.(); this.unsubscribe = null; }
 		if (!this.unsubscribe && this.options.subscribe && this.usable()) {
 			this.streamLeaseStartedAt = this.now();
@@ -262,7 +266,9 @@ export class TimelineClient {
 			// A connection failure is not revocation. Retain already-authorized
 			// bodies until their bounded lease expires; actual revocation is immediate.
 			this.expire(reason === 'AUTHORIZATION_REVOKED' || reason === 'LINK_REVOKED');
-			this.scheduleRefresh(8000);
+			const delay = Math.min(30000, 8000 * 2 ** Math.min(this.consecutiveFailures++, 2));
+			this.retryNotBefore = this.now() + delay;
+			this.scheduleRefresh(delay);
 		}).finally(() => {
 			if (this.pending !== pending) return;
 			this.pending = null; this.busy.value = false; this.loading.value = false;
@@ -407,6 +413,7 @@ export class TimelineClient {
 		});
 	};
 	public refresh = async () => {
+		if (this.now() < this.retryNotBefore) { this.scheduleRefresh(this.retryNotBefore - this.now()); return; }
 		if (!this.session || !this.updatesCursor) { await this.reload(); return; }
 		// An expired updates cursor no longer covers arrivals since the old head.
 		// Rebuild from the current head while retaining the authorized history;
@@ -489,7 +496,7 @@ export class TimelineClient {
 		if (!known) this.options.onNewItems?.(this.displayItems([item]));
 		this.publish();
 	};
-	public retry = () => this.session ? this.refresh() : this.reload();
+	public retry = () => { this.retryNotBefore = 0; return this.session ? this.refresh() : this.reload(); };
 	public releaseQueue = async () => {
 		if (!this.usable()) return;
 		if (this.queueOverflow) {

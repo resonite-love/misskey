@@ -14,7 +14,7 @@ import type { MiLocalUser } from '@/models/User.js';
 import { GridspaceIdentityService } from '@/core/gridspace/GridspaceIdentityService.js';
 import type { TimelineOptions } from '@/core/gridspace/timeline/timeline-protocol.js';
 import { resoniteRelayHosts } from '@/core/gridspace/timeline/relay-hosts.js';
-import type { JsonObject } from '@/misc/json-value.js';
+import type { JsonObject, JsonValue } from '@/misc/json-value.js';
 import { bindThis } from '@/decorators.js';
 import Channel, { type ChannelRequest } from '../channel.js';
 
@@ -35,6 +35,7 @@ export class GridspaceTimelineChannel extends Channel {
 	private readonly pending = new Map<string, TimelineStreamEvent>();
 	private options: TimelineOptions | null = null;
 	private linkedUserId: string | null = null;
+	private checking = false;
 	constructor(@Inject(REQUEST) request: ChannelRequest, private timeline: GridspaceTimelineService, private identity: GridspaceIdentityService) { super(request); }
 	@bindThis
 	public async init(params: JsonObject): Promise<boolean> {
@@ -47,9 +48,22 @@ export class GridspaceTimelineChannel extends Channel {
 		this.options = await this.timeline.streamContext(this.user, this.session, this.revision);
 		if (!this.options) return false;
 		this.linkedUserId = await this.identity.linkedUserId(this.user.id);
+		if (this.disposed) return false;
 		this.subscriber.on('internal', this.onInternal);
 		this.subscriber.on('notesStream', this.onNote);
+		this.send('ready', { session: this.session, revision: this.revision, leaseId: this.leaseId });
 		return true;
+	}
+	@bindThis
+	public async onMessage(type: string, _body: JsonValue) {
+		if (type !== 'ping' || this.disposed || this.checking || !this.options || !this.user) return;
+		this.checking = true;
+		try {
+			const context = await this.timeline.streamContext(this.user, this.session, this.revision);
+			if (this.disposed) return;
+			if (context) this.send('ready', { session: this.session, revision: this.revision, leaseId: this.leaseId });
+			else this.send('note', { session: this.session, revision: this.revision, leaseId: this.leaseId, resetRequired: true });
+		} catch { /* Missing acknowledgement triggers bounded client recovery. */ } finally { this.checking = false; }
 	}
 	@bindThis
 	private async onNote(note: Packed<'Note'>) {
