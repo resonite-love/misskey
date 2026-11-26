@@ -203,6 +203,15 @@ test('linked-author search retains time and cursor bounds in both author queries
 	expect(rows.map(note => note.id)).toEqual([70005, 70004, 70003].map(id));
 });
 
+test('a single resolved author constrains search and an unresolved author returns no matches', async () => {
+	const query = db.getRepository(MiNote).createQueryBuilder('note').where("note.visibility = 'public' AND note.id IN (:...ids)", { ids: [id(1), id(2), id(101)] });
+	const search = Object.assign(Object.create(GridspaceSearchService.prototype), { db }) as GridspaceSearchService;
+	const read = async (authors?: string[]) => (await readSearchRows(search, query, ids, { limit: 10 }, authors)).map(note => note.id);
+	expect(await read(['author'])).toEqual([id(1)]);
+	expect(await read([])).toEqual([]);
+	expect(await read()).toEqual([id(101), id(1)]);
+});
+
 test('search emits its text-filter boundary after query cloning without changing the caller', async () => {
 	const query = db.getRepository(MiNote).createQueryBuilder('note').innerJoin('note.user', 'user')
 		.where('note.text ILIKE :q AND note.visibility = :visibility', { q: '%unrelated%', visibility: 'public' });
