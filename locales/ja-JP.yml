@@ -4107,3 +4107,13 @@ _gridspaceEmojiSync:
   resume: "同期対象に戻す"
   confirm: "{host} の「{name}」を採用し、もう片方の内容を上書きします。よろしいですか？"
   aliases: "別名"
+
+_resonitePackage:
+  format: "ResonitePackage"
+  assets: "アセット"
+  slots: "スロット"
+  components: "コンポーネント"
+  unpackedSize: "展開後の容量"
+  unknown: "不明"
+  showContents: "内容を見る"
+  unavailable: "内容を読み取れませんでした。元のファイルはダウンロードできます。"

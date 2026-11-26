@@ -5,6 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <template>
 <div :class="$style.root">
+	<XResonitePackage v-for="media in medias.resonitePackages" :key="media.id" :media="media" :noteId="noteId" :ephemeral="ephemeral" :disableAnalysis="disablePackageAnalysis"/>
 	<X3d v-for="media in medias.threeD" :key="media.id" :media="media"/>
 	<XBanner v-for="media in medias.nonPreviewable" :key="media.id" :media="media"/>
 	<div v-if="count > 0" :class="$style.container">
@@ -59,6 +60,7 @@ import * as Misskey from 'misskey-js';
 import type { Content } from '@/components/MkLightbox.item.vue';
 import type { MediaComponentExposes } from '@/types/media-component.js';
 import X3d from '@/components/MkMedia3d.vue';
+import XResonitePackage from '@/components/MkMediaResonitePackage.vue';
 import XBanner from '@/components/MkMediaBanner.vue';
 import XAudio from '@/components/MkMediaAudio.vue';
 import XImage from '@/components/MkMediaImage.vue';
@@ -68,13 +70,17 @@ import { prefer } from '@/preferences.js';
 import { isPreviewable, getType } from '@/utility/lightbox.js';
 import { genId } from '@/utility/id.js';
 import { isThreeDFile } from '@/utility/three-d-file.js';
+import { isResonitePackageFile } from '@/utility/resonite-package.js';
 
 const props = defineProps<{
 	mediaList: Misskey.entities.DriveFile[];
+	noteId?: string;
 	user?: Misskey.entities.User | null; // DriveFileのuserはnullになることがある。その場合に使用する所有者情報
 	raw?: boolean;
 	/** Authorized, in-memory media. Close detached viewers when the grant/body expires. */
 	ephemeral?: boolean;
+	/** Synthesized peer attachments cannot be inspected with a local drive file ID. */
+	disablePackageAnalysis?: boolean;
 }>();
 
 let galleryGeneration = 0;
@@ -90,8 +96,11 @@ const medias = computed(() => {
 	const previewable: Misskey.entities.DriveFile[] = [];
 	const nonPreviewable: Misskey.entities.DriveFile[] = [];
 	const threeD: Misskey.entities.DriveFile[] = [];
+	const resonitePackages: Misskey.entities.DriveFile[] = [];
 	for (const file of props.mediaList) {
-		if (isThreeDFile(file)) {
+		if (isResonitePackageFile(file)) {
+			resonitePackages.push(file);
+		} else if (isThreeDFile(file)) {
 			threeD.push(file);
 		} else if (isPreviewable(file.type)) {
 			previewable.push(file);
@@ -104,6 +113,7 @@ const medias = computed(() => {
 		previewable,
 		nonPreviewable,
 		threeD,
+		resonitePackages,
 	};
 });
 const mediaComponents = new Map<string, MediaComponentExposes | null>();

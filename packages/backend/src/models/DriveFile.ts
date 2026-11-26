@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import type { ResonitePackageInfo } from '@/misc/resonite-package.js';
 import { PrimaryColumn, Entity, Index, JoinColumn, Column, ManyToOne } from 'typeorm';
 import { id } from './util/id.js';
 import { MiUser } from './User.js';
@@ -77,7 +78,7 @@ export class MiDriveFile {
 		default: {},
 		comment: 'The any properties of the DriveFile. For example, it includes image width/height.',
 	})
-	public properties: { width?: number; height?: number; orientation?: number; avgColor?: string };
+	public properties: { width?: number; height?: number; orientation?: number; avgColor?: string; resonitePackage?: ResonitePackageInfo | null };
 
 	@Column('boolean')
 	public storedInternal: boolean;

@@ -14,12 +14,14 @@ class FileHandleReader extends Reader<fsp.FileHandle> {
 	constructor(
 		private readonly handle: fsp.FileHandle,
 		size: number,
+		private readonly maxReadBytes = Infinity,
 	) {
 		super(handle);
 		this.size = size;
 	}
 
 	public override async readUint8Array(index: number, length: number): Promise<Uint8Array> {
+		if (length > this.maxReadBytes) throw new ZipExtractError('ZIP read exceeds inspection limit');
 		const buffer = new Uint8Array(length);
 		let read = 0;
 		while (read < length) {
@@ -75,11 +77,12 @@ export class ZipFile {
 		private readonly reader: ZipReader<unknown>,
 	) {}
 
-	public static async open(path: string): Promise<ZipFile> {
+	public static async open(path: string, limits?: { maxFileBytes: number; maxReadBytes: number }): Promise<ZipFile> {
 		const handle = await fsp.open(path, 'r');
 		try {
 			const { size } = await handle.stat();
-			const reader = new ZipReader(new FileHandleReader(handle, size), {
+			if (limits && size > limits.maxFileBytes) throw new ZipExtractError('ZIP exceeds inspection limit');
+			const reader = new ZipReader(new FileHandleReader(handle, size, limits?.maxReadBytes), {
 				// Node.js には Web Worker が無いのでインラインで処理する
 				useWebWorkers: false,
 				// 伸長後のデータの CRC-32 を検証する
@@ -98,9 +101,11 @@ export class ZipFile {
 	 * ディレクトリ以外のエントリを ZIP 内の順序で 1 件ずつ返します。
 	 * 不正な名前や重複した名前のエントリがあれば走査中に例外を投げます。
 	 */
-	public async *entries(): AsyncGenerator<FileEntry, void, undefined> {
+	public async *entries(maxEntries = Infinity): AsyncGenerator<FileEntry, void, undefined> {
 		const seen = new Set<string>();
+		let count = 0;
 		for await (const entry of this.reader.getEntriesGenerator()) {
+			if (++count > maxEntries) throw new ZipExtractError('ZIP contains too many entries');
 			if (entry.directory) continue;
 			if (seen.has(entry.filename)) {
 				throw new ZipExtractError(`duplicate entry: ${entry.filename}`);

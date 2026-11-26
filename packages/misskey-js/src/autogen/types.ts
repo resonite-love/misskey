@@ -1912,6 +1912,15 @@ export type paths = {
          */
         post: operations['drive___files___move-bulk'];
     };
+    '/drive/files/resonite-package': {
+        /**
+         * drive/files/resonite-package
+         * @description Read content statistics of an attached Resonite package.
+         *
+         *     **Credential required**: *No*
+         */
+        post: operations['drive___files___resonite-package'];
+    };
     '/drive/files/show': {
         /**
          * drive/files/show
@@ -5444,6 +5453,19 @@ export type components = {
             isSensitive: boolean;
             blurhash: string | null;
             properties: {
+                resonitePackage?: {
+                    schemaVersion: number;
+                    name: string;
+                    description?: string;
+                    recordCount: number;
+                    assetCount: number;
+                    assetBytes: number;
+                    unpackedBytes: number;
+                    variantCount: number;
+                    slotCount?: number;
+                    componentCount?: number;
+                    thumbnailDataUrl?: string;
+                } | null;
                 /** @example 1280 */
                 width?: number;
                 /** @example 720 */
@@ -21728,6 +21750,101 @@ export interface operations {
             };
             /** @description I'm Ai */
             418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+        };
+    };
+    'drive___files___resonite-package': {
+        requestBody: {
+            content: {
+                'application/json': {
+                    /** Format: misskey:id */
+                    fileId: string;
+                    /** Format: misskey:id */
+                    noteId?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK (with results) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': {
+                        schemaVersion: number;
+                        name: string;
+                        description?: string;
+                        recordCount: number;
+                        assetCount: number;
+                        assetBytes: number;
+                        unpackedBytes: number;
+                        variantCount: number;
+                        slotCount?: number;
+                        componentCount?: number;
+                        thumbnailDataUrl?: string;
+                    } | null;
+                };
+            };
+            /** @description OK (without any results) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+            };
+            /** @description Client error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Authentication error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Forbidden error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description I'm Ai */
+            418: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    'application/json': components['schemas']['Error'];
+                };
+            };
+            /** @description Too many requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

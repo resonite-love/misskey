@@ -113,6 +113,7 @@ import { VideoProcessingService } from './VideoProcessingService.js';
 import { UserWebhookService } from './UserWebhookService.js';
 import { UtilityService } from './UtilityService.js';
 import { FileInfoService } from './FileInfoService.js';
+import { ResonitePackageService } from './ResonitePackageService.js';
 import { SearchService } from './SearchService.js';
 import { ClipService } from './ClipService.js';
 import { FeaturedService } from './FeaturedService.js';
@@ -469,6 +470,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		WebhookTestService,
 		UtilityService,
 		FileInfoService,
+		ResonitePackageService,
 		FlashService,
 		SearchService,
 		ClipService,
@@ -823,6 +825,7 @@ const $ApQuestionService: Provider = { provide: 'ApQuestionService', useExisting
 		WebhookTestService,
 		UtilityService,
 		FileInfoService,
+		ResonitePackageService,
 		FlashService,
 		SearchService,
 		ClipService,
