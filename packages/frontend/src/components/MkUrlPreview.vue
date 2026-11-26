@@ -39,7 +39,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 		></iframe>
 	</div>
 	<div :class="$style.action">
-		<MkButton :small="true" inline @click="tweetExpanded = false">
+		<MkButton :small="true" inline @click="setTweetExpanded(false)">
 			<i class="ti ti-x"></i> {{ i18n.ts.close }}
 		</MkButton>
 	</div>
@@ -153,7 +153,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 	</component>
 	<template v-if="showActions">
 		<div v-if="tweetId" :class="$style.action">
-			<MkButton :small="true" inline @click="tweetExpanded = true">
+			<MkButton :small="true" inline @click="setTweetExpanded(true)">
 				<i class="ti ti-brand-x"></i> {{ i18n.ts.expandTweet }}
 			</MkButton>
 		</div>
@@ -170,7 +170,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { computed, defineAsyncComponent, onDeactivated, onUnmounted, ref } from 'vue';
+import { computed, defineAsyncComponent, onActivated, onDeactivated, onUnmounted, ref } from 'vue';
 import { url as local } from '@@/js/config.js';
 import { versatileLang } from '@@/js/intl-const.js';
 import { maybeMakeRelative } from '@@/js/url.js';
@@ -215,18 +215,25 @@ const icon = computed(() => summalyResult.value?.icon ?? null);
 const sitename = computed(() => summalyResult.value?.sitename ?? null);
 const sensitive = computed(() => summalyResult.value?.sensitive ?? false);
 const player = computed(() => summalyResult.value?.player ?? { url: null, width: null, height: null });
-const playerEnabled = ref(false);
+const playerEnabled = ref(false); // 初期値はsummaly取り終わったあとに設定
 const tweetId = ref<string | null>(null);
-const tweetExpanded = ref(props.detail);
+const tweetExpanded = ref(false); // 初期値はsummaly取り終わったあとに設定
+let tweetExpandedByUser = false;
 const embedId = `embed${Math.random().toString().replace(/\D/, '')}`;
 const tweetHeight = ref(150);
 const unknownUrl = ref(false);
+let isDeactivated = false;
+
+onActivated(() => {
+	isDeactivated = false;
+});
 
 const catalystStatusId = ref<string | null>(null);
 const catalystData = ref<any | null>(null);
 const catalystImageFailed = ref(false);
 
 onDeactivated(() => {
+	isDeactivated = true;
 	playerEnabled.value = false;
 });
 
@@ -282,10 +289,17 @@ function fetchPreview() {
 
 			return res.json();
 		})
+		.catch(err => {
+			if (_DEV_) {
+				console.warn('Failed to fetch url preview', err);
+			}
+			return null;
+		})
 		.then((info: SummalyResult | null) => {
 			if (!info || info.url == null) {
 				fetching.value = false;
 				unknownUrl.value = true;
+				autoExpandTweet();
 				return;
 			}
 
@@ -293,11 +307,27 @@ function fetchPreview() {
 			unknownUrl.value = false;
 
 			summalyResult.value = info;
+
+			if (!info.sensitive) {
+				autoExpandTweet();
+				if (!isDeactivated) {
+					playerEnabled.value = (props.showActions && prefer.s.expandUrlPreviewAutomatically);
+				}
+			}
 		});
 }
 
 if (linkedNote.value) void isConfiguredGridspaceNoteLink(props.url).then(configured => { if (configured === false) { linkedNote.value = false; fetchPreview(); } });
 else fetchPreview();
+
+function setTweetExpanded(expanded: boolean) {
+	tweetExpandedByUser = true;
+	tweetExpanded.value = expanded;
+}
+
+function autoExpandTweet() {
+	if (props.detail && !tweetExpandedByUser) tweetExpanded.value = true;
+}
 
 function adjustTweetHeight(message: MessageEvent) {
 	if (message.origin !== 'https://platform.twitter.com') return;

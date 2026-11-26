@@ -155,7 +155,9 @@ function createEmptyProfile(): PossiblyNonNormalizedPreferencesProfile {
 }
 
 function normalizePreferences(preferences: PossiblyNonNormalizedPreferencesProfile['preferences'], account: { id: string } | null): PreferencesProfile['preferences'] {
-	const data = {} as Record<string, [scope: Scope, value: any, meta: ValueMeta][]>;
+	// Another client version may know settings that this client cannot render yet.
+	// Keep their records intact when saving an unrelated setting.
+	const data = { ...preferences };
 	for (const key in PREF_DEF) {
 		const records = preferences[key];
 		if (records == null || records.length === 0) {
@@ -252,6 +254,7 @@ export class PreferencesManager extends EventEmitter<PreferencesManagerEvents> {
 	}
 
 	private rewriteRawState<K extends keyof PREF>(key: K, value: ValueOf<K>) {
+		if (deepEqual(this.s[key], value)) return;
 		const v = JSON.parse(JSON.stringify(value)); // deep copy 兼 vueのプロキシ解除
 		this.r[key].value = this.s[key] = v;
 	}
@@ -405,7 +408,7 @@ export class PreferencesManager extends EventEmitter<PreferencesManagerEvents> {
 			...Object.values(stored?.id === this.profile.id ? stored.revisions ?? {} : {}).map(value => value[0]));
 		for (const key in this.profile.preferences) {
 			const records = this.profile.preferences[key as keyof PREF];
-			const previous = this.savedProfile.preferences[key as keyof PREF];
+			const previous = (Object.hasOwn(this.savedProfile.preferences, key) ? this.savedProfile.preferences[key as keyof PREF] : undefined) ?? [];
 			for (const record of records) {
 				if (!deepEqual(record, previous.find(([scope]) => isSameScope(scope, record[0])))) {
 					revisions[revisionKey(key, record[0])] = [++clock, this.writerId];
@@ -433,10 +436,11 @@ export class PreferencesManager extends EventEmitter<PreferencesManagerEvents> {
 			if (key === '$name') this.profile.name = incoming.name;
 			else {
 				const [setting, scope] = JSON.parse(key) as [keyof PREF, Scope];
-				if (!Object.hasOwn(PREF_DEF, setting)) continue;
-				const record = incoming.preferences[setting]?.find(([candidate]) => isSameScope(candidate, scope));
-				const others = this.profile.preferences[setting].filter(([candidate]) => !isSameScope(candidate, scope));
-				Object.assign(this.profile.preferences, { [setting]: record ? [...others, deepClone(record)] : others });
+				const incomingRecords = Object.hasOwn(incoming.preferences, setting) ? incoming.preferences[setting] : [];
+				const currentRecords = Object.hasOwn(this.profile.preferences, setting) ? this.profile.preferences[setting] : [];
+				const record = incomingRecords?.find(([candidate]) => isSameScope(candidate, scope));
+				const others = (currentRecords ?? []).filter(([candidate]) => !isSameScope(candidate, scope));
+				this.profile.preferences = { ...this.profile.preferences, [setting]: record ? [...others, deepClone(record)] : others };
 			}
 			revisions[key] = stamp;
 		}
