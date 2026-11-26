@@ -15437,4 +15437,38 @@ export interface Locale extends ILocale {
          */
         "aliases": string;
     };
+    "_resonitePackage": {
+        /**
+         * ResonitePackage
+         */
+        "format": string;
+        /**
+         * アセット
+         */
+        "assets": string;
+        /**
+         * スロット
+         */
+        "slots": string;
+        /**
+         * コンポーネント
+         */
+        "components": string;
+        /**
+         * 展開後の容量
+         */
+        "unpackedSize": string;
+        /**
+         * 不明
+         */
+        "unknown": string;
+        /**
+         * 内容を見る
+         */
+        "showContents": string;
+        /**
+         * 内容を読み取れませんでした。元のファイルはダウンロードできます。
+         */
+        "unavailable": string;
+    };
 }

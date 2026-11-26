@@ -33,7 +33,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			</div>
 			<details v-if="note.files.length" :key="`${note.id}:files`" :open="quoteFilesExpanded" @toggle="toggleQuoteFiles">
 				<summary>({{ i18n.tsx.withNFiles({ n: note.files.length }) }})</summary>
-				<MkMediaList v-if="quoteFilesExpanded && media.length" :mediaList="media" :raw="true" :ephemeral="!directMedia"/>
+				<MkMediaList v-if="quoteFilesExpanded && media.length" :mediaList="media" :raw="true" :ephemeral="!directMedia" disablePackageAnalysis/>
 				<MkButton v-for="file in note.files.filter(item => !directMedia && !blobs[item.id])" :key="file.id" small :disabled="loading === file.id" @click="loadFile(file.id)">
 					<i :class="file.isSensitive ? 'ti ti-eye-exclamation' : 'ti ti-photo'"></i> {{ file.isSensitive ? i18n.ts.sensitive : i18n.ts.clickToShow }}: {{ file.name }}
 				</MkButton>
@@ -68,7 +68,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 			<MkUrlPreview v-for="link in urls" :key="link" :url="link" :compact="true" :detail="detailed" :class="$style.urlPreview"/>
 		</div>
 		<div v-if="displayNote.cw == null || expanded" class="_gaps_s">
-			<MkMediaList v-if="media.length" :mediaList="media" :raw="true" :ephemeral="!directMedia"/>
+			<MkMediaList v-if="media.length" :mediaList="media" :raw="true" :ephemeral="!directMedia" disablePackageAnalysis/>
 			<MkButton v-for="file in note.files.filter(item => !directMedia && !blobs[item.id])" :key="file.id" small :disabled="loading === file.id" @click="loadFile(file.id)">
 				<i :class="file.isSensitive ? 'ti ti-eye-exclamation' : 'ti ti-photo'"></i> {{ file.isSensitive ? i18n.ts.sensitive : i18n.ts.clickToShow }}: {{ file.name }}
 			</MkButton>

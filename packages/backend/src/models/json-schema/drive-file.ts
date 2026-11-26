@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { resonitePackageSchema } from './resonite-package.js';
+
 export const packedDriveFileSchema = {
 	type: 'object',
 	properties: {
@@ -51,6 +53,7 @@ export const packedDriveFileSchema = {
 			type: 'object',
 			optional: false, nullable: false,
 			properties: {
+				resonitePackage: { ...resonitePackageSchema, optional: true, nullable: true },
 				width: {
 					type: 'number',
 					optional: true, nullable: false,

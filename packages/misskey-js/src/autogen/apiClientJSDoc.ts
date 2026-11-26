@@ -2334,6 +2334,17 @@ declare module '../api.js' {
     ): Promise<SwitchCaseResponseType<E, P>>;
 
     /**
+     * Read content statistics of an attached Resonite package.
+     *
+     * **Credential required**: *No*
+     */
+    request<E extends 'drive/files/resonite-package', P extends Endpoints[E]['req']>(
+      endpoint: E,
+      params: P,
+      credential?: string | null,
+    ): Promise<SwitchCaseResponseType<E, P>>;
+
+    /**
      * Show the properties of a drive file.
      *
      * **Credential required**: *Yes* / **Permission**: *read:drive*

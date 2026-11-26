@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+import { inspectResonitePackage } from '@/misc/resonite-package.js';
+import type { ResonitePackageInfo } from '@/misc/resonite-package.js';
 import { ModuleRef } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -580,6 +582,7 @@ export class DriveService {
 			width?: number;
 			height?: number;
 			orientation?: number;
+			resonitePackage?: ResonitePackageInfo | null;
 		} = {};
 
 		if (info.width) {
@@ -588,6 +591,11 @@ export class DriveService {
 		}
 		if (info.orientation != null) {
 			properties['orientation'] = info.orientation;
+		}
+
+		if (/\.resonitepackage$/i.test(name ?? detectedName)) {
+			const packageInfo = await inspectResonitePackage(path).catch(() => null);
+			if (packageInfo) properties.resonitePackage = packageInfo;
 		}
 
 		const profile = user ? await this.userProfilesRepository.findOneBy({ userId: user.id }) : null;

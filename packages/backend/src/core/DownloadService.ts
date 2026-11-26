@@ -34,14 +34,14 @@ export class DownloadService {
 	}
 
 	@bindThis
-	public async downloadUrl(url: string, path: string): Promise<{
+	public async downloadUrl(url: string, path: string, options: { maxSize?: number } = {}): Promise<{
 		filename: string;
 	}> {
 		this.logger.info(`Downloading ${chalk.cyan(url)} to ${chalk.cyanBright(path)} ...`);
 
 		const timeout = 30 * 1000;
 		const operationTimeout = 60 * 1000;
-		const maxSize = this.config.maxFileSize;
+		const maxSize = Math.min(this.config.maxFileSize, options.maxSize ?? Infinity);
 
 		const urlObj = new URL(url);
 		let filename = urlObj.pathname.split('/').pop() ?? 'untitled';
