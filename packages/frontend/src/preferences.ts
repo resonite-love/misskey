@@ -107,12 +107,14 @@ let latestPreferencesUpdate: {
 	timestamp: number;
 } | null = null;
 
+// Older clients discard unfamiliar setting revisions and echo repairs forever.
+// Keep this forward-compatible protocol isolated from those running clients.
 const preferencesChannel = new BroadcastChannel<{
 	type: 'preferencesUpdate';
 	tabId: string;
 	timestamp: number;
 	profile: PreferencesProfile;
-}>('preferences:v2');
+}>('preferences:v3');
 
 // Carry the saved value: localStorage can still be stale in another renderer
 // when it receives a BroadcastChannel notification. Keep old clients isolated.

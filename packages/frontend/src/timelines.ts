@@ -68,9 +68,7 @@ export function isAvailableBasicTimeline(timeline: BasicTimelineType | undefined
 }
 
 export function availableBasicTimelines(): BasicTimelineType[] {
-	const tl = basicTimelineTypes.filter(isAvailableBasicTimeline);
-	console.log('tl', tl);
-	return tl;
+	return basicTimelineTypes.filter(isAvailableBasicTimeline);
 }
 
 export function hasWithReplies(timeline: BasicTimelineType | undefined | null): boolean {
