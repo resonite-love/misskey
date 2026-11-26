@@ -14,6 +14,7 @@ import type { TimelinePosition } from './timeline-protocol.js';
 export async function readSearchRows(search: Pick<GridspaceSearchService, 'read' | 'readAuthorPage'>, query: SelectQueryBuilder<MiNote>, ids: Pick<IdService, 'gen'>,
 	position: { before?: TimelinePosition; upper?: TimelinePosition; untilAt?: number; fromAt?: number; limit: number }, authorIds?: string[]): Promise<MiNote[]> {
 	if (!Number.isInteger(position.limit) || position.limit < 1 || position.limit > 50) throw new GridspaceLinkError('INVALID_REQUEST');
+	if (authorIds?.length === 0) return [];
 	const page = query.clone().select(['note.id', 'note.uri']);
 	const parameters = page.getParameters();
 	if (!authorIds?.length && parameters.gridspaceAuthorScoped !== true && typeof parameters.q === 'string') {
